@@ -1,6 +1,6 @@
 # Dify Base — Operations Guide
 
-> Sau khi pivot từ workshop (Vitalify-specific) sang base workspace generic, một số section dưới đây vẫn còn nội dung Eiken/Vitalify legacy. Cần dọn dần ở Phase 0+. Tóm tắt cấu trúc + CLI mới: xem [README.md](../README.md).
+> Tóm tắt nhanh: xem [README.md](../README.md). Thiết kế kiến trúc + roadmap: xem [architecture.md](architecture.md).
 
 Hướng dẫn vận hành base workspace cho việc build Dify workflow. Đọc file này khi:
 - Bắt đầu task Dify mới
@@ -19,7 +19,7 @@ Hướng dẫn vận hành base workspace cho việc build Dify workflow. Đọc
 | Vấn đề | Giải pháp trong workshop |
 |---|---|
 | Không nhớ schema YAML | `skills/mango-svip/references/node_types.md` |
-| Không biết bắt đầu từ đâu | `skills/mango-svip/assets/` (3 skeleton) + `templates/` (Vitalify-specific) |
+| Không biết bắt đầu từ đâu | `skills/mango-svip/assets/` (3 skeleton) + `templates/` (project-specific) |
 | Lo schema sai dẫn đến import fail | `skills/mango-svip/scripts/validate_workflow.py` |
 | Không tìm được pattern tương tự | `corpus/awesome-dify-workflow/DSL/` (40+ examples) |
 | Tạo ID trùng / sai format | `skills/mango-svip/scripts/generate_id.py` |
@@ -34,12 +34,12 @@ Nếu chỉ muốn **import template hiện có** vào Dify khách:
 ```bash
 # 1. Validate template trước
 cd /Users/quyenbt/Desktop/MyProjects/dify-projects/skills/mango-svip
-python3 skills/mango-svip/scripts/validate_workflow.py ../../templates/xlsx_iteration_proofread.yml
+python3 skills/mango-svip/scripts/validate_workflow.py ../../templates/patterns/file-iteration.yml
 # → ✅ Workflow validation passed!
 
 # 2. Import file vào Dify
 # - Mở Dify workspace
-# - Studio → Import DSL file → chọn templates/xlsx_iteration_proofread.yml
+# - Studio → Import DSL file → chọn templates/patterns/file-iteration.yml
 # - Confirm các plugin dependency (bowenliang123/md_exporter)
 
 # 3. Test với 1 file xlsx
@@ -62,7 +62,7 @@ dependencies:                 # Plugin marketplace cần cài
   value:
     marketplace_plugin_unique_identifier: <plugin>:<version>@<hash>
 kind: app                     # Cố định
-version: 0.6.0                # DSL version — match env Eiken
+version: 0.6.0                # DSL version — match your target Dify workspace
 workflow:
   conversation_variables: []
   environment_variables: []   # Env vars (API key, config)
@@ -170,12 +170,12 @@ Hoặc xem theo task type (tên file gợi ý):
 
 ### 4.3 `templates/`
 
-**Vitalify-specific** templates. ĐƯỢC edit + add mới.
+**project-specific** templates. ĐƯỢC edit + add mới.
 
 Mỗi template:
 - File `.yml` đã validate
 - Có comment `# TODO:` ở chỗ cần customize
-- Có version `0.6.0` match env Eiken
+- Có version `0.6.0` match your target Dify workspace
 - Dùng plugin của workspace khách
 
 ### 4.4 `docs/`
@@ -221,17 +221,17 @@ python3 tools/dify_base/find.py --has file-input --has code
 python3 tools/dify_base/find.py --complexity Simple
 python3 tools/dify_base/find.py --plugin md_exporter
 python3 tools/dify_base/find.py --name translation
-python3 tools/dify_base/find.py --source eiken-prod         # Chỉ tìm trong production của khách
+python3 tools/dify_base/find.py --source project            # Chỉ tìm trong projects/ của bạn
 python3 tools/dify_base/find.py --has iteration --full      # Show full info
 ```
 
 **Available features** (cho `--has` / `--no`): `iteration, loop, code, llm, http-request, tool, if-else, document-extractor, knowledge-retrieval, agent, file-input, template-transform, parameter-extractor`
 
 **Thứ tự ưu tiên khi pick reference**:
-1. `templates/` (Vitalify) — match env Eiken nhất
-2. `eiken-prod` — workflow production của khách
+1. `patterns/` — 4 base patterns đã build cho workspace
+2. `project` — workflow đã có trong projects/<your>/workflows/
 3. `corpus/` — community examples
-4. `assets/` — bare-minimum skeleton
+4. `skill-assets/` — bare-minimum skeleton từ Claude skills
 
 **Nếu thêm template mới**, rebuild index:
 ```bash
@@ -252,7 +252,7 @@ Note: Cho Iteration node, **iteration-start node ID** = `<iteration_id>start` (v
 
 Copy pattern reference vào file mới:
 ```bash
-cp templates/xlsx_iteration_proofread.yml templates/<new_task>.yml
+cp templates/patterns/file-iteration.yml templates/<new_task>.yml
 # Hoặc copy từ corpus example
 ```
 
@@ -294,12 +294,12 @@ python3 skills/mango-svip/scripts/validate_workflow.py templates/<new_task>.yml
 │       Nodes: Code (error_strategy: fail-branch) → 2 paths → Aggregator
 │
 ├── Lặp qua list/file nhiều items (>5)
-│   └─→ Reference: templates/xlsx_iteration_proofread.yml
+│   └─→ Reference: templates/patterns/file-iteration.yml
 │       Hoặc: corpus/.../Text to Card Iteration.yml
 │       Nodes: Code (split list) → Iteration → Code (aggregate)
 │
 ├── Upload file (PDF/xlsx/CSV/Word)
-│   └─→ Reference: templates/xlsx_iteration_proofread.yml (Start + Document Extractor)
+│   └─→ Reference: templates/patterns/file-iteration.yml (Start + Document Extractor)
 │       Plugin: built-in (không cần install thêm)
 │
 ├── Gọi API ngoài (REST endpoint custom)
@@ -309,15 +309,16 @@ python3 skills/mango-svip/scripts/validate_workflow.py templates/<new_task>.yml
 │
 ├── Output file CSV/Markdown/PDF
 │   └─→ Plugin: bowenliang123/md_exporter
-│       Reference: templates/xlsx_iteration_proofread.yml (Tool node cuối)
+│       Reference: templates/patterns/file-iteration.yml (Tool node cuối)
 │
 ├── RAG (knowledge base Q&A)
-│   └─→ Reference: P2_S_no2.yml (trong eiken-dify project)
+│   └─→ Reference: templates/patterns/rag-qa.yml
 │       Node: knowledge-retrieval
 │       Schema: node_types.md → section "knowledge-retrieval"
 │
 ├── Multi-step LLM (refine, translate-then-improve)
-│   └─→ Reference: corpus/.../translation_workflow.yml
+│   └─→ Reference: templates/patterns/multi-step-llm.yml
+│       Reference: corpus/.../translation_workflow.yml
 │       Reference: corpus/.../宝玉的英译中优化版.yml
 │
 ├── Classification (route theo nội dung)
@@ -325,7 +326,8 @@ python3 skills/mango-svip/scripts/validate_workflow.py templates/<new_task>.yml
 │       Schema: node_types.md → section "question-classifier"
 │
 └── Agent (autonomous với tools)
-    └─→ Node: agent
+    └─→ Reference: templates/patterns/agent-with-tools.yml
+        Node: agent
         Schema: node_types.md → section "agent"
 ```
 
@@ -337,18 +339,18 @@ python3 skills/mango-svip/scripts/validate_workflow.py templates/<new_task>.yml
 
 | Item | Quy ước |
 |---|---|
-| DSL version | `0.6.0` (match env Eiken hiện tại) |
-| Khi Dify update version | Build test 1 template với version mới, không migrate hàng loạt |
-| Plugin marketplace identifier | Copy nguyên hash từ W01.yml hoặc P2_S_no2.yml của khách |
+| DSL version | `0.6.0` — hiện tại từ Dify source (`api/services/app_dsl_service.py: CURRENT_DSL_VERSION`) |
+| Khi Dify update version | Re-run `python3 schemas/gen_schema.py` để regenerate JSON Schema; test 1 template với version mới trước khi migrate hàng loạt |
+| Plugin marketplace identifier | Copy nguyên hash từ workflow đã export ra từ target workspace (hash đổi theo plugin version) |
 
 ### 7.2 Naming
 
 | Loại | Format | Ví dụ |
 |---|---|---|
-| File template | `<input>_<pattern>_<output>.yml` | `xlsx_iteration_proofread.yml` |
-| App name | `【VF作成】<task name>` | `【VF作成】Stem校閲_84問` |
-| Node title | Tiếng Nhật (nếu khách Nhật) hoặc EN | `Excelファイル入力`, `テキスト抽出` |
-| Variable name | snake_case, English | `csv_text`, `items_summary` |
+| File template | snake_case mô tả `<input>_<pattern>_<output>.yml` | `pdf_rag_summary.yml`, `csv_iterate_translate.yml` |
+| App name (trong YAML) | Free-form. Có thể prefix team/client nếu cần (vd `[Team] Task name`) | `RAG Q&A`, `Translation Refine` |
+| Node title | Free-form (EN/JP/VI). Ngắn gọn mô tả chức năng | `File Input`, `Extract Text`, `Refine LLM` |
+| Variable name | snake_case, English | `source_text`, `items_summary` |
 
 ### 7.3 Code node (Python)
 
@@ -356,18 +358,24 @@ python3 skills/mango-svip/scripts/validate_workflow.py templates/<new_task>.yml
 - Function entry: `def main(<args>) -> dict:`
 - Return type: dict với keys match `outputs` schema
 - Comment `# TODO:` cho phần cần customize sau
-- Handle null/empty: dùng helper `clean()` như trong template hiện tại
+- Handle null/empty defensively (input từ document-extractor có thể là `None` hoặc empty string)
 
-### 7.4 Plugin set chuẩn (Eiken env)
+### 7.4 Plugin set
 
-| Plugin | Dùng cho | Version dependency string |
-|---|---|---|
-| `langgenius/gemini` | LLM | `0.7.20@de0063a630a6d1b2c025fb84f3462ba5151fb60618309cd595c3f4711b1df847` |
-| `bowenliang123/md_exporter` | Export CSV/Markdown | `3.6.9@3f027d63e80b44d5d5a9f706871afaef37905b8f8a89a2d152dc530211a8acb1` |
-| `langgenius/openai` | OpenAI direct | (xem P2_S_no2.yml) |
-| `langgenius/gemini_image` | Image gen | (xem P2_S_no2.yml) |
+Plugin hash format: `<provider>/<plugin>:<version>@<sha256>`. Hash đổi theo plugin version → copy exact từ workflow đã export ra từ target workspace, đừng hard-code.
 
-→ Copy exact string từ existing yml để tránh hash mismatch.
+Common plugins (đặt vào `dependencies:` của YAML khi cần):
+
+| Plugin | Use case |
+|---|---|
+| `langgenius/openai` | OpenAI models (GPT-4, etc.) |
+| `langgenius/anthropic` | Claude models |
+| `langgenius/gemini` | Gemini models |
+| `langgenius/deepl` | DeepL Translate/Write API |
+| `bowenliang123/md_exporter` | Export Markdown → CSV/Excel file |
+| `langgenius/google_search` | Web search tool cho agent |
+
+→ Check available plugins ở [marketplace.dify.ai](https://marketplace.dify.ai/) trước khi commit plugin choice vào pattern.
 
 ### 7.5 Mock-first principle
 
@@ -426,7 +434,7 @@ python3 skills/mango-svip/scripts/validate_workflow.py templates/<file>.yml
 | Event | Action |
 |---|---|
 | Dify release version mới | Test 1 template với version mới, ghi findings vào `docs/changelog.md` |
-| Plugin update | Update version hash trong [Conventions section 7.4](#74-plugin-set-chuẩn-eiken-env) |
+| Plugin update | Update version hash trong [Conventions section 7.4](#74-plugin-set) |
 | Bug import lặp nhiều lần | Ghi vào `docs/troubleshooting.md` |
 | Team có quy ước mới | Update [Conventions](#7-conventions) |
 
@@ -436,7 +444,7 @@ python3 skills/mango-svip/scripts/validate_workflow.py templates/<file>.yml
 |---|---|
 | 5+ template tích lũy | Medium: build `templates/INDEX.md` + `docs/decision_tree.md` |
 | 3+ project khác cùng dùng Dify | Medium: tách workshop thành repo riêng |
-| Team có 5+ engineer build Dify | Full: package thành Claude Code skill (`eiken-dify-builder/`), setup CI validation |
+| Team có 5+ engineer build Dify | Full: package tools/dify_base/ thành pip-installable, setup CI validation |
 
 ---
 
@@ -444,107 +452,77 @@ python3 skills/mango-svip/scripts/validate_workflow.py templates/<file>.yml
 
 Task-specific migration/upgrade guides. Add 1 mục mới mỗi khi gặp pattern reusable.
 
-### 10.1 Swap mock proofread → real DeepL HTTP
+### 10.1 Swap mock processor → real LLM/HTTP node trong iteration
 
-Template `templates/xlsx_iteration_proofread.yml` hiện dùng Code node "モック校閲 (DeepL代替)" với output `[MOCK] <text>`. Khi DeepL Write API spec sẵn sàng, swap như sau:
+Pattern `templates/patterns/file-iteration.yml` dùng Code node passthrough (`# TODO: Replace with LLM / HTTP / Tool node`) bên trong iteration. Swap sang real API như sau.
 
-**Recommended: Restructure để dùng HTTP node trực tiếp**
+#### Option A: Swap sang HTTP Request (custom REST API)
 
-#### Step 1: Setup env variable
+**Step 1**: Setup env variable trong Dify workspace
+- Workflow Editor → Environment Variables → Add `API_KEY` (type: secret)
+- Reference: `{{#env.API_KEY#}}`
 
-Trong Dify workspace của khách:
-- Workflow Editor → **Environment Variables** → Add `DEEPL_API_KEY` (type: secret)
-- Reference trong workflow: `{{#env.DEEPL_API_KEY#}}`
-
-#### Step 2: Upstream code node — đổi output type
-
-Trong node `Excelをパースして336文を生成`:
-- Đổi `outputs.fulltexts.type`: `array[string]` → `array[object]`
-- Trong code, không gọi `json.dumps()` cho mỗi fulltext object, append object trực tiếp:
-  ```python
-  # Before:
-  fulltexts.append(json.dumps({...}, ensure_ascii=False))
-  # After:
-  fulltexts.append({...})
-  ```
-
-#### Step 3: Iteration node config
-
-Đổi `iterator_input_type: array[object]`. Trong inner nodes:
-- **DELETE** node "モック校閲 (DeepL代替)" (code `1778674652471`)
-- **ADD** HTTP Request node, sample config:
+**Step 2**: Trong iteration, replace Code "Process Item" bằng HTTP Request node:
 
 ```yaml
 - data:
     type: http-request
-    title: "DeepL Write API"
+    title: "Call external API"
     method: POST
-    url: 'https://api.deepl.com/v2/write/rephrase'   # Confirm exact endpoint per khách
+    url: 'https://api.example.com/endpoint'
     authorization:
       type: api-key
       config:
         type: bearer
-        api_key: '{{#env.DEEPL_API_KEY#}}'
-    headers: |
-      Content-Type: application/json
-    params: ''
+        api_key: '{{#env.API_KEY#}}'
+    headers: 'Content-Type: application/json'
     body:
       type: json
       data:
         - key: text
           type: text
-          value: '{{#1778674652469.item.fulltext#}}'   # iter_id.item.<field>
-        - key: target_lang
-          type: text
-          value: EN-US
-    timeout:
-      connect: 10
-      read: 30
-      write: 30
+          value: '{{#<iteration_node_id>.item#}}'   # iter_id.item or iter_id.item.<field>
+    timeout: { connect: 10, read: 30, write: 30 }
     error_strategy: default-value
     default_value:
-      body: '{"text": "[ERROR]"}'
+      body: '{"result": "[ERROR]"}'
+    isInIteration: true
+    iteration_id: '<iteration_node_id>'
   id: <new_node_id>
+  parentId: '<iteration_node_id>'
   type: custom
-  # ... position, width, parentId, isInIteration, iteration_id
 ```
 
-#### Step 4: Iteration output_selector
-
-Đổi `output_selector` của Iteration trỏ về HTTP node's `body` field thay vì code's `result`:
+**Step 3**: Update Iteration `output_selector` → HTTP node's `body`:
 ```yaml
-output_selector:
-- '<http_node_id>'
-- body
+output_selector: ['<http_node_id>', body]
+output_type: array[object]
 ```
 
-#### Step 5: Downstream code (Markdownテーブル) — update parsing
-
-Iteration giờ output `array[object]` chứa HTTP response, không phải JSON strings. Update parsing:
+**Step 4**: Downstream aggregator code phải parse `array[object]` thay vì JSON strings:
 ```python
-# Before:
 for r in results:
-    d = json.loads(r)
-    ...
-# After:
-for r in results:
-    # r is HTTP body object — extract DeepL response text
-    proofread_text = r.get("text") if isinstance(r, dict) else str(r)
-    ...
+    # r is HTTP body object — extract field as needed
+    text = r.get("result") if isinstance(r, dict) else str(r)
 ```
 
-Cần kết hợp với `items_summary` upstream để link result về đúng row_no + choice_idx (vì HTTP body chỉ có text, mất metadata).
+#### Option B: Swap sang LLM node (Claude/GPT/Gemini)
 
-→ **Alternative**: Thêm 1 Code node "merge" inside iteration sau HTTP, gộp lại item + HTTP response để giữ metadata. 3-node inside iteration (extract → http → merge) — verbose hơn nhưng giữ structure cũ.
+Đơn giản hơn — chỉ thay Code bằng LLM node. Pass `{{#<iteration_id>.item#}}` qua user prompt. Output đã là string nên downstream code không cần đổi parsing.
 
-#### Step 6: Validate + test
+#### Option C: Swap sang Tool node (plugin)
+
+Nếu có plugin đã cài (vd `langgenius/deepl` cho Translate API), dùng Tool node thay HTTP. Đơn giản hơn vì không phải config auth.
+
+#### Validate + test
 
 ```bash
-python3 tools/dify_base/build_index.py     # Refresh index
-python3 skills/mango-svip/scripts/validate_workflow.py templates/xlsx_iteration_proofread.yml
-```
+python3 tools/dify_base/build_index.py
+python3 skills/mango-svip/scripts/validate_workflow.py projects/<your>/workflows/main.yml
 
-Test với 1-2 dòng Excel trước khi run full 84 items để tránh tốn API quota.
+# Test với 1-2 items trước khi run full để tránh tốn API quota
+DIFY_PROJECT=<your> .venv/bin/pytest tests/ -v
+```
 
 ---
 
@@ -558,8 +536,8 @@ Test với 1-2 dòng Excel trước khi run full 84 items để tránh tốn API
 
 ### Internal references
 - [README.md](../README.md) — overview
-- [Template hiện tại](../templates/xlsx_iteration_proofread.yml) — example đầy đủ
-- W01.yml trong eiken-dify project — env-specific reference
+- [Template hiện tại](../templates/patterns/file-iteration.yml) — example đầy đủ
+- [JSON Schema generated](../schemas/dify-dsl-0.6.0.json) cho Dify DSL v0.6.0 (27 NodeData)
 
 ### Cheatsheet 1 dòng cho mỗi tool
 ```bash

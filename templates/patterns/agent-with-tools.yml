@@ -47,7 +47,7 @@ workflow:
     text_to_speech: { enabled: false, language: '', voice: '' }
   graph:
     edges:
-    - id: start-source-agent-target
+    - id: 1700003000001-source-1700003000002-target
       source: '1700003000001'
       target: '1700003000002'
       sourceHandle: source
@@ -55,7 +55,7 @@ workflow:
       type: custom
       data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: agent }
       zIndex: 0
-    - id: agent-source-end-target
+    - id: 1700003000002-source-1700003000003-target
       source: '1700003000002'
       target: '1700003000003'
       sourceHandle: source

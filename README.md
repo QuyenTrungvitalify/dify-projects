@@ -35,7 +35,7 @@ dify-projects/
 │   └── dify-dsl-0.6.0.json    # Generated schema (DSL v0.6.0, 27 NodeData types)
 │
 ├── tools/                     # Python tooling
-│   └── dify_base/             # build_index, find — (planned: scaffold, validate, run_test)
+│   └── dify_base/             # build_index, find, init_project (planned: sync, validate-deep)
 │
 ├── tests/                     # pytest harness (Phase 1.D)
 │   ├── conftest.py            # DifyWorkflowClient + env-loading fixtures

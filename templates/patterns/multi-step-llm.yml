@@ -44,7 +44,7 @@ workflow:
     text_to_speech: { enabled: false, language: '', voice: '' }
   graph:
     edges:
-    - id: start-source-llm1-target
+    - id: 1700001000001-source-1700001000002-target
       source: '1700001000001'
       target: '1700001000002'
       sourceHandle: source
@@ -52,7 +52,7 @@ workflow:
       type: custom
       data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: llm }
       zIndex: 0
-    - id: llm1-source-llm2-target
+    - id: 1700001000002-source-1700001000003-target
       source: '1700001000002'
       target: '1700001000003'
       sourceHandle: source
@@ -60,7 +60,7 @@ workflow:
       type: custom
       data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: llm }
       zIndex: 0
-    - id: llm2-source-llm3-target
+    - id: 1700001000003-source-1700001000004-target
       source: '1700001000003'
       target: '1700001000004'
       sourceHandle: source
@@ -68,7 +68,7 @@ workflow:
       type: custom
       data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: llm }
       zIndex: 0
-    - id: llm3-source-end-target
+    - id: 1700001000004-source-1700001000005-target
       source: '1700001000004'
       target: '1700001000005'
       sourceHandle: source

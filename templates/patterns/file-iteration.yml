@@ -55,7 +55,7 @@ workflow:
     text_to_speech: { enabled: false, language: '', voice: '' }
   graph:
     edges:
-    - id: start-source-doc_extract-target
+    - id: 1700000000001-source-1700000000002-target
       source: '1700000000001'
       target: '1700000000002'
       sourceHandle: source
@@ -63,7 +63,7 @@ workflow:
       type: custom
       data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: document-extractor }
       zIndex: 0
-    - id: doc_extract-source-split-target
+    - id: 1700000000002-source-1700000000003-target
       source: '1700000000002'
       target: '1700000000003'
       sourceHandle: source
@@ -71,7 +71,7 @@ workflow:
       type: custom
       data: { isInIteration: false, isInLoop: false, sourceType: document-extractor, targetType: code }
       zIndex: 0
-    - id: split-source-iteration-target
+    - id: 1700000000003-source-1700000000004-target
       source: '1700000000003'
       target: '1700000000004'
       sourceHandle: source
@@ -79,7 +79,7 @@ workflow:
       type: custom
       data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: iteration }
       zIndex: 0
-    - id: iter_start-source-process-target
+    - id: 1700000000004start-source-1700000000005-target
       source: 1700000000004start
       target: '1700000000005'
       sourceHandle: source
@@ -87,7 +87,7 @@ workflow:
       type: custom
       data: { isInIteration: true, isInLoop: false, iteration_id: '1700000000004', sourceType: iteration-start, targetType: code }
       zIndex: 1002
-    - id: iteration-source-aggregate-target
+    - id: 1700000000004-source-1700000000006-target
       source: '1700000000004'
       target: '1700000000006'
       sourceHandle: source
@@ -95,7 +95,7 @@ workflow:
       type: custom
       data: { isInIteration: false, isInLoop: false, sourceType: iteration, targetType: code }
       zIndex: 0
-    - id: aggregate-source-end-target
+    - id: 1700000000006-source-1700000000007-target
       source: '1700000000006'
       target: '1700000000007'
       sourceHandle: source

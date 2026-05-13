@@ -44,7 +44,7 @@ workflow:
     text_to_speech: { enabled: false, language: '', voice: '' }
   graph:
     edges:
-    - id: start-source-retrieval-target
+    - id: 1700002000001-source-1700002000002-target
       source: '1700002000001'
       target: '1700002000002'
       sourceHandle: source
@@ -52,7 +52,7 @@ workflow:
       type: custom
       data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: knowledge-retrieval }
       zIndex: 0
-    - id: retrieval-source-llm-target
+    - id: 1700002000002-source-1700002000003-target
       source: '1700002000002'
       target: '1700002000003'
       sourceHandle: source
@@ -60,7 +60,7 @@ workflow:
       type: custom
       data: { isInIteration: false, isInLoop: false, sourceType: knowledge-retrieval, targetType: llm }
       zIndex: 0
-    - id: llm-source-end-target
+    - id: 1700002000003-source-1700002000004-target
       source: '1700002000003'
       target: '1700002000004'
       sourceHandle: source
