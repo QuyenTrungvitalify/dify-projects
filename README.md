@@ -26,7 +26,9 @@ dify-projects/
 │   ├── _base/                 # (planned) Cookiecutter-style project starter
 │   └── patterns/              # (planned) Skeleton: file-iteration, rag-qa, agent...
 │
-├── schemas/                   # (planned) Auto-generated JSON Schema for Dify DSL
+├── schemas/                   # Auto-generated JSON Schema for Dify DSL (Phase 1.A done)
+│   ├── gen_schema.py          # Reverse-engineer schema from dify pydantic models
+│   └── dify-dsl-0.6.0.json    # Generated schema (DSL v0.6.0, 27 NodeData types)
 │
 ├── tools/                     # Python tooling
 │   └── dify_base/             # build_index, find — (planned: scaffold, validate, run_test)
@@ -89,17 +91,36 @@ python3 tools/dify_base/init_project.py    # interactive
 
 Chi tiết: xem [docs/GUIDE.md](docs/GUIDE.md).
 
+## JSON Schema cho Dify DSL
+
+[schemas/gen_schema.py](schemas/gen_schema.py) reverse-engineer JSON Schema từ Dify pydantic models trong source clone (`~/Desktop/MyProjects/dify-workspace/`).
+
+```bash
+# Setup venv (Python 3.11 hoặc 3.12 — Dify yêu cầu)
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python pydantic pydantic-settings pyyaml jsonschema \
+    pycryptodome httpx sqlalchemy charset-normalizer pytz flask redis yarl flask-login cachetools
+
+# Generate
+.venv/bin/python schemas/gen_schema.py
+
+# Output: schemas/dify-dsl-<version>.json (DSL version đọc từ Dify source)
+```
+
+Strategy: auto-stub heavy deps (flask, redis, models, controllers...) bằng permissive pydantic-friendly classes → import pydantic NodeData từ `api/core/workflow/nodes/<type>/entities.py` → dump `model_json_schema()`. Hiện 23/25 node types thành công (27 NodeData schemas). Failed: `agent` (libs.exception submodule), `http_request` (timeout class default value với stubbed config).
+
+VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML files trong `projects/*/workflows/*.yml` và `templates/patterns/*.yml` tự động hover/autocomplete/validate theo schema.
+
 ## Roadmap
 
-Hiện tại: **Phase 0 — base setup** (cấu trúc + tooling cũ).
+- ✅ **Phase 0** — base setup (cấu trúc + tooling cũ)
+- ✅ **Phase 1.A** — JSON Schema generator
+- ⏳ **Phase 1.B** — `tools/dify_base/init_project.py` interactive scaffolder
+- ⏳ **Phase 1.C** — `templates/patterns/` (file-iteration, rag-qa, multi-step-llm, agent-with-tools)
+- ⏳ **Phase 1.D** — `tests/conftest.py` pytest harness via dify-python-sdk
+- ⏳ **Phase 2** — GitOps sync, pre-commit, devcontainer
 
-Tiếp theo (Phase 1):
-- [ ] `schemas/gen_schema.py` — generate JSON Schema từ Dify pydantic models
-- [ ] `tools/dify_base/init_project.py` — interactive scaffolder
-- [ ] `templates/patterns/` — file-iteration, rag-qa, multi-step-llm, agent-with-tools
-- [ ] `tests/conftest.py` — pytest harness dùng dify-python-sdk
-
-Sau đó (Phase 2): GitOps sync, pre-commit, devcontainer. Xem [docs/architecture.md](docs/architecture.md).
+Chi tiết design: xem [docs/architecture.md](docs/architecture.md) (planned).
 
 ## Limitations
 

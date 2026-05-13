@@ -1,0 +1,7180 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://dify.local/schemas/dsl-0.6.0.json",
+  "title": "Dify Workflow DSL (0.6.0)",
+  "description": "Auto-generated from langgenius/dify pydantic models. DSL version 0.6.0.",
+  "type": "object",
+  "required": [
+    "app",
+    "kind",
+    "version",
+    "workflow"
+  ],
+  "properties": {
+    "app": {
+      "type": "object",
+      "required": [
+        "name",
+        "mode"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "icon": {
+          "type": "string"
+        },
+        "icon_background": {
+          "type": "string"
+        },
+        "icon_type": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "workflow",
+            "chatflow",
+            "advanced-chat",
+            "agent-chat",
+            "completion",
+            "chat"
+          ]
+        },
+        "use_icon_as_answer_icon": {
+          "type": "boolean"
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "kind": {
+      "const": "app"
+    },
+    "version": {
+      "type": "string",
+      "examples": [
+        "0.6.0"
+      ]
+    },
+    "workflow": {
+      "type": "object",
+      "properties": {
+        "conversation_variables": {
+          "type": "array"
+        },
+        "environment_variables": {
+          "type": "array"
+        },
+        "features": {
+          "type": "object"
+        },
+        "graph": {
+          "type": "object",
+          "required": [
+            "nodes",
+            "edges"
+          ],
+          "properties": {
+            "nodes": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Node"
+              }
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Edge"
+              }
+            },
+            "viewport": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "Node": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "data",
+        "position"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "custom",
+            "custom-iteration-start",
+            "custom-loop-start"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string"
+            }
+          }
+        },
+        "position": {
+          "$ref": "#/$defs/Position"
+        },
+        "positionAbsolute": {
+          "$ref": "#/$defs/Position"
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "sourcePosition": {
+          "type": "string"
+        },
+        "targetPosition": {
+          "type": "string"
+        },
+        "parentId": {
+          "type": "string"
+        },
+        "extent": {
+          "type": "string"
+        },
+        "selected": {
+          "type": "boolean"
+        },
+        "zIndex": {
+          "type": "number"
+        }
+      }
+    },
+    "Edge": {
+      "type": "object",
+      "required": [
+        "id",
+        "source",
+        "target"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "sourceHandle": {
+          "type": "string"
+        },
+        "targetHandle": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "data": {
+          "type": "object"
+        },
+        "zIndex": {
+          "type": "number"
+        }
+      }
+    },
+    "Position": {
+      "type": "object",
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      }
+    },
+    "NodeData_AnswerNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        }
+      },
+      "description": "Answer Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "answer": {
+          "description": "answer template string",
+          "title": "Answer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "answer"
+      ],
+      "title": "AnswerNodeData",
+      "type": "object"
+    },
+    "NodeData_BaseIterationNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "start_node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Node Id"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "BaseIterationNodeData",
+      "type": "object"
+    },
+    "NodeData_BaseLoopNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "start_node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Node Id"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "BaseLoopNodeData",
+      "type": "object"
+    },
+    "NodeData_CodeNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "Dependency": {
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "version": {
+              "title": "Version",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "version"
+          ],
+          "title": "Dependency",
+          "type": "object"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "Output": {
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/SegmentType"
+            },
+            "children": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/Output"
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Children"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "Output",
+          "type": "object"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "SegmentType": {
+          "enum": [
+            "number",
+            "integer",
+            "float",
+            "string",
+            "object",
+            "secret",
+            "file",
+            "boolean",
+            "array[any]",
+            "array[string]",
+            "array[number]",
+            "array[object]",
+            "array[file]",
+            "array[boolean]",
+            "none",
+            "group"
+          ],
+          "title": "SegmentType",
+          "type": "string"
+        },
+        "VariableSelector": {
+          "description": "Variable Selector.",
+          "properties": {
+            "variable": {
+              "title": "Variable",
+              "type": "string"
+            },
+            "value_selector": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Value Selector",
+              "type": "array"
+            }
+          },
+          "required": [
+            "variable",
+            "value_selector"
+          ],
+          "title": "VariableSelector",
+          "type": "object"
+        }
+      },
+      "description": "Code Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "variables": {
+          "items": {
+            "$ref": "#/$defs/VariableSelector"
+          },
+          "title": "Variables",
+          "type": "array"
+        },
+        "code_language": {
+          "enum": [
+            "python3",
+            "javascript"
+          ],
+          "title": "Code Language",
+          "type": "string"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "outputs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Output"
+          },
+          "title": "Outputs",
+          "type": "object"
+        },
+        "dependencies": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Dependency"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dependencies"
+        }
+      },
+      "required": [
+        "title",
+        "variables",
+        "code_language",
+        "code",
+        "outputs"
+      ],
+      "title": "CodeNodeData",
+      "type": "object"
+    },
+    "NodeData_DatasourceNodeData": {
+      "$defs": {
+        "DatasourceInput": {
+          "properties": {
+            "value": {
+              "anyOf": [
+                {},
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ],
+              "title": "Value"
+            },
+            "type": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "mixed",
+                    "variable",
+                    "constant"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Type"
+            }
+          },
+          "required": [
+            "value"
+          ],
+          "title": "DatasourceInput",
+          "type": "object"
+        },
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "plugin_id": {
+          "title": "Plugin Id",
+          "type": "string"
+        },
+        "provider_name": {
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "provider_type": {
+          "title": "Provider Type",
+          "type": "string"
+        },
+        "datasource_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "local_file",
+          "title": "Datasource Name"
+        },
+        "datasource_configurations": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Datasource Configurations"
+        },
+        "plugin_unique_identifier": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plugin Unique Identifier"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "datasource_parameters": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/DatasourceInput"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Datasource Parameters"
+        }
+      },
+      "required": [
+        "plugin_id",
+        "provider_name",
+        "provider_type",
+        "title"
+      ],
+      "title": "DatasourceNodeData",
+      "type": "object"
+    },
+    "NodeData_DocumentExtractorNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "variable_selector": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Variable Selector",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "variable_selector"
+      ],
+      "title": "DocumentExtractorNodeData",
+      "type": "object"
+    },
+    "NodeData_EndNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "OutputVariableEntity": {
+          "description": "Output Variable Entity.",
+          "properties": {
+            "variable": {
+              "title": "Variable",
+              "type": "string"
+            },
+            "value_type": {
+              "$ref": "#/$defs/OutputVariableType",
+              "default": "any"
+            },
+            "value_selector": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Value Selector",
+              "type": "array"
+            }
+          },
+          "required": [
+            "variable",
+            "value_selector"
+          ],
+          "title": "OutputVariableEntity",
+          "type": "object"
+        },
+        "OutputVariableType": {
+          "enum": [
+            "string",
+            "number",
+            "integer",
+            "secret",
+            "boolean",
+            "object",
+            "file",
+            "array",
+            "array[string]",
+            "array[number]",
+            "array[object]",
+            "array[boolean]",
+            "array[file]",
+            "any",
+            "array[any]"
+          ],
+          "title": "OutputVariableType",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        }
+      },
+      "description": "END Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "outputs": {
+          "items": {
+            "$ref": "#/$defs/OutputVariableEntity"
+          },
+          "title": "Outputs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "outputs"
+      ],
+      "title": "EndNodeData",
+      "type": "object"
+    },
+    "NodeData_HumanInputNodeData": {
+      "$defs": {
+        "ButtonStyle": {
+          "description": "Button styles for user actions.",
+          "enum": [
+            "primary",
+            "default",
+            "accent",
+            "ghost"
+          ],
+          "title": "ButtonStyle",
+          "type": "string"
+        },
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "EmailDeliveryConfig": {
+          "description": "Configuration for email delivery method.",
+          "properties": {
+            "recipients": {
+              "$ref": "#/$defs/EmailRecipients"
+            },
+            "subject": {
+              "title": "Subject",
+              "type": "string"
+            },
+            "body": {
+              "title": "Body",
+              "type": "string"
+            },
+            "debug_mode": {
+              "default": false,
+              "title": "Debug Mode",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "recipients",
+            "subject",
+            "body"
+          ],
+          "title": "EmailDeliveryConfig",
+          "type": "object"
+        },
+        "EmailDeliveryMethod": {
+          "description": "Email delivery method configuration.",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "id": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            },
+            "type": {
+              "const": "email",
+              "default": "email",
+              "title": "Type",
+              "type": "string"
+            },
+            "config": {
+              "$ref": "#/$defs/EmailDeliveryConfig"
+            }
+          },
+          "required": [
+            "config"
+          ],
+          "title": "EmailDeliveryMethod",
+          "type": "object"
+        },
+        "EmailRecipients": {
+          "description": "Email recipients configuration.",
+          "properties": {
+            "whole_workspace": {
+              "default": false,
+              "title": "Whole Workspace",
+              "type": "boolean"
+            },
+            "items": {
+              "items": {
+                "discriminator": {
+                  "mapping": {
+                    "external": "#/$defs/ExternalRecipient",
+                    "member": "#/$defs/MemberRecipient"
+                  },
+                  "propertyName": "type"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/MemberRecipient"
+                  },
+                  {
+                    "$ref": "#/$defs/ExternalRecipient"
+                  }
+                ]
+              },
+              "title": "Items",
+              "type": "array"
+            }
+          },
+          "title": "EmailRecipients",
+          "type": "object"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "ExternalRecipient": {
+          "description": "External recipient for email delivery.",
+          "properties": {
+            "type": {
+              "const": "external",
+              "default": "external",
+              "title": "Type",
+              "type": "string"
+            },
+            "email": {
+              "title": "Email",
+              "type": "string"
+            }
+          },
+          "required": [
+            "email"
+          ],
+          "title": "ExternalRecipient",
+          "type": "object"
+        },
+        "FormInput": {
+          "description": "Form input definition.",
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/FormInputType"
+            },
+            "output_variable_name": {
+              "title": "Output Variable Name",
+              "type": "string"
+            },
+            "default": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/FormInputDefault"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "type",
+            "output_variable_name"
+          ],
+          "title": "FormInput",
+          "type": "object"
+        },
+        "FormInputDefault": {
+          "description": "Default configuration for form inputs.",
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/PlaceholderType"
+            },
+            "selector": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Selector",
+              "type": "array"
+            },
+            "value": {
+              "default": "",
+              "title": "Value",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "title": "FormInputDefault",
+          "type": "object"
+        },
+        "FormInputType": {
+          "description": "Form input types.",
+          "enum": [
+            "text_input",
+            "paragraph"
+          ],
+          "title": "FormInputType",
+          "type": "string"
+        },
+        "MemberRecipient": {
+          "description": "Member recipient for email delivery.",
+          "properties": {
+            "type": {
+              "const": "member",
+              "default": "member",
+              "title": "Type",
+              "type": "string"
+            },
+            "user_id": {
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "user_id"
+          ],
+          "title": "MemberRecipient",
+          "type": "object"
+        },
+        "PlaceholderType": {
+          "description": "Default value types for form inputs.",
+          "enum": [
+            "variable",
+            "constant"
+          ],
+          "title": "PlaceholderType",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "TimeoutUnit": {
+          "description": "Timeout unit for form expiration.",
+          "enum": [
+            "hour",
+            "day"
+          ],
+          "title": "TimeoutUnit",
+          "type": "string"
+        },
+        "UserAction": {
+          "description": "User action configuration.",
+          "properties": {
+            "id": {
+              "maxLength": 20,
+              "title": "Id",
+              "type": "string"
+            },
+            "title": {
+              "maxLength": 20,
+              "title": "Title",
+              "type": "string"
+            },
+            "button_style": {
+              "$ref": "#/$defs/ButtonStyle",
+              "default": "default"
+            }
+          },
+          "required": [
+            "id",
+            "title"
+          ],
+          "title": "UserAction",
+          "type": "object"
+        },
+        "WebAppDeliveryMethod": {
+          "description": "Webapp delivery method configuration.",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "id": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            },
+            "type": {
+              "const": "webapp",
+              "default": "webapp",
+              "title": "Type",
+              "type": "string"
+            },
+            "config": {
+              "$ref": "#/$defs/_WebAppDeliveryConfig"
+            }
+          },
+          "title": "WebAppDeliveryMethod",
+          "type": "object"
+        },
+        "_WebAppDeliveryConfig": {
+          "description": "Configuration for webapp delivery method.",
+          "properties": {},
+          "title": "_WebAppDeliveryConfig",
+          "type": "object"
+        }
+      },
+      "description": "Human Input node data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "delivery_methods": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "email": "#/$defs/EmailDeliveryMethod",
+                "webapp": "#/$defs/WebAppDeliveryMethod"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/WebAppDeliveryMethod"
+              },
+              {
+                "$ref": "#/$defs/EmailDeliveryMethod"
+              }
+            ]
+          },
+          "title": "Delivery Methods",
+          "type": "array"
+        },
+        "form_content": {
+          "default": "",
+          "title": "Form Content",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/FormInput"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "user_actions": {
+          "items": {
+            "$ref": "#/$defs/UserAction"
+          },
+          "title": "User Actions",
+          "type": "array"
+        },
+        "timeout": {
+          "default": 36,
+          "title": "Timeout",
+          "type": "integer"
+        },
+        "timeout_unit": {
+          "$ref": "#/$defs/TimeoutUnit",
+          "default": "hour"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "HumanInputNodeData",
+      "type": "object"
+    },
+    "NodeData_IfElseNodeData": {
+      "$defs": {
+        "Case": {
+          "description": "Case entity representing a single logical condition group",
+          "properties": {
+            "case_id": {
+              "title": "Case Id",
+              "type": "string"
+            },
+            "logical_operator": {
+              "enum": [
+                "and",
+                "or"
+              ],
+              "title": "Logical Operator",
+              "type": "string"
+            },
+            "conditions": {
+              "items": {
+                "$ref": "#/$defs/Condition"
+              },
+              "title": "Conditions",
+              "type": "array"
+            }
+          },
+          "required": [
+            "case_id",
+            "logical_operator",
+            "conditions"
+          ],
+          "title": "Case",
+          "type": "object"
+        },
+        "Condition": {
+          "properties": {
+            "variable_selector": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable Selector",
+              "type": "array"
+            },
+            "comparison_operator": {
+              "enum": [
+                "contains",
+                "not contains",
+                "start with",
+                "end with",
+                "is",
+                "is not",
+                "empty",
+                "not empty",
+                "in",
+                "not in",
+                "all of",
+                "=",
+                "≠",
+                ">",
+                "<",
+                "≥",
+                "≤",
+                "null",
+                "not null",
+                "exists",
+                "not exists"
+              ],
+              "title": "Comparison Operator",
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Value"
+            },
+            "sub_variable_condition": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SubVariableCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "variable_selector",
+            "comparison_operator"
+          ],
+          "title": "Condition",
+          "type": "object"
+        },
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "SubCondition": {
+          "properties": {
+            "key": {
+              "title": "Key",
+              "type": "string"
+            },
+            "comparison_operator": {
+              "enum": [
+                "contains",
+                "not contains",
+                "start with",
+                "end with",
+                "is",
+                "is not",
+                "empty",
+                "not empty",
+                "in",
+                "not in",
+                "all of",
+                "=",
+                "≠",
+                ">",
+                "<",
+                "≥",
+                "≤",
+                "null",
+                "not null",
+                "exists",
+                "not exists"
+              ],
+              "title": "Comparison Operator",
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Value"
+            }
+          },
+          "required": [
+            "key",
+            "comparison_operator"
+          ],
+          "title": "SubCondition",
+          "type": "object"
+        },
+        "SubVariableCondition": {
+          "properties": {
+            "logical_operator": {
+              "enum": [
+                "and",
+                "or"
+              ],
+              "title": "Logical Operator",
+              "type": "string"
+            },
+            "conditions": {
+              "items": {
+                "$ref": "#/$defs/SubCondition"
+              },
+              "title": "Conditions",
+              "type": "array"
+            }
+          },
+          "required": [
+            "logical_operator"
+          ],
+          "title": "SubVariableCondition",
+          "type": "object"
+        }
+      },
+      "description": "If Else Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "logical_operator": {
+          "anyOf": [
+            {
+              "enum": [
+                "and",
+                "or"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "and",
+          "title": "Logical Operator"
+        },
+        "conditions": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Condition"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "deprecated": true,
+          "title": "Conditions"
+        },
+        "cases": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Case"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cases"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "IfElseNodeData",
+      "type": "object"
+    },
+    "NodeData_IterationNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorHandleMode": {
+          "enum": [
+            "terminated",
+            "continue-on-error",
+            "remove-abnormal-output"
+          ],
+          "title": "ErrorHandleMode",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        }
+      },
+      "description": "Iteration Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "start_node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Node Id"
+        },
+        "parent_loop_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Loop Id"
+        },
+        "iterator_selector": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Iterator Selector",
+          "type": "array"
+        },
+        "output_selector": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Output Selector",
+          "type": "array"
+        },
+        "is_parallel": {
+          "default": false,
+          "title": "Is Parallel",
+          "type": "boolean"
+        },
+        "parallel_nums": {
+          "default": 10,
+          "title": "Parallel Nums",
+          "type": "integer"
+        },
+        "error_handle_mode": {
+          "$ref": "#/$defs/ErrorHandleMode",
+          "default": "terminated"
+        },
+        "flatten_output": {
+          "default": true,
+          "title": "Flatten Output",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "title",
+        "iterator_selector",
+        "output_selector"
+      ],
+      "title": "IterationNodeData",
+      "type": "object"
+    },
+    "NodeData_IterationStartNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        }
+      },
+      "description": "Iteration Start Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "IterationStartNodeData",
+      "type": "object"
+    },
+    "NodeData_KnowledgeIndexNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        }
+      },
+      "description": "Knowledge index Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "type": {
+          "default": "knowledge-index",
+          "title": "Type",
+          "type": "string"
+        },
+        "chunk_structure": {
+          "title": "Chunk Structure",
+          "type": "string"
+        },
+        "index_chunk_variable_selector": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Index Chunk Variable Selector",
+          "type": "array"
+        },
+        "indexing_technique": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Indexing Technique"
+        },
+        "summary_index_setting": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary Index Setting"
+        }
+      },
+      "required": [
+        "title",
+        "chunk_structure",
+        "index_chunk_variable_selector"
+      ],
+      "title": "KnowledgeIndexNodeData",
+      "type": "object"
+    },
+    "NodeData_KnowledgeRetrievalNodeData": {
+      "$defs": {
+        "Condition": {
+          "description": "Condition detail",
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "comparison_operator": {
+              "enum": [
+                "contains",
+                "not contains",
+                "start with",
+                "end with",
+                "is",
+                "is not",
+                "empty",
+                "not empty",
+                "in",
+                "not in",
+                "=",
+                "≠",
+                ">",
+                "<",
+                "≥",
+                "≤",
+                "before",
+                "after"
+              ],
+              "title": "Comparison Operator",
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Value"
+            }
+          },
+          "required": [
+            "name",
+            "comparison_operator"
+          ],
+          "title": "Condition",
+          "type": "object"
+        },
+        "DETAIL": {
+          "enum": [
+            "low",
+            "high"
+          ],
+          "title": "DETAIL",
+          "type": "string"
+        },
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "KeywordSetting": {
+          "description": "Keyword Setting.",
+          "properties": {
+            "keyword_weight": {
+              "title": "Keyword Weight",
+              "type": "number"
+            }
+          },
+          "required": [
+            "keyword_weight"
+          ],
+          "title": "KeywordSetting",
+          "type": "object"
+        },
+        "LLMMode": {
+          "description": "Enum class for large language model mode.",
+          "enum": [
+            "completion",
+            "chat"
+          ],
+          "title": "LLMMode",
+          "type": "string"
+        },
+        "MetadataFilteringCondition": {
+          "description": "Metadata Filtering Condition.",
+          "properties": {
+            "logical_operator": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "and",
+                    "or"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "and",
+              "title": "Logical Operator"
+            },
+            "conditions": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/Condition"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "deprecated": true,
+              "title": "Conditions"
+            }
+          },
+          "title": "MetadataFilteringCondition",
+          "type": "object"
+        },
+        "ModelConfig": {
+          "properties": {
+            "provider": {
+              "title": "Provider",
+              "type": "string"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "mode": {
+              "$ref": "#/$defs/LLMMode"
+            },
+            "completion_params": {
+              "additionalProperties": true,
+              "title": "Completion Params",
+              "type": "object"
+            }
+          },
+          "required": [
+            "provider",
+            "name",
+            "mode"
+          ],
+          "title": "ModelConfig",
+          "type": "object"
+        },
+        "MultipleRetrievalConfig": {
+          "description": "Multiple Retrieval Config.",
+          "properties": {
+            "top_k": {
+              "title": "Top K",
+              "type": "integer"
+            },
+            "score_threshold": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Score Threshold"
+            },
+            "reranking_mode": {
+              "default": "reranking_model",
+              "title": "Reranking Mode",
+              "type": "string"
+            },
+            "reranking_enable": {
+              "default": true,
+              "title": "Reranking Enable",
+              "type": "boolean"
+            },
+            "reranking_model": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RerankingModelConfig"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "weights": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/WeightedScoreConfig"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "top_k"
+          ],
+          "title": "MultipleRetrievalConfig",
+          "type": "object"
+        },
+        "RerankingModelConfig": {
+          "description": "Reranking Model Config.",
+          "properties": {
+            "provider": {
+              "title": "Provider",
+              "type": "string"
+            },
+            "model": {
+              "title": "Model",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provider",
+            "model"
+          ],
+          "title": "RerankingModelConfig",
+          "type": "object"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "SingleRetrievalConfig": {
+          "description": "Single Retrieval Config.",
+          "properties": {
+            "model": {
+              "$ref": "#/$defs/ModelConfig"
+            }
+          },
+          "required": [
+            "model"
+          ],
+          "title": "SingleRetrievalConfig",
+          "type": "object"
+        },
+        "VectorSetting": {
+          "description": "Vector Setting.",
+          "properties": {
+            "vector_weight": {
+              "title": "Vector Weight",
+              "type": "number"
+            },
+            "embedding_provider_name": {
+              "title": "Embedding Provider Name",
+              "type": "string"
+            },
+            "embedding_model_name": {
+              "title": "Embedding Model Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "vector_weight",
+            "embedding_provider_name",
+            "embedding_model_name"
+          ],
+          "title": "VectorSetting",
+          "type": "object"
+        },
+        "VisionConfig": {
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "configs": {
+              "$ref": "#/$defs/VisionConfigOptions"
+            }
+          },
+          "title": "VisionConfig",
+          "type": "object"
+        },
+        "VisionConfigOptions": {
+          "properties": {
+            "variable_selector": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable Selector",
+              "type": "array"
+            },
+            "detail": {
+              "$ref": "#/$defs/DETAIL",
+              "default": "high"
+            }
+          },
+          "title": "VisionConfigOptions",
+          "type": "object"
+        },
+        "WeightedScoreConfig": {
+          "description": "Weighted score Config.",
+          "properties": {
+            "vector_setting": {
+              "$ref": "#/$defs/VectorSetting"
+            },
+            "keyword_setting": {
+              "$ref": "#/$defs/KeywordSetting"
+            }
+          },
+          "required": [
+            "vector_setting",
+            "keyword_setting"
+          ],
+          "title": "WeightedScoreConfig",
+          "type": "object"
+        }
+      },
+      "description": "Knowledge retrieval Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "type": {
+          "default": "knowledge-retrieval",
+          "title": "Type",
+          "type": "string"
+        },
+        "query_variable_selector": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Query Variable Selector"
+        },
+        "query_attachment_selector": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Query Attachment Selector"
+        },
+        "dataset_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dataset Ids",
+          "type": "array"
+        },
+        "retrieval_mode": {
+          "enum": [
+            "single",
+            "multiple"
+          ],
+          "title": "Retrieval Mode",
+          "type": "string"
+        },
+        "multiple_retrieval_config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MultipleRetrievalConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "single_retrieval_config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SingleRetrievalConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "metadata_filtering_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "disabled",
+                "automatic",
+                "manual"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "disabled",
+          "title": "Metadata Filtering Mode"
+        },
+        "metadata_model_config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "metadata_filtering_conditions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetadataFilteringCondition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vision": {
+          "$ref": "#/$defs/VisionConfig"
+        }
+      },
+      "required": [
+        "title",
+        "dataset_ids",
+        "retrieval_mode"
+      ],
+      "title": "KnowledgeRetrievalNodeData",
+      "type": "object"
+    },
+    "NodeData_ListOperatorNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "ExtractConfig": {
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "serial": {
+              "default": "1",
+              "title": "Serial",
+              "type": "string"
+            }
+          },
+          "title": "ExtractConfig",
+          "type": "object"
+        },
+        "FilterBy": {
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "conditions": {
+              "items": {
+                "$ref": "#/$defs/FilterCondition"
+              },
+              "title": "Conditions",
+              "type": "array"
+            }
+          },
+          "title": "FilterBy",
+          "type": "object"
+        },
+        "FilterCondition": {
+          "properties": {
+            "key": {
+              "default": "",
+              "title": "Key",
+              "type": "string"
+            },
+            "comparison_operator": {
+              "$ref": "#/$defs/FilterOperator",
+              "default": "contains"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "boolean"
+                }
+              ],
+              "default": "",
+              "title": "Value"
+            }
+          },
+          "title": "FilterCondition",
+          "type": "object"
+        },
+        "FilterOperator": {
+          "enum": [
+            "contains",
+            "start with",
+            "end with",
+            "is",
+            "in",
+            "empty",
+            "not contains",
+            "is not",
+            "not in",
+            "not empty",
+            "=",
+            "≠",
+            "<",
+            ">",
+            "≥",
+            "≤"
+          ],
+          "title": "FilterOperator",
+          "type": "string"
+        },
+        "Limit": {
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "size": {
+              "default": -1,
+              "title": "Size",
+              "type": "integer"
+            }
+          },
+          "title": "Limit",
+          "type": "object"
+        },
+        "Order": {
+          "enum": [
+            "asc",
+            "desc"
+          ],
+          "title": "Order",
+          "type": "string"
+        },
+        "OrderByConfig": {
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "key": {
+              "default": "",
+              "title": "Key",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/Order",
+              "default": "asc"
+            }
+          },
+          "title": "OrderByConfig",
+          "type": "object"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "variable": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Variable",
+          "type": "array"
+        },
+        "filter_by": {
+          "$ref": "#/$defs/FilterBy"
+        },
+        "order_by": {
+          "$ref": "#/$defs/OrderByConfig"
+        },
+        "limit": {
+          "$ref": "#/$defs/Limit"
+        },
+        "extract_by": {
+          "$ref": "#/$defs/ExtractConfig"
+        }
+      },
+      "required": [
+        "title",
+        "filter_by",
+        "order_by",
+        "limit"
+      ],
+      "title": "ListOperatorNodeData",
+      "type": "object"
+    },
+    "NodeData_LLMNodeData": {
+      "$defs": {
+        "ContextConfig": {
+          "properties": {
+            "enabled": {
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "variable_selector": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Variable Selector"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "title": "ContextConfig",
+          "type": "object"
+        },
+        "DETAIL": {
+          "enum": [
+            "low",
+            "high"
+          ],
+          "title": "DETAIL",
+          "type": "string"
+        },
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "LLMMode": {
+          "description": "Enum class for large language model mode.",
+          "enum": [
+            "completion",
+            "chat"
+          ],
+          "title": "LLMMode",
+          "type": "string"
+        },
+        "LLMNodeChatModelMessage": {
+          "properties": {
+            "text": {
+              "default": "",
+              "title": "Text",
+              "type": "string"
+            },
+            "role": {
+              "$ref": "#/$defs/PromptMessageRole"
+            },
+            "edition_type": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "basic",
+                    "jinja2"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Edition Type"
+            },
+            "jinja2_text": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Jinja2 Text"
+            }
+          },
+          "required": [
+            "role"
+          ],
+          "title": "LLMNodeChatModelMessage",
+          "type": "object"
+        },
+        "LLMNodeCompletionModelPromptTemplate": {
+          "properties": {
+            "text": {
+              "title": "Text",
+              "type": "string"
+            },
+            "edition_type": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "basic",
+                    "jinja2"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Edition Type"
+            },
+            "jinja2_text": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Jinja2 Text"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "title": "LLMNodeCompletionModelPromptTemplate",
+          "type": "object"
+        },
+        "MemoryConfig": {
+          "description": "Memory Config.",
+          "properties": {
+            "role_prefix": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RolePrefix"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "window": {
+              "$ref": "#/$defs/WindowConfig"
+            },
+            "query_prompt_template": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Query Prompt Template"
+            }
+          },
+          "required": [
+            "window"
+          ],
+          "title": "MemoryConfig",
+          "type": "object"
+        },
+        "ModelConfig": {
+          "properties": {
+            "provider": {
+              "title": "Provider",
+              "type": "string"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "mode": {
+              "$ref": "#/$defs/LLMMode"
+            },
+            "completion_params": {
+              "additionalProperties": true,
+              "title": "Completion Params",
+              "type": "object"
+            }
+          },
+          "required": [
+            "provider",
+            "name",
+            "mode"
+          ],
+          "title": "ModelConfig",
+          "type": "object"
+        },
+        "PromptConfig": {
+          "properties": {
+            "jinja2_variables": {
+              "items": {
+                "$ref": "#/$defs/VariableSelector"
+              },
+              "title": "Jinja2 Variables",
+              "type": "array"
+            }
+          },
+          "title": "PromptConfig",
+          "type": "object"
+        },
+        "PromptMessageRole": {
+          "description": "Enum class for prompt message.",
+          "enum": [
+            "system",
+            "user",
+            "assistant",
+            "tool"
+          ],
+          "title": "PromptMessageRole",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "RolePrefix": {
+          "description": "Role Prefix.",
+          "properties": {
+            "user": {
+              "title": "User",
+              "type": "string"
+            },
+            "assistant": {
+              "title": "Assistant",
+              "type": "string"
+            }
+          },
+          "required": [
+            "user",
+            "assistant"
+          ],
+          "title": "RolePrefix",
+          "type": "object"
+        },
+        "VariableSelector": {
+          "description": "Variable Selector.",
+          "properties": {
+            "variable": {
+              "title": "Variable",
+              "type": "string"
+            },
+            "value_selector": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Value Selector",
+              "type": "array"
+            }
+          },
+          "required": [
+            "variable",
+            "value_selector"
+          ],
+          "title": "VariableSelector",
+          "type": "object"
+        },
+        "VisionConfig": {
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "configs": {
+              "$ref": "#/$defs/VisionConfigOptions"
+            }
+          },
+          "title": "VisionConfig",
+          "type": "object"
+        },
+        "VisionConfigOptions": {
+          "properties": {
+            "variable_selector": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable Selector",
+              "type": "array"
+            },
+            "detail": {
+              "$ref": "#/$defs/DETAIL",
+              "default": "high"
+            }
+          },
+          "title": "VisionConfigOptions",
+          "type": "object"
+        },
+        "WindowConfig": {
+          "description": "Window Config.",
+          "properties": {
+            "enabled": {
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "size": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Size"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "title": "WindowConfig",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "model": {
+          "$ref": "#/$defs/ModelConfig"
+        },
+        "prompt_template": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/LLMNodeChatModelMessage"
+              },
+              "type": "array"
+            },
+            {
+              "$ref": "#/$defs/LLMNodeCompletionModelPromptTemplate"
+            }
+          ],
+          "title": "Prompt Template"
+        },
+        "prompt_config": {
+          "$ref": "#/$defs/PromptConfig"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "context": {
+          "$ref": "#/$defs/ContextConfig"
+        },
+        "vision": {
+          "$ref": "#/$defs/VisionConfig"
+        },
+        "structured_output": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Structured Output"
+        },
+        "structured_output_enabled": {
+          "default": false,
+          "title": "Structured Output Enabled",
+          "type": "boolean"
+        },
+        "reasoning_format": {
+          "default": "tagged",
+          "description": "\n            Strategy for handling model reasoning output.\n\n            separated: Return clean text (without <think> tags) + reasoning_content field.\n                      Recommended for new workflows. Enables safe downstream parsing and \n                      workflow variable access: {{#node_id.reasoning_content#}}\n\n            tagged   : Return original text (with <think> tags) + reasoning_content field.\n                      Maintains full backward compatibility while still providing reasoning_content\n                      for workflow automation. Frontend thinking panels work as before.\n            ",
+          "enum": [
+            "separated",
+            "tagged"
+          ],
+          "title": "Reasoning Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "model",
+        "prompt_template",
+        "context"
+      ],
+      "title": "LLMNodeData",
+      "type": "object"
+    },
+    "NodeData_LoopEndNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        }
+      },
+      "description": "Loop End Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "LoopEndNodeData",
+      "type": "object"
+    },
+    "NodeData_LoopNodeData": {
+      "$defs": {
+        "Condition": {
+          "properties": {
+            "variable_selector": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable Selector",
+              "type": "array"
+            },
+            "comparison_operator": {
+              "enum": [
+                "contains",
+                "not contains",
+                "start with",
+                "end with",
+                "is",
+                "is not",
+                "empty",
+                "not empty",
+                "in",
+                "not in",
+                "all of",
+                "=",
+                "≠",
+                ">",
+                "<",
+                "≥",
+                "≤",
+                "null",
+                "not null",
+                "exists",
+                "not exists"
+              ],
+              "title": "Comparison Operator",
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Value"
+            },
+            "sub_variable_condition": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SubVariableCondition"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "variable_selector",
+            "comparison_operator"
+          ],
+          "title": "Condition",
+          "type": "object"
+        },
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "LoopVariableData": {
+          "description": "Loop Variable Data.",
+          "properties": {
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "var_type": {
+              "$ref": "#/$defs/SegmentType"
+            },
+            "value_type": {
+              "enum": [
+                "variable",
+                "constant"
+              ],
+              "title": "Value Type",
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {},
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Value"
+            }
+          },
+          "required": [
+            "label",
+            "var_type",
+            "value_type"
+          ],
+          "title": "LoopVariableData",
+          "type": "object"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "SegmentType": {
+          "enum": [
+            "number",
+            "integer",
+            "float",
+            "string",
+            "object",
+            "secret",
+            "file",
+            "boolean",
+            "array[any]",
+            "array[string]",
+            "array[number]",
+            "array[object]",
+            "array[file]",
+            "array[boolean]",
+            "none",
+            "group"
+          ],
+          "title": "SegmentType",
+          "type": "string"
+        },
+        "SubCondition": {
+          "properties": {
+            "key": {
+              "title": "Key",
+              "type": "string"
+            },
+            "comparison_operator": {
+              "enum": [
+                "contains",
+                "not contains",
+                "start with",
+                "end with",
+                "is",
+                "is not",
+                "empty",
+                "not empty",
+                "in",
+                "not in",
+                "all of",
+                "=",
+                "≠",
+                ">",
+                "<",
+                "≥",
+                "≤",
+                "null",
+                "not null",
+                "exists",
+                "not exists"
+              ],
+              "title": "Comparison Operator",
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Value"
+            }
+          },
+          "required": [
+            "key",
+            "comparison_operator"
+          ],
+          "title": "SubCondition",
+          "type": "object"
+        },
+        "SubVariableCondition": {
+          "properties": {
+            "logical_operator": {
+              "enum": [
+                "and",
+                "or"
+              ],
+              "title": "Logical Operator",
+              "type": "string"
+            },
+            "conditions": {
+              "items": {
+                "$ref": "#/$defs/SubCondition"
+              },
+              "title": "Conditions",
+              "type": "array"
+            }
+          },
+          "required": [
+            "logical_operator"
+          ],
+          "title": "SubVariableCondition",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "start_node_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Start Node Id"
+        },
+        "loop_count": {
+          "title": "Loop Count",
+          "type": "integer"
+        },
+        "break_conditions": {
+          "items": {
+            "$ref": "#/$defs/Condition"
+          },
+          "title": "Break Conditions",
+          "type": "array"
+        },
+        "logical_operator": {
+          "enum": [
+            "and",
+            "or"
+          ],
+          "title": "Logical Operator",
+          "type": "string"
+        },
+        "loop_variables": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/LoopVariableData"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Loop Variables"
+        },
+        "outputs": {
+          "additionalProperties": true,
+          "title": "Outputs",
+          "type": "object"
+        }
+      },
+      "required": [
+        "title",
+        "loop_count",
+        "break_conditions",
+        "logical_operator"
+      ],
+      "title": "LoopNodeData",
+      "type": "object"
+    },
+    "NodeData_LoopStartNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        }
+      },
+      "description": "Loop Start Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "LoopStartNodeData",
+      "type": "object"
+    },
+    "NodeData_ParameterExtractorNodeData": {
+      "$defs": {
+        "DETAIL": {
+          "enum": [
+            "low",
+            "high"
+          ],
+          "title": "DETAIL",
+          "type": "string"
+        },
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "LLMMode": {
+          "description": "Enum class for large language model mode.",
+          "enum": [
+            "completion",
+            "chat"
+          ],
+          "title": "LLMMode",
+          "type": "string"
+        },
+        "MemoryConfig": {
+          "description": "Memory Config.",
+          "properties": {
+            "role_prefix": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RolePrefix"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "window": {
+              "$ref": "#/$defs/WindowConfig"
+            },
+            "query_prompt_template": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Query Prompt Template"
+            }
+          },
+          "required": [
+            "window"
+          ],
+          "title": "MemoryConfig",
+          "type": "object"
+        },
+        "ModelConfig": {
+          "properties": {
+            "provider": {
+              "title": "Provider",
+              "type": "string"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "mode": {
+              "$ref": "#/$defs/LLMMode"
+            },
+            "completion_params": {
+              "additionalProperties": true,
+              "title": "Completion Params",
+              "type": "object"
+            }
+          },
+          "required": [
+            "provider",
+            "name",
+            "mode"
+          ],
+          "title": "ModelConfig",
+          "type": "object"
+        },
+        "ParameterConfig": {
+          "description": "Parameter Config.",
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "type": {
+              "$ref": "#/$defs/SegmentType"
+            },
+            "options": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Options"
+            },
+            "description": {
+              "title": "Description",
+              "type": "string"
+            },
+            "required": {
+              "title": "Required",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "type",
+            "description",
+            "required"
+          ],
+          "title": "ParameterConfig",
+          "type": "object"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "RolePrefix": {
+          "description": "Role Prefix.",
+          "properties": {
+            "user": {
+              "title": "User",
+              "type": "string"
+            },
+            "assistant": {
+              "title": "Assistant",
+              "type": "string"
+            }
+          },
+          "required": [
+            "user",
+            "assistant"
+          ],
+          "title": "RolePrefix",
+          "type": "object"
+        },
+        "SegmentType": {
+          "enum": [
+            "number",
+            "integer",
+            "float",
+            "string",
+            "object",
+            "secret",
+            "file",
+            "boolean",
+            "array[any]",
+            "array[string]",
+            "array[number]",
+            "array[object]",
+            "array[file]",
+            "array[boolean]",
+            "none",
+            "group"
+          ],
+          "title": "SegmentType",
+          "type": "string"
+        },
+        "VisionConfig": {
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "configs": {
+              "$ref": "#/$defs/VisionConfigOptions"
+            }
+          },
+          "title": "VisionConfig",
+          "type": "object"
+        },
+        "VisionConfigOptions": {
+          "properties": {
+            "variable_selector": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable Selector",
+              "type": "array"
+            },
+            "detail": {
+              "$ref": "#/$defs/DETAIL",
+              "default": "high"
+            }
+          },
+          "title": "VisionConfigOptions",
+          "type": "object"
+        },
+        "WindowConfig": {
+          "description": "Window Config.",
+          "properties": {
+            "enabled": {
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "size": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Size"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "title": "WindowConfig",
+          "type": "object"
+        }
+      },
+      "description": "Parameter Extractor Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "model": {
+          "$ref": "#/$defs/ModelConfig"
+        },
+        "query": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Query",
+          "type": "array"
+        },
+        "parameters": {
+          "items": {
+            "$ref": "#/$defs/ParameterConfig"
+          },
+          "title": "Parameters",
+          "type": "array"
+        },
+        "instruction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reasoning_mode": {
+          "enum": [
+            "function_call",
+            "prompt"
+          ],
+          "title": "Reasoning Mode",
+          "type": "string"
+        },
+        "vision": {
+          "$ref": "#/$defs/VisionConfig"
+        }
+      },
+      "required": [
+        "title",
+        "model",
+        "query",
+        "parameters",
+        "reasoning_mode"
+      ],
+      "title": "ParameterExtractorNodeData",
+      "type": "object"
+    },
+    "NodeData_QuestionClassifierNodeData": {
+      "$defs": {
+        "ClassConfig": {
+          "properties": {
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ],
+          "title": "ClassConfig",
+          "type": "object"
+        },
+        "DETAIL": {
+          "enum": [
+            "low",
+            "high"
+          ],
+          "title": "DETAIL",
+          "type": "string"
+        },
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "LLMMode": {
+          "description": "Enum class for large language model mode.",
+          "enum": [
+            "completion",
+            "chat"
+          ],
+          "title": "LLMMode",
+          "type": "string"
+        },
+        "MemoryConfig": {
+          "description": "Memory Config.",
+          "properties": {
+            "role_prefix": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RolePrefix"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "window": {
+              "$ref": "#/$defs/WindowConfig"
+            },
+            "query_prompt_template": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Query Prompt Template"
+            }
+          },
+          "required": [
+            "window"
+          ],
+          "title": "MemoryConfig",
+          "type": "object"
+        },
+        "ModelConfig": {
+          "properties": {
+            "provider": {
+              "title": "Provider",
+              "type": "string"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "mode": {
+              "$ref": "#/$defs/LLMMode"
+            },
+            "completion_params": {
+              "additionalProperties": true,
+              "title": "Completion Params",
+              "type": "object"
+            }
+          },
+          "required": [
+            "provider",
+            "name",
+            "mode"
+          ],
+          "title": "ModelConfig",
+          "type": "object"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "RolePrefix": {
+          "description": "Role Prefix.",
+          "properties": {
+            "user": {
+              "title": "User",
+              "type": "string"
+            },
+            "assistant": {
+              "title": "Assistant",
+              "type": "string"
+            }
+          },
+          "required": [
+            "user",
+            "assistant"
+          ],
+          "title": "RolePrefix",
+          "type": "object"
+        },
+        "VisionConfig": {
+          "properties": {
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "configs": {
+              "$ref": "#/$defs/VisionConfigOptions"
+            }
+          },
+          "title": "VisionConfig",
+          "type": "object"
+        },
+        "VisionConfigOptions": {
+          "properties": {
+            "variable_selector": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Variable Selector",
+              "type": "array"
+            },
+            "detail": {
+              "$ref": "#/$defs/DETAIL",
+              "default": "high"
+            }
+          },
+          "title": "VisionConfigOptions",
+          "type": "object"
+        },
+        "WindowConfig": {
+          "description": "Window Config.",
+          "properties": {
+            "enabled": {
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "size": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Size"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "title": "WindowConfig",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "query_variable_selector": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Query Variable Selector",
+          "type": "array"
+        },
+        "model": {
+          "$ref": "#/$defs/ModelConfig"
+        },
+        "classes": {
+          "items": {
+            "$ref": "#/$defs/ClassConfig"
+          },
+          "title": "Classes",
+          "type": "array"
+        },
+        "instruction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vision": {
+          "$ref": "#/$defs/VisionConfig"
+        }
+      },
+      "required": [
+        "title",
+        "query_variable_selector",
+        "model",
+        "classes"
+      ],
+      "title": "QuestionClassifierNodeData",
+      "type": "object"
+    },
+    "NodeData_StartNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "FileTransferMethod": {
+          "enum": [
+            "remote_url",
+            "local_file",
+            "tool_file",
+            "datasource_file"
+          ],
+          "title": "FileTransferMethod",
+          "type": "string"
+        },
+        "FileType": {
+          "enum": [
+            "image",
+            "document",
+            "audio",
+            "video",
+            "custom"
+          ],
+          "title": "FileType",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "VariableEntity": {
+          "description": "Variable Entity.",
+          "properties": {
+            "variable": {
+              "title": "Variable",
+              "type": "string"
+            },
+            "label": {
+              "title": "Label",
+              "type": "string"
+            },
+            "description": {
+              "default": "",
+              "title": "Description",
+              "type": "string"
+            },
+            "type": {
+              "$ref": "#/$defs/VariableEntityType"
+            },
+            "required": {
+              "default": false,
+              "title": "Required",
+              "type": "boolean"
+            },
+            "hide": {
+              "default": false,
+              "title": "Hide",
+              "type": "boolean"
+            },
+            "default": {
+              "default": null,
+              "title": "Default"
+            },
+            "max_length": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Max Length"
+            },
+            "options": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Options",
+              "type": "array"
+            },
+            "allowed_file_types": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/FileType"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Allowed File Types"
+            },
+            "allowed_file_extensions": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Allowed File Extensions"
+            },
+            "allowed_file_upload_methods": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/FileTransferMethod"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Allowed File Upload Methods"
+            },
+            "json_schema": {
+              "anyOf": [
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Json Schema"
+            }
+          },
+          "required": [
+            "variable",
+            "label",
+            "type"
+          ],
+          "title": "VariableEntity",
+          "type": "object"
+        },
+        "VariableEntityType": {
+          "enum": [
+            "text-input",
+            "select",
+            "paragraph",
+            "number",
+            "external_data_tool",
+            "file",
+            "file-list",
+            "checkbox",
+            "json_object"
+          ],
+          "title": "VariableEntityType",
+          "type": "string"
+        }
+      },
+      "description": "Start Node Data",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "variables": {
+          "items": {
+            "$ref": "#/$defs/VariableEntity"
+          },
+          "title": "Variables",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "StartNodeData",
+      "type": "object"
+    },
+    "NodeData_TemplateTransformNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "VariableSelector": {
+          "description": "Variable Selector.",
+          "properties": {
+            "variable": {
+              "title": "Variable",
+              "type": "string"
+            },
+            "value_selector": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Value Selector",
+              "type": "array"
+            }
+          },
+          "required": [
+            "variable",
+            "value_selector"
+          ],
+          "title": "VariableSelector",
+          "type": "object"
+        }
+      },
+      "description": "Template Transform Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "variables": {
+          "items": {
+            "$ref": "#/$defs/VariableSelector"
+          },
+          "title": "Variables",
+          "type": "array"
+        },
+        "template": {
+          "title": "Template",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "variables",
+        "template"
+      ],
+      "title": "TemplateTransformNodeData",
+      "type": "object"
+    },
+    "NodeData_ToolNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "ToolInput": {
+          "properties": {
+            "value": {
+              "anyOf": [
+                {},
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ],
+              "title": "Value"
+            },
+            "type": {
+              "enum": [
+                "mixed",
+                "variable",
+                "constant"
+              ],
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "value",
+            "type"
+          ],
+          "title": "ToolInput",
+          "type": "object"
+        },
+        "ToolProviderType": {
+          "description": "Enum class for tool provider",
+          "enum": [
+            "plugin",
+            "builtin",
+            "workflow",
+            "api",
+            "app",
+            "dataset-retrieval",
+            "mcp"
+          ],
+          "title": "ToolProviderType",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "provider_id": {
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "provider_type": {
+          "$ref": "#/$defs/ToolProviderType"
+        },
+        "provider_name": {
+          "title": "Provider Name",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "tool_label": {
+          "title": "Tool Label",
+          "type": "string"
+        },
+        "tool_configurations": {
+          "additionalProperties": true,
+          "title": "Tool Configurations",
+          "type": "object"
+        },
+        "credential_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credential Id"
+        },
+        "plugin_unique_identifier": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plugin Unique Identifier"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "tool_parameters": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolInput"
+          },
+          "title": "Tool Parameters",
+          "type": "object"
+        },
+        "tool_node_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Node Version"
+        }
+      },
+      "required": [
+        "provider_id",
+        "provider_type",
+        "provider_name",
+        "tool_name",
+        "tool_label",
+        "tool_configurations",
+        "title",
+        "tool_parameters"
+      ],
+      "title": "ToolNodeData",
+      "type": "object"
+    },
+    "NodeData_TriggerEventNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "TriggerEventInput": {
+          "properties": {
+            "value": {
+              "anyOf": [
+                {},
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ],
+              "title": "Value"
+            },
+            "type": {
+              "enum": [
+                "mixed",
+                "variable",
+                "constant"
+              ],
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "value",
+            "type"
+          ],
+          "title": "TriggerEventInput",
+          "type": "object"
+        }
+      },
+      "description": "Plugin trigger node data",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "plugin_id": {
+          "description": "Plugin ID",
+          "title": "Plugin Id",
+          "type": "string"
+        },
+        "provider_id": {
+          "description": "Provider ID",
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "event_name": {
+          "description": "Event name",
+          "title": "Event Name",
+          "type": "string"
+        },
+        "subscription_id": {
+          "description": "Subscription ID",
+          "title": "Subscription Id",
+          "type": "string"
+        },
+        "plugin_unique_identifier": {
+          "description": "Plugin unique identifier",
+          "title": "Plugin Unique Identifier",
+          "type": "string"
+        },
+        "event_parameters": {
+          "additionalProperties": {
+            "$ref": "#/$defs/TriggerEventInput"
+          },
+          "description": "Trigger parameters",
+          "title": "Event Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "title",
+        "plugin_id",
+        "provider_id",
+        "event_name",
+        "subscription_id",
+        "plugin_unique_identifier"
+      ],
+      "title": "TriggerEventNodeData",
+      "type": "object"
+    },
+    "NodeData_TriggerScheduleNodeData": {
+      "$defs": {
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        }
+      },
+      "description": "Trigger Schedule Node Data",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "mode": {
+          "default": "visual",
+          "description": "Schedule mode: visual or cron",
+          "title": "Mode",
+          "type": "string"
+        },
+        "frequency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Frequency for visual mode: hourly, daily, weekly, monthly",
+          "title": "Frequency"
+        },
+        "cron_expression": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cron expression for cron mode",
+          "title": "Cron Expression"
+        },
+        "visual_config": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Visual configuration details",
+          "title": "Visual Config"
+        },
+        "timezone": {
+          "default": "UTC",
+          "description": "Timezone for schedule execution",
+          "title": "Timezone",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "TriggerScheduleNodeData",
+      "type": "object"
+    },
+    "NodeData_WebhookData": {
+      "$defs": {
+        "ContentType": {
+          "enum": [
+            "application/json",
+            "multipart/form-data",
+            "application/x-www-form-urlencoded",
+            "text/plain",
+            "application/octet-stream"
+          ],
+          "title": "ContentType",
+          "type": "string"
+        },
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "Method": {
+          "enum": [
+            "get",
+            "post",
+            "head",
+            "patch",
+            "put",
+            "delete"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "WebhookBodyParameter": {
+          "description": "Body parameter with type information.",
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "type": {
+              "default": "string",
+              "enum": [
+                "string",
+                "number",
+                "boolean",
+                "object",
+                "array[string]",
+                "array[number]",
+                "array[boolean]",
+                "array[object]",
+                "file"
+              ],
+              "title": "Type",
+              "type": "string"
+            },
+            "required": {
+              "default": false,
+              "title": "Required",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "title": "WebhookBodyParameter",
+          "type": "object"
+        },
+        "WebhookParameter": {
+          "description": "Parameter definition for headers, query params, or body.",
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "required": {
+              "default": false,
+              "title": "Required",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "title": "WebhookParameter",
+          "type": "object"
+        }
+      },
+      "description": "Webhook Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "method": {
+          "$ref": "#/$defs/Method",
+          "default": "get"
+        },
+        "content_type": {
+          "$ref": "#/$defs/ContentType",
+          "default": "application/json"
+        },
+        "headers": {
+          "items": {
+            "$ref": "#/$defs/WebhookParameter"
+          },
+          "title": "Headers",
+          "type": "array"
+        },
+        "params": {
+          "items": {
+            "$ref": "#/$defs/WebhookParameter"
+          },
+          "title": "Params",
+          "type": "array"
+        },
+        "body": {
+          "items": {
+            "$ref": "#/$defs/WebhookBodyParameter"
+          },
+          "title": "Body",
+          "type": "array"
+        },
+        "status_code": {
+          "default": 200,
+          "title": "Status Code",
+          "type": "integer"
+        },
+        "response_body": {
+          "default": "",
+          "title": "Response Body",
+          "type": "string"
+        },
+        "webhook_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Webhook Id"
+        },
+        "timeout": {
+          "default": 30,
+          "title": "Timeout",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "WebhookData",
+      "type": "object"
+    },
+    "NodeData_VariableAggregatorNodeData": {
+      "$defs": {
+        "AdvancedSettings": {
+          "description": "Advanced setting.",
+          "properties": {
+            "group_enabled": {
+              "title": "Group Enabled",
+              "type": "boolean"
+            },
+            "groups": {
+              "items": {
+                "$ref": "#/$defs/Group"
+              },
+              "title": "Groups",
+              "type": "array"
+            }
+          },
+          "required": [
+            "group_enabled",
+            "groups"
+          ],
+          "title": "AdvancedSettings",
+          "type": "object"
+        },
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "Group": {
+          "description": "Group.",
+          "properties": {
+            "output_type": {
+              "$ref": "#/$defs/SegmentType"
+            },
+            "variables": {
+              "items": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "title": "Variables",
+              "type": "array"
+            },
+            "group_name": {
+              "title": "Group Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "output_type",
+            "variables",
+            "group_name"
+          ],
+          "title": "Group",
+          "type": "object"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "SegmentType": {
+          "enum": [
+            "number",
+            "integer",
+            "float",
+            "string",
+            "object",
+            "secret",
+            "file",
+            "boolean",
+            "array[any]",
+            "array[string]",
+            "array[number]",
+            "array[object]",
+            "array[file]",
+            "array[boolean]",
+            "none",
+            "group"
+          ],
+          "title": "SegmentType",
+          "type": "string"
+        }
+      },
+      "description": "Variable Aggregator Node Data.",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "output_type": {
+          "title": "Output Type",
+          "type": "string"
+        },
+        "variables": {
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Variables",
+          "type": "array"
+        },
+        "advanced_settings": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AdvancedSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "title",
+        "output_type",
+        "variables"
+      ],
+      "title": "VariableAggregatorNodeData",
+      "type": "object"
+    }
+  }
+}

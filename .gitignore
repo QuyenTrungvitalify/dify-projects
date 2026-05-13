@@ -23,4 +23,4 @@ htmlcov/
 # OS
 .DS_Store
 .idea/
-.vscode/
+# (Note: .vscode/settings.json IS committed — wires up YAML schema for the team)

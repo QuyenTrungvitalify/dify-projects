@@ -1,0 +1,18 @@
+{
+  "yaml.schemas": {
+    "./schemas/dify-dsl-0.6.0.json": [
+      "projects/*/workflows/*.yml",
+      "projects/*/workflows/*.yaml",
+      "templates/patterns/*.yml",
+      "templates/_base/**/workflows/*.yml"
+    ]
+  },
+  "yaml.validate": true,
+  "yaml.format.enable": true,
+  "yaml.completion": true,
+  "yaml.hover": true,
+  "files.associations": {
+    "*.dify.yml": "yaml",
+    "*.dify.yaml": "yaml"
+  }
+}
