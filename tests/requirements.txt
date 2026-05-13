@@ -1,0 +1,12 @@
+# Pytest harness dependencies for testing deployed Dify workflows.
+#
+# Install:
+#   uv pip install --python .venv/bin/python -r tests/requirements.txt
+#   # or with plain pip:
+#   pip install -r tests/requirements.txt
+
+pytest>=8.0
+syrupy>=4.0           # snapshot testing
+python-dotenv>=1.0    # load envs/<env>.env
+requests>=2.31        # HTTP client for DifyWorkflowClient
+pyyaml>=6.0           # if your tests parse workflow YAML for sanity checks

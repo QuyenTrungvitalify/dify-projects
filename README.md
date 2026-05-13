@@ -37,7 +37,11 @@ dify-projects/
 ├── tools/                     # Python tooling
 │   └── dify_base/             # build_index, find — (planned: scaffold, validate, run_test)
 │
-├── tests/                     # (planned) pytest integration harness via dify-python-sdk
+├── tests/                     # pytest harness (Phase 1.D)
+│   ├── conftest.py            # DifyWorkflowClient + env-loading fixtures
+│   ├── test_workflow_smoke.py # Example smoke + snapshot test
+│   ├── requirements.txt       # pytest + syrupy + python-dotenv + requests
+│   └── README.md              # How to test deployed workflows
 │
 ├── projects/                  # Mỗi dự án 1 folder con (workflows/, prompts/, tests/...)
 │
@@ -142,7 +146,7 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **Phase 1.A** — JSON Schema generator
 - ✅ **Phase 1.B** — `tools/dify_base/init_project.py` interactive scaffolder + `templates/_base/project/` skeleton
 - ✅ **Phase 1.C** — 4 reusable patterns in `templates/patterns/`: file-iteration, multi-step-llm, rag-qa, agent-with-tools (all validate against schema + skill validator)
-- ⏳ **Phase 1.D** — `tests/conftest.py` pytest harness via dify-python-sdk
+- ✅ **Phase 1.D** — pytest harness ([tests/](tests/)) — minimal `DifyWorkflowClient` + env-loading fixtures + syrupy snapshot example. Skips cleanly without creds.
 - ⏳ **Phase 2** — GitOps sync, pre-commit, devcontainer
 
 Chi tiết design: xem [docs/architecture.md](docs/architecture.md) (planned).
