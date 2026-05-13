@@ -70,16 +70,20 @@ python3 skills/mango-svip/scripts/validate_workflow.py <file>.yml
 
 ## Bắt đầu một dự án mới
 
-Hiện tại (chưa có scaffolder):
 ```bash
-mkdir -p projects/<name>/{workflows,prompts,tests,inputs}
-# Copy skeleton từ templates/patterns/ khi đã build
+# Interactive: hỏi 5-6 câu (name, slug, app type, DSL version, language...)
+python3 tools/dify_base/init_project.py
+
+# Non-interactive (cho script / CI):
+python3 tools/dify_base/init_project.py \
+    --non-interactive \
+    --name "My RAG Bot" \
+    --slug my_rag_bot \
+    --app-type workflow \
+    --primary-lang en
 ```
 
-Khi scaffolder ([Phase 1 roadmap](docs/architecture.md)) xong:
-```bash
-python3 tools/dify_base/init_project.py    # interactive
-```
+Tạo `projects/<slug>/` với cấu trúc chuẩn (workflows/, prompts/, inputs/, tests/, envs/, .dify-workspace.yaml, README, .gitignore). Skeleton ở [templates/_base/project/](templates/_base/project/). DSL version auto-detect từ `schemas/dify-dsl-*.json`.
 
 ## Quy trình build workflow mới (5 bước)
 
@@ -115,7 +119,7 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 
 - ✅ **Phase 0** — base setup (cấu trúc + tooling cũ)
 - ✅ **Phase 1.A** — JSON Schema generator
-- ⏳ **Phase 1.B** — `tools/dify_base/init_project.py` interactive scaffolder
+- ✅ **Phase 1.B** — `tools/dify_base/init_project.py` interactive scaffolder + `templates/_base/project/` skeleton
 - ⏳ **Phase 1.C** — `templates/patterns/` (file-iteration, rag-qa, multi-step-llm, agent-with-tools)
 - ⏳ **Phase 1.D** — `tests/conftest.py` pytest harness via dify-python-sdk
 - ⏳ **Phase 2** — GitOps sync, pre-commit, devcontainer

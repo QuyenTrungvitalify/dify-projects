@@ -1,0 +1,13 @@
+# Per-project gitignore (merged with base workspace .gitignore)
+
+# Env files with secrets — never commit
+envs/*.env
+!envs/*.env.example
+
+# Runtime artifacts
+inputs/.results/
+tests/.snapshots/
+.pytest_cache/
+
+# OS
+.DS_Store
