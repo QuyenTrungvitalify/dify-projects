@@ -1,0 +1,340 @@
+# Pattern: File Iteration
+#
+# Use case: upload a structured file (CSV/Excel/JSON), parse it into a list of items,
+# process each item independently (LLM / HTTP / Code), then aggregate the results.
+#
+# Flow:
+#   Start (file upload)
+#     → Document Extractor (file → text)
+#     → Code: Split items (text → array[string])
+#     → Iteration (parallel)
+#         └─ Code: Process each item   ← REPLACE with LLM/HTTP/Tool as needed
+#     → Code: Aggregate results
+#     → End
+#
+# Customization points (marked `# TODO:` in code nodes):
+#   1. Splitter: parse your file format (CSV columns, JSON fields, line-separated, ...)
+#   2. Per-item processor: swap with LLM / HTTP Request / Tool node
+#   3. Aggregator: format output (Markdown table, JSON array, CSV, ...)
+#   4. Iteration parallelism: tune `parallel_nums` (default 5) based on API limits
+
+app:
+  description: 'Pattern: upload file → parse → split → iterate per item → aggregate → output'
+  icon: "\U0001F4C4"
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: 'Pattern: File Iteration'
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions: []
+      allowed_file_types:
+      - document
+      allowed_file_upload_methods:
+      - local_file
+      enabled: false
+      fileUploadConfig:
+        batch_count_limit: 5
+        file_size_limit: 15
+        file_upload_limit: 20
+        workflow_file_upload_limit: 10
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource: { enabled: true }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: start-source-doc_extract-target
+      source: '1700000000001'
+      target: '1700000000002'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: document-extractor }
+      zIndex: 0
+    - id: doc_extract-source-split-target
+      source: '1700000000002'
+      target: '1700000000003'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: document-extractor, targetType: code }
+      zIndex: 0
+    - id: split-source-iteration-target
+      source: '1700000000003'
+      target: '1700000000004'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: iteration }
+      zIndex: 0
+    - id: iter_start-source-process-target
+      source: 1700000000004start
+      target: '1700000000005'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1700000000004', sourceType: iteration-start, targetType: code }
+      zIndex: 1002
+    - id: iteration-source-aggregate-target
+      source: '1700000000004'
+      target: '1700000000006'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: iteration, targetType: code }
+      zIndex: 0
+    - id: aggregate-source-end-target
+      source: '1700000000006'
+      target: '1700000000007'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: end }
+      zIndex: 0
+    nodes:
+    - id: '1700000000001'
+      type: custom
+      data:
+        title: 'File Input'
+        type: start
+        variables:
+        - allowed_file_extensions:
+          - .csv
+          - .json
+          - .txt
+          allowed_file_types:
+          - document
+          allowed_file_upload_methods:
+          - local_file
+          hint: 'Upload the file to process. Update `allowed_file_extensions` for your format.'
+          label: input_file
+          max_length: 1
+          options: []
+          placeholder: ''
+          required: true
+          type: file-list
+          variable: input_file
+      position: { x: 0, y: 280 }
+      positionAbsolute: { x: 0, y: 280 }
+      width: 242
+      height: 107
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700000000002'
+      type: custom
+      data:
+        title: 'Extract Text'
+        type: document-extractor
+        is_array_file: true
+        variable_selector:
+        - '1700000000001'
+        - input_file
+      position: { x: 342, y: 280 }
+      positionAbsolute: { x: 342, y: 280 }
+      width: 241
+      height: 103
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700000000003'
+      type: custom
+      data:
+        title: 'Split Items'
+        type: code
+        code_language: python3
+        code: |
+          import csv
+          import io
+          import json
+
+          def main(text_list: list) -> dict:
+              """
+              TODO: parse your input format and return a list of items.
+              The example below handles CSV (one item per row) and falls back
+              to splitting on newlines for plain text.
+              """
+              text = text_list[0] if isinstance(text_list, list) else str(text_list)
+
+              # Try CSV first
+              try:
+                  rows = list(csv.DictReader(io.StringIO(text)))
+                  if rows:
+                      items = [json.dumps(r, ensure_ascii=False) for r in rows]
+                      return {"items": items, "count": len(items)}
+              except Exception:
+                  pass
+
+              # Fallback: split on newlines
+              lines = [l.strip() for l in text.splitlines() if l.strip()]
+              items = [json.dumps({"line": l}, ensure_ascii=False) for l in lines]
+              return {"items": items, "count": len(items)}
+        outputs:
+          items: { type: 'array[string]', children: null }
+          count: { type: number, children: null }
+        variables:
+        - value_selector: ['1700000000002', text]
+          value_type: 'array[string]'
+          variable: text_list
+      position: { x: 684, y: 280 }
+      positionAbsolute: { x: 684, y: 280 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700000000004'
+      type: custom
+      data:
+        title: 'Iterate Items (parallel)'
+        type: iteration
+        error_handle_mode: continue-on-error
+        flatten_output: true
+        is_parallel: true
+        iterator_input_type: 'array[string]'
+        iterator_selector: ['1700000000003', items]
+        output_selector: ['1700000000005', result]
+        output_type: 'array[string]'
+        parallel_nums: 5
+        start_node_id: 1700000000004start
+        width: 600
+        height: 200
+      position: { x: 1026, y: 180 }
+      positionAbsolute: { x: 1026, y: 180 }
+      width: 600
+      height: 200
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1
+
+    - id: 1700000000004start
+      type: custom-iteration-start
+      data:
+        title: ''
+        type: iteration-start
+        desc: ''
+        isInIteration: true
+      parentId: '1700000000004'
+      position: { x: 24, y: 68 }
+      positionAbsolute: { x: 1050, y: 248 }
+      width: 44
+      height: 48
+      sourcePosition: right
+      targetPosition: left
+      draggable: false
+      selectable: false
+      zIndex: 1002
+
+    - id: '1700000000005'
+      type: custom
+      data:
+        title: 'Process Item'
+        type: code
+        code_language: python3
+        isInIteration: true
+        iteration_id: '1700000000004'
+        code: |
+          import json
+
+          def main(item_json: str) -> dict:
+              """
+              TODO: Replace this Code node with an LLM / HTTP Request / Tool node
+              that processes a single item. The default behavior here is a passthrough
+              with a [PROCESSED] marker so you can verify the iteration runs.
+
+              When swapping to LLM: feed `item_json` (or one of its fields) as
+              a system/user prompt input. When swapping to HTTP: pass it as
+              the request body.
+              """
+              item = json.loads(item_json)
+              item["processed"] = f"[PROCESSED] {item}"
+              return {"result": json.dumps(item, ensure_ascii=False)}
+        outputs:
+          result: { type: string, children: null }
+        variables:
+        - value_selector: ['1700000000004', item]
+          value_type: string
+          variable: item_json
+      parentId: '1700000000004'
+      extent: parent
+      position: { x: 124, y: 68 }
+      positionAbsolute: { x: 1150, y: 248 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1700000000006'
+      type: custom
+      data:
+        title: 'Aggregate Results'
+        type: code
+        code_language: python3
+        code: |
+          import json
+
+          def main(results: list) -> dict:
+              """
+              TODO: aggregate the per-item results into your desired output.
+              Default behavior: return raw list + count.
+              For Markdown table / CSV string, build it here.
+              """
+              parsed = []
+              for r in results:
+                  if not r:
+                      continue
+                  try:
+                      parsed.append(json.loads(r))
+                  except Exception:
+                      parsed.append({"raw": r})
+              return {
+                  "aggregated": json.dumps(parsed, ensure_ascii=False),
+                  "count": len(parsed),
+              }
+        outputs:
+          aggregated: { type: string, children: null }
+          count: { type: number, children: null }
+        variables:
+        - value_selector: ['1700000000004', output]
+          value_type: 'array[string]'
+          variable: results
+      position: { x: 1700, y: 280 }
+      positionAbsolute: { x: 1700, y: 280 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700000000007'
+      type: custom
+      data:
+        title: 'Output'
+        type: end
+        outputs:
+        - value_selector: ['1700000000006', aggregated]
+          value_type: string
+          variable: aggregated
+        - value_selector: ['1700000000006', count]
+          value_type: number
+          variable: count
+      position: { x: 2000, y: 280 }
+      positionAbsolute: { x: 2000, y: 280 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.5 }

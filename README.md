@@ -23,8 +23,12 @@ dify-projects/
 │   └── awesome-dify-workflow/ # svcvit/Awesome-Dify-Workflow (46 examples)
 │
 ├── templates/                 # Project starter + workflow patterns
-│   ├── _base/                 # (planned) Cookiecutter-style project starter
-│   └── patterns/              # (planned) Skeleton: file-iteration, rag-qa, agent...
+│   ├── _base/project/         # Scaffolded by init_project.py
+│   └── patterns/              # 4 reusable workflow skeletons (Phase 1.C)
+│       ├── file-iteration.yml   # File upload → split → iterate → aggregate
+│       ├── multi-step-llm.yml   # 3 chained LLM calls (refine pattern)
+│       ├── rag-qa.yml           # Knowledge retrieval + LLM
+│       └── agent-with-tools.yml # Agent node with pluggable tools
 │
 ├── schemas/                   # Auto-generated JSON Schema for Dify DSL (Phase 1.A done)
 │   ├── gen_schema.py          # Reverse-engineer schema from dify pydantic models
@@ -85,6 +89,23 @@ python3 tools/dify_base/init_project.py \
 
 Tạo `projects/<slug>/` với cấu trúc chuẩn (workflows/, prompts/, inputs/, tests/, envs/, .dify-workspace.yaml, README, .gitignore). Skeleton ở [templates/_base/project/](templates/_base/project/). DSL version auto-detect từ `schemas/dify-dsl-*.json`.
 
+## Patterns sẵn có ([templates/patterns/](templates/patterns/))
+
+| Pattern | Use case | Nodes | Key features |
+|---|---|---|---|
+| `file-iteration.yml` | Upload file → parse → process each item → aggregate | 7 | document-extractor, iteration, code |
+| `multi-step-llm.yml` | Chain 3 LLM calls (generate → critique → refine) | 5 | llm × 3 |
+| `rag-qa.yml` | Q&A grounded in knowledge base | 4 | knowledge-retrieval, llm |
+| `agent-with-tools.yml` | ReAct agent with pluggable tools | 3 | agent |
+
+Mỗi pattern có comment `# TODO:` đánh dấu chỗ cần customize (model, prompt, plugin hash, dataset IDs, ...).
+
+```bash
+# Copy pattern vào project mới của bạn
+cp templates/patterns/file-iteration.yml projects/<your_project>/workflows/main.yml
+# Edit theo TODOs, import vào Dify, test
+```
+
 ## Quy trình build workflow mới (5 bước)
 
 1. **Phân rã task** → trả lời: input/output/loop/branching/external-API
@@ -120,7 +141,7 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **Phase 0** — base setup (cấu trúc + tooling cũ)
 - ✅ **Phase 1.A** — JSON Schema generator
 - ✅ **Phase 1.B** — `tools/dify_base/init_project.py` interactive scaffolder + `templates/_base/project/` skeleton
-- ⏳ **Phase 1.C** — `templates/patterns/` (file-iteration, rag-qa, multi-step-llm, agent-with-tools)
+- ✅ **Phase 1.C** — 4 reusable patterns in `templates/patterns/`: file-iteration, multi-step-llm, rag-qa, agent-with-tools (all validate against schema + skill validator)
 - ⏳ **Phase 1.D** — `tests/conftest.py` pytest harness via dify-python-sdk
 - ⏳ **Phase 2** — GitOps sync, pre-commit, devcontainer
 

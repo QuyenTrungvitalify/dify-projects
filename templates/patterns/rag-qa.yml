@@ -1,0 +1,176 @@
+# Pattern: RAG Q&A (Knowledge Retrieval + LLM)
+#
+# Use case: answer questions grounded in a knowledge base (uploaded docs).
+# Standard RAG flow: query → retrieve relevant chunks → LLM generates answer.
+#
+# Flow:
+#   Start (question input)
+#     → Knowledge Retrieval (search knowledge base)
+#     → LLM (answer using retrieved context)
+#     → End
+#
+# Customization points (`# TODO:`):
+#   1. Knowledge dataset_ids: must reference real datasets in your Dify workspace
+#      (export-then-import: copy UUIDs from your workspace).
+#   2. Retrieval mode: hybrid | semantic_search | keyword_search.
+#   3. Top K, score threshold, reranking model.
+#   4. LLM system prompt — adjust style, citation requirements, fallback behavior.
+#
+# Note: this is a Simple skeleton (3 nodes). Add answer formatting / structured
+# output / multi-turn memory by inserting nodes between knowledge-retrieval and LLM.
+
+app:
+  description: 'Pattern: RAG question-answering (knowledge retrieval + LLM)'
+  icon: "\U0001F4DA"
+  icon_background: '#FFF4E0'
+  icon_type: emoji
+  mode: workflow
+  name: 'Pattern: RAG Q&A'
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload: { enabled: false }
+    opening_statement: ''
+    retriever_resource: { enabled: true }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: start-source-retrieval-target
+      source: '1700002000001'
+      target: '1700002000002'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: knowledge-retrieval }
+      zIndex: 0
+    - id: retrieval-source-llm-target
+      source: '1700002000002'
+      target: '1700002000003'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: knowledge-retrieval, targetType: llm }
+      zIndex: 0
+    - id: llm-source-end-target
+      source: '1700002000003'
+      target: '1700002000004'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: end }
+      zIndex: 0
+    nodes:
+    - id: '1700002000001'
+      type: custom
+      data:
+        title: 'Question'
+        type: start
+        variables:
+        - variable: question
+          label: question
+          type: paragraph
+          required: true
+          max_length: 1000
+          hint: 'User question to answer from the knowledge base'
+          options: []
+          placeholder: ''
+      position: { x: 0, y: 280 }
+      positionAbsolute: { x: 0, y: 280 }
+      width: 242
+      height: 107
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700002000002'
+      type: custom
+      data:
+        title: 'Retrieve Knowledge'
+        type: knowledge-retrieval
+        # TODO: fill dataset_ids with UUIDs from your Dify workspace knowledge bases.
+        # Example: ['9f7c4d2e-1234-5678-abcd-ef0123456789']
+        dataset_ids: []
+        query_variable_selector: ['1700002000001', question]
+        retrieval_mode: multiple
+        multiple_retrieval_config:
+          top_k: 4
+          score_threshold: 0.5
+          score_threshold_enabled: false
+          reranking_enable: false
+          reranking_mode: reranking_model
+          reranking_model:
+            provider: ''
+            model: ''
+      position: { x: 342, y: 280 }
+      positionAbsolute: { x: 342, y: 280 }
+      width: 241
+      height: 90
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700002000003'
+      type: custom
+      data:
+        title: 'Answer'
+        type: llm
+        # TODO: configure model
+        model:
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.2
+        prompt_template:
+        - role: system
+          text: |
+            You are a helpful assistant. Answer the user's question strictly based on the
+            provided context. If the context does not contain the answer, say "I don't
+            know based on the provided documents." Cite the relevant passages.
+            # TODO: adjust tone, citation style, fallback message
+        - role: user
+          text: |
+            Context:
+            {{#context#}}
+
+            Question:
+            {{#1700002000001.question#}}
+        memory: null
+        context:
+          enabled: true
+          variable_selector: ['1700002000002', result]
+        vision: { enabled: false }
+      position: { x: 684, y: 280 }
+      positionAbsolute: { x: 684, y: 280 }
+      width: 241
+      height: 98
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700002000004'
+      type: custom
+      data:
+        title: 'Output'
+        type: end
+        outputs:
+        - variable: answer
+          value_selector: ['1700002000003', text]
+          value_type: string
+        - variable: context
+          value_selector: ['1700002000002', result]
+          value_type: array[object]
+      position: { x: 1026, y: 280 }
+      positionAbsolute: { x: 1026, y: 280 }
+      width: 241
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.7 }

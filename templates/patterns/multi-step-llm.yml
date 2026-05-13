@@ -1,0 +1,225 @@
+# Pattern: Multi-Step LLM (Refine / Translate-and-Improve)
+#
+# Use case: chain multiple LLM calls where the output of one feeds into the next.
+# Classic example: translate → critique → improve. Also: outline → draft → polish.
+#
+# Flow:
+#   Start (text input)
+#     → LLM 1: Initial generation  (e.g., rough translation)
+#     → LLM 2: Critique / suggest improvements
+#     → LLM 3: Final refinement using critique
+#     → End
+#
+# Customization points (`# TODO:`):
+#   1. System/user prompts in each LLM node — replace placeholders
+#   2. Model choice: each node references model.provider + model.name; pick the
+#      right model for the step (cheaper model for critique, stronger for final).
+#   3. Output variable naming — propagate via {{#<node_id>.text#}} references.
+#
+# Note: this template uses placeholder model names. Replace with the actual
+# provider:model your workspace has installed (and update plugin dependency hash).
+
+app:
+  description: 'Pattern: chain 3 LLM calls (generate → critique → refine)'
+  icon: "\U0001F9E0"
+  icon_background: '#E1F0FF'
+  icon_type: emoji
+  mode: workflow
+  name: 'Pattern: Multi-Step LLM'
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload: { enabled: false }
+    opening_statement: ''
+    retriever_resource: { enabled: true }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: start-source-llm1-target
+      source: '1700001000001'
+      target: '1700001000002'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: llm }
+      zIndex: 0
+    - id: llm1-source-llm2-target
+      source: '1700001000002'
+      target: '1700001000003'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: llm }
+      zIndex: 0
+    - id: llm2-source-llm3-target
+      source: '1700001000003'
+      target: '1700001000004'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: llm }
+      zIndex: 0
+    - id: llm3-source-end-target
+      source: '1700001000004'
+      target: '1700001000005'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: end }
+      zIndex: 0
+    nodes:
+    - id: '1700001000001'
+      type: custom
+      data:
+        title: 'Input'
+        type: start
+        variables:
+        - variable: source_text
+          label: source_text
+          type: paragraph
+          required: true
+          max_length: 5000
+          hint: 'Text to process (e.g., source language text to translate)'
+          options: []
+          placeholder: ''
+      position: { x: 0, y: 280 }
+      positionAbsolute: { x: 0, y: 280 }
+      width: 242
+      height: 107
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700001000002'
+      type: custom
+      data:
+        title: 'LLM 1 — Initial Generation'
+        type: llm
+        # TODO: configure model
+        model:
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.3
+        prompt_template:
+        - role: system
+          text: |
+            You are an expert translator. Produce a literal, faithful first-pass translation
+            of the user's text into English. Preserve technical terms exactly.
+            # TODO: customize for your step 1 (translation / outline / draft / ...)
+        - role: user
+          text: '{{#1700001000001.source_text#}}'
+        memory: null
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+      position: { x: 342, y: 280 }
+      positionAbsolute: { x: 342, y: 280 }
+      width: 241
+      height: 98
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700001000003'
+      type: custom
+      data:
+        title: 'LLM 2 — Critique'
+        type: llm
+        model:
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.5
+        prompt_template:
+        - role: system
+          text: |
+            You are an expert editor. Read the source text and its first-pass translation.
+            Output a concise list (3-5 bullets) of specific improvements: word choice,
+            naturalness, tone, ambiguity, factual issues.
+            # TODO: customize critique criteria for your domain
+        - role: user
+          text: |
+            Source:
+            {{#1700001000001.source_text#}}
+
+            First-pass translation:
+            {{#1700001000002.text#}}
+        memory: null
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+      position: { x: 684, y: 280 }
+      positionAbsolute: { x: 684, y: 280 }
+      width: 241
+      height: 98
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700001000004'
+      type: custom
+      data:
+        title: 'LLM 3 — Refine'
+        type: llm
+        model:
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.3
+        prompt_template:
+        - role: system
+          text: |
+            Apply the editor's suggestions to produce the final polished translation.
+            Output only the refined translation — no commentary.
+            # TODO: customize for your step 3 (polish / format / structure / ...)
+        - role: user
+          text: |
+            Source:
+            {{#1700001000001.source_text#}}
+
+            First-pass translation:
+            {{#1700001000002.text#}}
+
+            Suggested improvements:
+            {{#1700001000003.text#}}
+        memory: null
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+      position: { x: 1026, y: 280 }
+      positionAbsolute: { x: 1026, y: 280 }
+      width: 241
+      height: 98
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700001000005'
+      type: custom
+      data:
+        title: 'Output'
+        type: end
+        outputs:
+        - variable: final
+          value_selector: ['1700001000004', text]
+          value_type: string
+        - variable: first_pass
+          value_selector: ['1700001000002', text]
+          value_type: string
+        - variable: critique
+          value_selector: ['1700001000003', text]
+          value_type: string
+      position: { x: 1368, y: 280 }
+      positionAbsolute: { x: 1368, y: 280 }
+      width: 241
+      height: 144
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.6 }
