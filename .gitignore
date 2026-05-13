@@ -1,0 +1,26 @@
+# Auto-generated index — rebuild with `python3 tools/dify_base/build_index.py`
+tools/dify_base/index.json
+
+# External clones (re-clone if needed)
+skills/*/
+corpus/*/
+
+# But keep .gitkeep placeholders
+!skills/.gitkeep
+!corpus/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+.idea/
+.vscode/

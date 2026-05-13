@@ -1,0 +1,117 @@
+# Dify Projects — Base Workspace
+
+Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
+
+- Reference skills + corpus + node-type schema để build YAML workflow nhanh
+- CLI search 51+ template theo feature/complexity/plugin
+- Cấu trúc folder thống nhất cho từng project con (`projects/<name>/`)
+- Roadmap mở rộng (scaffolder, JSON Schema, test harness) — xem [docs/architecture.md](docs/architecture.md)
+
+> 📖 **Quick start**: [docs/GUIDE.md](docs/GUIDE.md) — operations guide (quy trình build YAML, decision tree, troubleshooting).
+> 🔍 **Tra template**: [INDEX.md](INDEX.md) hoặc `python3 tools/dify_base/find.py --has iteration`.
+
+## Cấu trúc
+
+```
+dify-projects/
+├── skills/                    # Claude Code skills (read-only clones)
+│   ├── mango-svip/            # Node-type references + validator (SKILL.md, 26 node types)
+│   ├── Tomatio13/             # DSL generator + checker (Japanese context)
+│   └── lazeyliu/              # Validation-tier skills (structure idea)
+│
+├── corpus/                    # Reference YAML examples (read-only clone)
+│   └── awesome-dify-workflow/ # svcvit/Awesome-Dify-Workflow (46 examples)
+│
+├── templates/                 # Project starter + workflow patterns
+│   ├── _base/                 # (planned) Cookiecutter-style project starter
+│   └── patterns/              # (planned) Skeleton: file-iteration, rag-qa, agent...
+│
+├── schemas/                   # (planned) Auto-generated JSON Schema for Dify DSL
+│
+├── tools/                     # Python tooling
+│   └── dify_base/             # build_index, find — (planned: scaffold, validate, run_test)
+│
+├── tests/                     # (planned) pytest integration harness via dify-python-sdk
+│
+├── projects/                  # Mỗi dự án 1 folder con (workflows/, prompts/, tests/...)
+│
+└── docs/                      # GUIDE.md + (planned) architecture.md, conventions.md
+```
+
+## Skills hiện có
+
+| Skill | Source | Mục đích |
+|---|---|---|
+| `mango-svip/` | [mango-svip/dify-workflow-skills](https://github.com/mango-svip/dify-workflow-skills) | Schema 26 node types, validate script, working YAML assets |
+| `Tomatio13/` | [Tomatio13/DifyWorkFlowGenerator](https://github.com/Tomatio13/DifyWorkFlowGenerator) | Japanese-context DSL generator + `difyDslGenCheck.py` |
+| `lazeyliu/` | [lazeyliu/dify-dsl-generator-skills](https://github.com/lazeyliu/dify-dsl-generator-skills) | 11 sub-skills theo tier (entry/foundation/validation) |
+
+## CLI cheatsheet
+
+```bash
+# Tra template theo feature
+python3 tools/dify_base/find.py --has iteration --has file-input
+python3 tools/dify_base/find.py --complexity Simple --has llm
+python3 tools/dify_base/find.py --plugin md_exporter
+python3 tools/dify_base/find.py --name translation
+python3 tools/dify_base/find.py --list-features    # liệt kê available filters
+
+# Rebuild index (sau khi thêm template/project mới)
+python3 tools/dify_base/build_index.py
+
+# Generate unique node IDs
+python3 skills/mango-svip/scripts/generate_id.py 5
+
+# Validate YAML
+python3 skills/mango-svip/scripts/validate_workflow.py <file>.yml
+```
+
+## Bắt đầu một dự án mới
+
+Hiện tại (chưa có scaffolder):
+```bash
+mkdir -p projects/<name>/{workflows,prompts,tests,inputs}
+# Copy skeleton từ templates/patterns/ khi đã build
+```
+
+Khi scaffolder ([Phase 1 roadmap](docs/architecture.md)) xong:
+```bash
+python3 tools/dify_base/init_project.py    # interactive
+```
+
+## Quy trình build workflow mới (5 bước)
+
+1. **Phân rã task** → trả lời: input/output/loop/branching/external-API
+2. **Tìm pattern** tương tự bằng `find.py` → ưu tiên `patterns/` > `corpus/` > `skill-assets/`
+3. **Generate IDs**: `python3 skills/mango-svip/scripts/generate_id.py <N>`
+4. **Build YAML**: copy skeleton, customize. Schema reference: [skills/mango-svip/references/node_types.md](skills/mango-svip/references/node_types.md)
+5. **Validate**: `python3 skills/mango-svip/scripts/validate_workflow.py <file>`
+
+Chi tiết: xem [docs/GUIDE.md](docs/GUIDE.md).
+
+## Roadmap
+
+Hiện tại: **Phase 0 — base setup** (cấu trúc + tooling cũ).
+
+Tiếp theo (Phase 1):
+- [ ] `schemas/gen_schema.py` — generate JSON Schema từ Dify pydantic models
+- [ ] `tools/dify_base/init_project.py` — interactive scaffolder
+- [ ] `templates/patterns/` — file-iteration, rag-qa, multi-step-llm, agent-with-tools
+- [ ] `tests/conftest.py` — pytest harness dùng dify-python-sdk
+
+Sau đó (Phase 2): GitOps sync, pre-commit, devcontainer. Xem [docs/architecture.md](docs/architecture.md).
+
+## Limitations
+
+- **DSL version**: schema reference từ mango-svip viết cho **v0.1.4**; Dify mainline đã ở **v1.14.x (5/2026)**. Khi build cho workspace target version mới, verify field naming → schema generation (Phase 1) sẽ fix triệt để.
+- **Validator chỉ check structure** (unique IDs, edge references, required fields). Không guarantee import success.
+- **Plugin versions**: marketplace identifier hash đổi theo time. Khi import fail vì plugin, check version trong target workspace.
+
+## Sources
+
+- [langgenius/dify](https://github.com/langgenius/dify) — source code (clone tham khảo ở `~/Desktop/MyProjects/dify-workspace/`)
+- [mango-svip/dify-workflow-skills](https://github.com/mango-svip/dify-workflow-skills) — base skill
+- [Tomatio13/DifyWorkFlowGenerator](https://github.com/Tomatio13/DifyWorkFlowGenerator) — JP-context DSL gen
+- [lazeyliu/dify-dsl-generator-skills](https://github.com/lazeyliu/dify-dsl-generator-skills) — multi-tier skills
+- [svcvit/Awesome-Dify-Workflow](https://github.com/svcvit/Awesome-Dify-Workflow) — corpus 46+ examples
+- [Dify Official Docs](https://docs.dify.ai/) · [Dify v1.14.0 release](https://github.com/langgenius/dify/releases/tag/1.14.0)
