@@ -35,7 +35,7 @@ dify-projects/
 │   └── dify-dsl-0.6.0.json    # Generated schema (DSL v0.6.0, 27 NodeData types)
 │
 ├── tools/                     # Python tooling
-│   └── dify_base/             # build_index, find, init_project (planned: sync, validate-deep)
+│   └── dify_base/             # build_index, find, init_project, sync (Phase 2.A)
 │
 ├── tests/                     # pytest harness (Phase 1.D)
 │   ├── conftest.py            # DifyWorkflowClient + env-loading fixtures
@@ -59,21 +59,26 @@ dify-projects/
 ## CLI cheatsheet
 
 ```bash
-# Tra template theo feature
+# === Search & Index ===
 python3 tools/dify_base/find.py --has iteration --has file-input
 python3 tools/dify_base/find.py --complexity Simple --has llm
 python3 tools/dify_base/find.py --plugin md_exporter
-python3 tools/dify_base/find.py --name translation
-python3 tools/dify_base/find.py --list-features    # liệt kê available filters
+python3 tools/dify_base/find.py --list-features      # available filters
+python3 tools/dify_base/build_index.py               # rebuild INDEX
 
-# Rebuild index (sau khi thêm template/project mới)
-python3 tools/dify_base/build_index.py
+# === Project scaffolding ===
+python3 tools/dify_base/init_project.py              # interactive new project
 
-# Generate unique node IDs
-python3 skills/mango-svip/scripts/generate_id.py 5
+# === GitOps sync (Phase 2.A) ===
+python3 tools/dify_base/sync.py list --project my_app           # list workspace apps
+python3 tools/dify_base/sync.py pull --project my_app           # fetch all apps to projects/my_app/workflows/
+python3 tools/dify_base/sync.py pull --project my_app --name-contains RAG
+python3 tools/dify_base/sync.py diff --project my_app           # local vs remote diff
+python3 tools/dify_base/sync.py push --project my_app --file workflows/main.yml
 
-# Validate YAML
-python3 skills/mango-svip/scripts/validate_workflow.py <file>.yml
+# === Helpers from skills/ ===
+python3 skills/mango-svip/scripts/generate_id.py 5              # unique node IDs
+python3 skills/mango-svip/scripts/validate_workflow.py <file>   # validate
 ```
 
 ## Bắt đầu một dự án mới
@@ -147,7 +152,9 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **Phase 1.B** — `tools/dify_base/init_project.py` interactive scaffolder + `templates/_base/project/` skeleton
 - ✅ **Phase 1.C** — 4 reusable patterns in `templates/patterns/`: file-iteration, multi-step-llm, rag-qa, agent-with-tools (all validate against schema + skill validator)
 - ✅ **Phase 1.D** — pytest harness ([tests/](tests/)) — minimal `DifyWorkflowClient` + env-loading fixtures + syrupy snapshot example. Skips cleanly without creds.
-- ⏳ **Phase 2** — GitOps sync, pre-commit, devcontainer
+- ✅ **Phase 2.A** — GitOps sync ([tools/dify_base/sync.py](tools/dify_base/sync.py)) — `list/pull/diff/push` workflow apps via Console API. 8 tests passing (mocked HTTP, no real Dify needed).
+- ⏳ **Phase 2.B** — pre-commit hook (yamllint + schema check) + setup script
+- ⏳ **Phase 2.C** — `.devcontainer/` for VS Code
 
 Chi tiết design: xem [docs/architecture.md](docs/architecture.md) (planned).
 
