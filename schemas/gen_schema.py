@@ -8,8 +8,9 @@ workflow YAML files.
 Output: schemas/dify-dsl-<version>.json
 
 Usage:
-    python3 schemas/gen_schema.py                # use ~/Desktop/MyProjects/dify-workspace
+    python3 schemas/gen_schema.py                # use vendor/dify-src/
     python3 schemas/gen_schema.py --dify-src /path/to/dify
+    python3 schemas/gen_schema.py --yes          # auto-overwrite without prompt
     uv run --python 3.12 schemas/gen_schema.py   # if your default Python is too old
 
 Requirements: Python 3.11+ (Dify minimum), pydantic 2.x, pyyaml (for version read).
@@ -17,9 +18,11 @@ Requirements: Python 3.11+ (Dify minimum), pydantic 2.x, pyyaml (for version rea
 from __future__ import annotations
 
 import argparse
+import difflib
 import importlib
 import importlib.util
 import json
+import os
 import re
 import sys
 import traceback
@@ -211,7 +214,10 @@ def robust_import(module_path: str, max_retries: int = 30) -> tuple[object | Non
             return None, f"{type(e).__name__}: {e}"
     return None, f"max_retries exceeded; last error: {last_err}"
 
-DEFAULT_DIFY_SRC = Path.home() / "Desktop" / "MyProjects" / "dify-workspace"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+VENDOR_DIFY_SRC = REPO_ROOT / "vendor" / "dify-src"
+LEGACY_DIFY_SRC = Path.home() / "Desktop" / "MyProjects" / "dify-workspace"
+DEFAULT_DIFY_SRC = VENDOR_DIFY_SRC
 NODES_SUBPATH = "api/core/workflow/nodes"
 DSL_SERVICE_SUBPATH = "api/services/app_dsl_service.py"
 
@@ -225,7 +231,23 @@ class NodeResult:
 
 
 def read_dsl_version(dify_src: Path) -> str:
-    """Extract CURRENT_DSL_VERSION from api/services/app_dsl_service.py."""
+    """Extract DSL version constant from upstream source.
+
+    Older Dify (<= v1.13.x): literal CURRENT_DSL_VERSION = "0.6.0" in
+    api/services/app_dsl_service.py.
+
+    Newer Dify (>= v1.14.0): CURRENT_DSL_VERSION = CURRENT_APP_DSL_VERSION
+    (alias) and the literal lives in api/constants/dsl_version.py.
+    """
+    # Try the alias source first (v1.14+)
+    constants = dify_src / "api" / "constants" / "dsl_version.py"
+    if constants.exists():
+        m = re.search(r'CURRENT_APP_DSL_VERSION\s*=\s*[\'"]([^\'"]+)[\'"]',
+                      constants.read_text(encoding="utf-8"))
+        if m:
+            return m.group(1)
+
+    # Legacy literal in services/app_dsl_service.py
     f = dify_src / DSL_SERVICE_SUBPATH
     if not f.exists():
         return "unknown"
@@ -396,14 +418,50 @@ def compose_root_schema(version: str, node_schemas: dict[str, dict]) -> dict:
     }
 
 
+def _diff_summary(old: str, new: str, max_lines: int = 10) -> str:
+    """Return first `max_lines` lines of a unified diff between two strings."""
+    diff = difflib.unified_diff(
+        old.splitlines(keepends=False),
+        new.splitlines(keepends=False),
+        fromfile="existing",
+        tofile="generated",
+        lineterm="",
+    )
+    head = []
+    for line in diff:
+        head.append(line)
+        if len(head) >= max_lines:
+            break
+    return "\n".join(head)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--dify-src", type=Path, default=DEFAULT_DIFY_SRC,
-                   help=f"Path to Dify source clone (default: {DEFAULT_DIFY_SRC})")
+    p.add_argument("--dify-src", type=Path, default=None,
+                   help=f"Path to Dify source clone (default: {VENDOR_DIFY_SRC.relative_to(REPO_ROOT)}/, "
+                        f"fallback to legacy {LEGACY_DIFY_SRC})")
     p.add_argument("--out", type=Path, default=Path(__file__).parent,
                    help="Output directory (default: same dir as this script)")
+    p.add_argument("--yes", "-y", action="store_true",
+                   help="Auto-overwrite existing schema without confirm prompt")
     p.add_argument("--verbose", "-v", action="store_true")
     args = p.parse_args()
+
+    # Resolve --dify-src: explicit arg > vendor/dify-src/ > legacy fallback (with warning)
+    if args.dify_src is None:
+        if VENDOR_DIFY_SRC.exists():
+            args.dify_src = VENDOR_DIFY_SRC
+        elif LEGACY_DIFY_SRC.exists():
+            print(f"⚠ vendor/dify-src/ not found — falling back to legacy path {LEGACY_DIFY_SRC}",
+                  file=sys.stderr)
+            print(f"  Run ./scripts/setup.sh to vendor Dify source into vendor/dify-src/",
+                  file=sys.stderr)
+            args.dify_src = LEGACY_DIFY_SRC
+        else:
+            print(f"❌ Dify source not found at vendor/dify-src/ or {LEGACY_DIFY_SRC}",
+                  file=sys.stderr)
+            print(f"  Run ./scripts/setup.sh to clone Dify source", file=sys.stderr)
+            return 1
 
     if not args.dify_src.exists():
         print(f"❌ Dify source not found at {args.dify_src}", file=sys.stderr)
@@ -480,14 +538,52 @@ def main() -> int:
         print("❌ No node schemas generated", file=sys.stderr)
         return 1
 
-    # Compose + write
+    # Compose + write (idempotent — skip if identical, prompt if differs)
     root = compose_root_schema(version, all_node_schemas)
     args.out.mkdir(parents=True, exist_ok=True)
     out_file = args.out / f"dify-dsl-{version}.json"
-    out_file.write_text(json.dumps(root, indent=2, ensure_ascii=False), encoding="utf-8")
+    new_text = json.dumps(root, indent=2, ensure_ascii=False)
+
     print()
-    print(f"✓ Wrote {out_file} ({len(all_node_schemas)} node data schemas)")
+    if out_file.exists():
+        old_text = out_file.read_text(encoding="utf-8")
+        if old_text == new_text:
+            print(f"✓ {out_file.relative_to(REPO_ROOT)} unchanged ({len(all_node_schemas)} node data schemas), skipping")
+            _update_latest_symlink(args.out, out_file)
+            return 0
+        print(f"⚠ {out_file.relative_to(REPO_ROOT)} differs from generated output:")
+        diff = _diff_summary(old_text, new_text)
+        if diff:
+            for line in diff.splitlines():
+                print(f"  {line}")
+        if not args.yes:
+            try:
+                resp = input("Overwrite? [y/N] ").strip().lower()
+            except EOFError:
+                resp = ""
+            if resp not in ("y", "yes"):
+                print("Aborted (no overwrite).")
+                return 1
+
+    out_file.write_text(new_text, encoding="utf-8")
+    print(f"✓ Wrote {out_file.relative_to(REPO_ROOT)} ({len(all_node_schemas)} node data schemas)")
+    _update_latest_symlink(args.out, out_file)
     return 0
+
+
+def _update_latest_symlink(out_dir: Path, target: Path) -> None:
+    """Point schemas/_latest.json → target (a generated dify-dsl-<version>.json)."""
+    link = out_dir / "_latest.json"
+    rel_target = target.name  # symlink relative within same dir
+    try:
+        if link.is_symlink() or link.exists():
+            if link.is_symlink() and os.readlink(link) == rel_target:
+                return
+            link.unlink()
+        link.symlink_to(rel_target)
+        print(f"✓ _latest.json → {rel_target}")
+    except OSError as e:
+        print(f"⚠ could not update _latest.json symlink: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # Bootstrap a fresh clone of dify-projects.
 #
-# Re-clones gitignored skills + corpus, sets up the Python venv used by
+# Clones the Dify source into vendor/dify-src/ (used by gen_schema.py),
+# re-clones gitignored skills + corpus, sets up the Python venv used by
 # gen_schema.py / sync.py / pytest, and rebuilds INDEX.md.
 #
 # Usage:
 #   ./scripts/setup.sh
-#   ./scripts/setup.sh --skip-venv     # don't create .venv (use system Python)
-#   ./scripts/setup.sh --skip-clones   # don't re-clone skills/corpus
+#   ./scripts/setup.sh --dify-tag 1.14.0  # pin Dify source to a specific tag
+#   ./scripts/setup.sh --skip-venv        # don't create .venv (use system Python)
+#   ./scripts/setup.sh --skip-clones      # don't re-clone skills/corpus/dify-src
 #
+# Default --dify-tag is read from .dify-tag at repo root (fallback "main").
 # Idempotent — re-runs are safe (skips already-cloned repos and existing venv).
 
 set -euo pipefail
@@ -18,14 +21,23 @@ ROOT="$PWD"
 
 SKIP_VENV=false
 SKIP_CLONES=false
-for arg in "$@"; do
-    case "$arg" in
-        --skip-venv)   SKIP_VENV=true ;;
-        --skip-clones) SKIP_CLONES=true ;;
+DIFY_TAG=""
+
+# Default tag from .dify-tag file at repo root, fallback "main"
+if [ -f "$ROOT/.dify-tag" ]; then
+    DIFY_TAG=$(tr -d ' \t\n\r' < "$ROOT/.dify-tag")
+fi
+[ -z "$DIFY_TAG" ] && DIFY_TAG="main"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --skip-venv)   SKIP_VENV=true; shift ;;
+        --skip-clones) SKIP_CLONES=true; shift ;;
+        --dify-tag)    shift; DIFY_TAG="$1"; shift ;;
         --help|-h)
-            sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
             exit 0 ;;
-        *) echo "Unknown arg: $arg"; exit 1 ;;
+        *) echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
 
@@ -35,10 +47,40 @@ warn() { printf '  \033[33m⚠\033[0m %s\n' "$*"; }
 info() { printf '  • %s\n' "$*"; }
 
 # ---------------------------------------------------------------------------
-# 1. Skills + corpus
+# 1. Vendor Dify source (pinned by --dify-tag / .dify-tag)
 # ---------------------------------------------------------------------------
 if [ "$SKIP_CLONES" = false ]; then
-    bold "[1/4] Cloning skills + corpus"
+    bold "[1/5] Vendoring Dify source (tag: $DIFY_TAG)"
+
+    VENDOR_DIR="$ROOT/vendor/dify-src"
+    if [ -d "$VENDOR_DIR/.git" ]; then
+        CURRENT_TAG=$(cd "$VENDOR_DIR" && git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD)
+        if [ "$CURRENT_TAG" = "$DIFY_TAG" ]; then
+            ok "vendor/dify-src/ already at $DIFY_TAG"
+        else
+            warn "vendor/dify-src/ exists at '$CURRENT_TAG' (not '$DIFY_TAG') — skipping"
+            warn "to switch: cd vendor/dify-src && git fetch --tags && git checkout $DIFY_TAG"
+        fi
+    else
+        mkdir -p "$ROOT/vendor"
+        info "cloning langgenius/dify @ $DIFY_TAG → vendor/dify-src/"
+        if git clone --depth=1 --branch "$DIFY_TAG" \
+                https://github.com/langgenius/dify.git "$VENDOR_DIR" >/dev/null 2>&1; then
+            ok "vendor/dify-src/ (tag $DIFY_TAG)"
+        else
+            warn "failed to clone Dify source (offline or tag '$DIFY_TAG' missing)"
+            warn "gen_schema.py will skip; rerun setup.sh once network/tag is available"
+        fi
+    fi
+else
+    bold "[1/5] Skipping Dify source vendor (--skip-clones)"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Skills + corpus
+# ---------------------------------------------------------------------------
+if [ "$SKIP_CLONES" = false ]; then
+    bold "[2/5] Cloning skills + corpus"
 
     # Format: "<dir>|<url>" (one per line, bash 3.2 compatible — no assoc arrays)
     REPOS="
@@ -58,14 +100,14 @@ corpus/awesome-dify-workflow|https://github.com/svcvit/Awesome-Dify-Workflow.git
         fi
     done <<< "$REPOS"
 else
-    bold "[1/4] Skipping skills/corpus clones (--skip-clones)"
+    bold "[2/5] Skipping skills/corpus clones (--skip-clones)"
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Python venv + deps for gen_schema/sync/tests
+# 3. Python venv + deps for gen_schema/sync/tests
 # ---------------------------------------------------------------------------
 if [ "$SKIP_VENV" = false ]; then
-    bold "[2/4] Setting up Python venv"
+    bold "[3/5] Setting up Python venv"
 
     if ! command -v uv >/dev/null 2>&1; then
         warn "uv not found. Install it: https://docs.astral.sh/uv/getting-started/installation/"
@@ -101,21 +143,25 @@ if [ "$SKIP_VENV" = false ]; then
     fi
     ok "installed $(printf '%s, ' "${DEPS[@]}" | sed 's/, $//' | tr ' ' '\n' | wc -l | tr -d ' ') deps"
 else
-    bold "[2/4] Skipping venv setup (--skip-venv)"
+    bold "[3/5] Skipping venv setup (--skip-venv)"
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Rebuild INDEX.md (catches newly cloned skills/corpus)
+# 4. Rebuild INDEX.md + regenerate VS Code yaml.schemas mapping
 # ---------------------------------------------------------------------------
-bold "[3/4] Rebuilding template index"
+bold "[4/5] Rebuilding template index & VS Code settings"
 PY="python3"
 [ -x .venv/bin/python ] && PY=".venv/bin/python"
 "$PY" tools/dify_base/build_index.py 2>&1 | grep -E "Wrote" | sed 's/^/  /'
 
+if [ -f scripts/regen_vscode_settings.py ]; then
+    "$PY" scripts/regen_vscode_settings.py 2>&1 | sed 's/^/  /'
+fi
+
 # ---------------------------------------------------------------------------
-# 4. Smoke test
+# 5. Smoke test
 # ---------------------------------------------------------------------------
-bold "[4/4] Smoke tests"
+bold "[5/5] Smoke tests"
 $PY tools/dify_base/find.py --list-features >/dev/null && ok "find.py works"
 $PY tools/dify_base/init_project.py --help >/dev/null && ok "init_project.py works"
 $PY tools/dify_base/sync.py --help >/dev/null && ok "sync.py works"
@@ -134,6 +180,5 @@ echo "  • Browse templates:    $PY tools/dify_base/find.py --has iteration"
 echo "  • Regenerate schema:   .venv/bin/python schemas/gen_schema.py"
 echo "  • Run tests:           .venv/bin/pytest tests/"
 echo
-echo "Need a Dify workspace clone for schema regen? Defaults to:"
-echo "  ~/Desktop/MyProjects/dify-workspace/"
-echo "Override with: gen_schema.py --dify-src /path/to/dify"
+echo "Dify source is vendored at vendor/dify-src/ (pinned via .dify-tag = $DIFY_TAG)."
+echo "To switch versions: ./scripts/setup.sh --dify-tag <new-tag>"

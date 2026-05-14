@@ -175,6 +175,10 @@ CI cron weekly (xem Spec 004):
 **Q1.6**: Khi user clone repo lần đầu, chưa có `vendor/dify-src/`. Setup.sh fail nếu network không reach github?
 - Đề xuất: skip clone với warning, gen_schema sẽ skip + cảnh báo schema không có
 
+**Q1.7** (surfaced during Y.1 implementation, 2026-05-14): `gen_schema.py` fails on vendored Dify v1.14.0 — only 2/7 node entity modules import (vs 24/25 on legacy 2026-02-20 clone). The `api/core/workflow/nodes/` tree has been refactored upstream: 7 dirs instead of 25, several use new pydantic patterns that break our stubbing (`metaclass conflict`, `Implementation.version` strict-validation). Also DSL constant moved from `services/app_dsl_service.py` literal → alias of `constants/dsl_version.CURRENT_APP_DSL_VERSION` (now handled by read_dsl_version).
+- Decision (defaulted, Y.1 scope): keep the legacy-generated `schemas/dify-dsl-0.6.0.json` as the shipped baseline; vendor folder exists + default points to it; refresh + stub adaptation is Y.4 work. Users wanting to regen against the (still-working) legacy clone: `python schemas/gen_schema.py --dify-src ~/Desktop/MyProjects/dify-workspace/`.
+- Reason: matches "Decisions resolved" tone ("for now, vendor is created but stays at 1.14.0 tag" — Y.4 refresh, not Y.1).
+
 ## Acceptance criteria
 
 - [ ] `./scripts/setup.sh --dify-tag 1.13.0` clone vào `vendor/dify-src/` tag 1.13.0, gen schema 0.6.0 (giả định tag đó vẫn DSL 0.6.0)

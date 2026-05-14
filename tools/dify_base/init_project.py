@@ -27,6 +27,7 @@ PROJECTS_DIR = BASE / "projects"
 APP_TYPES = ["workflow", "chatflow", "agent", "completion"]
 LANGS = ["en", "ja", "vi", "zh", "ja-en", "vi-en", "ja-vi"]
 DEFAULT_DSL_VERSION = "0.6.0"
+DEFAULT_DIFY_TAG = "main"
 
 # Files that should NOT have {{var}} substitution applied (binary, large, etc.)
 SKIP_SUBSTITUTE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".zip", ".xlsx"}
@@ -39,6 +40,7 @@ class Answers:
     description: str
     app_type: str
     dsl_version: str
+    dify_tag: str
     primary_lang: str
     date: str
 
@@ -74,12 +76,27 @@ def ask(prompt: str, default: str | None = None, choices: list[str] | None = Non
 
 
 def detect_dsl_version() -> str:
-    """Detect DSL version from generated schema file name, fallback to default."""
+    """Detect DSL version from .dify-dsl-version file, fallback to default."""
+    pin = BASE / ".dify-dsl-version"
+    if pin.exists():
+        v = pin.read_text(encoding="utf-8").strip()
+        if v:
+            return v
     schemas = sorted((BASE / "schemas").glob("dify-dsl-*.json"))
     if not schemas:
         return DEFAULT_DSL_VERSION
     m = re.search(r"dify-dsl-([\d.]+)\.json", schemas[-1].name)
     return m.group(1) if m else DEFAULT_DSL_VERSION
+
+
+def detect_dify_tag() -> str:
+    """Read pinned Dify source tag from .dify-tag at repo root, fallback to default."""
+    pin = BASE / ".dify-tag"
+    if pin.exists():
+        v = pin.read_text(encoding="utf-8").strip()
+        if v:
+            return v
+    return DEFAULT_DIFY_TAG
 
 
 def collect_interactive() -> Answers:
@@ -95,6 +112,8 @@ def collect_interactive() -> Answers:
     app_type = ask("App type", default="workflow", choices=APP_TYPES)
     dsl_default = detect_dsl_version()
     dsl_version = ask("Target Dify DSL version", default=dsl_default)
+    dify_tag = detect_dify_tag()
+    print(f"  ℹ Dify source tag pinned by repo: {dify_tag} (from .dify-tag)")
     primary_lang = ask("Primary prompt language", default="en", choices=LANGS)
 
     return Answers(
@@ -103,6 +122,7 @@ def collect_interactive() -> Answers:
         description=description,
         app_type=app_type,
         dsl_version=dsl_version,
+        dify_tag=dify_tag,
         primary_lang=primary_lang,
         date=date.today().isoformat(),
     )
@@ -171,6 +191,7 @@ def main() -> int:
             description=args.description or args.name,
             app_type=args.app_type,
             dsl_version=args.dsl_version or detect_dsl_version(),
+            dify_tag=detect_dify_tag(),
             primary_lang=args.primary_lang,
             date=date.today().isoformat(),
         )
@@ -199,6 +220,18 @@ def main() -> int:
         return 1
 
     print(f"✓ Created {target.relative_to(BASE)}/")
+
+    # Regenerate .vscode/settings.json so this project's yaml.schemas mapping
+    # picks up its dsl_version. Failures are non-fatal — user can run manually.
+    regen = BASE / "scripts" / "regen_vscode_settings.py"
+    if regen.exists():
+        import subprocess
+        try:
+            subprocess.run([sys.executable, str(regen)], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"⚠ regen_vscode_settings.py failed: {e}", file=sys.stderr)
+            print(f"  Run manually: python3 scripts/regen_vscode_settings.py", file=sys.stderr)
+
     print()
     print("Next steps:")
     print(f"  cd {target.relative_to(BASE.parent)}")

@@ -1,8 +1,6 @@
 {
   "yaml.schemas": {
     "./schemas/dify-dsl-0.6.0.json": [
-      "projects/*/workflows/*.yml",
-      "projects/*/workflows/*.yaml",
       "templates/patterns/*.yml",
       "templates/_base/**/workflows/*.yml"
     ]

@@ -4,6 +4,7 @@ tools/dify_base/index.json
 # External clones (re-clone if needed)
 skills/*/
 corpus/*/
+vendor/
 
 # But keep .gitkeep placeholders
 !skills/.gitkeep
