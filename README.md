@@ -12,6 +12,7 @@ Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 > 📖 **Quick start**: [docs/GUIDE.md](docs/GUIDE.md) — operations guide (quy trình build YAML, decision tree, troubleshooting).
 > 🏛️ **Architecture**: [docs/architecture.md](docs/architecture.md) — 4 trụ cột, workflow end-to-end, tradeoffs.
 > 🔍 **Tra template**: [INDEX.md](INDEX.md) hoặc `python3 tools/dify_base/find.py --has iteration`.
+> 🤖 **AI agents**: see [AGENTS.md](AGENTS.md) — universal context file (Claude Code, Codex CLI, Cursor, ...).
 
 ## Setup từ fresh clone
 

@@ -72,3 +72,12 @@ repos:
         entry: scripts/check_dsl_version.sh
         language: script
         files: ^(templates/patterns/.*\.yml|projects/.*/workflows/.*\.yml)$
+
+      - id: agents-md-refs
+        name: AGENTS.md references valid
+        # Drift guard: every file path mentioned in AGENTS.md must still exist.
+        # Catches the common case where AGENTS.md points at a renamed/deleted file.
+        entry: scripts/check_agents_refs.sh
+        language: script
+        files: ^(AGENTS\.md|scripts/check_agents_refs\.sh)$
+        pass_filenames: false

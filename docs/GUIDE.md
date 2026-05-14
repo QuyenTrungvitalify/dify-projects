@@ -1,6 +1,7 @@
 # Dify Base — Operations Guide
 
 > Tóm tắt nhanh: xem [README.md](../README.md). Thiết kế kiến trúc + roadmap: xem [architecture.md](architecture.md).
+> AI agents: read [../AGENTS.md](../AGENTS.md) first — concise universal context for any AI tool.
 
 Hướng dẫn vận hành base workspace cho việc build Dify workflow. Đọc file này khi:
 - Bắt đầu task Dify mới

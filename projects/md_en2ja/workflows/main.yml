@@ -1,0 +1,245 @@
+# Workflow: Markdown EN→JA Translator (preserves code blocks)
+#
+# Flow:
+#   Start (markdown_en text)
+#     → Code: extract code blocks, replace with placeholders
+#     → LLM:  translate only the natural-language text to Japanese
+#     → Code: restore code blocks into placeholders
+#     → End  (markdown_ja)
+#
+# Pattern source: templates/patterns/multi-step-llm.yml (simplified to 1 LLM
+# call sandwiched between two python3 code nodes). The code nodes use a stdlib-
+# only regex to mask fenced code blocks (```...```) AND inline code (`...`),
+# so the LLM never sees them and cannot mistranslate identifiers.
+
+app:
+  description: 'Translate English markdown documents to Japanese, preserving code blocks'
+  icon: "\U0001F4DD"
+  icon_background: '#E1F0FF'
+  icon_type: emoji
+  mode: workflow
+  name: 'Markdown EN→JA Translator'
+  use_icon_as_answer_icon: false
+# TODO: add plugin hash from target workspace for the LLM provider used in node 1778726282424
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload: { enabled: false }
+    opening_statement: ''
+    retriever_resource: { enabled: true }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: 1778726282420-source-1778726282422-target
+      source: '1778726282420'
+      target: '1778726282422'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: code }
+      zIndex: 0
+    - id: 1778726282422-source-1778726282424-target
+      source: '1778726282422'
+      target: '1778726282424'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: llm }
+      zIndex: 0
+    - id: 1778726282424-source-1778726282426-target
+      source: '1778726282424'
+      target: '1778726282426'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: code }
+      zIndex: 0
+    - id: 1778726282426-source-1778726282429-target
+      source: '1778726282426'
+      target: '1778726282429'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: end }
+      zIndex: 0
+    nodes:
+    - id: '1778726282420'
+      type: custom
+      data:
+        title: 'Input'
+        type: start
+        variables:
+        - variable: markdown_en
+          label: markdown_en
+          type: paragraph
+          required: true
+          max_length: 20000
+          hint: 'English markdown document. Fenced ``` code blocks and inline `code` will be preserved verbatim.'
+          options: []
+          placeholder: ''
+      position: { x: 0, y: 280 }
+      positionAbsolute: { x: 0, y: 280 }
+      width: 242
+      height: 107
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1778726282422'
+      type: custom
+      data:
+        title: 'Code — Mask code blocks'
+        type: code
+        code_language: python3
+        code: |
+          import re
+
+          def main(markdown_en: str) -> dict:
+              text = markdown_en or ""
+              blocks = []
+
+              def stash_fenced(m):
+                  blocks.append(m.group(0))
+                  return f"@@CODEBLOCK_{len(blocks) - 1}@@"
+
+              def stash_inline(m):
+                  blocks.append(m.group(0))
+                  return f"@@CODEBLOCK_{len(blocks) - 1}@@"
+
+              # Fenced blocks first (greedy multi-line), then inline.
+              masked = re.sub(r"```[\s\S]*?```", stash_fenced, text)
+              masked = re.sub(r"`[^`\n]+`", stash_inline, masked)
+
+              return {
+                  "masked_text": masked,
+                  "blocks": blocks,
+              }
+        variables:
+        - variable: markdown_en
+          value_selector: ['1778726282420', markdown_en]
+        outputs:
+          masked_text:
+            type: string
+            children: null
+          blocks:
+            type: array[string]
+            children: null
+      position: { x: 342, y: 280 }
+      positionAbsolute: { x: 342, y: 280 }
+      width: 241
+      height: 98
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1778726282424'
+      type: custom
+      data:
+        title: 'LLM — Translate EN→JA'
+        type: llm
+        # TODO: configure model — pick a strong instruction-following model installed in your workspace
+        model:
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.2
+        prompt_template:
+        - role: system
+          text: |
+            You are a professional EN→JA technical translator.
+
+            Translate the user's markdown text into natural, fluent Japanese.
+
+            Strict rules:
+            1. The text contains placeholders of the exact form `@@CODEBLOCK_<N>@@` where
+               <N> is an integer. Keep every such placeholder EXACTLY as-is — do not
+               translate, reformat, renumber, add spaces, or remove them.
+            2. Preserve all markdown structure: headings (#), lists (-, *, numbered),
+               tables, blockquotes (>), links [text](url), images, bold/italic markers.
+            3. Translate link anchor text but NOT URLs.
+            4. Do not add commentary, preface, or explanation. Output only the translated
+               markdown.
+        - role: user
+          text: '{{#1778726282422.masked_text#}}'
+        memory: null
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+      position: { x: 684, y: 280 }
+      positionAbsolute: { x: 684, y: 280 }
+      width: 241
+      height: 98
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1778726282426'
+      type: custom
+      data:
+        title: 'Code — Restore code blocks'
+        type: code
+        code_language: python3
+        code: |
+          import re
+
+          def main(translated_text: str, blocks: list) -> dict:
+              text = translated_text or ""
+              blocks = blocks or []
+
+              def restore(m):
+                  idx = int(m.group(1))
+                  if 0 <= idx < len(blocks):
+                      return blocks[idx]
+                  # Leave placeholder untouched if index is out of range (defensive).
+                  return m.group(0)
+
+              restored = re.sub(r"@@CODEBLOCK_(\d+)@@", restore, text)
+
+              return {
+                  "markdown_ja": restored,
+                  "block_count": len(blocks),
+              }
+        variables:
+        - variable: translated_text
+          value_selector: ['1778726282424', text]
+        - variable: blocks
+          value_selector: ['1778726282422', blocks]
+        outputs:
+          markdown_ja:
+            type: string
+            children: null
+          block_count:
+            type: number
+            children: null
+      position: { x: 1026, y: 280 }
+      positionAbsolute: { x: 1026, y: 280 }
+      width: 241
+      height: 98
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1778726282429'
+      type: custom
+      data:
+        title: 'Output'
+        type: end
+        outputs:
+        - variable: markdown_ja
+          value_selector: ['1778726282426', markdown_ja]
+          value_type: string
+        - variable: block_count
+          value_selector: ['1778726282426', block_count]
+          value_type: number
+      position: { x: 1368, y: 280 }
+      positionAbsolute: { x: 1368, y: 280 }
+      width: 241
+      height: 144
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.6 }
