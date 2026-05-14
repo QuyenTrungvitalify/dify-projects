@@ -1,0 +1,80 @@
+name: refresh-schema
+
+on:
+  schedule:
+    - cron: '0 9 * * MON'   # Monday 9am UTC
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv + deps
+        run: |
+          pip install uv
+          uv pip install --system pydantic pydantic-settings pyyaml \
+              pycryptodome httpx sqlalchemy charset-normalizer pytz flask \
+              redis yarl flask-login cachetools jsonschema requests
+
+      - name: Check for existing open schema-refresh PR
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          existing=$(gh pr list --search "is:open head:schema-refresh-" --json number --jq '.[].number' | head -1)
+          if [ -n "$existing" ]; then
+            echo "open=true" >> "$GITHUB_OUTPUT"
+            echo "Found existing PR #$existing — skipping."
+          else
+            echo "open=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read pinned Dify tag
+        if: steps.existing.outputs.open != 'true'
+        id: tag
+        run: echo "tag=$(cat .dify-tag 2>/dev/null || echo main)" >> "$GITHUB_OUTPUT"
+
+      - name: Clone Dify upstream
+        if: steps.existing.outputs.open != 'true'
+        run: |
+          git clone --depth=1 --branch "${{ steps.tag.outputs.tag }}" \
+              https://github.com/langgenius/dify.git vendor/dify-src
+
+      - name: Regenerate schema
+        if: steps.existing.outputs.open != 'true'
+        run: python3 schemas/gen_schema.py --yes
+
+      - name: Diff check
+        if: steps.existing.outputs.open != 'true'
+        id: changed
+        run: |
+          if git diff --quiet schemas/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open PR
+        if: steps.changed.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          title: "schema: refresh from Dify ${{ steps.tag.outputs.tag }}"
+          body: |
+            Auto-generated weekly schema refresh.
+
+            **Reviewer checklist**:
+            - [ ] Run `./scripts/setup.sh && .venv/bin/python schemas/gen_schema.py` locally
+            - [ ] Confirm 4 patterns still validate
+            - [ ] If DSL version bumped: file migration spec
+          branch: schema-refresh-${{ github.run_id }}
+          commit-message: "schema: refresh from Dify ${{ steps.tag.outputs.tag }}"
+          delete-branch: true

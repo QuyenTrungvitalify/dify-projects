@@ -90,3 +90,12 @@ repos:
         language: system
         files: ^(templates/patterns/.*\.yml|projects/.*/workflows/.*\.yml)$
         require_serial: false
+
+      - id: dify-lint-plugin-hashes
+        name: plugin hash format
+        # Validates marketplace_plugin_unique_identifier matches
+        # <provider>/<plugin>:<semver>@<sha256> (sub-spec 005.1).
+        entry: python3 tools/dify_base/lint_plugin_hashes.py
+        language: system
+        files: ^(templates/patterns/.*\.yml|projects/.*/workflows/.*\.yml)$
+        require_serial: false

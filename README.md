@@ -1,5 +1,7 @@
 # Dify Projects — Base Workspace
 
+![CI](https://github.com/QuyenTrungvitalify/dify-projects/actions/workflows/ci.yml/badge.svg)
+
 Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 
 - Reference skills + corpus + node-type schema để build YAML workflow nhanh
@@ -7,7 +9,7 @@ Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 - Cấu trúc folder thống nhất cho từng project con (`projects/<name>/`)
 - GitOps sync (pull/push/diff giữa Dify workspace ↔ git)
 - pytest harness + pre-commit hooks
-- Auto-generated JSON Schema cho Dify DSL (28 NodeData types)
+- Auto-generated JSON Schema cho Dify DSL (29 NodeData types)
 
 > 📖 **Quick start**: [docs/GUIDE.md](docs/GUIDE.md) — operations guide (quy trình build YAML, decision tree, troubleshooting).
 > 🏛️ **Architecture**: [docs/architecture.md](docs/architecture.md) — 4 trụ cột, workflow end-to-end, tradeoffs.
@@ -44,7 +46,7 @@ dify-projects/
 │
 ├── schemas/                   # Auto-generated JSON Schema for Dify DSL (Phase 1.A done)
 │   ├── gen_schema.py          # Reverse-engineer schema from dify pydantic models
-│   └── dify-dsl-0.6.0.json    # Generated schema (DSL v0.6.0, 28 NodeData types)
+│   └── dify-dsl-0.6.0.json    # Generated schema (DSL v0.6.0, 29 NodeData types)
 │
 ├── tools/                     # Python tooling
 │   └── dify_base/             # build_index, find, init_project, sync (Phase 2.A)
@@ -157,7 +159,7 @@ uv pip install --python .venv/bin/python pydantic pydantic-settings pyyaml jsons
 # Output: schemas/dify-dsl-<version>.json (DSL version đọc từ Dify source)
 ```
 
-Strategy: auto-stub heavy deps (flask, redis, models, controllers...) bằng permissive pydantic-friendly classes → import pydantic NodeData từ `api/core/workflow/nodes/<type>/entities.py` → dump `model_json_schema()`. Hiện **24/25 node types** thành công (**28 NodeData schemas**). Còn 1 fail: `agent` (chain dependent vào `core.mcp.types.Implementation` strict-validate `version: str` — pre-stub `core.mcp` shadow real `core.workflow.X` imports). Documented as known limitation.
+Strategy: auto-stub heavy deps (flask, redis, models, controllers...) bằng permissive pydantic-friendly classes → import pydantic NodeData từ `api/core/workflow/nodes/<type>/entities.py` → dump `model_json_schema()`. Hiện **24/25 node types** thành công (**29 NodeData schemas**). Còn 1 fail: `agent` (chain dependent vào `core.mcp.types.Implementation` strict-validate `version: str` — pre-stub `core.mcp` shadow real `core.workflow.X` imports). Documented as known limitation.
 
 VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML files trong `projects/*/workflows/*.yml` và `templates/patterns/*.yml` tự động hover/autocomplete/validate theo schema.
 
