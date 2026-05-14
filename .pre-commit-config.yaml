@@ -1,0 +1,74 @@
+# Pre-commit hooks for dify-projects.
+#
+# Install:
+#   pip install pre-commit
+#   pre-commit install
+#
+# Run on demand:
+#   pre-commit run --all-files
+#
+# Hooks run only on relevant files (filtered via `files:` regex):
+#   1. YAML lint (light)               — all *.yml
+#   2. Pattern + project schema check  — templates/patterns/*.yml + projects/*/workflows/*.yml
+#   3. Skill validate_workflow.py      — same files (deeper structural check)
+#   4. Python compile                  — all .py committed
+#
+# To skip in an emergency: git commit --no-verify (but please don't)
+
+repos:
+  # --- 1. Built-in basic hooks ---
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(corpus/|skills/|tests/__snapshots__/)
+      - id: end-of-file-fixer
+        exclude: ^(corpus/|skills/|tests/__snapshots__/|.*\.json$)
+      - id: check-yaml
+        # Default check-yaml fails on multi-doc YAML and inline {} in Dify DSL.
+        # We use a permissive parser here, real schema check in next hook.
+        args: [--allow-multiple-documents, --unsafe]
+        exclude: ^(corpus/|skills/)
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+        exclude: ^(schemas/dify-dsl-.*\.json|corpus/)
+
+  # --- 2. YAML lint (light) ---
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.37.0
+    hooks:
+      - id: yamllint
+        args:
+          - -d
+          - "{extends: relaxed, rules: {line-length: disable, document-start: disable, truthy: disable, comments-indentation: disable, indentation: disable}}"
+        files: ^(templates/|projects/.*/workflows/|projects/.*/\.dify-workspace\.yaml).*\.ya?ml$
+
+  # --- 3. JSON Schema validation (Dify DSL) ---
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.34.0
+    hooks:
+      - id: check-jsonschema
+        name: check-jsonschema (Dify DSL v0.6.0)
+        files: ^(templates/patterns/.*\.yml|projects/.*/workflows/.*\.yml)$
+        args:
+          - --schemafile
+          - schemas/dify-dsl-0.6.0.json
+
+  # --- 4. Local hooks (skill validator + Python compile) ---
+  - repo: local
+    hooks:
+      - id: dify-skill-validate
+        name: skill validate_workflow.py
+        entry: python3 skills/mango-svip/scripts/validate_workflow.py
+        language: system
+        files: ^(templates/patterns/.*\.yml|projects/.*/workflows/.*\.yml)$
+        require_serial: false
+
+      - id: dify-dsl-version-guard
+        name: DSL version pinned to schema
+        # Quick guard: every Dify workflow yml should have `version: 0.6.0`
+        # matching the committed schema. Catches accidental version drift.
+        entry: scripts/check_dsl_version.sh
+        language: script
+        files: ^(templates/patterns/.*\.yml|projects/.*/workflows/.*\.yml)$

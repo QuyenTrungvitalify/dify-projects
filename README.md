@@ -5,10 +5,21 @@ Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 - Reference skills + corpus + node-type schema để build YAML workflow nhanh
 - CLI search 51+ template theo feature/complexity/plugin
 - Cấu trúc folder thống nhất cho từng project con (`projects/<name>/`)
-- Roadmap mở rộng (scaffolder, JSON Schema, test harness) — xem [docs/architecture.md](docs/architecture.md)
+- GitOps sync (pull/push/diff giữa Dify workspace ↔ git)
+- pytest harness + pre-commit hooks
+- Auto-generated JSON Schema cho Dify DSL (28 NodeData types)
 
 > 📖 **Quick start**: [docs/GUIDE.md](docs/GUIDE.md) — operations guide (quy trình build YAML, decision tree, troubleshooting).
+> 🏛️ **Architecture**: [docs/architecture.md](docs/architecture.md) — 4 trụ cột, workflow end-to-end, tradeoffs.
 > 🔍 **Tra template**: [INDEX.md](INDEX.md) hoặc `python3 tools/dify_base/find.py --has iteration`.
+
+## Setup từ fresh clone
+
+```bash
+git clone <repo> dify-projects && cd dify-projects
+./scripts/setup.sh
+# → re-clones skills/corpus, creates .venv, installs deps, rebuilds INDEX, runs smoke tests
+```
 
 ## Cấu trúc
 
@@ -76,6 +87,10 @@ python3 tools/dify_base/sync.py pull --project my_app --name-contains RAG
 python3 tools/dify_base/sync.py diff --project my_app           # local vs remote diff
 python3 tools/dify_base/sync.py push --project my_app --file workflows/main.yml
 
+# === Pre-commit hooks (Phase 2.B) ===
+.venv/bin/pre-commit install                                    # enable on git commit
+.venv/bin/pre-commit run --all-files                            # run all hooks manually
+
 # === Helpers from skills/ ===
 python3 skills/mango-svip/scripts/generate_id.py 5              # unique node IDs
 python3 skills/mango-svip/scripts/validate_workflow.py <file>   # validate
@@ -141,7 +156,7 @@ uv pip install --python .venv/bin/python pydantic pydantic-settings pyyaml jsons
 # Output: schemas/dify-dsl-<version>.json (DSL version đọc từ Dify source)
 ```
 
-Strategy: auto-stub heavy deps (flask, redis, models, controllers...) bằng permissive pydantic-friendly classes → import pydantic NodeData từ `api/core/workflow/nodes/<type>/entities.py` → dump `model_json_schema()`. Hiện 23/25 node types thành công (27 NodeData schemas). Failed: `agent` (libs.exception submodule), `http_request` (timeout class default value với stubbed config).
+Strategy: auto-stub heavy deps (flask, redis, models, controllers...) bằng permissive pydantic-friendly classes → import pydantic NodeData từ `api/core/workflow/nodes/<type>/entities.py` → dump `model_json_schema()`. Hiện **24/25 node types** thành công (**28 NodeData schemas**). Còn 1 fail: `agent` (chain dependent vào `core.mcp.types.Implementation` strict-validate `version: str` — pre-stub `core.mcp` shadow real `core.workflow.X` imports). Documented as known limitation.
 
 VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML files trong `projects/*/workflows/*.yml` và `templates/patterns/*.yml` tự động hover/autocomplete/validate theo schema.
 
@@ -152,8 +167,9 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **Phase 1.B** — `tools/dify_base/init_project.py` interactive scaffolder + `templates/_base/project/` skeleton
 - ✅ **Phase 1.C** — 4 reusable patterns in `templates/patterns/`: file-iteration, multi-step-llm, rag-qa, agent-with-tools (all validate against schema + skill validator)
 - ✅ **Phase 1.D** — pytest harness ([tests/](tests/)) — minimal `DifyWorkflowClient` + env-loading fixtures + syrupy snapshot example. Skips cleanly without creds.
-- ✅ **Phase 2.A** — GitOps sync ([tools/dify_base/sync.py](tools/dify_base/sync.py)) — `list/pull/diff/push` workflow apps via Console API. 8 tests passing (mocked HTTP, no real Dify needed).
-- ⏳ **Phase 2.B** — pre-commit hook (yamllint + schema check) + setup script
+- ✅ **Phase 2.A** — GitOps sync ([tools/dify_base/sync.py](tools/dify_base/sync.py)) — `list/pull/diff/push` workflow apps via Console API. 8 tests passing (mocked HTTP, no real Dify needed). Polish: clean error messages for connection/timeout/HTTP failures.
+- ✅ **Phase 2.B** — pre-commit hooks ([.pre-commit-config.yaml](.pre-commit-config.yaml), 9 hooks: yamllint + check-jsonschema + skill validator + DSL version guard + 5 built-in) + bootstrap script ([scripts/setup.sh](scripts/setup.sh))
+- ✅ **Polish 1.A** — fixed `http_request` schema gen (smart `_SmartConfigStub` for `dify_config.HTTP_REQUEST_MAX_*_TIMEOUT` int defaults). Coverage: 23/25 → 24/25.
 - ⏳ **Phase 2.C** — `.devcontainer/` for VS Code
 
 Chi tiết design: xem [docs/architecture.md](docs/architecture.md) (planned).

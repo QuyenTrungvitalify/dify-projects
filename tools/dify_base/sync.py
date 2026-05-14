@@ -159,9 +159,26 @@ def _client_from_env() -> DifyConsoleClient:
     return DifyConsoleClient(url, token)
 
 
+def _fmt_request_error(e: requests.RequestException) -> str:
+    """Return a one-line user-friendly summary of a requests exception."""
+    if isinstance(e, requests.ConnectionError):
+        return f"connection failed (DNS / unreachable / refused) — {e.__class__.__name__}"
+    if isinstance(e, requests.Timeout):
+        return f"timeout after {getattr(e.request, 'timeout', '?')}s"
+    if isinstance(e, requests.HTTPError):
+        resp = getattr(e, "response", None)
+        code = resp.status_code if resp is not None else "?"
+        body = (resp.text[:200] if resp is not None else "").replace("\n", " ")
+        return f"HTTP {code} — {body}"
+    return f"{e.__class__.__name__}: {e}"
+
+
 def cmd_list(args) -> int:
     client = _client_from_env()
-    res = client.list_apps(page=args.page, limit=args.limit, mode=args.mode, name=args.name)
+    try:
+        res = client.list_apps(page=args.page, limit=args.limit, mode=args.mode, name=args.name)
+    except requests.RequestException as e:
+        sys.exit(f"❌ list_apps failed: {_fmt_request_error(e)}")
     apps = res.get("data", [])
     print(f"\n{len(apps)} apps (page {args.page}, limit {args.limit}):\n")
     print(f"  {'app_id':<38} {'mode':<14} {'name'}")
@@ -186,7 +203,10 @@ def cmd_pull(args) -> int:
     if args.app_id:
         apps = [{"id": args.app_id, "name": args.app_id, "mode": "?"}]
     else:
-        res = client.list_apps(page=1, limit=200, name=args.name_contains)
+        try:
+            res = client.list_apps(page=1, limit=200, name=args.name_contains)
+        except requests.RequestException as e:
+            sys.exit(f"❌ list_apps failed: {_fmt_request_error(e)}")
         apps = res.get("data", [])
 
     if not apps:
@@ -207,8 +227,8 @@ def cmd_pull(args) -> int:
         app_id = a["id"]
         try:
             yaml_text = client.export_app(app_id, include_secret=args.include_secret)
-        except requests.HTTPError as e:
-            print(f"  ❌ {a.get('name')} ({app_id}): {e}")
+        except requests.RequestException as e:
+            print(f"  ❌ {a.get('name')} ({app_id}): {_fmt_request_error(e)}")
             continue
         slug = _slugify(a.get("name", app_id))
         out_path = target_dir / f"{slug}.yml"
@@ -226,7 +246,10 @@ def cmd_diff(args) -> int:
     if not workflows_dir.exists():
         sys.exit(f"❌ No workflows in projects/{args.project}/workflows/")
 
-    res = client.list_apps(page=1, limit=200)
+    try:
+        res = client.list_apps(page=1, limit=200)
+    except requests.RequestException as e:
+        sys.exit(f"❌ list_apps failed: {_fmt_request_error(e)}")
     remote_by_slug: dict[str, dict] = {
         _slugify(a.get("name", a["id"])): a for a in res.get("data", [])
     }
@@ -242,8 +265,8 @@ def cmd_diff(args) -> int:
             continue
         try:
             remote_yaml = client.export_app(remote_app["id"], include_secret=False)
-        except requests.HTTPError as e:
-            print(f"  ❌ {local_path.relative_to(BASE)}: {e}")
+        except requests.RequestException as e:
+            print(f"  ❌ {local_path.relative_to(BASE)}: {_fmt_request_error(e)}")
             continue
         local_yaml = local_path.read_text(encoding="utf-8")
         if local_yaml == remote_yaml:
@@ -287,7 +310,10 @@ def cmd_push(args) -> int:
         if input("Proceed? [y/N] ").strip().lower() not in ("y", "yes"):
             return 0
 
-    result = client.import_app(yaml_content, name=args.name, description=args.description)
+    try:
+        result = client.import_app(yaml_content, name=args.name, description=args.description)
+    except requests.RequestException as e:
+        sys.exit(f"❌ import_app failed: {_fmt_request_error(e)}")
     print(f"\n✓ Import result: {json.dumps(result, indent=2)}")
     return 0
 

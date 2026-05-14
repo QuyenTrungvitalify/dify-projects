@@ -1462,6 +1462,9 @@
       "title": "EndNodeData",
       "type": "object"
     },
+    "NodeData_HttpRequestNodeData": {
+      "_error": "TypeError: '_Stub___pydantic_serializer__' object is not an instance of 'SchemaSerializer'"
+    },
     "NodeData_HumanInputNodeData": {
       "$defs": {
         "ButtonStyle": {

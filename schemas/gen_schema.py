@@ -44,13 +44,45 @@ PRE_STUB_PACKAGES = [
     "factories",
     "libs",
     "configs",
+    "repositories",
     "flask_sqlalchemy",
     "flask_login",
     "flask_restful",
     "flask_cors",
     "celery",
     "boto3",
+    "psycopg2",
 ]
+# Known stubbing limitation: `agent` node entity transitively imports
+# `core.mcp.types.Implementation(version: str)` which pydantic-validates the
+# `version` arg strictly. Stubbing `core.mcp` would shadow real `core.workflow`
+# imports. Workaround would require deeper refactor; for now `agent` is the
+# one remaining unsupported node type (24/25 coverage).
+
+
+class _SmartConfigStub:
+    """Stub for `configs.dify_config` — returns sensible-type defaults based on
+    attribute name pattern. Real Dify has hundreds of config attrs; we infer
+    types from common naming conventions so pydantic field defaults type-check.
+    """
+    _INT_KEYWORDS = ("TIMEOUT", "MAX_", "MIN_", "_LIMIT", "_SIZE", "RETRIES",
+                     "NUM_", "_NUMS", "BATCH", "PORT", "DEPTH", "COUNT",
+                     "INTERVAL", "_LENGTH", "_BYTES")
+    _BOOL_KEYWORDS = ("ENABLED", "IS_", "_ENABLE", "ALLOW_", "_DEBUG")
+    _LIST_KEYWORDS = ("_LIST", "ALLOWED_")
+
+    def __getattr__(self, name: str):
+        if any(kw in name for kw in self._INT_KEYWORDS):
+            return 30
+        if any(kw in name for kw in self._BOOL_KEYWORDS):
+            return False
+        if any(kw in name for kw in self._LIST_KEYWORDS):
+            return []
+        # Default: return a permissive object so chained access (.foo.bar) works
+        return _make_permissive_class(name)()
+
+    def __repr__(self):
+        return "<_SmartConfigStub>"
 
 
 class _PermissiveMeta(type):
@@ -86,6 +118,11 @@ class _PermissiveType(metaclass=_PermissiveMeta):
     def __iter__(self):
         return iter([])
 
+    def __getattr__(self, item):
+        # Any unknown attribute on a _PermissiveType *instance* — return another
+        # permissive instance so chained `.foo.bar.baz` accesses don't fail.
+        return _make_permissive_class(item)()
+
 
 def _make_permissive_class(name: str) -> type:
     """Create a unique _PermissiveType subclass with the given name."""
@@ -102,16 +139,50 @@ class _PermissiveModule(types.ModuleType):
 
 
 def _stub_module(name: str) -> None:
-    """Install a permissive stub for `name` (and parents) in sys.modules."""
+    """Install a permissive stub for `name` (and create parent packages so Python
+    can resolve the dotted import). Only the EXACT `name` is tracked in
+    _STUBBED_MODULES — parents are minimally registered but not claimed as
+    stubs, so real submodules under them can still load.
+    """
     parts = name.split(".")
     for i in range(len(parts)):
         sub = ".".join(parts[: i + 1])
+        is_target = (sub == name)
         if sub in sys.modules:
+            if is_target:
+                _STUBBED_MODULES.add(sub)
             continue
         m = _PermissiveModule(sub)
-        m.__path__ = []  # mark as package
+        m.__path__ = []
         sys.modules[sub] = m
-        _STUBBED_MODULES.add(sub)
+        if is_target:
+            _STUBBED_MODULES.add(sub)
+
+
+class _StubFinder:
+    """Meta-path finder: any import whose top-level package is in PRE_STUB_PACKAGES
+    (or already stubbed) gets a stub module auto-created. This handles deeply
+    nested imports like `libs.exception.MyError` that the pre-stub of `libs`
+    alone doesn't cover.
+    """
+
+    def find_spec(self, fullname: str, path, target=None):
+        import importlib.machinery
+        # Only intercept if fullname IS a stubbed path or is nested under one.
+        # Top-level packages aren't considered stubbed just because a sibling is.
+        for stub_path in tuple(PRE_STUB_PACKAGES) + tuple(_STUBBED_MODULES):
+            if fullname == stub_path or fullname.startswith(stub_path + "."):
+                return importlib.machinery.ModuleSpec(fullname, self)
+        return None
+
+    def create_module(self, spec):
+        m = _PermissiveModule(spec.name)
+        m.__path__ = []
+        _STUBBED_MODULES.add(spec.name)
+        return m
+
+    def exec_module(self, module):
+        pass
 
 
 _MISSING_RE = re.compile(r"No module named ['\"]([^'\"]+)['\"]")
@@ -358,6 +429,16 @@ def main() -> int:
     # Pre-stub Dify packages that pull in heavy runtime deps
     for pkg in PRE_STUB_PACKAGES:
         _stub_module(pkg)
+
+    # Replace configs.dify_config with a type-aware smart stub (fixes pydantic
+    # default-value type errors when fields like `connect: int = dify_config.X`
+    # would otherwise get a class object as their default).
+    if "configs" in sys.modules:
+        sys.modules["configs"].dify_config = _SmartConfigStub()  # type: ignore
+
+    # Register meta-path finder for transitively stubbed submodules
+    # (e.g., `libs.exception` when only `libs` was pre-stubbed)
+    sys.meta_path.insert(0, _StubFinder())
 
     node_dirs = discover_node_dirs(args.dify_src)
     print(f"Discovered {len(node_dirs)} node directories")

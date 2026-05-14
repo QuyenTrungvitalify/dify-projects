@@ -564,7 +564,7 @@ grep -A 30 "^### .*<node_type>" skills/mango-svip/references/node_types.md
 **Tóm lại quy trình chuẩn**:
 
 ```
-Phân rã task (5 câu) 
+Phân rã task (5 câu)
   → Tìm pattern (templates → corpus → assets)
   → Generate IDs
   → Build YAML (copy + customize, reference node_types.md)
