@@ -52,6 +52,7 @@ while IFS= read -r p; do
     *'@'*) continue ;;            # plugin hash format
     *'{{'*|*'}}'*) continue ;;    # variable ref syntax
     *'*'*) continue ;;            # glob
+    .venv/*) continue ;;          # gitignored local venv (e.g. .venv/bin/python)
   esac
   if [ ! -e "$p" ]; then
     echo "MISSING: $p (referenced in $FILE)"
