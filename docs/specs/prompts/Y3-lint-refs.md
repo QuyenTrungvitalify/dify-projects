@@ -125,13 +125,9 @@ def test_lint_refs_file_not_found():
 
 ### Y3.4 — Pre-commit hook
 
-Append to `.pre-commit-config.yaml`:
+Add to existing `repo: local` block in `.pre-commit-config.yaml` (alongside `dify-skill-validate`, `dify-dsl-version-guard`, `agents-md-refs`):
 
 ```yaml
-  # --- 5. Local hooks (continued) ---
-  - repo: local
-    hooks:
-      # ... existing entries
       - id: dify-lint-refs
         name: variable reference linter
         entry: python3 tools/dify_base/lint_refs.py
@@ -217,7 +213,7 @@ output schemas. Catches Dify import error class #1.
 
 - 8 fixtures, 8 tests, all pass
 - Baseline corpus run: <N>/51 flagged (<X>% false-positive after review)
-- Pre-commit hook integrated as #10
+- Pre-commit hook integrated as the next local hook (after `dify-skill-validate`, `dify-dsl-version-guard`, `agents-md-refs`)
 
 Refs: docs/specs/003-variable-ref-linter.md
 ```
