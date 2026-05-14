@@ -69,8 +69,20 @@ cp templates/patterns/multi-step-llm.yml projects/<slug>/workflows/main.yml
 
 ### 4.3 Plugin marketplace hashes
 - Format: `<provider>/<plugin>:<version>@<sha256>` in `dependencies[].value.marketplace_plugin_unique_identifier`.
-- The `@<sha256>` part is **real and workspace-specific** — copy it from a YAML exported by the target Dify workspace. NEVER fabricate.
+- The `@<sha256>` part is **real and workspace-specific** — copy it from a YAML exported by the target Dify workspace. NEVER fabricate. `tools/dify_base/lint_plugin_hashes.py` (pre-commit) enforces the format.
 - When authoring a new pattern in `templates/patterns/`, leave `dependencies: []` empty and put a `# TODO: add plugin hash from target workspace` comment near the node that needs it.
+
+**How to obtain a real plugin hash** (one-time per plugin per workspace):
+
+1. Log in to the target Dify workspace (Cloud or self-host).
+2. Studio → open any app that already uses the plugin you need (or install the plugin first if no app uses it).
+3. Click the `⋯` menu (top-right of the app editor) → **Export DSL**.
+4. Open the downloaded `.yml` in a text editor.
+5. Search for `marketplace_plugin_unique_identifier:` inside the `dependencies:` section.
+6. Copy the **full** value string — looks like `langgenius/openai:0.0.31@abc123...64-hex...`.
+7. Paste into your workflow's `dependencies[].value.marketplace_plugin_unique_identifier`.
+
+The hash changes when the plugin is upgraded in the workspace. If you see a "plugin version mismatch" error on import, re-export and copy the fresh hash.
 
 ### 4.4 DSL version
 - Every workflow YAML MUST have a top-level `version: 0.6.0` (or whatever the project's `dsl_version` says).

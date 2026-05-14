@@ -1,0 +1,195 @@
+# Pattern: File to LLM (single-shot)
+#
+# Use case: upload one file, extract its text, call ONE LLM (summarize / analyze /
+# translate / classify / answer-questions-about / ...), output the result.
+#
+# Flow:
+#   Start (file upload, 1 file)
+#     → Document Extractor (file → plain text)
+#     → LLM (system + user prompt, single call)
+#     → End (LLM output as string)
+#
+# This is the simplest end-to-end "do something with a file via LLM" workflow.
+# Compose more complex flows on top of this (chain multiple LLMs → multi-step-llm,
+# split file into chunks + iterate → file-iteration, ground answers in knowledge
+# base → rag-qa).
+#
+# Customization points (`# TODO:`):
+#   1. Allowed file extensions (Start node) — restrict to your input type.
+#   2. LLM model.provider + model.name — pick from the plugins installed in your
+#      target Dify workspace.
+#   3. System prompt — the actual instruction (the user-prompt just passes the
+#      extracted text in).
+#   4. Plugin hash in `dependencies[]` — obtain from a YAML exported by your
+#      target workspace (see AGENTS.md §4.3 "How to obtain a real plugin hash").
+
+app:
+  description: 'Upload a file, extract text, run one LLM call, return the answer.'
+  icon: "\U0001F4C4"
+  icon_background: '#E8F0FE'
+  icon_type: emoji
+  mode: workflow
+  name: 'Pattern: File to LLM'
+  use_icon_as_answer_icon: false
+dependencies: []
+# TODO: add the LLM provider plugin hash here, e.g.:
+#   - type: marketplace
+#     value:
+#       marketplace_plugin_unique_identifier: langgenius/openai:0.0.31@<sha256>
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions: []   # TODO: restrict, e.g. ['.pdf', '.txt', '.md', '.docx']
+      allowed_file_types:
+      - document
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        batch_count_limit: 1
+        file_size_limit: 15
+        file_upload_limit: 1
+        workflow_file_upload_limit: 1
+      number_limits: 1
+    opening_statement: ''
+    retriever_resource: { enabled: true }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: 1700004000001-source-1700004000002-target
+      source: '1700004000001'
+      target: '1700004000002'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: document-extractor }
+      zIndex: 0
+    - id: 1700004000002-source-1700004000003-target
+      source: '1700004000002'
+      target: '1700004000003'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: document-extractor, targetType: llm }
+      zIndex: 0
+    - id: 1700004000003-source-1700004000004-target
+      source: '1700004000003'
+      target: '1700004000004'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: end }
+      zIndex: 0
+    nodes:
+    - id: '1700004000001'
+      type: custom
+      data:
+        title: 'File Input'
+        type: start
+        variables:
+        - allowed_file_extensions: []   # TODO: restrict to your input type (e.g. .pdf, .txt, .md)
+          allowed_file_types:
+          - document
+          allowed_file_upload_methods:
+          - local_file
+          - remote_url
+          hint: 'Upload the file to process.'
+          label: input_file
+          max_length: 1
+          options: []
+          placeholder: ''
+          required: true
+          type: file-list
+          variable: input_file
+      position: { x: 0, y: 280 }
+      positionAbsolute: { x: 0, y: 280 }
+      width: 242
+      height: 107
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700004000002'
+      type: custom
+      data:
+        title: 'Extract Text'
+        type: document-extractor
+        is_array_file: true
+        variable_selector:
+        - '1700004000001'
+        - input_file
+      position: { x: 342, y: 280 }
+      positionAbsolute: { x: 342, y: 280 }
+      width: 241
+      height: 103
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700004000003'
+      type: custom
+      data:
+        title: 'LLM Call'
+        type: llm
+        # TODO: pick a model — provider + name must match a plugin installed in
+        # your target Dify workspace. Examples:
+        #   provider: langgenius/openai      | name: gpt-4o-mini
+        #   provider: langgenius/anthropic   | name: claude-haiku-4-5
+        #   provider: langgenius/gemini      | name: gemini-2.0-flash
+        model:
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.3
+        prompt_template:
+        - role: system
+          text: |
+            You are a careful assistant. Given the document text below, perform
+            the requested task and return only the result.
+            # TODO: replace this system prompt with your actual instruction
+            # (e.g. "Summarize this document in 5 bullet points", "Translate to
+            # Japanese", "Extract all email addresses as a JSON array", …).
+        - role: user
+          text: |
+            Document content (extracted from uploaded file):
+            ---
+            {{#1700004000002.text#}}
+            ---
+        memory: null
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+      position: { x: 684, y: 280 }
+      positionAbsolute: { x: 684, y: 280 }
+      width: 241
+      height: 98
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1700004000004'
+      type: custom
+      data:
+        title: 'Output'
+        type: end
+        outputs:
+        - variable: result
+          value_selector: ['1700004000003', text]
+          value_type: string
+        - variable: source_text
+          value_selector: ['1700004000002', text]
+          value_type: string
+      position: { x: 1026, y: 280 }
+      positionAbsolute: { x: 1026, y: 280 }
+      width: 241
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.7 }

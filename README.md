@@ -24,6 +24,35 @@ git clone <repo> dify-projects && cd dify-projects
 # → re-clones skills/corpus, creates .venv, installs deps, rebuilds INDEX, runs smoke tests
 ```
 
+## 5-minute Hello World
+
+Build + validate your first workflow end-to-end:
+
+```bash
+# 1. Scaffold a new project (non-interactive form for speed)
+.venv/bin/python tools/dify_base/init_project.py \
+    --non-interactive --name "My First" --slug my_first --app-type workflow
+
+# 2. Copy the simplest pattern: file → 1 LLM call → output
+cp templates/patterns/file-to-llm.yml projects/my_first/workflows/main.yml
+
+# 3. Customize the 2 things every workflow needs (open in your editor):
+#    a. LLM node `model.provider` + `model.name` — pick from plugins
+#       installed in your target Dify workspace.
+#    b. Plugin dependency hash (top of file). See AGENTS.md §4.3 for how to get it.
+
+# 4. Validate locally before importing
+.venv/bin/pre-commit run --files projects/my_first/workflows/main.yml
+# Runs 12 hooks in <1s. Failures explain exactly what's wrong.
+
+# 5. Import into Dify
+#    Studio → top-right "+" → Import DSL file → upload main.yml → run it.
+```
+
+**Real worked example**: [examples/md_en2ja/](examples/md_en2ja/) — a complete
+5-node Markdown EN→JA translator with code-block masking. Importable as-is
+after adding your LLM plugin hash.
+
 ## Cấu trúc
 
 ```
@@ -38,12 +67,17 @@ dify-projects/
 │
 ├── templates/                 # Project starter + workflow patterns
 │   ├── _base/project/         # Scaffolded by init_project.py
-│   └── patterns/              # 4 reusable workflow skeletons (Phase 1.C)
+│   └── patterns/              # 5 reusable workflow skeletons
+│       ├── file-to-llm.yml      # File upload → 1 LLM call → output (simplest)
 │       ├── file-iteration.yml   # File upload → split → iterate → aggregate
 │       ├── multi-step-llm.yml   # 3 chained LLM calls (refine pattern)
 │       ├── rag-qa.yml           # Knowledge retrieval + LLM
 │       └── agent-with-tools.yml # Agent node with pluggable tools
 │
+├── examples/                  # Fully-worked projects (importable as-is)
+│   └── md_en2ja/              # Markdown EN→JA translator w/ code-block masking
+│
+
 ├── schemas/                   # Auto-generated JSON Schema for Dify DSL (Phase 1.A done)
 │   ├── gen_schema.py          # Reverse-engineer schema from dify pydantic models
 │   └── dify-dsl-0.6.0.json    # Generated schema (DSL v0.6.0, 29 NodeData types)
@@ -120,6 +154,7 @@ Tạo `projects/<slug>/` với cấu trúc chuẩn (workflows/, prompts/, inputs
 
 | Pattern | Use case | Nodes | Key features |
 |---|---|---|---|
+| `file-to-llm.yml` | Upload file → 1 LLM call → output (simplest) | 4 | document-extractor, llm |
 | `file-iteration.yml` | Upload file → parse → process each item → aggregate | 7 | document-extractor, iteration, code |
 | `multi-step-llm.yml` | Chain 3 LLM calls (generate → critique → refine) | 5 | llm × 3 |
 | `rag-qa.yml` | Q&A grounded in knowledge base | 4 | knowledge-retrieval, llm |

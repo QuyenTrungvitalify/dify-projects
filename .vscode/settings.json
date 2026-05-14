@@ -4,7 +4,9 @@
       "templates/patterns/*.yml",
       "templates/_base/**/workflows/*.yml",
       "projects/md_en2ja/workflows/*.yml",
-      "projects/md_en2ja/workflows/*.yaml"
+      "projects/md_en2ja/workflows/*.yaml",
+      "projects/pdf_summarize/workflows/*.yml",
+      "projects/pdf_summarize/workflows/*.yaml"
     ]
   },
   "yaml.validate": true,

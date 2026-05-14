@@ -31,6 +31,7 @@ def _md_link_target(abs_path):
 SCAN_PATHS = [
     (BASE / "templates" / "patterns", "patterns"),
     (BASE / "templates" / "_base", "starter"),
+    (BASE / "examples", "example"),
     (BASE / "corpus" / "awesome-dify-workflow" / "DSL", "corpus"),
     (BASE / "skills" / "mango-svip" / "assets", "skill-assets"),
     (BASE / "skills" / "Tomatio13" / "example", "skill-assets"),

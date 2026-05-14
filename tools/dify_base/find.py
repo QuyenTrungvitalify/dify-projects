@@ -34,7 +34,7 @@ Common features (use with --has / --no):
   document-extractor, knowledge-retrieval, agent, file-input,
   template-transform, parameter-extractor
 
-Sources: patterns, starter, corpus, skill-assets, project
+Sources: patterns, starter, example, corpus, skill-assets, project
 """
     )
     parser.add_argument("--has", action="append", default=[], metavar="FEATURE",
@@ -45,7 +45,7 @@ Sources: patterns, starter, corpus, skill-assets, project
                         help="Filter by complexity")
     parser.add_argument("--plugin", help="Must use this plugin (substring match)")
     parser.add_argument("--mode", help="Filter by mode (workflow / advanced-chat / agent-chat)")
-    parser.add_argument("--source", choices=["patterns", "starter", "corpus", "skill-assets", "project"],
+    parser.add_argument("--source", choices=["patterns", "starter", "example", "corpus", "skill-assets", "project"],
                         help="Filter by source")
     parser.add_argument("--name", help="Substring match in app name or description")
     parser.add_argument("--limit", type=int, default=20)
