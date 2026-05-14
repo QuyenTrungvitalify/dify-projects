@@ -1,0 +1,76 @@
+app:
+  description: 'Fixture: conversation/env/sys refs are valid (skipped)'
+  icon: "\U0001F30D"
+  icon_background: '#E1F0FF'
+  icon_type: emoji
+  mode: workflow
+  name: 'Fixture: valid_special_ns'
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables:
+  - variable: history
+    name: history
+    value_type: string
+  environment_variables:
+  - variable: API_KEY
+    name: API_KEY
+    value_type: secret
+  features:
+    file_upload: { enabled: false }
+    opening_statement: ''
+    retriever_resource: { enabled: true }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges: []
+    nodes:
+    - id: '1700000000001'
+      type: custom
+      data:
+        title: 'Start'
+        type: start
+        variables:
+        - variable: query
+          type: paragraph
+          required: true
+    - id: '1700000000002'
+      type: custom
+      data:
+        title: 'HTTP'
+        type: http-request
+        method: GET
+        url: 'https://api.example.com/u/{{#sys.user_id#}}'
+        authorization:
+          type: api-key
+          config:
+            type: bearer
+            api_key: '{{#env.API_KEY#}}'
+        headers: ''
+        params: ''
+    - id: '1700000000003'
+      type: custom
+      data:
+        title: 'LLM'
+        type: llm
+        model: { provider: anthropic, name: claude, mode: chat }
+        prompt_template:
+        - role: system
+          text: 'History: {{#conversation.history#}}'
+        - role: user
+          text: '{{#1700000000001.query#}}'
+    - id: '1700000000004'
+      type: custom
+      data:
+        title: 'End'
+        type: end
+        outputs:
+        - variable: text
+          value_selector: ['1700000000003', text]
+          value_type: string
+    viewport: { x: 0, y: 0, zoom: 1.0 }
