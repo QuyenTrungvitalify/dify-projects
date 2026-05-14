@@ -43,7 +43,7 @@ dify-projects/
 │
 ├── schemas/                   # Auto-generated JSON Schema for Dify DSL (Phase 1.A done)
 │   ├── gen_schema.py          # Reverse-engineer schema from dify pydantic models
-│   └── dify-dsl-0.6.0.json    # Generated schema (DSL v0.6.0, 27 NodeData types)
+│   └── dify-dsl-0.6.0.json    # Generated schema (DSL v0.6.0, 28 NodeData types)
 │
 ├── tools/                     # Python tooling
 │   └── dify_base/             # build_index, find, init_project, sync (Phase 2.A)
@@ -142,7 +142,7 @@ Chi tiết: xem [docs/GUIDE.md](docs/GUIDE.md).
 
 ## JSON Schema cho Dify DSL
 
-[schemas/gen_schema.py](schemas/gen_schema.py) reverse-engineer JSON Schema từ Dify pydantic models trong source clone (`~/Desktop/MyProjects/dify-workspace/`).
+[schemas/gen_schema.py](schemas/gen_schema.py) reverse-engineer JSON Schema từ Dify pydantic models trong vendored source clone (`vendor/dify-src/`, pinned via `.dify-tag` — currently `1.13.0` để giữ full node set; v1.13.1+ refactored sang `graphon` package, only 7 nodes inline).
 
 ```bash
 # Setup venv (Python 3.11 hoặc 3.12 — Dify yêu cầu)
@@ -182,7 +182,7 @@ Chi tiết design: xem [docs/architecture.md](docs/architecture.md) (planned).
 
 ## Sources
 
-- [langgenius/dify](https://github.com/langgenius/dify) — source code (clone tham khảo ở `~/Desktop/MyProjects/dify-workspace/`)
+- [langgenius/dify](https://github.com/langgenius/dify) — source code (vendored ở `vendor/dify-src/` via `setup.sh --dify-tag`)
 - [mango-svip/dify-workflow-skills](https://github.com/mango-svip/dify-workflow-skills) — base skill
 - [Tomatio13/DifyWorkFlowGenerator](https://github.com/Tomatio13/DifyWorkFlowGenerator) — JP-context DSL gen
 - [lazeyliu/dify-dsl-generator-skills](https://github.com/lazeyliu/dify-dsl-generator-skills) — multi-tier skills

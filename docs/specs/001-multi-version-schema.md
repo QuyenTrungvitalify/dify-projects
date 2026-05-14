@@ -5,7 +5,7 @@
 **Depends on**: —
 
 ## Decisions resolved
-- Pin Dify tag: **latest stable** (currently v1.14.x). `.dify-tag` file commits target tag.
+- Pin Dify tag: **v1.13.0** (last tag before "graphon refactor"). `.dify-tag` file commits target tag.
 - Q1.3: `.vscode/settings.json` → generator script approach (committed, regen khi scaffold)
 - Q1.4: Refresh weekly (CI cron) — yes, dù DSL chưa bump
 - Q1.5: Parse YAML qua Python (không thêm `yq` dep)
@@ -14,6 +14,29 @@
 Awaiting confirm (can proceed with defaults):
 - Q1.1: Keep all schema versions in git (default: yes)
 - Q1.2: `.dify-tag` commit (default: yes)
+
+## Critical context: Dify "graphon refactor" (2026-02 → 2026-03)
+
+Between Dify v1.13.0 (Feb 7, 2026) and v1.13.1, the team moved **most node type definitions out of `api/core/workflow/nodes/`** into a separate package `graphon` (PyPI `graphon~=0.2.2`). Observed via `git checkout` matrix:
+
+| Tag | entities.py count in core/workflow/nodes/ | graphon import in node_factory.py |
+|---|---|---|
+| 1.10.0 | 26 | no |
+| 1.11.x | 26 | no |
+| 1.12.x | 26 | no |
+| **1.13.0** | **26** | **no** ← last pre-refactor |
+| 1.13.1 | 7 | no (refactored but still inline) |
+| 1.13.2 | 7 | no |
+| 1.13.3 | 7 | no |
+| 1.14.0 | 7 | **yes** (uses graphon package) |
+| 1.14.1 | 7 | yes |
+
+**Impact on this spec**:
+- Originally targeted "latest stable" = v1.14.x → would yield only 7 NodeData schemas (broken)
+- **Pinned to v1.13.0** instead: gen_schema produces 28 NodeData (24/25 nodes imported, agent still fails per Polish 1.A limitation)
+- v1.14+ support requires future spec: either vendor `graphon` package source, or pip install graphon + extend gen_schema to walk that namespace
+
+**`.dify-tag` semantics changed**: previously thought to track latest stable; actually tracks "last tag with full monolithic source". Document this in `.dify-tag` comment + spec.
 
 ## Context
 

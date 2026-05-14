@@ -98,7 +98,7 @@ projects/<slug>/
 | Phase | Status | Output |
 |---|---|---|
 | 0 | ✅ | Base structure, git init, skills cloned |
-| 1.A | ✅ | `schemas/gen_schema.py` + JSON Schema 27 NodeData |
+| 1.A | ✅ | `schemas/gen_schema.py` + JSON Schema 28 NodeData |
 | 1.B | ✅ | `init_project.py` + `_base/project/` skeleton |
 | 1.C | ✅ | 4 patterns trong `templates/patterns/` |
 | 1.D | ✅ | pytest harness via custom DifyWorkflowClient |
