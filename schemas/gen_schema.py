@@ -56,11 +56,17 @@ PRE_STUB_PACKAGES = [
     "boto3",
     "psycopg2",
 ]
-# Known stubbing limitation: `agent` node entity transitively imports
-# `core.mcp.types.Implementation(version: str)` which pydantic-validates the
-# `version` arg strictly. Stubbing `core.mcp` would shadow real `core.workflow`
-# imports. Workaround would require deeper refactor; for now `agent` is the
-# one remaining unsupported node type (24/25 coverage).
+# Agent node needs two workarounds to import cleanly:
+#   1. `core.mcp.session.client_session` evaluates
+#      `Implementation(version=dify_config.project.version)` at import time.
+#      With `dify_config` stubbed, that version is a permissive object that
+#      pydantic's strict `str` validator rejects. We can't stub all of
+#      `core.mcp` (would shadow real `core.workflow` imports), so we patch
+#      only `Implementation` — see `_install_narrow_mcp_stubs()` below.
+#   2. Agent's transitive imports (via `core.tools.entities`) leave sys.modules
+#      in a state where later-loaded nodes' `__init_subclass__` checks reject
+#      their generics. We process agent last so the contamination has no
+#      successors — see the sort in `main()`.
 
 
 class _SmartConfigStub:
@@ -213,6 +219,39 @@ def robust_import(module_path: str, max_retries: int = 30) -> tuple[object | Non
         except Exception as e:
             return None, f"{type(e).__name__}: {e}"
     return None, f"max_retries exceeded; last error: {last_err}"
+
+def _install_narrow_mcp_stubs() -> None:
+    """Replace `core.mcp.types.Implementation` with a permissive variant.
+
+    The real class strictly validates `version: str`. Downstream module
+    `core.mcp.session.client_session` instantiates `Implementation(version=
+    dify_config.project.version)` at import time; with dify_config stubbed,
+    that arg is a permissive object and pydantic rejects it. We import the
+    real module first (so siblings like JSONRPCMessage stay intact) and then
+    override only `Implementation`.
+    """
+    try:
+        real_mod = importlib.import_module("core.mcp.types")
+        from pydantic import BaseModel, ConfigDict
+
+        class Implementation(BaseModel):
+            model_config = ConfigDict(extra="allow")
+            name: str = "stub"
+            version: str = "0.0.0"
+
+            def __init__(self, **data):
+                # Coerce non-string fields to strings so the permissive stub
+                # doesn't break real callers that pass actual strings either.
+                if "version" in data and not isinstance(data["version"], str):
+                    data["version"] = str(data["version"])
+                if "name" in data and not isinstance(data["name"], str):
+                    data["name"] = str(data["name"])
+                super().__init__(**data)
+
+        real_mod.Implementation = Implementation
+    except Exception as e:  # pragma: no cover — best-effort
+        print(f"  ⚠ MCP narrow stub failed: {e}", file=sys.stderr)
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 VENDOR_DIFY_SRC = REPO_ROOT / "vendor" / "dify-src"
@@ -498,7 +537,17 @@ def main() -> int:
     # (e.g., `libs.exception` when only `libs` was pre-stubbed)
     sys.meta_path.insert(0, _StubFinder())
 
+    # Patch core.mcp.types.Implementation so agent node entities can load
+    # (see comment near PRE_STUB_PACKAGES).
+    _install_narrow_mcp_stubs()
+
     node_dirs = discover_node_dirs(args.dify_src)
+    # Move `agent` to the end of the iteration: its transitive import chain
+    # (core.tools.entities → core.tools.tool_manager → core.helper.code_executor →
+    # …) leaves sys.modules in a state where later nodes' __init_subclass__ hooks
+    # see a different BaseNodeData identity and reject their generic args. Doing
+    # agent last means contamination has no successors to break.
+    node_dirs = sorted(node_dirs, key=lambda p: (p.name == "agent", p.name))
     print(f"Discovered {len(node_dirs)} node directories")
 
     all_node_schemas: dict[str, dict] = {}

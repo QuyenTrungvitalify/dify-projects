@@ -13,9 +13,20 @@ import json
 import yaml
 from pathlib import Path
 from collections import Counter
+from urllib.parse import quote
 
 # dify-projects/tools/dify_base/build_index.py -> parent.parent.parent = base root
 BASE = Path(__file__).parent.parent.parent
+
+
+def _md_link_target(abs_path):
+    """Turn an absolute path into a repo-relative, URL-safe Markdown link target.
+
+    Parentheses, spaces, and CJK chars in filenames can break Markdown links;
+    quote() keeps '/' as-is so the relative structure stays readable.
+    """
+    rel = Path(abs_path).resolve().relative_to(BASE.resolve())
+    return quote(str(rel), safe='/')
 
 SCAN_PATHS = [
     (BASE / "templates" / "patterns", "patterns"),
@@ -144,7 +155,7 @@ def write_markdown(entries, out_path):
         desc = (e['description'] or e['name'] or '-').replace('|', '\\|').replace('\n', ' ')[:50]
 
         file_display = e['file'].replace('|', '\\|')
-        file_link = f"[{file_display}]({e['path']})"
+        file_link = f"[{file_display}]({_md_link_target(e['path'])})"
 
         lines.append(
             f"| `{e['source']}` | {file_link} | {e['node_count']} | {e['complexity']} | {features_str} | {plugins_str} | {desc} |"
@@ -174,7 +185,7 @@ def write_markdown(entries, out_path):
         lines.append(f"### {label} — {len(matches)} files")
         lines.append("")
         for e in sorted(matches, key=lambda x: (order.get(x['complexity'], 9), x['file'])):
-            lines.append(f"- `{e['source']}` / [{e['file']}]({e['path']}) — {e['complexity']}, {e['node_count']} nodes")
+            lines.append(f"- `{e['source']}` / [{e['file']}]({_md_link_target(e['path'])}) — {e['complexity']}, {e['node_count']} nodes")
         lines.append("")
 
     lines.extend(["## By Complexity", ""])
@@ -185,7 +196,7 @@ def write_markdown(entries, out_path):
         lines.append(f"### {level} — {len(matches)} files")
         lines.append("")
         for e in sorted(matches, key=lambda x: x['file']):
-            lines.append(f"- `{e['source']}` / [{e['file']}]({e['path']}) — {e['node_count']} nodes")
+            lines.append(f"- `{e['source']}` / [{e['file']}]({_md_link_target(e['path'])}) — {e['node_count']} nodes")
         lines.append("")
 
     with open(out_path, 'w', encoding='utf-8') as f:

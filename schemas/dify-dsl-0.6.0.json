@@ -7178,6 +7178,528 @@
       ],
       "title": "VariableAggregatorNodeData",
       "type": "object"
+    },
+    "NodeData_AgentNodeData": {
+      "$defs": {
+        "AgentInput": {
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "items": {
+                    "$ref": "#/$defs/ToolSelector"
+                  },
+                  "type": "array"
+                },
+                {}
+              ],
+              "title": "Value"
+            },
+            "type": {
+              "enum": [
+                "mixed",
+                "variable",
+                "constant"
+              ],
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "value",
+            "type"
+          ],
+          "title": "AgentInput",
+          "type": "object"
+        },
+        "DefaultValue": {
+          "properties": {
+            "value": {
+              "default": null,
+              "title": "Value"
+            },
+            "type": {
+              "$ref": "#/$defs/DefaultValueType"
+            },
+            "key": {
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key"
+          ],
+          "title": "DefaultValue",
+          "type": "object"
+        },
+        "DefaultValueType": {
+          "enum": [
+            "string",
+            "number",
+            "object",
+            "array[number]",
+            "array[string]",
+            "array[object]",
+            "array[file]"
+          ],
+          "title": "DefaultValueType",
+          "type": "string"
+        },
+        "ErrorStrategy": {
+          "enum": [
+            "fail-branch",
+            "default-value"
+          ],
+          "title": "ErrorStrategy",
+          "type": "string"
+        },
+        "I18nObject": {
+          "description": "Model class for i18n object.",
+          "properties": {
+            "en_US": {
+              "title": "En Us",
+              "type": "string"
+            },
+            "zh_Hans": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Zh Hans"
+            },
+            "pt_BR": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Pt Br"
+            },
+            "ja_JP": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Ja Jp"
+            }
+          },
+          "required": [
+            "en_US"
+          ],
+          "title": "I18nObject",
+          "type": "object"
+        },
+        "MemoryConfig": {
+          "description": "Memory Config.",
+          "properties": {
+            "role_prefix": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/RolePrefix"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "window": {
+              "$ref": "#/$defs/WindowConfig"
+            },
+            "query_prompt_template": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Query Prompt Template"
+            }
+          },
+          "required": [
+            "window"
+          ],
+          "title": "MemoryConfig",
+          "type": "object"
+        },
+        "Parameter": {
+          "properties": {
+            "name": {
+              "description": "The name of the parameter",
+              "title": "Name",
+              "type": "string"
+            },
+            "type": {
+              "$ref": "#/$defs/ToolParameterType",
+              "description": "The type of the parameter"
+            },
+            "required": {
+              "description": "Whether the parameter is required",
+              "title": "Required",
+              "type": "boolean"
+            },
+            "description": {
+              "description": "The description of the parameter",
+              "title": "Description",
+              "type": "string"
+            },
+            "default": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Default"
+            },
+            "options": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/PluginParameterOption"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Options"
+            }
+          },
+          "required": [
+            "name",
+            "type",
+            "required",
+            "description"
+          ],
+          "title": "Parameter",
+          "type": "object"
+        },
+        "PluginParameterOption": {
+          "properties": {
+            "value": {
+              "description": "The value of the option",
+              "title": "Value",
+              "type": "string"
+            },
+            "label": {
+              "$ref": "#/$defs/I18nObject",
+              "description": "The label of the option"
+            },
+            "icon": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The icon of the option, can be a url or a base64 encoded image",
+              "title": "Icon"
+            }
+          },
+          "required": [
+            "value",
+            "label"
+          ],
+          "title": "PluginParameterOption",
+          "type": "object"
+        },
+        "RetryConfig": {
+          "description": "node retry config",
+          "properties": {
+            "max_retries": {
+              "default": 0,
+              "title": "Max Retries",
+              "type": "integer"
+            },
+            "retry_interval": {
+              "default": 0,
+              "title": "Retry Interval",
+              "type": "integer"
+            },
+            "retry_enabled": {
+              "default": false,
+              "title": "Retry Enabled",
+              "type": "boolean"
+            }
+          },
+          "title": "RetryConfig",
+          "type": "object"
+        },
+        "RolePrefix": {
+          "description": "Role Prefix.",
+          "properties": {
+            "user": {
+              "title": "User",
+              "type": "string"
+            },
+            "assistant": {
+              "title": "Assistant",
+              "type": "string"
+            }
+          },
+          "required": [
+            "user",
+            "assistant"
+          ],
+          "title": "RolePrefix",
+          "type": "object"
+        },
+        "ToolParameterType": {
+          "description": "removes TOOLS_SELECTOR from PluginParameterType",
+          "enum": [
+            "string",
+            "number",
+            "boolean",
+            "select",
+            "secret-input",
+            "file",
+            "files",
+            "checkbox",
+            "app-selector",
+            "model-selector",
+            "any",
+            "dynamic-select",
+            "array",
+            "object",
+            "system-files"
+          ],
+          "title": "ToolParameterType",
+          "type": "string"
+        },
+        "ToolSelector": {
+          "properties": {
+            "dify_model_identity": {
+              "default": "__dify__tool_selector__",
+              "title": "Dify Model Identity",
+              "type": "string"
+            },
+            "provider_id": {
+              "description": "The id of the provider",
+              "title": "Provider Id",
+              "type": "string"
+            },
+            "credential_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The id of the credential",
+              "title": "Credential Id"
+            },
+            "tool_name": {
+              "description": "The name of the tool",
+              "title": "Tool Name",
+              "type": "string"
+            },
+            "tool_description": {
+              "description": "The description of the tool",
+              "title": "Tool Description",
+              "type": "string"
+            },
+            "tool_configuration": {
+              "additionalProperties": true,
+              "description": "Configuration, type form",
+              "title": "Tool Configuration",
+              "type": "object"
+            },
+            "tool_parameters": {
+              "additionalProperties": {
+                "$ref": "#/$defs/Parameter"
+              },
+              "description": "Parameters, type llm",
+              "title": "Tool Parameters",
+              "type": "object"
+            }
+          },
+          "required": [
+            "provider_id",
+            "tool_name",
+            "tool_description",
+            "tool_configuration",
+            "tool_parameters"
+          ],
+          "title": "ToolSelector",
+          "type": "object"
+        },
+        "WindowConfig": {
+          "description": "Window Config.",
+          "properties": {
+            "enabled": {
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "size": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Size"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "title": "WindowConfig",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desc"
+        },
+        "version": {
+          "default": "1",
+          "title": "Version",
+          "type": "string"
+        },
+        "error_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorStrategy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "default_value": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DefaultValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Value"
+        },
+        "retry_config": {
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "max_retries": 0,
+            "retry_interval": 0,
+            "retry_enabled": false
+          }
+        },
+        "agent_strategy_provider_name": {
+          "title": "Agent Strategy Provider Name",
+          "type": "string"
+        },
+        "agent_strategy_name": {
+          "title": "Agent Strategy Name",
+          "type": "string"
+        },
+        "agent_strategy_label": {
+          "title": "Agent Strategy Label",
+          "type": "string"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tool_node_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Node Version"
+        },
+        "agent_parameters": {
+          "additionalProperties": {
+            "$ref": "#/$defs/AgentInput"
+          },
+          "title": "Agent Parameters",
+          "type": "object"
+        }
+      },
+      "required": [
+        "title",
+        "agent_strategy_provider_name",
+        "agent_strategy_name",
+        "agent_strategy_label",
+        "agent_parameters"
+      ],
+      "title": "AgentNodeData",
+      "type": "object"
     }
   }
 }
