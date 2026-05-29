@@ -1,0 +1,187 @@
+# Probe workflow — verify Dify Code Node Python sandbox stdlib availability
+#
+# Purpose: discover, for YOUR target Dify workspace (Cloud or self-host), which
+# Python stdlib / third-party modules can be `import`-ed inside a Code Node.
+# Dify does not publish a sandbox spec, and configuration may differ between
+# Cloud and self-hosted deployments. Run this probe once per workspace before
+# designing logic that depends on a specific module.
+#
+# How to use:
+#   1. Import this YAML into Dify Studio (Apps → Import DSL).
+#      The plugin hash field on Code Nodes is empty — no dependencies needed,
+#      Code Node is a built-in node type.
+#   2. Run the workflow (no input required).
+#   3. Read the End-node output dictionary:
+#      - `verdict`     — one-line summary (e.g. "12/15 modules available")
+#      - `available`   — array of module names that imported successfully
+#      - `missing`     — array of `<name>: <error>` strings
+#      - `details`     — full dict mapping every probed module → "ok" or error
+#   4. Paste the result into your project's `constraints.md`-equivalent or
+#      `spec_todo/` to record the observed sandbox state.
+#
+# Module list rationale:
+#   - 8 currently-verified in this repo: json, csv, re, math, datetime, io,
+#     collections, itertools (per skills/mango-svip/references/constraints.md §1)
+#   - 2 plausibly-available candidates: unicodedata, urllib.parse — included
+#     to settle whether they work (no current empirical claim either way)
+#   - 5 known-or-suspected-missing: openpyxl (verified missing in eiken via
+#     projects/eiken_stem_proofread/workflows/test_openpyxl_feasibility.yml),
+#     requests, pandas, numpy, httpx (suspected missing per sandbox design)
+#
+# Edit MODULES_TO_PROBE inside the Code Node to test additional modules in
+# your workspace. The probe is intentionally read-only (no side effects, no
+# network, no filesystem) — safe to re-run any time.
+
+app:
+  description: 'Probe which Python stdlib / third-party modules are importable in this workspace''s Code Node sandbox'
+  icon: "\U0001F50D"
+  icon_background: '#FEF3C7'
+  icon_type: emoji
+  mode: workflow
+  name: 'Probe: Code Node stdlib availability'
+  use_icon_as_answer_icon: false
+
+dependencies: []
+
+kind: app
+version: 0.6.0
+
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions: []
+      allowed_file_types: []
+      allowed_file_upload_methods: []
+      enabled: false
+      fileUploadConfig:
+        batch_count_limit: 5
+        file_size_limit: 15
+        file_upload_limit: 20
+        workflow_file_upload_limit: 10
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource: { enabled: true }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+
+  graph:
+    edges:
+    - id: 1780059158944-source-1780059158946-target
+      source: '1780059158944'
+      target: '1780059158946'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: code }
+      zIndex: 0
+    - id: 1780059158946-source-1780059158949-target
+      source: '1780059158946'
+      target: '1780059158949'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: end }
+      zIndex: 0
+
+    nodes:
+    - id: '1780059158944'
+      type: custom
+      data:
+        title: 'Start'
+        type: start
+        variables: []
+      position: { x: 0, y: 280 }
+      positionAbsolute: { x: 0, y: 280 }
+      width: 242
+      height: 54
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1780059158946'
+      type: custom
+      data:
+        title: 'Probe modules'
+        type: code
+        code_language: python3
+        code: |
+          import importlib
+
+          def main() -> dict:
+              MODULES_TO_PROBE = [
+                  # Verified-available in this repo (constraints.md §1) — baseline sanity
+                  "json", "csv", "re", "math", "datetime", "io",
+                  "collections", "itertools",
+                  # Plausibly-available candidates (no current empirical claim)
+                  "unicodedata", "urllib.parse",
+                  # Known/suspected missing — verify and record
+                  "openpyxl", "requests", "pandas", "numpy", "httpx",
+              ]
+
+              details = {}
+              available = []
+              missing = []
+              for name in MODULES_TO_PROBE:
+                  try:
+                      importlib.import_module(name)
+                      details[name] = "ok"
+                      available.append(name)
+                  except ImportError as e:
+                      err = f"missing: ImportError: {str(e)}"
+                      details[name] = err
+                      missing.append(f"{name}: {str(e)}")
+                  except Exception as e:
+                      err = f"error: {type(e).__name__}: {str(e)}"
+                      details[name] = err
+                      missing.append(f"{name}: {type(e).__name__}: {str(e)}")
+
+              verdict = f"{len(available)}/{len(MODULES_TO_PROBE)} modules available"
+              return {
+                  "verdict": verdict,
+                  "available": available,
+                  "missing": missing,
+                  "details": details,
+              }
+        outputs:
+          verdict: { type: string, children: null }
+          available: { type: 'array[string]', children: null }
+          missing: { type: 'array[string]', children: null }
+          details: { type: object, children: null }
+        variables: []
+      position: { x: 342, y: 280 }
+      positionAbsolute: { x: 342, y: 280 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1780059158949'
+      type: custom
+      data:
+        title: 'Report'
+        type: end
+        outputs:
+        - value_selector: ['1780059158946', verdict]
+          value_type: string
+          variable: verdict
+        - value_selector: ['1780059158946', available]
+          value_type: 'array[string]'
+          variable: available
+        - value_selector: ['1780059158946', missing]
+          value_type: 'array[string]'
+          variable: missing
+        - value_selector: ['1780059158946', details]
+          value_type: object
+          variable: details
+      position: { x: 684, y: 280 }
+      positionAbsolute: { x: 684, y: 280 }
+      width: 241
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.8 }

@@ -9,7 +9,7 @@
 #
 # Hooks run only on relevant files (filtered via `files:` regex):
 #   1. YAML lint (light)               — all *.yml
-#   2. Pattern + project schema check  — templates/patterns/*.yml + projects/*/workflows/*.yml
+#   2. Pattern + project schema check  — templates/{patterns,probes}/*.yml + projects/*/workflows/*.yml
 #   3. Skill validate_workflow.py      — same files (deeper structural check)
 #   4. Python compile                  — all .py committed
 #
@@ -50,7 +50,7 @@ repos:
     hooks:
       - id: check-jsonschema
         name: check-jsonschema (Dify DSL v0.6.0)
-        files: ^(templates/patterns/.*\.yml|projects/.*/workflows/.*\.yml)$
+        files: ^(templates/(patterns|probes)/.*\.yml|projects/.*/workflows/.*\.yml)$
         args:
           - --schemafile
           - schemas/dify-dsl-0.6.0.json
@@ -62,7 +62,7 @@ repos:
         name: skill validate_workflow.py
         entry: python3 skills/mango-svip/scripts/validate_workflow.py
         language: system
-        files: ^(templates/patterns/.*\.yml|projects/.*/workflows/.*\.yml)$
+        files: ^(templates/(patterns|probes)/.*\.yml|projects/.*/workflows/.*\.yml)$
         require_serial: false
 
       - id: dify-dsl-version-guard
@@ -71,7 +71,7 @@ repos:
         # matching the committed schema. Catches accidental version drift.
         entry: scripts/check_dsl_version.sh
         language: script
-        files: ^(templates/patterns/.*\.yml|projects/.*/workflows/.*\.yml)$
+        files: ^(templates/(patterns|probes)/.*\.yml|projects/.*/workflows/.*\.yml)$
 
       - id: agents-md-refs
         name: AGENTS.md references valid
@@ -88,7 +88,7 @@ repos:
         # Catches Dify import error class #1 (typo in node id / field name).
         entry: python3 tools/dify_base/lint_refs.py
         language: system
-        files: ^(templates/patterns/.*\.yml|projects/.*/workflows/.*\.yml)$
+        files: ^(templates/(patterns|probes)/.*\.yml|projects/.*/workflows/.*\.yml)$
         require_serial: false
 
       - id: dify-lint-plugin-hashes
@@ -97,5 +97,5 @@ repos:
         # <provider>/<plugin>:<semver>@<sha256> (sub-spec 005.1).
         entry: python3 tools/dify_base/lint_plugin_hashes.py
         language: system
-        files: ^(templates/patterns/.*\.yml|projects/.*/workflows/.*\.yml)$
+        files: ^(templates/(patterns|probes)/.*\.yml|projects/.*/workflows/.*\.yml)$
         require_serial: false

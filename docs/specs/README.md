@@ -20,6 +20,7 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 | [004](004-ci-pipeline.md) | GitHub Actions CI | Approved | S |
 | [005](005-qa-strategy.md) | QA strategy (round-trip, drift, canary) | Approved | — (meta) |
 | [006](006-implementation-plan.md) | Master phased implementation plan | Approved* | — (meta) |
+| [007](007-capability-docs-and-patterns.md) | Capability docs: pitfall log + plugin behavior matrix | Approved | S |
 
 \* Spec 001 + 006 have 2 minor Q awaiting confirm; can proceed with defaults.
 

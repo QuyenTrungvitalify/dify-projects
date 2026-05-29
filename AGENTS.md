@@ -160,6 +160,10 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 | Architecture rationale | [docs/architecture.md](docs/architecture.md) |
 | Active specs (numbered) | [docs/specs/](docs/specs/) |
 | Node-type schema reference | [skills/mango-svip/references/node_types.md](skills/mango-svip/references/node_types.md) |
+| Runtime constraints & gotchas (sandbox limits, iteration ≤30, plugin hash, md_exporter caveats) | [skills/mango-svip/references/constraints.md](skills/mango-svip/references/constraints.md) |
+| Project-discovered runtime findings (supplements skills clone — committable) | [docs/runtime-supplement.md](docs/runtime-supplement.md) |
+| Plugin per-tool behavior matrix (md_exporter formats etc.) | [docs/plugin-capabilities.md](docs/plugin-capabilities.md) |
+| Code-node sandbox stdlib probe (run in your workspace to verify modules) | [templates/probes/stdlib_check.yml](templates/probes/stdlib_check.yml) |
 | 40+ community workflow examples | [corpus/awesome-dify-workflow/DSL/](corpus/awesome-dify-workflow/) |
 | 4 vetted starting patterns | [templates/patterns/](templates/patterns/) |
 | Project scaffold skeleton | [templates/_base/project/](templates/_base/project/) |
@@ -176,3 +180,9 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 <!-- Append observed agent failures here as they occur. Keep terse: 1-2 lines each,
      prefixed with the date. Format: `- YYYY-MM-DD: <what went wrong> → <rule that
      would have prevented it>`. Do not invent failures — only log real ones. -->
+
+- 2026-05-19: Designed if-else node with only `cases[].conditions` (modern Dify 0.6.0 schema) → `validate_workflow.py` rejected it because it checks for top-level `data.conditions` (legacy). → When emitting if-else nodes, include BOTH `conditions` (legacy, satisfies validator) AND `cases` (modern, real Dify behavior). See [constraints.md §7](skills/mango-svip/references/constraints.md).
+- 2026-05-19: Built two separate workflow YAMLs (mock + DeepL skeleton) before user clarified preference for single-file branched design → wasted ~10min on the v2 file before deleting it. → For "Phase 1 demo + Phase 2 pending API" patterns, default to a single-file if-else+variable-aggregator branched workflow ([eiken main.yml](projects/eiken_stem_proofread/workflows/main.yml) is canonical), not 2 parallel files.
+- 2026-05-19: Discovered the bowenliang123 md_exporter plugin collapses consecutive whitespace in Markdown table cells → 10-space placeholder became 1-space in output CSV. Functionally OK for human reviewers, but breaks byte-exact downstream parsers. → When CSV output requires exact whitespace, don't pipe through md_exporter — see [constraints.md §5](skills/mango-svip/references/constraints.md) for workarounds.
+- 2026-05-21: Used string node IDs (`node-code-1`) in a workflow → downstream `{{#node-code-1.text#}}` rendered as literal template string in output, no error, no warning. → Dify template engine only resolves numeric-timestamp IDs. Always generate via `skills/mango-svip/scripts/generate_id.py` per §4.1.
+- 2026-05-22: Proposed LanguageTool free tier for production proofread → ToS prohibits automated/non-interactive use. → For any tiered third-party API, read ToS for "automated requests" clause before designing free-tier production path. Tracker: [eiken/spec_todo/api_alternatives.md](projects/eiken_stem_proofread/spec_todo/api_alternatives.md).
