@@ -27,12 +27,15 @@ export interface TurnResult {
  *   child is force-killed and the turn resolves `{isError, note:"…timed out…"}` — the orchestrator
  *   maps that note to `status:error` (re-runnable, distinct from the still-failing gate). Phase ③'s
  *   5-pass validate→fix loop runs INSIDE this one turn, so a mid-loop timeout is `error`, not a gate.
+ * @param opts.onText optional (Lát 4) — invoked with each assistant text fragment as the turn
+ *   streams, so the orchestrator can `broadcast('phase:output', …)` to the SSE clients live. Pure
+ *   forwarding: it never affects the turn outcome (post-turn.ts remains authoritative).
  */
 export async function runTurn(
   session: ClaudeSession,
   prompt: string,
   onSessionId?: (sessionId: string) => void,
-  opts?: { timeoutMs?: number }
+  opts?: { timeoutMs?: number; onText?: (text: string) => void }
 ): Promise<TurnResult> {
   return new Promise<TurnResult>((resolve) => {
     let capturedSessionId: string | null = null;
@@ -65,6 +68,14 @@ export async function runTurn(
         capturedSessionId = event.session_id as string;
         session.capturedSessionId = capturedSessionId;
         onSessionId?.(capturedSessionId);
+      }
+      // Assistant text fragments → forward live to the SSE relay (Lát 4). The stream-json
+      // `assistant` event carries `message.content[] = [{type:'text', text}, …]`.
+      if (opts?.onText && event.type === 'assistant') {
+        const msg = event.message as { content?: Array<{ type?: string; text?: string }> } | undefined;
+        for (const block of msg?.content ?? []) {
+          if (block?.type === 'text' && block.text) opts.onText(block.text);
+        }
       }
       // turn-end is the single terminal result event (nexus :148-157)
       if (event.type === 'result') {

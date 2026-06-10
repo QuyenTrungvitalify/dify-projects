@@ -1,8 +1,10 @@
 /* ============================================================
-   App.tsx — orchestrator: run engine, surfaces, scenario switcher
-   Ported from app.jsx. ReactDOM.createRoot → render (main.tsx).
-   Drives the static shell off mock fixtures across the four run
-   states: running · awaiting_confirm · error · done.
+   App.tsx — live orchestrator (lat4-ui). Replaces the static
+   mock run-engine with the signals store: SSE drives the phase
+   track, the thread, and the gate cards; the composer posts
+   start/confirm/reply; the artifact panel reads/writes SPEC.md.
+   The SPA adds NO build logic — it only renders what the backend
+   sends and posts the user's gate decisions (dumb-renderer, §H).
    ============================================================ */
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { Sidebar } from './Sidebar';
@@ -10,189 +12,103 @@ import { PhaseTrack, Disclosure, GateCard, Composer } from './Chat';
 import { ArtifactPanel } from './ArtifactPanel';
 import { CreateProjectModal } from './Modal';
 import { I } from './Icon';
-import { TREE, SUGGESTIONS, GATES } from '../data';
-import type {
-  PhaseKey, PhaseStates, ArtifactTab, GateKey, GateItem, Scenario,
-  Settings, Crumb, TreeProject, TreeTask, ThreadItem, ThreadInput, FolderEntry,
-} from '../types';
+import { SUGGESTIONS } from '../data';
+import * as store from '../store';
+import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed } from '../types';
 
-let _uid = 0;
-const uid = () => 'x' + (++_uid);
-const uniq = <T,>(a: T[]): T[] => [...new Set(a)];
-
-const INIT_PHASES: PhaseStates = { analyze: 'pending', spec: 'pending', implement: 'pending', test: 'pending' };
-
-type PhaseOpts = { clearError?: boolean; forceClean?: boolean };
+/** Which artifact tabs are available for a task (contents-driven, with a phase fallback). */
+function availableTabs(task: WireTask): ArtifactTab[] {
+  const order: ('analyze' | 'spec' | 'implement' | 'test')[] = ['analyze', 'spec', 'implement', 'test'];
+  const reached = (p: string): boolean => order.indexOf(task.phase) >= order.indexOf(p as never);
+  const a = task.artifactContents;
+  const tabs: ArtifactTab[] = [];
+  if ((a && a.spec) || reached('spec')) tabs.push('spec');
+  if ((a && a.yaml) || (reached('implement') && task.phase !== 'analyze')) tabs.push('yaml');
+  if (a && a.diff) tabs.push('diff');
+  if ((a && a.report) || task.status === 'done') tabs.push('report');
+  return tabs;
+}
 
 export function App() {
-  const [view, setView] = useState<'empty' | 'conversation'>('empty');
   const [sbCollapsed, setSb] = useState(false);
   const [draft, setDraft] = useState('');
-  const [thread, setThread] = useState<ThreadItem[]>([]);
-  const [phaseStates, setPhases] = useState<PhaseStates>(INIT_PHASES);
-  const [current, setCurrent] = useState<PhaseKey | null>(null);
-  const [activeTask, setActiveTask] = useState<string | null>('t-jp');
-  const [, setTaskTitle] = useState('Add JP grammar step');
-  const [tree, setTree] = useState<TreeProject[]>(TREE);
   const [createOpen, setCreateOpen] = useState(false);
-  const [crumb, setCrumb] = useState<Crumb>({ project: 'Eiken', workflow: 'stem_proofread' });
-
-  const [settings, setSettings] = useState<Settings>({ workflow: 'stem_proofread', confirm: 'each step', deploy: 'none' });
-
   const [artifactOpen, setArtifactOpen] = useState(false);
-  const [artifactTab, setArtifactTab] = useState<ArtifactTab>('yaml');
-  const [artifactAvail, setAvail] = useState<ArtifactTab[]>([]);
-
-  // scenario switcher
-  const [scenario, setScenario] = useState<Scenario>('clean');
-  const [forceError, setForceError] = useState(false);
-  const [protoOpen, setProtoOpen] = useState(false);
-
-  const timer = useRef<number | null>(null);
+  const [artifactTab, setArtifactTab] = useState<ArtifactTab>('spec');
   const threadRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  // Live signals.
+  const task = store.task.value;
+  const thread = store.thread.value;
+  const tree = store.tree.value;
+  const seeds = store.seeds.value;
+  const phaseStates = store.phaseStates.value;
+  const current = store.currentPhase.value;
+  const busy = store.busy.value;
+  const connected = store.connected.value;
+  const startError = store.startError.value;
+  const settings = store.settings.value;
+
+  useEffect(() => {
+    void store.loadTree();
+    void store.loadSeeds();
+  }, []);
   useEffect(() => {
     if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
   }, [thread]);
 
-  const append = (item: ThreadInput) => setThread((t) => [...t, { id: uid(), ...item }]);
-  const setRunDone = (id: string) => setThread((t) => t.map((it) => (it.type === 'run' && it.id === id ? { ...it, running: false } : it)));
-  const resolveGate = (id: string, label: string) => setThread((t) => t.map((it) => (it.type === 'gate' && it.id === id ? { ...it, resolved: label } : it)));
+  const view: 'empty' | 'conversation' = task ? 'conversation' : 'empty';
+  const activeTaskId = task?.taskId ?? null;
+  const settingsSubset: Settings = { workflow: settings.workflow, confirm: settings.confirm, deploy: settings.deploy };
+  const onSettings = (patch: Partial<Settings>): void => {
+    store.settings.value = { ...store.settings.value, ...patch };
+  };
+  const workflows = tree
+    .filter((p) => p.id !== '__drafts__')
+    .flatMap((p) => p.workflows.map((w) => w.id))
+    .filter((s, i, arr) => arr.indexOf(s) === i);
 
-  /* ---------- run engine ---------- */
-  function startPhase(key: PhaseKey, opts: PhaseOpts = {}) {
-    if (timer.current) clearTimeout(timer.current);
-    setCurrent(key);
-    setPhases((s) => ({ ...s, [key]: 'running' }));
-    const runId = uid();
-    setThread((t) => [...t, { id: runId, type: 'run', phase: key, running: true }]);
-
-    if (key === 'implement') {
-      setAvail((a) => uniq([...a, 'spec', 'yaml', 'diff'] as ArtifactTab[]));
-      setArtifactTab('yaml');
-      setArtifactOpen(true);
-      setSb(true);
-    }
-    timer.current = window.setTimeout(() => finishPhase(key, runId, opts), 2000);
-  }
-
-  function finishPhase(key: PhaseKey, runId: string, opts: PhaseOpts) {
-    setRunDone(runId);
-
-    if (key === 'implement' && forceError && !opts.clearError) {
-      setPhases((s) => ({ ...s, implement: 'error' }));
-      append({ type: 'gate', gateKey: 'error' });
-      return;
-    }
-    setPhases((s) => ({ ...s, [key]: 'awaiting' }));
-
-    if (key === 'analyze') append({ type: 'gate', gateKey: 'analyze' });
-    else if (key === 'spec') { setAvail((a) => uniq([...a, 'spec'] as ArtifactTab[])); append({ type: 'gate', gateKey: 'spec' }); }
-    else if (key === 'implement') {
-      const failing = opts.forceClean ? false : scenario === 'failing';
-      append({ type: 'gate', gateKey: failing ? 'implement_failing' : 'implement_clean' });
-    }
-    else if (key === 'test') {
-      if (settings.deploy !== 'none') append({ type: 'gate', gateKey: 'import' });
-      else { setPhases((s) => ({ ...s, test: 'done' })); setAvail((a) => uniq([...a, 'report'] as ArtifactTab[])); append({ type: 'gate', gateKey: 'done' }); }
-    }
-  }
-
-  /* ---------- entry points ---------- */
-  function send(text?: string) {
+  /* ---------- actions ---------- */
+  function send(text?: string): void {
     const msg = (text ?? draft).trim();
     if (!msg) return;
     setDraft('');
     if (view === 'empty') {
-      setView('conversation');
-      setTaskTitle(msg.length > 42 ? msg.slice(0, 42) + '…' : msg);
-      setThread([{ id: uid(), type: 'user', text: msg }]);
-      setPhases(INIT_PHASES);
-      setAvail([]); setArtifactOpen(false);
-      window.setTimeout(() => startPhase('analyze'), 280);
+      void store.start(msg);
     } else {
-      append({ type: 'user', text: msg });
-      // a mid-conversation message nudges the current phase to re-run
-      const target = current || 'analyze';
-      window.setTimeout(() => startPhase(target), 240);
+      void store.reply(msg);
     }
   }
+  function openArtifact(tab: ArtifactTab): void {
+    setArtifactTab(tab);
+    setArtifactOpen(true);
+    setSb(true);
+  }
+  function onConfirm(action: WireGateAction): void {
+    void store.confirm(action);
+  }
+  function newTask(): void {
+    store.resetToNew();
+    setArtifactOpen(false);
+  }
 
-  /* ---------- gate handlers ---------- */
-  function onGatePrimary(entry: GateItem) {
-    const g = entry.gateKey;
-    if (g === 'analyze') { resolveGate(entry.id, 'Continued to Spec'); markDone('analyze'); startPhase('spec'); }
-    else if (g === 'spec') { resolveGate(entry.id, 'Continued to Implement'); markDone('spec'); startPhase('implement'); }
-    else if (g === 'implement_clean') { resolveGate(entry.id, 'Implemented — running tests'); markDone('implement'); startPhase('test'); }
-    else if (g === 'import') {
-      resolveGate(entry.id, 'Imported into Dify · staging');
-      markDone('test'); setAvail((a) => uniq([...a, 'report'] as ArtifactTab[]));
-      append({ type: 'gate', gateKey: 'done' });
+  const tabs = task ? availableTabs(task) : [];
+  // Auto-open the panel once the Implement YAML exists (mirrors the design's behavior).
+  useEffect(() => {
+    if (task && task.artifactContents?.yaml && !artifactOpen) {
+      setArtifactTab('yaml');
+      setArtifactOpen(true);
+      setSb(true);
     }
-  }
-
-  function markDone(key: PhaseKey) { setPhases((s) => ({ ...s, [key]: 'done' })); }
-
-  function onGateAction(entry: GateItem, action: string) {
-    const g = entry.gateKey;
-    if (g === 'implement_failing') {
-      if (action === 'accept') { resolveGate(entry.id, 'Accepted with 1 warning'); markDone('implement'); startPhase('test'); }
-      else if (action === 'retry') { resolveGate(entry.id, 'Re-running implement'); setScenario('clean'); startPhase('implement', { forceClean: true }); }
-      else if (action === 'abandon') { resolveGate(entry.id, 'Abandoned — spec preserved'); setPhases((s) => ({ ...s, implement: 'pending' })); }
-    } else if (g === 'error' && action === 'retry-phase') {
-      resolveGate(entry.id, 'Retrying Implement');
-      setForceError(false);
-      startPhase('implement', { clearError: true });
-    } else if (g === 'import' && action === 'skip-import') {
-      resolveGate(entry.id, 'Skipped import — changes stay local');
-      markDone('test'); setAvail((a) => uniq([...a, 'report'] as ArtifactTab[]));
-    }
-  }
-
-  function onRequestChanges(entry: GateItem, text: string) {
-    resolveGate(entry.id, 'Requested changes');
-    append({ type: 'user', text: text || 'Please revise this.' });
-    const phase: PhaseKey = entry.gateKey === 'analyze' ? 'analyze' : entry.gateKey === 'spec' ? 'spec' : 'implement';
-    setPhases((s) => ({ ...s, [phase]: 'pending' }));
-    window.setTimeout(() => startPhase(phase), 240);
-  }
-
-  function openArtifact(tab: ArtifactTab) { setAvail((a) => uniq([...a, tab])); setArtifactTab(tab); setArtifactOpen(true); setSb(true); }
-
-  function openTask(task: TreeTask) {
-    setActiveTask(task.id);
-    setTaskTitle(task.name);
-    if (task.id === 't-jp') return; // keep current demo conversation
-    reset(true);
-  }
-
-  function reset(toEmpty: boolean) {
-    if (timer.current) clearTimeout(timer.current);
-    setThread([]); setPhases(INIT_PHASES); setCurrent(null);
-    setArtifactOpen(false); setAvail([]); setDraft('');
-    setView(toEmpty ? 'empty' : 'empty');
-  }
-
-  function handleCreateProject({ name, folders }: { name: string; folders: FolderEntry[] }) {
-    const pid = 'p' + Date.now();
-    const wfs = folders.map((f, i) => ({ id: pid + 'w' + i, name: f.name, open: false, tasks: [] }));
-    const proj: TreeProject = { id: pid, name, open: true, workflows: wfs };
-    setTree((t) => [proj, ...t]);
-    setCreateOpen(false);
-    setActiveTask(null);
-    setCrumb({ project: name, workflow: folders[0] ? folders[0].name : null });
-    reset(true);
-  }
-
-  const busy = !!current && phaseStates[current] === 'running';
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task?.artifactContents?.yaml]);
 
   /* ---------- render ---------- */
   return (
     <div className={'app' + (sbCollapsed ? ' sb-collapsed' : '')}>
-      <Sidebar collapsed={sbCollapsed} activeTask={activeTask} tree={tree}
-        onOpen={openTask}
-        onNewTask={() => { setActiveTask(null); reset(true); }}
+      <Sidebar collapsed={sbCollapsed} activeTask={activeTaskId} tree={tree}
+        onOpen={(id) => { setArtifactOpen(false); void store.openTask(id); }}
+        onNewTask={newTask}
         onNewProject={() => setCreateOpen(true)}
         onToggle={() => setSb((c) => !c)}
       />
@@ -207,7 +123,11 @@ export function App() {
               ? <PhaseTrack phaseStates={phaseStates} current={current} />
               : <span style={{ fontSize: 13, color: 'var(--tx-muted)' }}>New task</span>}
             <div className="chat-top-right">
-              {view === 'conversation' && artifactAvail.length > 0 && !artifactOpen && (
+              {view === 'conversation' && (
+                <span className="conn-dot" title={connected ? 'Live' : 'Reconnecting…'}
+                  style={{ width: 7, height: 7, borderRadius: 99, background: connected ? 'var(--ok)' : 'var(--tx-faint)' }} />
+              )}
+              {view === 'conversation' && tabs.length > 0 && !artifactOpen && (
                 <button className="ghost-pill" onClick={() => { setArtifactOpen(true); setSb(true); }}>
                   <I.panel />Artifact
                 </button>
@@ -216,36 +136,45 @@ export function App() {
           </div>
 
           {view === 'empty' ? (
-            <EmptyState draft={draft} setDraft={setDraft} send={send} settings={settings} crumb={crumb} />
+            <EmptyState draft={draft} setDraft={setDraft} send={send}
+              settings={settingsSubset} onSettings={onSettings} workflows={workflows}
+              seeds={seeds} selectedSeed={settings.seed}
+              onSeed={(id) => { store.settings.value = { ...store.settings.value, seed: id }; }}
+              startError={startError}
+            />
           ) : (
             <>
               <div className="thread" ref={threadRef}>
                 <div className="thread-inner">
                   {thread.map((item) => {
-                    if (item.type === 'user')
+                    if (item.kind === 'user')
                       return <div key={item.id} className="msg msg-user"><div className="bubble-user">{item.text}</div></div>;
-                    if (item.type === 'run')
+                    if (item.kind === 'run')
                       return <div key={item.id} className="msg msg-assistant">
-                        <Disclosure phaseKey={item.phase} running={item.running} openDefault={item.running} />
+                        <Disclosure phaseKey={item.phase} running={item.running} output={item.output} />
                       </div>;
-                    if (item.type === 'gate')
-                      return <div key={item.id} className="msg msg-assistant">
-                        <GateCard gate={GATES[item.gateKey]} busy={busy} resolved={item.resolved}
-                          onPrimary={() => onGatePrimary(item)}
-                          onAction={(a) => onGateAction(item, a)}
-                          onRequestChanges={(t) => onRequestChanges(item, t)}
-                          onOpenArtifact={openArtifact}
-                        />
-                      </div>;
-                    return null;
+                    // gate
+                    return <div key={item.id} className="msg msg-assistant">
+                      <GateCard task={item.snapshot} resolved={item.resolved} busy={busy}
+                        onConfirm={onConfirm}
+                        onReply={(t) => void store.reply(t)}
+                        onCancel={() => void store.cancel()}
+                        onOpenArtifact={openArtifact}
+                      />
+                    </div>;
                   })}
                 </div>
               </div>
 
+              {startError && (
+                <div className="start-error"><I.alert />{startError}</div>
+              )}
+
               <div className="composer-dock">
                 <div className="composer-wrap">
-                  <Composer slim value={draft} onChange={setDraft} onSend={() => send()}
-                    settings={settings} placeholder="Reply, or describe another change…"
+                  <Composer value={draft} onChange={setDraft} onSend={() => send()}
+                    settings={settingsSubset} onSettings={onSettings} workflows={workflows}
+                    placeholder="Reply, or describe another change…"
                   />
                 </div>
               </div>
@@ -253,27 +182,19 @@ export function App() {
           )}
         </div>
 
-        {artifactOpen && (
-          <ArtifactPanel tab={artifactTab} setTab={setArtifactTab}
-            scenario={scenario} deploy={settings.deploy} available={artifactAvail}
+        {artifactOpen && task && (
+          <ArtifactPanel task={task} tab={artifactTab} setTab={setArtifactTab}
+            available={tabs}
             onClose={() => { setArtifactOpen(false); setSb(false); }}
+            onSaveSpec={store.saveSpec}
           />
         )}
       </div>
 
-      <ProtoSwitcher
-        open={protoOpen} setOpen={setProtoOpen}
-        scenario={scenario} setScenario={setScenario}
-        deploy={settings.deploy} setDeploy={(d) => setSettings((s) => ({ ...s, deploy: d }))}
-        confirm={settings.confirm} setConfirm={(c) => setSettings((s) => ({ ...s, confirm: c }))}
-        forceError={forceError} setForceError={setForceError}
-        onReset={() => { reset(true); setActiveTask('t-jp'); setTaskTitle('Add JP grammar step'); }}
-      />
-
       {createOpen && (
         <CreateProjectModal
           onClose={() => setCreateOpen(false)}
-          onCreate={handleCreateProject}
+          onCreate={() => { setCreateOpen(false); newTask(); }}
         />
       )}
     </div>
@@ -281,29 +202,51 @@ export function App() {
 }
 
 /* ---------- empty / new-task surface ---------- */
-function EmptyState({ draft, setDraft, send, settings, crumb }: {
+function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, seeds, selectedSeed, onSeed, startError }: {
   draft: string;
   setDraft: (s: string) => void;
   send: (text?: string) => void;
   settings: Settings;
-  crumb: Crumb;
+  onSettings: (patch: Partial<Settings>) => void;
+  workflows: string[];
+  seeds: Seed[];
+  selectedSeed: string | null;
+  onSeed: (id: string | null) => void;
+  startError: string | null;
 }) {
   return (
     <div className="empty">
       <div className="empty-wrap">
         <button className="empty-crumb">
           <I.folder className="crumb-ic" />
-          <span>{crumb.project}</span>
-          {crumb.workflow && <>
-            <span style={{ color: 'var(--tx-faint)' }}>/</span>
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 12.5 }}>{crumb.workflow}</span>
-          </>}
-          <span className="tw-twist"><I.chevDown /></span>
+          <span>New task</span>
         </button>
 
         <Composer value={draft} onChange={setDraft} onSend={() => send()}
-          settings={settings} placeholder="Describe the workflow or change…"
+          settings={settings} onSettings={onSettings} workflows={workflows}
+          placeholder="Describe the workflow or change…"
         />
+
+        {startError && <div className="start-error"><I.alert />{startError}</div>}
+
+        {/* Seed picker (AC #2): lists /api/seeds; degrades to an empty list until Lát 5. */}
+        <div className="seed-picker">
+          <div className="suggest-label">SEED FROM</div>
+          {seeds.length === 0 ? (
+            <div className="secret-note" style={{ padding: '6px 0' }}>
+              No seed apps — connect Dify to seed from a workspace app (Lát 5). New workflows start from scratch.
+            </div>
+          ) : (
+            <div className="seed-list">
+              <button className={'seed-chip' + (!selectedSeed ? ' on' : '')} onClick={() => onSeed(null)}>none</button>
+              {seeds.map((s) => (
+                <button key={s.id} className={'seed-chip' + (selectedSeed === s.id ? ' on' : '')} onClick={() => onSeed(s.id)}>
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="empty-suggest">
           <div className="suggest-label">TRY</div>
@@ -316,70 +259,6 @@ function EmptyState({ draft, setDraft, send, settings, crumb }: {
           ))}
         </div>
       </div>
-    </div>
-  );
-}
-
-/* ---------- prototype scenario switcher ---------- */
-function Seg({ value, set, options }: {
-  value: string;
-  set: (v: string) => void;
-  options: { v: string; l: string }[];
-}) {
-  return (
-    <div className="seg">
-      {options.map((o) => (
-        <button key={o.v} className={value === o.v ? 'on' : ''} onClick={() => set(o.v)}>{o.l}</button>
-      ))}
-    </div>
-  );
-}
-
-function ProtoSwitcher({ open, setOpen, scenario, setScenario, deploy, setDeploy,
-  confirm, setConfirm, forceError, setForceError, onReset }: {
-  open: boolean;
-  setOpen: (fn: (o: boolean) => boolean) => void;
-  scenario: Scenario;
-  setScenario: (s: Scenario) => void;
-  deploy: string;
-  setDeploy: (d: string) => void;
-  confirm: string;
-  setConfirm: (c: string) => void;
-  forceError: boolean;
-  setForceError: (b: boolean) => void;
-  onReset: () => void;
-}) {
-  return (
-    <div className="proto">
-      {open && (
-        <div className="proto-panel">
-          <h4>Prototype scenarios</h4>
-          <div className="proto-group">
-            <label>Implement result</label>
-            <Seg value={scenario} set={(v) => setScenario(v as Scenario)}
-              options={[{ v: 'clean', l: 'Clean' }, { v: 'failing', l: 'Lint fails' }]} />
-          </div>
-          <div className="proto-group">
-            <label>Deploy target (adds Import gate)</label>
-            <Seg value={deploy} set={setDeploy}
-              options={[{ v: 'none', l: 'none' }, { v: 'staging', l: 'staging' }]} />
-          </div>
-          <div className="proto-group">
-            <label>Confirm mode</label>
-            <Seg value={confirm} set={setConfirm}
-              options={[{ v: 'each step', l: 'Each step' }, { v: 'end only', l: 'End only' }]} />
-          </div>
-          <div className="proto-group">
-            <label>Implement phase</label>
-            <Seg value={forceError ? 'err' : 'ok'} set={(v) => setForceError(v === 'err')}
-              options={[{ v: 'ok', l: 'Succeeds' }, { v: 'err', l: 'Errors' }]} />
-          </div>
-          <button className="proto-reset" onClick={onReset}>↻ Reset to empty state</button>
-        </div>
-      )}
-      <button className="proto-toggle" onClick={() => setOpen((o) => !o)}>
-        <span className="pt-dot" />Scenarios
-      </button>
     </div>
   );
 }

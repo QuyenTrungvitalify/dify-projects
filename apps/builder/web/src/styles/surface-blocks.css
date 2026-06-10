@@ -815,3 +815,66 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ============================================================
+   lat4-ui wiring additions — live setting dropdowns, seed picker,
+   streamed-output markdown, diff hunk rows, start-error banner.
+   Uses the existing tokens; matches the bespoke design language.
+   ============================================================ */
+
+/* setting dropdown (below-input run settings, AC #14) */
+.setting-select { display: inline-flex; }
+.setting-menu {
+  position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 30;
+  min-width: 160px; padding: 4px;
+  background: var(--bg-elevated-2); border: 1px solid var(--border-strong);
+  border-radius: var(--r-card); box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.setting-opt {
+  text-align: left; padding: 6px 9px; border-radius: var(--r-chip);
+  font-size: 12.5px; color: var(--tx-2); background: transparent; border: none; cursor: pointer;
+}
+.setting-opt:hover { background: var(--bg-chip); color: var(--tx-1); }
+.setting-opt.on { color: var(--accent-tx); background: var(--accent-dim); }
+
+/* seed picker (new-task surface, AC #2) */
+.seed-picker { margin-top: 18px; }
+.seed-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.seed-chip {
+  padding: 5px 11px; border-radius: var(--r-pill); font-size: 12.5px;
+  background: var(--bg-chip); border: 1px solid var(--border-soft); color: var(--tx-2); cursor: pointer;
+}
+.seed-chip:hover { border-color: var(--border-strong); color: var(--tx-1); }
+.seed-chip.on { background: var(--accent-dim); border-color: var(--accent-line); color: var(--accent-tx); }
+
+/* streamed Claude output (slim markdown) inside the run disclosure */
+.md-stream { font-size: 12.5px; line-height: 1.55; color: var(--tx-2); }
+.md-stream p { margin: 0 0 8px; }
+.md-stream h1, .md-stream h2, .md-stream h3, .md-stream h4 { margin: 10px 0 6px; color: var(--tx-1); font-size: 13px; }
+.md-stream ul, .md-stream ol { margin: 0 0 8px; padding-left: 18px; }
+.md-stream li { margin: 2px 0; }
+.md-stream code { font-family: var(--mono); font-size: 11.5px; background: var(--mono-chip-bg); color: var(--mono-chip-tx); border: 1px solid var(--mono-chip-bd); border-radius: 4px; padding: 0 4px; }
+.md-stream pre.md-code { background: var(--bg-canvas); border: 1px solid var(--border-soft); border-radius: var(--r-input); padding: 9px 11px; overflow-x: auto; margin: 0 0 8px; }
+.md-stream pre.md-code code { background: none; border: none; padding: 0; color: var(--tx-2); }
+.md-stream blockquote { border-left: 2px solid var(--border-strong); margin: 0 0 8px; padding: 2px 0 2px 10px; color: var(--tx-muted); }
+.md-stream a { color: var(--accent-tx); }
+
+/* diff: hunk-header row + word-level change highlight (SplitDiffView) */
+.diff-line.hunk { color: var(--tx-faint); background: var(--bg-chip); }
+.diff-line.hunk .dl-txt { font-size: 11px; }
+.dl-word { background: var(--diff-add-bg); border-radius: 2px; }
+.diff-line.del .dl-word { background: var(--diff-del-bg); }
+
+/* start / busy error banner */
+.start-error {
+  display: flex; align-items: center; gap: 7px;
+  margin: 0 auto 8px; max-width: 760px; padding: 8px 12px;
+  font-size: 12.5px; color: var(--danger); background: var(--danger-dim);
+  border: 1px solid var(--danger); border-radius: var(--r-input);
+}
+.start-error svg { width: 14px; height: 14px; flex: none; }
+
+/* empty workflow/task hint row */
+.tree-empty { cursor: default; }
+.conn-dot { display: inline-block; margin-right: 6px; }

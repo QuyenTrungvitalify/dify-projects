@@ -32,6 +32,22 @@ export interface OrchestratorCtx {
   /** ABSOLUTE path to apps/builder/headless-settings.json. */
   settingsPath: string;
   log: SessionLogger;
+  /**
+   * Lát 4 SSE relay (optional — curl/dev runs pass nothing). Called at every phase/status/gate
+   * transition with the full task (`task:update`) and with each streamed assistant fragment
+   * (`phase:output`). Pure side-channel: it never alters the state machine (the orchestrator runs
+   * identically with or without it).
+   */
+  broadcast?: (taskId: string, event: string, data: unknown) => void;
+}
+
+/**
+ * Persist + relay the task state to the SSE clients (Lát 4). One call replaces a bare saveTask at
+ * every UI-visible transition so the browser mirror stays in lock-step with task.json.
+ */
+async function emit(task: Task, ctx: OrchestratorCtx): Promise<void> {
+  await saveTask(ctx.projectsDir, task);
+  ctx.broadcast?.(task.taskId, 'task:update', task);
 }
 
 /** A user-edited slug/name carried on the ②→③ `/confirm` (AC #18). */
@@ -88,7 +104,7 @@ export async function confirmAdvance(
       task.status = 'error';
       task.error = `scaffold failed: ${errMsg(e)}`;
       task.gate = computeGate('spec', { outcome: 'error' }, task.deploy);
-      await saveTask(ctx.projectsDir, task);
+      await emit(task, ctx);
       release(task.taskId);
       return;
     }
@@ -97,7 +113,7 @@ export async function confirmAdvance(
     if (isCancelled(task.taskId)) {
       task.status = 'cancelled';
       task.gate = undefined;
-      await saveTask(ctx.projectsDir, task);
+      await emit(task, ctx);
       return;
     }
     await runPhaseAndGate(task, 'implement', ctx);
@@ -153,13 +169,13 @@ async function gateAfterPhase(task: Task, verify: PhaseVerify, ctx: Orchestrator
   if (verify.outcome === 'error') {
     task.status = 'error';
     task.error = verify.reasons.filter(Boolean).join(' | ') || 'phase failed';
-    await saveTask(ctx.projectsDir, task);
+    await emit(task, ctx);
     release(task.taskId); // error RELEASES the run-lock (§I) — /reply re-acquires to retry
     return;
   }
   task.status = 'awaiting_confirm'; // success or still_failing → pause; lock stays HELD at the gate
   task.error = undefined;
-  await saveTask(ctx.projectsDir, task);
+  await emit(task, ctx);
 }
 
 /** Decide per Confirm-mode whether THIS boundary auto-advances, then issue the primary confirm. */
@@ -172,11 +188,13 @@ async function maybeAutoAdvance(task: Task, ctx: OrchestratorCtx): Promise<void>
   await confirmAdvance(task, primary.id, ctx);
 }
 
-/** each_step → never auto; spec_only → pause only after Spec (② pauses, ①/③ auto); auto → always. */
+/** auto → always; spec_only → pause only after Spec (② pauses, ①/③ auto); else (each_step OR any
+ *  corrupt/unrecognized persisted value) → never auto. Fail-SAFE toward pausing, never toward an
+ *  autonomous `auto` run (a stale `confirmMode:null` in a reconciled task.json must not silently run). */
 function boundaryAutoAdvances(mode: Task['confirmMode'], phase: Task['phase']): boolean {
-  if (mode === 'each_step') return false;
+  if (mode === 'auto') return true;
   if (mode === 'spec_only') return phase !== 'spec';
-  return true; // auto
+  return false; // each_step (and any unknown/corrupt value)
 }
 
 /**
@@ -200,7 +218,7 @@ async function runPhase(
   task.status = 'running';
   task.gate = undefined;
   task.error = undefined;
-  await saveTask(projectsDir, task);
+  await emit(task, ctx);
 
   const body = await readFile(join(projectsDir, phase.promptFile!), 'utf8');
   const renderedFresh = renderPrompt(body, phase.injectVars(task));
@@ -231,7 +249,11 @@ async function runPhase(
         task.sessionIds[sessKey] = sid;
         void saveTask(projectsDir, task);
       },
-      { timeoutMs: TURN_TIMEOUT_MS }
+      {
+        timeoutMs: TURN_TIMEOUT_MS,
+        // Relay each assistant fragment to the SSE clients live (Lát 4) — high-volume, not buffered.
+        onText: (text) => ctx.broadcast?.(task.taskId, 'phase:output', { phase: phaseId, text }),
+      }
     );
     clearSession(task.taskId);
     // Don't write a `running`-bearing task AFTER a /cancel flipped it (would clobber `cancelled`).
@@ -258,11 +280,19 @@ async function runPhase(
   if (isCancelled(task.taskId)) {
     task.status = 'cancelled';
     task.gate = undefined;
-    await saveTask(projectsDir, task);
+    await emit(task, ctx);
     return { outcome: 'error', reasons: ['cancelled by user'] };
   }
 
   const verify = await verifyPhase(phase, task, ctx, baseline, turn.note);
+  // verifyPhase awaits python/git subprocesses — a /cancel can land in that window. Re-check (mirrors
+  // the guard at the spawn boundary above) so the success save below can't clobber `cancelled`→`running`.
+  if (isCancelled(task.taskId)) {
+    task.status = 'cancelled';
+    task.gate = undefined;
+    await emit(task, ctx);
+    return { outcome: 'error', reasons: ['cancelled by user'] };
+  }
   if (verify.outcome !== 'error') {
     task.artifacts[sessKey] = phase.artifactRel(task);
     await saveTask(projectsDir, task);
@@ -356,7 +386,7 @@ async function runTestAndFinish(
   task.status = 'running';
   task.gate = undefined;
   task.error = undefined;
-  await saveTask(projectsDir, task);
+  await emit(task, ctx);
 
   const res = await runReport(projectsDir, task, log, { acceptedLintFailure });
   if (isCancelled(task.taskId)) return; // a /cancel raced the (childless) ④ step
@@ -365,13 +395,13 @@ async function runTestAndFinish(
     task.status = 'error';
     task.error = res.reasons.join(' | ');
     task.gate = computeGate('test', { outcome: 'error' }, task.deploy);
-    await saveTask(projectsDir, task);
+    await emit(task, ctx);
     release(task.taskId);
     return;
   }
   task.status = 'done';
   task.gate = computeGate('test', { outcome: 'success' }, task.deploy); // terminal: no actions
-  await saveTask(projectsDir, task);
+  await emit(task, ctx);
   release(task.taskId); // done RELEASES the run-lock (§I)
 }
 

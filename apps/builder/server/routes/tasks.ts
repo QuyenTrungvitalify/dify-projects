@@ -1,14 +1,18 @@
 /**
- * routes/tasks.ts — the HTTP surface for spec 009 Lát 3 (curl-driven; no SSE — that's Lát 4).
+ * routes/tasks.ts — the HTTP surface for spec 009 (Lát 3 gate + Lát 4 SSE-live evolution).
  *
- * `/api/tasks` POST is the run-lock gate: one build at a time → 409 (AC #21). Every step `await`s
- * the orchestrator so the response carries the resulting gate (the simplest correct v1; SSE makes
- * it live in Lát 4). `/cancel` works whether or not a turn is live: it kills the child if running,
- * else (paused at a gate) just flips the status — then frees the lock (AC #24). All mutating POSTs
- * bind 127.0.0.1 only (index.ts, hardcoded).
+ * `/api/tasks` POST is the run-lock gate: one build at a time → 409 (AC #21). Validation + lock
+ * acquire + task creation run synchronously, but the orchestrator phase work is dispatched
+ * **fire-and-forget** so the response returns the new task's id IMMEDIATELY — the UI needs that id to
+ * open `GET /api/tasks/:id/stream` before phase ① finishes (Lát 4; the Lát 3 header foretold "SSE
+ * makes it live in Lát 4"). Every phase/status/gate transition then reaches the browser over SSE
+ * (orchestrator `broadcast`); `GET /api/tasks/:id` stays the authoritative re-fetch on reconnect
+ * (AC #22). `/confirm` + `/reply` follow suit: validate synchronously (a bad action / wrong status
+ * still returns 4xx), then dispatch async and return an optimistic snapshot. `/cancel` stays
+ * synchronous (instant). All mutating routes bind 127.0.0.1 only + Origin-check (index.ts).
  */
 import type { FastifyPluginAsync } from 'fastify';
-import { createTask, loadTask, saveTask } from '../state/task.js';
+import { createTask, loadTask, saveTask, type Task } from '../state/task.js';
 import {
   confirmAdvance,
   replyWithin,
@@ -17,24 +21,23 @@ import {
   type OrchestratorCtx,
 } from '../lib/orchestrator.js';
 import { acquire, holderTaskId, liveSession, markCancelled, release } from '../lib/lock.js';
+import { readArtifactContents } from '../lib/artifacts.js';
 
 export interface TasksRoutesOptions {
   projectsDir: string;
   /** ABSOLUTE path to apps/builder/headless-settings.json. */
   settingsPath: string;
+  /** Lát 4 SSE relay (orchestrator broadcasts phase/status/gate transitions + streamed output). */
+  broadcast?: (taskId: string, event: string, data: unknown) => void;
 }
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-const statusOf = (e: unknown): number =>
-  (e as { statusCode?: number })?.statusCode && Number.isInteger((e as { statusCode?: number }).statusCode)
-    ? (e as { statusCode: number }).statusCode
-    : 500;
 
 const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) => {
-  const { projectsDir, settingsPath } = opts;
-  const ctx: OrchestratorCtx = { projectsDir, settingsPath, log: app.log };
+  const { projectsDir, settingsPath, broadcast } = opts;
+  const ctx: OrchestratorCtx = { projectsDir, settingsPath, log: app.log, broadcast };
 
-  /** Last-resort: on an UNEXPECTED throw, mark the task error and free the lock so it can't leak. */
+  /** Last-resort: on an UNEXPECTED throw, mark the task error, relay it, and free the lock. */
   async function failSafe(taskId: string, reason: string): Promise<void> {
     try {
       const t = await loadTask(projectsDir, taskId);
@@ -42,12 +45,29 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
         t.status = 'error';
         t.error = `internal error: ${reason}`;
         await saveTask(projectsDir, t);
+        broadcast?.(taskId, 'task:update', t);
       }
     } catch {
       // task gone — nothing to mark
     }
     release(taskId);
   }
+
+  /** Run orchestrator work in the background; converge to a relayed `error` on an unexpected throw. */
+  function dispatch(taskId: string, work: Promise<void>): void {
+    void work.catch((e) => {
+      app.log.error({ err: errMsg(e), taskId }, 'orchestrator dispatch threw');
+      void failSafe(taskId, errMsg(e));
+    });
+  }
+
+  /** Optimistic snapshot returned right after dispatch — SSE delivers the authoritative transitions. */
+  const optimisticRunning = (task: Task): Task => ({
+    ...task,
+    status: 'running',
+    gate: undefined,
+    error: undefined,
+  });
 
   const idOf = (req: { params: unknown }): string => (req.params as { id: string }).id;
 
@@ -81,23 +101,24 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       return reply.code(409).send({ error: 'Busy — a build is already running', holder: holderTaskId() });
     }
 
-    try {
-      await startTask(task, ctx);
-    } catch (e) {
-      app.log.error({ err: errMsg(e), taskId: task.taskId }, 'startTask threw');
-      await failSafe(task.taskId, errMsg(e));
-    }
-    return reply.send(await loadTask(projectsDir, task.taskId));
+    // Dispatch phase ① in the background; the UI opens /stream with the id we return now (Lát 4).
+    dispatch(task.taskId, startTask(task, ctx));
+    return reply.send(task);
   });
 
-  // ── GET /api/tasks/:id — current state (phase, status, gate.actions, gate.flag, artifact paths) ──
+  // ── GET /api/tasks/:id — authoritative state (phase/status/gate) + artifact contents (Endpoints) ──
   app.get('/api/tasks/:id', async (req, reply) => {
     const id = idOf(req);
+    let task: Task;
     try {
-      return await loadTask(projectsDir, id);
+      task = await loadTask(projectsDir, id);
     } catch {
       return reply.code(404).send({ error: `no such task: ${id}` });
     }
+    // The artifact panel reads SPEC.md / main.yml / report from here (spec Endpoints :532). The diff
+    // producer is Lát 5 → `artifacts.diff` stays null (panel degrades to "no diff yet").
+    const artifactContents = await readArtifactContents(projectsDir, task);
+    return { ...task, artifactContents };
   });
 
   // ── POST /api/tasks/:id/confirm — advance one boundary (the gate) ──
@@ -116,19 +137,26 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     if (task.status !== 'awaiting_confirm') {
       return reply.code(409).send({ error: `task is ${task.status}, not awaiting_confirm` });
     }
+    // An awaiting_confirm build HOLDS the lock (§I). If this gate is NOT the holder (corrupt .runs
+    // state / stale file), confirming it would spawn a turn whose child setSession() silently drops —
+    // an untracked, unkillable turn. Reject instead.
+    if (holderTaskId() !== id) {
+      return reply.code(409).send({ error: 'this gate is not the active build (lock held by another task)', holder: holderTaskId() });
+    }
+
+    // Validate the action synchronously so a stale/unknown action returns 409 to the caller.
+    const action = task.gate?.actions.find((a) => a.id === actionId && a.kind === 'confirm');
+    if (!action) {
+      return reply.code(409).send({ error: `'${actionId}' is not a current confirm action` });
+    }
 
     const payload: ConfirmPayload = {};
     if (typeof body.slug === 'string') payload.slug = body.slug;
     if (typeof body.name === 'string') payload.name = body.name;
 
-    try {
-      await confirmAdvance(task, actionId, ctx, payload);
-    } catch (e) {
-      const code = statusOf(e);
-      if (code === 500) await failSafe(id, errMsg(e));
-      return reply.code(code).send({ error: errMsg(e) });
-    }
-    return reply.send(await loadTask(projectsDir, id));
+    // Dispatch the advance in the background; SSE carries the next phase/gate (Lát 4).
+    dispatch(id, confirmAdvance(task, actionId, ctx, payload));
+    return reply.send(optimisticRunning(task));
   });
 
   // ── POST /api/tasks/:id/reply — revise WITHIN the current phase (or Retry out of error) ──
@@ -149,6 +177,10 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
         .code(409)
         .send({ error: `task is ${task.status}; /reply needs awaiting_confirm or error` });
     }
+    // An awaiting_confirm build HOLDS the lock — a non-holder gate is stale/corrupt (see /confirm).
+    if (task.status === 'awaiting_confirm' && holderTaskId() !== id) {
+      return reply.code(409).send({ error: 'this gate is not the active build (lock held by another task)', holder: holderTaskId() });
+    }
     // Retry out of `error` re-acquires the lock (error released it, §I); 409 if another build holds it.
     if (task.status === 'error' && !acquire(task.taskId)) {
       return reply
@@ -156,14 +188,11 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
         .send({ error: 'Busy — another build holds the run-lock', holder: holderTaskId() });
     }
 
-    try {
-      await replyWithin(task, text, ctx);
-    } catch (e) {
-      const code = statusOf(e);
-      if (code === 500) await failSafe(id, errMsg(e));
-      return reply.code(code).send({ error: errMsg(e) });
-    }
-    return reply.send(await loadTask(projectsDir, id));
+    // Dispatch the within-phase revise (or Retry-out-of-error) in the background; SSE carries it.
+    // A throw inside lands in dispatch → failSafe, which RELEASES the lock, so the error-retry lock
+    // taken just above can't leak even on an unexpected failure.
+    dispatch(id, replyWithin(task, text, ctx));
+    return reply.send(optimisticRunning(task));
   });
 
   // ── POST /api/tasks/:id/cancel — kill the live turn (or just flip a paused gate) + free the lock ──
@@ -193,6 +222,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       fresh.gate = undefined;
       fresh.error = fresh.error ?? 'cancelled by user';
       await saveTask(projectsDir, fresh);
+      broadcast?.(id, 'task:update', fresh); // relay the cancel to the SSE clients (Lát 4)
     }
     release(id); // frees the run-lock so a new POST /api/tasks succeeds (AC #24)
     return reply.send(await loadTask(projectsDir, id));

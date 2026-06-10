@@ -7,23 +7,32 @@
  * a paused gated build re-acquires the lock), and keeps the Lát-1 `/api/dev/run-implement` smoke
  * endpoint (a single Implement turn + post-turn verify).
  *
- * Binds 127.0.0.1:4123 (hardcoded — NOT env-overridable). Only the projects dir path may be
- * overridden, via DIFY_PROJECTS_DIR.
+ * Binds 127.0.0.1 (HOST hardcoded — never 0.0.0.0, spec §J). The port is BUILDER_PORT (default
+ * 4123, spec §F — the vite dev proxy targets the same var); the projects dir is DIFY_PROJECTS_DIR.
+ *
+ * Lát 4 adds the UI surface on top of the Lát 3 gate: the SSE relay (`plugins/sse.ts` +
+ * `GET /api/tasks/:id/stream`), the UI read endpoints (`routes/ui.ts`: `/api/tree`, `/api/seeds`,
+ * SPEC.md GET/PUT), an Origin/same-origin check on mutating requests (spec §J), and static serving
+ * of the built SPA (`web/dist`) at `/`.
  */
 import Fastify from 'fastify';
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, createReadStream, statSync } from 'node:fs';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, normalize, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ClaudeSession } from './lib/claude-session.js';
 import { runTurn } from './lib/turn-runner.js';
 import { postTurnCheck, gitDirtyPaths } from './lib/post-turn.js';
 import { reconcileOnBoot } from './lib/lock.js';
 import tasksRoutes from './routes/tasks.js';
+import uiRoutes from './routes/ui.js';
+import ssePlugin, { createSSEState } from './plugins/sse.js';
+import { isOriginAllowed } from './plugins/sse-origin-check.js';
 
 const HOST = '127.0.0.1'; // hardcoded — never env-overridable
-const PORT = 4123;
+// Spec §F: BUILDER_PORT (default 4123) is the ONLY configurable bind knob; HOST stays 127.0.0.1.
+const PORT = Number(process.env.BUILDER_PORT) || 4123;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -70,11 +79,26 @@ This SPEC.md is the source of truth for what to build.
 
 const app = Fastify({ logger: true });
 
-app.get('/health', async () => ({
-  ok: true,
-  projectsDir: DIFY_PROJECTS_DIR,
-  settingsPath: SETTINGS_PATH,
-}));
+// Raw-body parser so PUT /api/tasks/:id/spec can take the SPEC.md markdown as text/plain (routes/ui.ts).
+app.addContentTypeParser('text/plain', { parseAs: 'string' }, (_req, body, done) => done(null, body));
+
+// ── /health — readiness gate (AC #1): non-OK with a clear message if the repo bootstrap is missing ──
+app.get('/health', async (_req, reply) => {
+  const checks = [
+    { path: '.venv/bin/python', label: 'Python venv (.venv/bin/python) — run ./scripts/setup.sh' },
+    { path: 'skills', label: 'skills/ directory (repo not bootstrapped at DIFY_PROJECTS_DIR)' },
+  ];
+  const missing = checks.filter((c) => !existsSync(join(DIFY_PROJECTS_DIR, c.path)));
+  if (missing.length) {
+    return reply.code(503).send({
+      ok: false,
+      projectsDir: DIFY_PROJECTS_DIR,
+      missing: missing.map((m) => m.label),
+      message: `builder not ready — missing: ${missing.map((m) => m.path).join(', ')}`,
+    });
+  }
+  return { ok: true, projectsDir: DIFY_PROJECTS_DIR, settingsPath: SETTINGS_PATH };
+});
 
 app.post('/api/dev/run-implement', async (req, reply) => {
   const body = (req.body ?? {}) as Partial<RunImplementBody>;
@@ -151,11 +175,67 @@ app.post('/api/dev/run-implement', async (req, reply) => {
   };
 });
 
-// The real gated surface (Lát 3): POST /api/tasks · GET /api/tasks/:id · POST .../confirm /reply
-// /cancel — run-lock (409), pause/confirm, within-phase reply, cancel, scaffold-at-Spec-gate.
+// ── Origin / same-origin check on mutating requests (spec §J, local-CSRF defense) ──
+// A browser page on another origin can't POST/PUT a mutation here. `undefined` Origin (curl) is
+// allowed. The SSE GET route runs its own check before hijack; this covers the rest.
+app.addHook('onRequest', async (req, reply) => {
+  const mutating = req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE' || req.method === 'PATCH';
+  if (mutating && !isOriginAllowed(req.headers.origin, PORT)) {
+    return reply.code(403).send({ error: 'origin not allowed' });
+  }
+});
+
+// ── SSE relay state (shared: the plugin serves /stream, the routes broadcast into it) ──
+const sse = createSSEState();
+await app.register(ssePlugin, { sse, port: PORT });
+
+// The gated surface (Lát 3): POST /api/tasks · GET /api/tasks/:id · POST .../confirm /reply /cancel
+// — run-lock (409), pause/confirm, within-phase reply, cancel, scaffold-at-Spec-gate. Lát 4 wires
+// the SSE `broadcast` so every transition + streamed turn reaches the browser live.
 await app.register(tasksRoutes, {
   projectsDir: DIFY_PROJECTS_DIR,
   settingsPath: SETTINGS_PATH,
+  broadcast: sse.broadcast,
+});
+
+// The UI read endpoints (Lát 4): GET /api/tree · GET /api/seeds · GET+PUT /api/tasks/:id/spec.
+await app.register(uiRoutes, { projectsDir: DIFY_PROJECTS_DIR, now: () => Date.now() });
+
+// ── Static SPA (web/dist) served at "/" — dependency-free handler (spec task 1) ──
+// A wildcard GET catches everything not matched by the api/health/sse routes (Fastify prefers
+// specific routes over the wildcard). Single-page app: unknown paths fall back to index.html.
+const WEB_DIST = join(DIFY_PROJECTS_DIR, 'apps/builder/web/dist');
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.png': 'image/png',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.map': 'application/json; charset=utf-8',
+};
+const INDEX_HTML = join(WEB_DIST, 'index.html');
+app.get('/*', async (req, reply) => {
+  // Resolve the request path inside WEB_DIST; reject traversal; fall back to index.html for the SPA
+  // (an empty/`.`/directory path or any unknown route → the single page).
+  const star = (req.params as { '*': string })['*'] || '';
+  const clean = normalize(decodeURIComponent(star)).replace(/^(\.\.[/\\])+/, '');
+  let filePath = join(WEB_DIST, clean);
+  if (
+    !filePath.startsWith(WEB_DIST) ||
+    !existsSync(filePath) ||
+    statSync(filePath).isDirectory()
+  ) {
+    filePath = INDEX_HTML;
+  }
+  if (!existsSync(filePath)) {
+    return reply.code(404).send({ error: 'SPA not built — run `npm --prefix apps/builder/web run build`' });
+  }
+  reply.header('Content-Type', MIME[extname(filePath)] ?? 'application/octet-stream');
+  return reply.send(createReadStream(filePath));
 });
 
 async function start(): Promise<void> {

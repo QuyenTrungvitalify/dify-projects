@@ -114,9 +114,20 @@ const taskFile = (projectsDir: string, taskId: string): string =>
   join(taskDir(projectsDir, taskId), 'task.json');
 export { runsRoot };
 
+// Monotonic taskId mint: two POSTs in the same millisecond must NOT collide (else both could
+// `acquire()` the run-lock for one id → two live builds, breaking AC #21). `acquire()` is synchronous,
+// so distinct ids guarantee the loser gets 409.
+let lastTaskMs = 0;
+function mintTaskId(): string {
+  let ms = Date.now();
+  if (ms <= lastTaskMs) ms = lastTaskMs + 1;
+  lastTaskMs = ms;
+  return ms.toString();
+}
+
 /** Mint a taskId, create `.runs/<taskId>/`, write the initial `task.json`. */
 export async function createTask(projectsDir: string, input: CreateTaskInput): Promise<Task> {
-  const taskId = Date.now().toString(); // 13-digit ms timestamp
+  const taskId = mintTaskId(); // 13-digit ms timestamp, monotonic-unique within the process
   const workflow = input.workflow && input.workflow.trim() && input.workflow.trim() !== 'none'
     ? input.workflow.trim()
     : null;

@@ -1,0 +1,86 @@
+/* ============================================================
+   api.ts — slim REST client for the Lát 4 UI (spec 009 Endpoints).
+   Mines the request/qs shape from nexus's 688-LOC api.ts but is
+   authored fresh: only the endpoints this dumb renderer calls.
+   The UI never talks to Dify or `claude` — every call is to the
+   builder backend, which owns all I/O (token never reaches here).
+   ============================================================ */
+import type { WireTask, WireTreeProject, Seed, WireConfirmMode } from './types';
+
+/** Thrown on a non-2xx response; carries the HTTP status so callers can branch (e.g. 409 busy). */
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const init: RequestInit = { method, headers: {} };
+  if (body !== undefined) {
+    (init.headers as Record<string, string>)['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, init);
+  if (!res.ok) {
+    let msg = `${method} ${path} → ${res.status}`;
+    try {
+      const j = await res.json();
+      if (j && typeof j.error === 'string') msg = j.error;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(res.status, msg);
+  }
+  // Some endpoints (PUT spec) return small JSON; tolerate empty bodies.
+  const text = await res.text();
+  return (text ? JSON.parse(text) : {}) as T;
+}
+
+export interface CreateTaskBody {
+  requirement: string;
+  workflow?: string | null;
+  confirm_mode?: string;
+  deploy?: string;
+  slug?: string | null;
+  name?: string | null;
+  seed?: string | null;
+}
+
+export const api = {
+  /** POST /api/tasks → start a build (run-lock; 409 surfaces as ApiError.status===409, AC #21). */
+  createTask: (body: CreateTaskBody): Promise<WireTask> => request('POST', '/api/tasks', body),
+  /** GET /api/tasks/:id → authoritative state + artifact contents (the reconnect re-fetch, AC #22). */
+  getTask: (id: string): Promise<WireTask> => request('GET', `/api/tasks/${encodeURIComponent(id)}`),
+  /** POST /api/tasks/:id/confirm → advance the gate (carries the chosen action id, + slug/name at ②). */
+  confirm: (id: string, actionId: string, extra?: { slug?: string; name?: string }): Promise<WireTask> =>
+    request('POST', `/api/tasks/${encodeURIComponent(id)}/confirm`, { actionId, ...extra }),
+  /** POST /api/tasks/:id/reply → within-phase change request / Retry-out-of-error. */
+  reply: (id: string, text: string): Promise<WireTask> =>
+    request('POST', `/api/tasks/${encodeURIComponent(id)}/reply`, { text }),
+  /** POST /api/tasks/:id/cancel → abandon: kill child, terminal status, release lock (AC #24). */
+  cancel: (id: string): Promise<WireTask> =>
+    request('POST', `/api/tasks/${encodeURIComponent(id)}/cancel`),
+  /** GET /api/tasks/:id/spec → current SPEC.md content for the editable panel. */
+  getSpec: (id: string): Promise<{ content: string }> =>
+    request('GET', `/api/tasks/${encodeURIComponent(id)}/spec`),
+  /** PUT /api/tasks/:id/spec → persist an in-place SPEC.md edit (last-writer, AC #3). */
+  putSpec: (id: string, content: string): Promise<{ ok: boolean }> =>
+    request('PUT', `/api/tasks/${encodeURIComponent(id)}/spec`, { content }),
+  /** GET /api/tree → the Project ▸ Workflow ▸ Task sidebar tree (AC #13). */
+  tree: (): Promise<{ projects: WireTreeProject[] }> => request('GET', '/api/tree'),
+  /** GET /api/seeds → seed-picker apps (degrades to [] until Lát 5, AC #2). */
+  seeds: (): Promise<{ seeds: Seed[]; note?: string }> => request('GET', '/api/seeds'),
+};
+
+/** Map the UI's public Confirm-mode label → the backend's verbose `confirm_mode` value (AC #15). */
+export function confirmModeWire(label: string): string {
+  if (label === 'auto') return 'auto';
+  if (label === 'spec only' || label === 'at spec only') return 'confirm at spec only';
+  return 'confirm each step';
+}
+
+export type { WireConfirmMode };

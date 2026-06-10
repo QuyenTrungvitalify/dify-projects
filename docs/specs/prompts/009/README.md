@@ -17,7 +17,7 @@ Copy-paste-ready prompts cho fresh AI agent session để implement từng **lá
 | [lat2-chain.md](lat2-chain.md) | 2 | Chain ①→②→③ (turn) →④ (backend), verify mỗi turn, deploy=none | ✅ **authored** | Lát 1 |
 | [lat3-gate.md](lat3-gate.md) | 3 | Gate `awaiting_confirm` + `/confirm` + `/reply` + run-lock/cancel (**crux**) | ✅ **authored** | Lát 2 |
 | [lat4-design.md](lat4-design.md) | 4 · design | **Visual layer** from [docs/design/](../../../design/) — vendor `surface-blocks.css` + port the 7 prototype components → Preact shell (sidebar, gate cards, phase track, artifact panel) | ✅ **authored** | Lát 0 |
-| [lat4-ui.md](lat4-ui.md) | 4 · wire | SSE + 3 regions **wired** to the backend; nexus = **logic only** (the look comes from lat4-design) | ✅ **authored** | Lát 3, 4·design |
+| [lat4-ui.md](lat4-ui.md) | 4 · wire | SSE + 3 regions **wired** to the backend; nexus = **logic only** (the look comes from lat4-design) | ✅ **done** (`apps/builder/web` live: SSE relay + 3 regions + SPEC editor; routes go SSE-live/async) | Lát 3, 4·design |
 | [lat5-shell.md](lat5-shell.md) | 5 | selfhost push/app_url, seed picker, diff, recovery, security, cloud, docs | ✅ **authored** | Lát 4 |
 
 > **All step prompts are authored (Lát 0–5).** Each is written to **read the current

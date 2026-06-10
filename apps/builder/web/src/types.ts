@@ -1,8 +1,98 @@
 /* ============================================================
-   types.ts — shared shapes for the static design shell.
-   The backend wiring (live store/SSE/endpoints) is lat4-ui;
-   these types describe the mock fixtures ported from data.jsx.
+   types.ts — shared shapes for the shell.
+   The presentational types (Gate descriptor, TreeProject, …)
+   drive the design components; the Wire* types (added for
+   lat4-ui) mirror the backend's JSON contract.
    ============================================================ */
+
+/* ───── live backend wire types (lat4-ui) — mirror apps/builder/server/state/task.ts ───── */
+
+export type WireStatus =
+  | 'running'
+  | 'scaffolding'
+  | 'awaiting_confirm'
+  | 'done'
+  | 'error'
+  | 'cancelled';
+export type WirePhase = 'analyze' | 'spec' | 'implement' | 'test';
+export type WireConfirmMode = 'each_step' | 'spec_only' | 'auto';
+
+/** A backend gate button (gate.ts): kind distinguishes /confirm vs composer-focus /reply vs /cancel. */
+export interface WireGateAction {
+  id: string;
+  label: string;
+  kind: 'confirm' | 'reply' | 'cancel';
+  route: '/confirm' | '/reply' | '/cancel';
+}
+export interface WireGate {
+  actions: WireGateAction[];
+  flag?: 'still_failing';
+}
+
+/** Artifact contents inlined on GET /api/tasks/:id (artifacts.ts). diff is Lát-5 (null here). */
+export interface WireArtifacts {
+  spec: string | null;
+  yaml: string | null;
+  report: unknown | null;
+  diff: string | null;
+}
+
+export interface WireTask {
+  taskId: string;
+  project: string | null;
+  workflow: string | null;
+  workflowFile: string;
+  requirement: string;
+  seedPath: string | null;
+  deploy: 'none';
+  confirmMode: WireConfirmMode;
+  phase: WirePhase;
+  status: WireStatus;
+  slug: string | null;
+  name: string | null;
+  sessionIds: Record<string, string | undefined>;
+  artifacts: Record<string, string | undefined>;
+  gate?: WireGate;
+  error?: string;
+  /** present on GET /api/tasks/:id (not on SSE task:update). */
+  artifactContents?: WireArtifacts;
+}
+
+/* ───── live sidebar tree (GET /api/tree) ───── */
+export interface WireTreeTask {
+  id: string;
+  name: string;
+  time: string;
+  status: WireStatus;
+  phase: WirePhase;
+}
+export interface WireTreeWorkflow {
+  id: string;
+  name: string;
+  tasks: WireTreeTask[];
+}
+export interface WireTreeProject {
+  id: string;
+  name: string;
+  workflows: WireTreeWorkflow[];
+}
+
+/** Seed selector item (GET /api/seeds — empty list until Lát 5). */
+export interface Seed {
+  id: string;
+  name: string;
+}
+
+/** Local FileChange (lat4-ui task 9 — was nexus shared/types.ts). The diff producer is Lát 5. */
+export interface FileChange {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  diff: string;
+  oldPath?: string;
+}
+
 
 export type PhaseKey = 'analyze' | 'spec' | 'implement' | 'test';
 export type PhaseState = 'pending' | 'running' | 'awaiting' | 'done' | 'error';
