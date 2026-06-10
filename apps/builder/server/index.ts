@@ -1,9 +1,11 @@
 /**
- * Spec 009 Builder backend — Lát 1 SKELETON.
+ * Spec 009 Builder backend — Lát 3 GATE.
  *
- * One dev endpoint that spawns a single Implement (③) `claude` turn under permission model C,
- * parses the stream-json stream (session_id from system/init + the terminal result), writes the
- * workflow YAML, then runs the authoritative post-turn verify (correctness + confinement-with-revert).
+ * The real gated surface lives in `routes/tasks.ts` (`/api/tasks` + `/confirm` `/reply` `/cancel`):
+ * a human-gated 4-phase build with a single-build run-lock, cancel, and boot reconcile. This file
+ * wires that plugin, runs `reconcileOnBoot` at startup (any `running` task → `error`, lock cleared;
+ * a paused gated build re-acquires the lock), and keeps the Lát-1 `/api/dev/run-implement` smoke
+ * endpoint (a single Implement turn + post-turn verify).
  *
  * Binds 127.0.0.1:4123 (hardcoded — NOT env-overridable). Only the projects dir path may be
  * overridden, via DIFY_PROJECTS_DIR.
@@ -17,6 +19,8 @@ import { fileURLToPath } from 'node:url';
 import { ClaudeSession } from './lib/claude-session.js';
 import { runTurn } from './lib/turn-runner.js';
 import { postTurnCheck, gitDirtyPaths } from './lib/post-turn.js';
+import { reconcileOnBoot } from './lib/lock.js';
+import tasksRoutes from './routes/tasks.js';
 
 const HOST = '127.0.0.1'; // hardcoded — never env-overridable
 const PORT = 4123;
@@ -147,10 +151,22 @@ app.post('/api/dev/run-implement', async (req, reply) => {
   };
 });
 
-app
-  .listen({ host: HOST, port: PORT })
-  .then(() => app.log.info({ host: HOST, port: PORT, projectsDir: DIFY_PROJECTS_DIR }, 'builder up'))
-  .catch((err) => {
-    app.log.error(err, 'failed to start');
-    process.exit(1);
-  });
+// The real gated surface (Lát 3): POST /api/tasks · GET /api/tasks/:id · POST .../confirm /reply
+// /cancel — run-lock (409), pause/confirm, within-phase reply, cancel, scaffold-at-Spec-gate.
+await app.register(tasksRoutes, {
+  projectsDir: DIFY_PROJECTS_DIR,
+  settingsPath: SETTINGS_PATH,
+});
+
+async function start(): Promise<void> {
+  // Boot reconcile BEFORE listening: a crash/restart left no live process, so any `running` task →
+  // `error` (lock cleared); a paused `awaiting_confirm` gated build re-acquires the lock (AC #19/#24).
+  await reconcileOnBoot(DIFY_PROJECTS_DIR, app.log);
+  await app.listen({ host: HOST, port: PORT });
+  app.log.info({ host: HOST, port: PORT, projectsDir: DIFY_PROJECTS_DIR }, 'builder up');
+}
+
+start().catch((err) => {
+  app.log.error(err, 'failed to start');
+  process.exit(1);
+});

@@ -28,10 +28,35 @@ export interface PostTurnParams {
   log: SessionLogger;
 }
 
+/** Structured breakdown of the ③ correctness + confinement check — lets Lát 3 pick the Implement
+ *  gate variant (clean vs still-failing vs hard-error) instead of collapsing to one boolean. */
+export interface PostTurnDetail {
+  /** artifact exists + non-empty. */
+  artifactOk: boolean;
+  /** `yaml.safe_load` succeeded (false = truncated/corrupt → hard error, not a lint failure). */
+  yamlOk: boolean;
+  /** the 3 linter exit codes (null when the artifact was missing/empty so they never ran). */
+  lintCodes: { validate: number; lint_refs: number; lint_plugin_hashes: number } | null;
+  /** every node id matched `^\d{13}$`. */
+  idsOk: boolean;
+  /** reverted out-of-confinement paths (non-empty = a security breach → always hard error). */
+  confinementBreaches: string[];
+}
+
 export interface PostTurnResult {
   ok: boolean;
   status: 'done' | 'error';
   reasons: string[];
+  detail: PostTurnDetail;
+}
+
+export interface ConfinementParams {
+  projectsDir: string;
+  /** active slug, or null pre-scaffold (①/②) — when null the `projects/<slug>/` rules can't match. */
+  slug: string | null;
+  taskId: string;
+  baseline: Set<string>;
+  log: SessionLogger;
 }
 
 // Inline python: yaml.safe_load the workflow (truncation guard) and emit its node ids as JSON.
@@ -64,9 +89,11 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
     reasons.push(`artifact missing: ${rel}`);
   }
   if (size === 0) reasons.push(`artifact empty: ${rel}`);
+  const artifactOk = size > 0;
 
   // 1: truncation — yaml.safe_load first; also extracts node ids in the same shot.
   let nodeIds: string[] | null = null;
+  let yamlOk = false;
   if (size > 0) {
     const probe = await runPython(p.projectsDir, ['-c', YAML_PROBE, rel]);
     if (probe.code !== 0) {
@@ -75,6 +102,7 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
       try {
         const out = JSON.parse(probe.stdout) as { node_ids: unknown[] };
         nodeIds = (out.node_ids ?? []).map((x) => String(x));
+        yamlOk = true;
       } catch {
         reasons.push(`yaml probe returned non-JSON: ${probe.stdout.slice(0, 200)}`);
       }
@@ -82,15 +110,19 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
   }
 
   // 2: the 3 linters, each must exit 0. Do NOT branch on a shared exit code — semantics differ
-  //    per tool (findings/plan); each non-zero is its own reason.
+  //    per tool (findings/plan); each non-zero is its own reason. Capture each exit code so Lát 3
+  //    can tell a "clean" Implement (all 0) from a "still-failing" one (lint≠0) — §D variants.
+  let lintCodes: PostTurnDetail['lintCodes'] = null;
   if (size > 0) {
-    const linters: Array<{ name: string; args: string[] }> = [
-      { name: 'validate_workflow.py', args: ['skills/mango-svip/scripts/validate_workflow.py', rel] },
-      { name: 'lint_refs.py', args: ['tools/dify_base/lint_refs.py', rel] },
-      { name: 'lint_plugin_hashes.py', args: ['tools/dify_base/lint_plugin_hashes.py', rel] },
+    const linters: Array<{ name: string; key: keyof NonNullable<PostTurnDetail['lintCodes']>; args: string[] }> = [
+      { name: 'validate_workflow.py', key: 'validate', args: ['skills/mango-svip/scripts/validate_workflow.py', rel] },
+      { name: 'lint_refs.py', key: 'lint_refs', args: ['tools/dify_base/lint_refs.py', rel] },
+      { name: 'lint_plugin_hashes.py', key: 'lint_plugin_hashes', args: ['tools/dify_base/lint_plugin_hashes.py', rel] },
     ];
+    lintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 };
     for (const lint of linters) {
       const r = await runPython(p.projectsDir, lint.args);
+      lintCodes[lint.key] = r.code;
       if (r.code !== 0) {
         const detail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-6).join(' ⏎ ');
         reasons.push(`${lint.name} exit ${r.code}: ${detail}`);
@@ -99,33 +131,57 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
   }
 
   // 3: 13-digit node-id regex (validators miss hand-written string IDs — AGENTS.md §4.1).
+  let idsOk = false;
   if (nodeIds) {
     if (nodeIds.length === 0) {
       reasons.push('no node ids found in workflow.graph.nodes');
     }
     const bad = nodeIds.filter((id) => !/^\d{13}$/.test(id));
     if (bad.length) reasons.push(`non-13-digit node id(s): ${bad.slice(0, 10).join(', ')}`);
+    idsOk = nodeIds.length > 0 && bad.length === 0;
   }
 
   // ─── (b) CONFINEMENT (baseline-delta + whitelist + REVERT) ──────
   // Run unconditionally — a breach must be reverted even if (a) already failed.
+  const confinementBreaches = await confinementCheck(p);
+  reasons.push(...confinementBreaches);
+
+  const detail: PostTurnDetail = { artifactOk, yamlOk, lintCodes, idsOk, confinementBreaches };
+  const ok = reasons.length === 0;
+  return { ok, status: ok ? 'done' : 'error', reasons, detail };
+}
+
+/**
+ * (b) standalone — baseline-delta git porcelain against the whitelist; REVERTS any
+ * turn-introduced path outside it (findings E2d / plan Cross-cutting #3b). Returns one reason
+ * per reverted breach (empty = confinement clean). Shared by the ③ post-turn check (above) and
+ * the ①/② turn verify (orchestrator), which have no YAML artifact to lint.
+ *
+ * When `slug` is null (pre-scaffold ①/②), the `projects/<slug>/` rules can't match, so any write
+ * under `projects/` is correctly treated as a breach (nothing should land there before scaffold).
+ */
+export async function confinementCheck(p: ConfinementParams): Promise<string[]> {
+  const reasons: string[] = [];
   const after = await gitDirtyPaths(p.projectsDir);
   const turnTouched = [...after].filter((path) => !p.baseline.has(path));
 
   const isWhitelisted = (path: string): boolean =>
-    path.startsWith(`projects/${p.slug}/`) ||
+    (p.slug !== null && path.startsWith(`projects/${p.slug}/`)) ||
     path.startsWith(`apps/builder/.runs/${p.taskId}/`) ||
+    // The skill bodies tell a turn (cwd = repo root) to write its task artifacts to the
+    // shorthand `.runs/<taskId>/`; that resolves to repo-root `.runs/<taskId>/`. It is
+    // task-scoped (not a broad escape), so it is whitelisted; the orchestrator relocates these
+    // into the canonical `apps/builder/.runs/<taskId>/` (spec §A :517) right after the turn.
+    path.startsWith(`.runs/${p.taskId}/`) ||
     path === '.vscode/settings.json' ||
-    path === `projects/${p.slug}/.dify-workspace.yaml`;
+    (p.slug !== null && path === `projects/${p.slug}/.dify-workspace.yaml`);
 
   const breaches = turnTouched.filter((path) => !isWhitelisted(path));
   for (const breach of breaches) {
     await revertPath(p.projectsDir, breach, p.log);
     reasons.push(`confinement breach (reverted): ${breach}`);
   }
-
-  const ok = reasons.length === 0;
-  return { ok, status: ok ? 'done' : 'error', reasons };
+  return reasons;
 }
 
 /** Parse `git status --porcelain` into a set of dirty repo-relative paths. */
