@@ -1,0 +1,21 @@
+{
+  "name": "@dify-projects/builder-web",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Spec 009 Builder web SPA — Lát 4 (Preact + Vite + TS, dark-only 3-region shell)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "preact": "^10.26.4",
+    "@preact/signals": "^2.0.1"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.3.5"
+  }
+}
