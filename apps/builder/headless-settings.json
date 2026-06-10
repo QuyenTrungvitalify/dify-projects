@@ -1,0 +1,33 @@
+{
+  "defaultMode": "acceptEdits",
+  "permissions": {
+    "allow": ["Bash", "Read", "Write", "Edit", "Glob", "Grep"],
+    "deny": [
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.claude/**)",
+      "Write(//etc/**)",
+      "Write(//usr/**)",
+      "Write(//bin/**)",
+      "Write(//System/**)",
+      "Edit(//etc/**)",
+      "Edit(//usr/**)",
+      "Edit(//bin/**)",
+      "Edit(//System/**)",
+      "Write(.git/**)",
+      "Edit(.git/**)",
+      "Write(tools/**)",
+      "Edit(tools/**)",
+      "Write(skills/**)",
+      "Edit(skills/**)",
+      "Write(.venv/**)",
+      "Edit(.venv/**)",
+      "Write(.claude/**)",
+      "Edit(.claude/**)",
+      "Read(projects/*/envs/*.env)",
+      "Bash(sudo:*)",
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)"
+    ]
+  }
+}
