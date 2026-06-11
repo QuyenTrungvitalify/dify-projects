@@ -21,6 +21,8 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 | [005](005-qa-strategy.md) | QA strategy (round-trip, drift, canary) | Approved | — (meta) |
 | [006](006-implementation-plan.md) | Master phased implementation plan | Approved* | — (meta) |
 | [007](007-capability-docs-and-patterns.md) | Capability docs: pitfall log + plugin behavior matrix | Approved | S |
+| [008](008-meta-workflow-builder.md) | Meta Workflow Builder (Dify-builds-Dify auto-generator) | Draft | M |
+| [009](009-browser-workflow-builder.md) | Dify Workflow Builder App (conversational, phased, human-gated) | Draft | L |
 
 \* Spec 001 + 006 have 2 minor Q awaiting confirm; can proceed with defaults.
 

@@ -15,6 +15,11 @@
 #
 # To skip in an emergency: git commit --no-verify (but please don't)
 
+# Global exclude (spec 009 Lát 5): the builder app (apps/) is a TS/Node sub-project with its own
+# toolchain — keep the repo's Python/Dify-DSL hooks off its package.json / tsconfig / dist / .runs.
+# Additive: per-hook `exclude:` regexes below still apply on top of this.
+exclude: ^(apps/|node_modules/)
+
 repos:
   # --- 1. Built-in basic hooks ---
   - repo: https://github.com/pre-commit/pre-commit-hooks

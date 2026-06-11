@@ -2,6 +2,10 @@
 
 Copy-paste-ready prompts cho fresh AI agent session (Claude Code, Codex, etc.) để implement từng Phase.
 
+> **Per-spec prompt sets:** the `Y*` files below are the original infra batch.
+> Newer specs keep their step prompts in a subfolder: **[009/](009/)** — Spec 009 Dify
+> Workflow Builder app (Lát 0–5).
+
 ## Order
 
 | File | Phase | Effort | Depends on |

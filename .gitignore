@@ -25,3 +25,18 @@ htmlcov/
 .DS_Store
 .idea/
 # (Note: .vscode/settings.json IS committed — wires up YAML schema for the team)
+
+# Spec 009 Lát-0 spike (throwaway)
+spike/
+
+# Spec 009 builder app (apps/builder) — Node toolchain, build output, run artifacts, secrets.
+# The real .env (DIFY_CONSOLE_TOKEN etc.) is gitignored; .env.example IS committed.
+# `**` so the nested web/ package (apps/builder/web/) is covered too, not just apps/builder/.
+apps/**/node_modules/
+apps/**/dist/
+apps/*/.runs/
+apps/*/.env*
+!apps/*/.env.example
+# Stray repo-root run dir (a turn writes `.runs/<taskId>/`; the backend relocates these into
+# apps/builder/.runs/ — see orchestrator.relocateRunArtifacts — but the empty/leftover root one is junk).
+/.runs/

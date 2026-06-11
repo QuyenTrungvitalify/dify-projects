@@ -120,9 +120,10 @@ Create `apps/builder/server/lib/lock.ts`. v1 is **build-level single-build-at-a-
   (message "interrupted by backend restart — phase re-runnable"), and **clear** the lock; a task in
   `awaiting_confirm` is left as-is **but re-acquires the lock** (it's a live gated build the user can
   still confirm/cancel). `done|error|cancelled` are ignored. **Tie-breaker:** the single-build invariant
-  means at most one non-terminal task should exist; if reconcile finds **more than one** `running`/
-  `awaiting_confirm` task (corrupt state), `error` all but the most-recently-updated and re-acquire the
-  lock for that one. (AC #19, #24.)
+  means at most one non-terminal task should exist. `running`/`scaffolding` are **always** errored on boot
+  (their child is dead — they can never re-acquire), so only an `awaiting_confirm` task can survive; if
+  reconcile finds **more than one** `awaiting_confirm` task (corrupt state), keep only the
+  most-recently-updated (mtime), `error` the rest, and re-acquire the lock for that one. (AC #19, #24.)
 
 ### 2 — `server/lib/gate.ts` (gate-action computation)
 
