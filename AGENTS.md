@@ -169,9 +169,9 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 | Project scaffold skeleton | [templates/_base/project/](templates/_base/project/) |
 | JSON Schema (DSL v0.6.0) | [schemas/dify-dsl-0.6.0.json](schemas/dify-dsl-0.6.0.json) |
 | Schema generator (regen on Dify upgrade) | [schemas/gen_schema.py](schemas/gen_schema.py) |
-| Project scaffolder | [tools/dify_base/init_project.py](tools/dify_base/init_project.py) |
+| Project scaffolder | [tools/dify_base/init_project.py](tools/dify_base/init_project.py) — `--group` sets the optional `project.group` sub-key (app sidebar grouping) |
 | Template search | [tools/dify_base/find.py](tools/dify_base/find.py) |
-| GitOps sync (pull/push/diff) | [tools/dify_base/sync.py](tools/dify_base/sync.py) |
+| GitOps sync (pull/push/diff) | [tools/dify_base/sync.py](tools/dify_base/sync.py) — `push --json-out` prints the raw import result on one line (machine-readable `app_id`) |
 | Pre-commit config | [.pre-commit-config.yaml](.pre-commit-config.yaml) |
 | Repo pinning files | `.dify-dsl-version`, `.dify-tag` |
 

@@ -43,6 +43,9 @@ class Answers:
     dify_tag: str
     primary_lang: str
     date: str
+    # App sidebar grouping → project.group in .dify-workspace.yaml. asdict() exposes it as {{group}}.
+    # Empty string = ungrouped (a harmless sibling key the dsl scripts ignore — they read dsl_version).
+    group: str = ""
 
 
 def slugify(name: str) -> str:
@@ -115,6 +118,7 @@ def collect_interactive() -> Answers:
     dify_tag = detect_dify_tag()
     print(f"  ℹ Dify source tag pinned by repo: {dify_tag} (from .dify-tag)")
     primary_lang = ask("Primary prompt language", default="en", choices=LANGS)
+    group = ask("App sidebar group (blank = ungrouped)", default="")
 
     return Answers(
         project_name=name,
@@ -125,6 +129,7 @@ def collect_interactive() -> Answers:
         dify_tag=dify_tag,
         primary_lang=primary_lang,
         date=date.today().isoformat(),
+        group=group,
     )
 
 
@@ -173,6 +178,8 @@ def main() -> int:
     p.add_argument("--dsl-version", default=None,
                    help=f"DSL version (default: detect from schemas/, or {DEFAULT_DSL_VERSION})")
     p.add_argument("--primary-lang", choices=LANGS, default="en")
+    p.add_argument("--group", default="",
+                   help="App sidebar grouping (project.group); empty = ungrouped")
     p.add_argument("--force", action="store_true",
                    help="Overwrite existing projects/<slug>/")
     args = p.parse_args()
@@ -194,6 +201,7 @@ def main() -> int:
             dify_tag=detect_dify_tag(),
             primary_lang=args.primary_lang,
             date=date.today().isoformat(),
+            group=args.group,
         )
     else:
         answers = collect_interactive()

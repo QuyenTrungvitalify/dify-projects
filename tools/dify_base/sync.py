@@ -314,6 +314,14 @@ def cmd_push(args) -> int:
         result = client.import_app(yaml_content, name=args.name, description=args.description)
     except requests.RequestException as e:
         sys.exit(f"❌ import_app failed: {_fmt_request_error(e)}")
+    if args.json_out:
+        # Machine-readable: the raw import-endpoint r.json() on ONE line, nothing else, so a caller
+        # can JSON.parse the last stdout line. The new app id lives under `app_id` — a real Cloud
+        # Dify POST /console/api/apps/imports returned `{app_id, status, error, current_dsl_version}`
+        # (verified, spec 008-meta-workflow-builder.md:51). Self-hosted may differ, so consumers read
+        # `app_id` first and fall back (e.g. `id`) / to a `list`-reconcile.
+        print(json.dumps(result))
+        return 0
     print(f"\n✓ Import result: {json.dumps(result, indent=2)}")
     return 0
 
@@ -358,6 +366,8 @@ def main() -> int:
     p_push.add_argument("--name", help="Override app name from YAML")
     p_push.add_argument("--description", help="Override description")
     p_push.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
+    p_push.add_argument("--json-out", action="store_true",
+                        help="Print machine-readable JSON of the import result (raw r.json()) and nothing else")
     p_push.set_defaults(func=cmd_push)
 
     args = p.parse_args()
