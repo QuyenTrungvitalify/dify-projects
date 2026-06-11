@@ -139,9 +139,9 @@ const taskFile = (projectsDir: string, taskId: string): string =>
   join(taskDir(projectsDir, taskId), 'task.json');
 export { runsRoot };
 
-// Monotonic taskId mint: two POSTs in the same millisecond must NOT collide (else both could
-// `acquire()` the run-lock for one id → two live builds, breaking AC #21). `acquire()` is synchronous,
-// so distinct ids guarantee the loser gets 409.
+// Monotonic taskId mint: two POSTs in the same millisecond must NOT collide. The turn lock keys on
+// taskId, so a shared id would let the race-loser `acquireTurn` the SAME slot the winner holds (Q6 /
+// AC #21). `acquireTurn` is synchronous + strict (one slot), so distinct ids guarantee the loser 409s.
 let lastTaskMs = 0;
 function mintTaskId(): string {
   let ms = Date.now();

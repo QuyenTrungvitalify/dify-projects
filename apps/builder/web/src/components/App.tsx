@@ -47,11 +47,14 @@ export function App() {
   const busy = store.busy.value;
   const connected = store.connected.value;
   const startError = store.startError.value;
+  const busyHolder = store.busyHolder.value;
+  const active = store.active.value;
   const settings = store.settings.value;
 
   useEffect(() => {
     void store.loadTree();
     void store.loadSeeds();
+    void store.loadActive(); // load-recovery: list in-progress builds so a parked one isn't stranded (Lát 6)
   }, []);
   useEffect(() => {
     if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
@@ -73,7 +76,11 @@ export function App() {
     const msg = (text ?? draft).trim();
     if (!msg) return;
     setDraft('');
-    if (view === 'empty') {
+    // A finished/cancelled build can't be replied to (/reply only applies while awaiting_confirm or
+    // in error→Retry). So at a terminal status, "describe another change" starts a NEW build instead
+    // of erroring — matching the composer's intent. awaiting_confirm/error still route to reply.
+    const st = store.task.value?.status;
+    if (view === 'empty' || st === 'done' || st === 'cancelled') {
       void store.start(msg);
     } else {
       void store.reply(msg);
@@ -106,7 +113,7 @@ export function App() {
   /* ---------- render ---------- */
   return (
     <div className={'app' + (sbCollapsed ? ' sb-collapsed' : '')}>
-      <Sidebar collapsed={sbCollapsed} activeTask={activeTaskId} tree={tree}
+      <Sidebar collapsed={sbCollapsed} activeTask={activeTaskId} tree={tree} active={active}
         onOpen={(id) => { setArtifactOpen(false); void store.openTask(id); }}
         onNewTask={newTask}
         onNewProject={() => setCreateOpen(true)}
@@ -140,7 +147,7 @@ export function App() {
               settings={settingsSubset} onSettings={onSettings} workflows={workflows}
               seeds={seeds} selectedSeed={settings.seed}
               onSeed={(id) => { store.settings.value = { ...store.settings.value, seed: id }; }}
-              startError={startError}
+              startError={startError} busyHolder={busyHolder}
             />
           ) : (
             <>
@@ -166,9 +173,7 @@ export function App() {
                 </div>
               </div>
 
-              {startError && (
-                <div className="start-error"><I.alert />{startError}</div>
-              )}
+              <StartErrorBanner startError={startError} busyHolder={busyHolder} />
 
               <div className="composer-dock">
                 <div className="composer-wrap">
@@ -201,8 +206,26 @@ export function App() {
   );
 }
 
+/* ---------- turn-collision-aware error banner (Lát 6) ---------- */
+/** Renders a start/action error; on a turn-collision 409 (`busyHolder` set) it offers a one-tap jump
+ *  to the build whose turn is running, so a "busy" is actionable rather than a dead end (AC #21). */
+function StartErrorBanner({ startError, busyHolder }: { startError: string | null; busyHolder: string | null }) {
+  if (!startError) return null;
+  return (
+    <div className="start-error">
+      <I.alert />
+      <span>{startError}</span>
+      {busyHolder && (
+        <button className="gs-link" style={{ marginLeft: 6 }} onClick={() => void store.openTask(busyHolder)}>
+          Open it
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ---------- empty / new-task surface ---------- */
-function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, seeds, selectedSeed, onSeed, startError }: {
+function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, seeds, selectedSeed, onSeed, startError, busyHolder }: {
   draft: string;
   setDraft: (s: string) => void;
   send: (text?: string) => void;
@@ -213,6 +236,7 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, se
   selectedSeed: string | null;
   onSeed: (id: string | null) => void;
   startError: string | null;
+  busyHolder: string | null;
 }) {
   return (
     <div className="empty">
@@ -227,7 +251,7 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, se
           placeholder="Describe the workflow or change…"
         />
 
-        {startError && <div className="start-error"><I.alert />{startError}</div>}
+        <StartErrorBanner startError={startError} busyHolder={busyHolder} />
 
         {/* Seed picker (AC #2): lists /api/seeds; degrades to an empty list until Lát 5. */}
         <div className="seed-picker">

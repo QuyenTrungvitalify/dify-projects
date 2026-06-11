@@ -13,6 +13,7 @@ import { connectSSE } from './sse-client';
 import type {
   WireTask,
   WireTreeProject,
+  WireTreeTask,
   WirePhase,
   Seed,
   WireGateAction,
@@ -44,8 +45,13 @@ export const seeds = signal<Seed[]>([]);
 export const task = signal<WireTask | null>(null);
 export const thread = signal<LiveThreadItem[]>([]);
 export const connected = signal(false);
-/** A "build already running" (409) or other start error to surface in the UI (AC #21). */
+/** The in-progress (non-terminal) builds for the sidebar (Lát 6). With the turn-level lock, multiple
+ *  builds can sit parked at gates; fetched on load so a parked build is never stranded. */
+export const active = signal<WireTreeTask[]>([]);
+/** A turn-collision (409) or other start error to surface in the UI (AC #21). */
 export const startError = signal<string | null>(null);
+/** The taskId whose turn is running, parsed from a 409 — lets the UI offer "open it" (Lát 6). */
+export const busyHolder = signal<string | null>(null);
 export const settings = signal<RunSettings>({ workflow: 'none', confirm: 'each step', deploy: 'none', seed: null });
 
 /** Fixed 4-phase state derived from the single authoritative task snapshot (SSE-driven, no poll). */
@@ -183,11 +189,37 @@ function openStream(taskId: string): void {
 }
 
 // ───────────────────────────── actions ─────────────────────────────
+/** Surface an action error: a turn-collision 409 with a `holder` arms the "open it" jump (Lát 6); any
+ *  other error is a plain message. Clears `busyHolder` when the failure is not a turn collision. */
+function surfaceError(e: unknown): void {
+  if (e instanceof ApiError) {
+    startError.value = e.message;
+    busyHolder.value = e.status === 409 && e.holder ? e.holder : null;
+  } else {
+    startError.value = String(e);
+    busyHolder.value = null;
+  }
+}
+
+function clearErrors(): void {
+  startError.value = null;
+  busyHolder.value = null;
+}
+
 export async function loadTree(): Promise<void> {
   try {
     tree.value = (await api.tree()).projects;
   } catch {
     /* tree is best-effort */
+  }
+}
+
+/** Fetch the in-progress builds for the sidebar (load-recovery + post-action refresh, Lát 6). */
+export async function loadActive(): Promise<void> {
+  try {
+    active.value = (await api.active()).active;
+  } catch {
+    /* active list is best-effort */
   }
 }
 
@@ -199,9 +231,10 @@ export async function loadSeeds(): Promise<void> {
   }
 }
 
-/** Start a new build from the composer (AC #14 settings feed the body; 409 → startError, AC #21). */
+/** Start a new build from the composer (AC #14 settings feed the body; turn-collision 409 → startError
+ *  + busyHolder, AC #21). A parked build no longer blocks — only a running turn does. */
 export async function start(requirement: string): Promise<void> {
-  startError.value = null;
+  clearErrors();
   const s = settings.value;
   thread.value = [{ id: uid(), kind: 'user', text: requirement }];
   task.value = null;
@@ -216,8 +249,9 @@ export async function start(requirement: string): Promise<void> {
     applyTask(t);
     openStream(t.taskId);
     void loadTree();
+    void loadActive();
   } catch (e) {
-    startError.value = e instanceof ApiError ? e.message : String(e);
+    surfaceError(e);
   }
 }
 
@@ -228,8 +262,9 @@ export async function confirm(action: WireGateAction, extra?: { slug?: string; n
   try {
     // Optimistic: close the gate; SSE opens the next-phase run item (no duplicate "Running").
     optimisticAdvance(await api.confirm(t.taskId, action.id, extra), action.label);
+    void loadActive();
   } catch (e) {
-    startError.value = e instanceof ApiError ? e.message : String(e);
+    surfaceError(e);
   }
 }
 
@@ -243,8 +278,9 @@ export async function reply(text: string): Promise<void> {
   try {
     // Optimistic: close the gate; SSE re-opens the current phase as a fresh run (no duplicate).
     optimisticAdvance(await api.reply(t.taskId, text.trim()), 'Requested changes');
+    void loadActive();
   } catch (e) {
-    startError.value = e instanceof ApiError ? e.message : String(e);
+    surfaceError(e);
   }
 }
 
@@ -255,9 +291,10 @@ export async function cancel(): Promise<void> {
   try {
     applyTask(await api.cancel(t.taskId));
   } catch (e) {
-    startError.value = e instanceof ApiError ? e.message : String(e);
+    surfaceError(e);
   }
   void loadTree();
+  void loadActive();
 }
 
 /** Save an in-place SPEC.md edit (AC #3). */
@@ -270,7 +307,7 @@ export async function saveSpec(content: string): Promise<void> {
 /** Open an existing task from the sidebar: load state + stream it (history isn't persisted, so the
  *  thread starts from the requirement + current gate/run). */
 export async function openTask(taskId: string): Promise<void> {
-  startError.value = null;
+  clearErrors();
   try {
     const t = await api.getTask(taskId);
     thread.value = [{ id: uid(), kind: 'user', text: t.requirement }];
@@ -278,7 +315,7 @@ export async function openTask(taskId: string): Promise<void> {
     applyTask(t);
     openStream(taskId);
   } catch (e) {
-    startError.value = e instanceof ApiError ? e.message : String(e);
+    surfaceError(e);
   }
 }
 
@@ -288,6 +325,6 @@ export function resetToNew(): void {
   teardown = null;
   task.value = null;
   thread.value = [];
-  startError.value = null;
+  clearErrors();
   connected.value = false;
 }

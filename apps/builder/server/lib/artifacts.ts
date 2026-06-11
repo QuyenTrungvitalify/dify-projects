@@ -165,6 +165,42 @@ function taskTitle(task: Task): string {
   return task.taskId;
 }
 
+const isNonTerminal = (s: Task['status']): boolean =>
+  s === 'running' || s === 'scaffolding' || s === 'awaiting_confirm';
+
+/**
+ * The in-progress builds (`GET /api/active`, Lát 6): every non-terminal task in `.runs/`, newest
+ * first. With the turn-level lock, ANY number of builds may sit parked at gates (`awaiting_confirm`)
+ * — this lets the SPA list + reach them all on load so a parked build is never stranded (extends
+ * AC #22 to the no-taskId case). Read-only; mirrors {@link buildTree}'s task scan but flat.
+ */
+export async function listActiveTasks(projectsDir: string, nowMs: number): Promise<TreeTaskNode[]> {
+  const root = runsRoot(projectsDir);
+  if (!existsSync(root)) return [];
+  const out: TreeTaskNode[] = [];
+  for (const taskId of await readdir(root)) {
+    const f = join(root, taskId, 'task.json');
+    if (!existsSync(f)) continue; // skip Lát-1 smoke dirs (SPEC.md only, no task.json)
+    const raw = await readMaybe(f);
+    if (!raw) continue;
+    let task: Task;
+    try {
+      task = JSON.parse(raw) as Task;
+    } catch {
+      continue;
+    }
+    if (!isNonTerminal(task.status)) continue;
+    out.push({
+      id: task.taskId,
+      name: taskTitle(task),
+      time: relTime(task.taskId, nowMs),
+      status: task.status,
+      phase: task.phase,
+    });
+  }
+  return out.sort((a, b) => Number(b.id) - Number(a.id)); // newest first
+}
+
 /**
  * Build the Project ▸ Workflow ▸ Task tree (spec §Data model). Scans each
  * `projects/<slug>/.dify-workspace.yaml` for the workflow rows (grouped by `project.group`), then

@@ -27,7 +27,7 @@ import { appUrlFrom, difyCreds, pullApp, pushApp, reconcileAppIdByName } from '.
 import { clearPushIntent, readPushIntent, writePushIntent } from './recovery.js';
 import { runReport } from './report.js';
 import { computeGate, type GateOutcome } from './gate.js';
-import { clearSession, holderTaskId, isCancelled, release, setSession } from './lock.js';
+import { clearSession, isCancelled, setSession, turnHolderId } from './lock.js';
 import { sanitizeSlug, saveTask, type Task } from '../state/task.js';
 
 export interface OrchestratorCtx {
@@ -82,8 +82,7 @@ export async function startTask(task: Task, ctx: OrchestratorCtx): Promise<void>
       task.error = `Dify-seed setup failed: ${errMsg(e)}`;
       task.gate = computeGate('analyze', { outcome: 'error' }, task.deploy);
       await emit(task, ctx);
-      release(task.taskId); // error releases the lock (§I); /reply re-acquires to retry
-      return;
+      return; // the dispatch `finally` frees the turn lock; /reply re-acquires to retry (§I)
     }
     if (isCancelled(task.taskId)) return;
   }
@@ -183,8 +182,7 @@ export async function confirmAdvance(
       task.error = `scaffold failed: ${errMsg(e)}`;
       task.gate = computeGate('spec', { outcome: 'error' }, task.deploy);
       await emit(task, ctx);
-      release(task.taskId);
-      return;
+      return; // the dispatch `finally` frees the turn lock (§I)
     }
     // A /cancel could have raced the scaffold's awaits (init_project.py / move) — there is no live
     // child then, so the cancel handler flipped the status; converge + bail rather than run Implement.
@@ -249,8 +247,10 @@ async function runPhaseAndGate(
 
 /**
  * gateAfterPhase — set the gate + status from the verify outcome and STOP (do not issue the next
- * turn). `error` releases the lock (§I: error releases; retry re-acquires via /reply); success /
- * still_failing pause at `awaiting_confirm`. The caller decides whether to maybeAutoAdvance.
+ * turn). Both outcomes END this turn's write-unit: `error` parks at `status:error` (a /reply retry
+ * re-acquires the turn lock); success / still_failing park at `awaiting_confirm`. The turn lock is
+ * freed by the dispatch `finally` when this work settles — a gate holds NO lock (turn-level, §I). The
+ * caller decides whether to maybeAutoAdvance.
  */
 async function gateAfterPhase(task: Task, verify: PhaseVerify, ctx: OrchestratorCtx): Promise<void> {
   task.gate = computeGate(task.phase, { outcome: verify.outcome }, task.deploy);
@@ -258,10 +258,9 @@ async function gateAfterPhase(task: Task, verify: PhaseVerify, ctx: Orchestrator
     task.status = 'error';
     task.error = verify.reasons.filter(Boolean).join(' | ') || 'phase failed';
     await emit(task, ctx);
-    release(task.taskId); // error RELEASES the run-lock (§I) — /reply re-acquires to retry
     return;
   }
-  task.status = 'awaiting_confirm'; // success or still_failing → pause; lock stays HELD at the gate
+  task.status = 'awaiting_confirm'; // success or still_failing → park (the turn lock frees on settle)
   task.error = undefined;
   await emit(task, ctx);
 }
@@ -357,12 +356,13 @@ async function runPhase(
     return turn;
   };
 
-  // NEVER spawn a turn for a build we no longer own the run-lock for. A /cancel during the awaits
-  // above (emit/readFile/gitDirtyPaths) releases the lock + flips status on a SEPARATELY-loaded object,
-  // and the auto-advance path (maybeAutoAdvance→confirmAdvance) gates only on the stale in-memory
-  // status — so re-check the live cancel flag + holder HERE. Otherwise the spawn's setSession() no-ops
-  // (holder freed) → an untracked, unkillable turn runs while a new build can already start (AC #21).
-  if (isCancelled(task.taskId) || holderTaskId() !== task.taskId) {
+  // NEVER spawn a turn for a build that no longer owns the TURN lock. The primary guard is the live
+  // `isCancelled` flag: a /cancel during the awaits above (emit/readFile/gitDirtyPaths) force-kills any
+  // child + marks cancelled on a SEPARATELY-loaded object, and the auto-advance path gates only on the
+  // stale in-memory status. `turnHolderId() !== task.taskId` is a defensive backstop (the turn lock is
+  // held for THIS build across its whole dispatched work, so it should always match) — if it somehow
+  // doesn't, the spawn's setSession() would no-op → an untracked, unkillable turn. Bail in either case.
+  if (isCancelled(task.taskId) || turnHolderId() !== task.taskId) {
     task.status = 'cancelled';
     task.gate = undefined;
     await saveTask(projectsDir, task);
@@ -486,11 +486,12 @@ async function verifyPhase(
 }
 
 /**
- * ④ Test&Report — BACKEND (no turn): re-run the 3 linters, write report.json. For `none`/`cloud`
- * (and a selfhost build whose lint failed via "Accept anyway"), this is terminal → `done`, lock
- * RELEASED. For a CLEAN `selfhost` build it PAUSES at the Import gate (lock held) so the import runs
- * only on the explicit Import button (AC #16) — never auto-imports lint≠0 (AC #25). `cloud` skips the
- * import entirely; its report carries the copyable-YAML + Studio steps (AC #9).
+ * ④ Test&Report — BACKEND write-unit (no turn): re-run the 3 linters, write report.json. For
+ * `none`/`cloud` (and a selfhost build whose lint failed via "Accept anyway"), this is terminal →
+ * `done`. For a CLEAN `selfhost` build it PARKS at the Import gate (`awaiting_confirm`) so the import
+ * runs only on the explicit Import button (AC #16) — never auto-imports lint≠0 (AC #25). `cloud` skips
+ * the import entirely; its report carries the copyable-YAML + Studio steps (AC #9). The turn lock is
+ * freed by the dispatch `finally` when this work settles (done or parked) — it is never held at a gate.
  */
 async function runTestAndFinish(
   task: Task,
@@ -512,12 +513,11 @@ async function runTestAndFinish(
     task.error = res.reasons.join(' | ');
     task.gate = computeGate('test', { outcome: 'error' }, task.deploy);
     await emit(task, ctx);
-    release(task.taskId);
-    return;
+    return; // the dispatch `finally` frees the turn lock (§I)
   }
 
-  // selfhost + clean lint → pause behind the Import button (the push is runImportAndFinish). The lock
-  // stays HELD at the gate; the caller's maybeAutoAdvance auto-confirms it in `auto`/`spec_only`.
+  // selfhost + clean lint → park behind the Import button (the push is runImportAndFinish). The
+  // caller's maybeAutoAdvance auto-confirms it in `auto`/`spec_only`; the turn lock frees on settle.
   if (task.deploy === 'selfhost' && res.lintClean) {
     task.status = 'awaiting_confirm';
     task.gate = computeGate('test', { outcome: 'awaiting_import' }, task.deploy);
@@ -528,12 +528,12 @@ async function runTestAndFinish(
   task.status = 'done';
   task.gate = computeGate('test', { outcome: 'success' }, task.deploy); // terminal: no actions
   await emit(task, ctx);
-  release(task.taskId); // done RELEASES the run-lock (§I)
 }
 
 /**
  * ④-import (selfhost, Task 6) — BACKEND: push the produced workflow to Dify as a NEW app, capture the
- * `app_id`, build the clickable `app_url`, re-write report.json, then `done` + release. Idempotency
+ * `app_id`, build the clickable `app_url`, re-write report.json, then `done` (the dispatch `finally`
+ * frees the turn lock on settle). Idempotency
  * (§I / AC #25): a `push_intent` marker WITHOUT a confirmed `appId` means a prior push may have
  * created the app (crash mid-push) → reconcile via `list`, NEVER re-push (a re-push would duplicate).
  */
@@ -554,8 +554,7 @@ async function runImportAndFinish(task: Task, ctx: OrchestratorCtx): Promise<voi
     task.error = 'selfhost import needs DIFY_CONSOLE_URL + DIFY_CONSOLE_TOKEN in the backend env';
     task.gate = computeGate('test', { outcome: 'error' }, task.deploy);
     await emit(task, ctx);
-    release(task.taskId);
-    return;
+    return; // the dispatch `finally` frees the turn lock
   }
 
   let appId: string | null = null;
@@ -580,8 +579,7 @@ async function runImportAndFinish(task: Task, ctx: OrchestratorCtx): Promise<voi
       task.error = `import failed: ${tail}`;
       task.gate = computeGate('test', { outcome: 'error' }, task.deploy);
       await emit(task, ctx);
-      release(task.taskId);
-      return;
+      return; // the dispatch `finally` frees the turn lock
     }
   }
 
@@ -602,7 +600,6 @@ async function runImportAndFinish(task: Task, ctx: OrchestratorCtx): Promise<voi
   task.status = 'done';
   task.gate = computeGate('test', { outcome: 'success' }, task.deploy);
   await emit(task, ctx);
-  release(task.taskId);
 }
 
 /** skip_import at the selfhost Import gate → finish `done` WITHOUT pushing (built + linted locally). */
@@ -617,7 +614,6 @@ async function finishWithoutImport(task: Task, ctx: OrchestratorCtx): Promise<vo
   task.status = 'done';
   task.gate = computeGate('test', { outcome: 'success' }, task.deploy);
   await emit(task, ctx);
-  release(task.taskId);
 }
 
 /**

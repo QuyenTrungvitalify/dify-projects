@@ -17,7 +17,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { writeFile } from 'node:fs/promises';
 import { loadTask } from '../state/task.js';
-import { buildTree, specPathFor } from '../lib/artifacts.js';
+import { buildTree, listActiveTasks, specPathFor } from '../lib/artifacts.js';
 import { listSeeds } from '../lib/dify-io.js';
 
 export interface UiRoutesOptions {
@@ -37,6 +37,13 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
   // ── GET /api/tree — 3-level sidebar tree grouped by project.group ──
   app.get('/api/tree', async () => {
     return { projects: await buildTree(projectsDir, now()) };
+  });
+
+  // ── GET /api/active — the in-progress builds (non-terminal), newest first (Lát 6). With the
+  //    turn-level lock, multiple builds can sit parked at gates; the SPA fetches this on load to list
+  //    + reach them all so a parked build is never stranded (extends AC #22 to the no-taskId case). ──
+  app.get('/api/active', async () => {
+    return { active: await listActiveTasks(projectsDir, now()) };
   });
 
   // ── GET /api/seeds — existing Dify apps (backend `sync.py list`, token backend-only). Degrades

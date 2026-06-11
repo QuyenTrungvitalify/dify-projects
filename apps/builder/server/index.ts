@@ -3,9 +3,10 @@
  *
  * The real gated surface lives in `routes/tasks.ts` (`/api/tasks` + `/confirm` `/reply` `/cancel`):
  * a human-gated 4-phase build with a single-build run-lock, cancel, and boot reconcile. This file
- * wires that plugin, runs `reconcileOnBoot` at startup (any `running` task → `error`, lock cleared;
- * a paused gated build re-acquires the lock), and keeps the Lát-1 `/api/dev/run-implement` smoke
- * endpoint (a single Implement turn + post-turn verify).
+ * wires that plugin, runs `reconcileOnBoot` at startup (any `running`/`scaffolding` task → `error`; a
+ * paused `awaiting_confirm` build survives untouched — turn-level lock, gates hold nothing — and stays
+ * reachable), and keeps the Lát-1 `/api/dev/run-implement` smoke endpoint (a single Implement turn +
+ * post-turn verify).
  *
  * Binds 127.0.0.1 (HOST hardcoded — never 0.0.0.0, spec §J). The port is BUILDER_PORT (default
  * 4123, spec §F — the vite dev proxy targets the same var); the projects dir is DIFY_PROJECTS_DIR.
@@ -272,8 +273,9 @@ app.get('/*', async (req, reply) => {
 });
 
 async function start(): Promise<void> {
-  // Boot reconcile BEFORE listening: a crash/restart left no live process, so any `running` task →
-  // `error` (lock cleared); a paused `awaiting_confirm` gated build re-acquires the lock (AC #19/#24).
+  // Boot reconcile BEFORE listening: a crash/restart left no live process, so any `running`/
+  // `scaffolding` task → `error`; a paused `awaiting_confirm` build survives untouched (turn-level
+  // lock — it holds nothing) and stays reachable. `turnHolder` starts null (in-memory) (AC #19/#24).
   await reconcileOnBoot(DIFY_PROJECTS_DIR, app.log);
   // Then recover push idempotency (AC #25): a task whose push_intent marker lacks an app_id crashed
   // mid-import → reconcile the id via `sync.py list` (never re-push) or surface "check Dify".

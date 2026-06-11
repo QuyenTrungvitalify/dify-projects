@@ -90,10 +90,39 @@ function ProjectRow({ project, activeTask, defaultOpen, onOpen, onNewTask }: {
   );
 }
 
-export function Sidebar({ collapsed, activeTask, tree, onOpen, onNewTask, onNewProject }: {
+/** A status hint for an in-progress build: a parked build shows "gate", a live turn shows "running". */
+function activeHint(status: WireTreeTask['status']): string {
+  return status === 'awaiting_confirm' ? 'gate' : 'running';
+}
+
+/** "In progress" section (Lát 6): every non-terminal build, so a parked one is reachable on load and
+ *  never stranded. Clicking opens it (reconnects its SSE + gate). The active build keeps the pill. */
+function ActiveSection({ active, activeTask, onOpen }: {
+  active: WireTreeTask[];
+  activeTask: string | null;
+  onOpen: (taskId: string) => void;
+}) {
+  if (active.length === 0) return null;
+  return (
+    <div className="sb-active">
+      <div className="tree-row tree-section" style={{ fontSize: 10, letterSpacing: '.06em', color: 'var(--tx-faint)', textTransform: 'uppercase', cursor: 'default' }}>
+        In progress
+      </div>
+      {active.map((t) => (
+        <div key={t.id} className={'tree-row tree-task' + (t.id === activeTask ? ' active' : '')} onClick={() => onOpen(t.id)}>
+          <span className="tw-name">{t.name}</span>
+          <span className="tw-time">{activeHint(t.status)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function Sidebar({ collapsed, activeTask, tree, active, onOpen, onNewTask, onNewProject }: {
   collapsed: boolean;
   activeTask: string | null;
   tree: WireTreeProject[];
+  active: WireTreeTask[];
   onOpen: (taskId: string) => void;
   onNewTask: () => void;
   onNewProject: () => void;
@@ -118,6 +147,7 @@ export function Sidebar({ collapsed, activeTask, tree, onOpen, onNewTask, onNewP
       </button>
 
       <div className="sb-scroll">
+        <ActiveSection active={active} activeTask={activeTask} onOpen={onOpen} />
         {tree.length === 0 && <div className="tree-row"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>No projects yet</span></div>}
         {tree.map((p) => (
           <ProjectRow key={p.id} project={p} activeTask={activeTask} defaultOpen={p.id === activeProjectId}

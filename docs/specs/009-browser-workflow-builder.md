@@ -540,11 +540,12 @@ Node + Fastify. Responsibilities:
 |---|---|---|
 | `/` | GET | Serve the SPA |
 | `/api/tree` | GET | Sidebar: projects → workflows → tasks (folder scan of `projects/` + `.runs/`) |
-| `/api/tasks` | POST | `{project, workflow?, requirement, seed?, confirm_mode?, deploy?, name?, slug?}` → start a task, run Phase ①. `workflow` omitted/`none` → scaffolds a **new** workflow (`name`/`slug` optional — if omitted, the **Spec phase proposes them** and the user confirms at the Spec gate, see §Data model); an existing name → edits it. **`seed` shape + scaffold-timing routing per §Revision 2026-06-10** — a `{kind:"dify_app"}` seed for a *new* workflow makes `slug`/`name` **required up-front** (scaffold before Phase ①); a `local`/absent seed uses the Spec-proposes-slug path. `confirm_mode` defaults to `confirm each step`; `deploy` defaults to `none`. No `model` (auto). No pattern (auto-selected in Spec). Returns `409` if another build is running (run-lock, Q6). |
+| `/api/active` | GET | The in-progress (non-terminal) builds, newest first (Lát 6). With the turn-level lock multiple builds may sit parked at gates; the SPA fetches this on load to list + reach them all so a parked build is never stranded (extends AC #22 to the no-taskId case). |
+| `/api/tasks` | POST | `{project, workflow?, requirement, seed?, confirm_mode?, deploy?, name?, slug?}` → start a task, run Phase ①. `workflow` omitted/`none` → scaffolds a **new** workflow (`name`/`slug` optional — if omitted, the **Spec phase proposes them** and the user confirms at the Spec gate, see §Data model); an existing name → edits it. **`seed` shape + scaffold-timing routing per §Revision 2026-06-10** — a `{kind:"dify_app"}` seed for a *new* workflow makes `slug`/`name` **required up-front** (scaffold before Phase ①); a `local`/absent seed uses the Spec-proposes-slug path. `confirm_mode` defaults to `confirm each step`; `deploy` defaults to `none`. No `model` (auto). No pattern (auto-selected in Spec). Returns `409` (with the running `holder`) **only if a turn is actively running** (turn-level run-lock, Q6 / Lát 6); a build parked at a gate does **not** block — multiple builds may park at once. |
 | `/api/tasks/:id` | GET | Current state + artifact paths/contents |
 | `/api/tasks/:id/confirm` | POST | Advance to the next phase (the gate; carries the chosen gate action) |
 | `/api/tasks/:id/reply` | POST | Change request / question within the current phase |
-| `/api/tasks/:id/cancel` | POST | Cancel/abandon the task: kill the child, set a terminal status, **release the run-lock** (§Revision 2026-06-10) |
+| `/api/tasks/:id/cancel` | POST | Cancel/abandon the task: kill the live turn if one is running (its dispatch `finally` then frees the turn lock), else just flip the parked gate to a terminal status (a parked build holds no lock) (§Revision 2026-06-10; turn-level Lát 6) |
 | `/api/tasks/:id/spec` | PUT | Persist an in-place `SPEC.md` edit from the artifact panel (Q4) |
 | `/api/tasks/:id/stream` | GET (SSE) | Live Claude output + phase/status/gate events |
 | `/api/seeds` | GET | Existing Dify apps (via `sync.py list`) for the seed selector. **Degrades gracefully**: if Dify creds are absent (`sync.py list` exits 1), returns `{seeds: [], note: "connect Dify to seed from a workspace app"}` rather than erroring — seeding from a **local** workflow needs no creds (§G). |
@@ -861,8 +862,8 @@ paths and handling:
 | Claude rate-limit / auth lapse | `result` event error subtype, or known stderr signature | `status: error`; message tells the user to wait / re-run `claude auth login`; **no auto-retry** (avoids hammering the shared subscription) |
 | Turn ends but **no artifact** produced (no `SPEC.md` / `main.yml` / `.runs` json) | post-turn artifact check (the §A contract) | `status: error`, "phase produced no artifact"; do **not** advance |
 | Implement validate→fix loop doesn't converge | iteration cap reached (Q5, default 5) | stop at Implement with the last linter error + partial `main.yml`; `awaiting_confirm` with a "still failing" flag — user decides |
-| Backend restart mid-turn | on boot, any task in `running` | mark `status: error`, **clear the run-lock**, current phase re-runnable; **do not assume `--resume`** — re-run the phase as a fresh turn, seeding **per the per-phase idempotency rules below** (③/④ are not simply re-seeded from a partial artifact); an orphaned child / `sync.py push` subprocess that outlived the crash is reconciled via the ④ `push_intent` guard |
-| Second build started while one runs | run-lock (Q6) | `POST /api/tasks` returns `409 Busy`; UI disables "send" while a build is active |
+| Backend restart mid-turn | on boot, any task in `running`/`scaffolding` | mark `status: error` (turn-level lock is in-memory → `turnHolder` simply starts null; a paused `awaiting_confirm` build survives untouched and stays reachable — no re-acquire, no single-build tie-break, Lát 6), current phase re-runnable; **do not assume `--resume`** — re-run the phase as a fresh turn, seeding **per the per-phase idempotency rules below** (③/④ are not simply re-seeded from a partial artifact); an orphaned child / `sync.py push` subprocess that outlived the crash is reconciled via the ④ `push_intent` guard |
+| Second build's **turn** collides with a running turn | turn-level run-lock (Q6, Lát 6) | `POST /api/tasks`/`/confirm`/`/reply` returns `409 "a turn is already running"` **with the running `holder`** (the UI offers "open it"); a build merely **parked at a gate does NOT block** — multiple builds may park at once |
 
 Every `error` is streamed to the UI as a thread message with a `Retry phase`
 gate button (→ `/reply`). The gate never auto-advances out of `error`.
@@ -881,11 +882,20 @@ artifact" is not uniformly safe — pin this in Nhịp 1/Week 2):
   guard keys off the **pre-push marker**, not the post-push `report.json` (written only
   after the push returns).
 
-**Run-lock granularity.** v1 is **build-level single-build-at-a-time**: only one
-task may be past `running`/not-yet-`done` at a time, so a build that is paused in
-`awaiting_confirm` (a human gate, possibly for minutes) still holds the lock and a
-second `POST /api/tasks` gets `409`. This is intentional for v1 (shared auth, Q6);
-a turn-level mutex (allowing multiple builds to sit at gates) is a Phase-3 option.
+**Run-lock granularity.** ~~v1 is build-level single-build-at-a-time~~ **(Lát 6 / Phase 3:
+now TURN-LEVEL).** The lock is held only while a `claude` turn (or a backend write-unit)
+is **actually running**, and **released when the build parks at a gate** (`awaiting_confirm`)
+or terminates. A build paused at a human gate (possibly for minutes) therefore holds
+**nothing**, so **any number of builds may sit parked at gates**; only turn *execution* is
+serialized 1-at-a-time. The single in-memory `turnHolder` slot is what keeps the #3b
+post-turn `git status` confinement check valid **unchanged** (at most one build writes the
+tree at a time — concurrent turns would need per-build confinement scoping, out of scope).
+A second `POST /api/tasks` (or `/confirm`/`/reply`) gets `409` **only when a turn is
+genuinely running** — a parked build no longer triggers it. The lock is acquired
+synchronously in the route right before the turn is dispatched (which also closes the
+double-dispatch race), and released in the dispatch `finally` when the work settles.
+*(Historical: Lát 3 was build-level — a gate held the lock; `409 Busy` on any 2nd build.
+shared auth still motivates the 1-turn-at-a-time serialization, Q6.)*
 
 ### J. Security & threat model
 
@@ -993,9 +1003,14 @@ is the sole mitigation for the Medium "validate→fix doesn't converge" risk.
 ### Q6. Concurrency / one Claude per build
 
 Parallel builds share the user's single auth → possible rate limits. **RESOLVED**:
-serialize builds with a **global run-lock** for v1 — `POST /api/tasks` returns
-`409 Busy` while a build is active, and the UI disables "send"; document the
-limit. Verified by acceptance #21.
+serialize **turn execution** with a **turn-level run-lock** — at most one `claude`
+turn runs at a time, so the shared auth is never hit by two concurrent turns and the
+#3b confinement check stays valid (1 writer). **Updated Lát 6 (Phase 3):** the lock is
+turn-level, NOT build-level — it is held only while a turn runs and released when the
+build parks at a gate, so **multiple builds may sit parked at gates** and only a real
+**turn collision** returns `409` (`POST /api/tasks`/`/confirm`/`/reply`, with the running
+`holder` so the UI can jump to it). *(Lát 3 shipped the build-level form — a gate held
+the lock, any 2nd build got `409 Busy`.)* Verified by acceptance #21.
 
 ### Q7. Multi-pattern requirements
 
@@ -1070,8 +1085,11 @@ MVP is **Done** when:
     does **not** advance; a turn killed by a backend restart is re-runnable on reboot.
 20. [ ] **Validate-loop cap (Q5)**: an unfixable seeded error stops at the Implement
     gate after ≤5 passes with the last linter error + partial `main.yml`, never looping.
-21. [ ] **Concurrency (Q6)**: starting a second build while one runs returns `409`
-    and the UI blocks "send"; the first build is unaffected.
+21. [ ] **Concurrency (Q6) — turn-level (Lát 6)**: a 2nd build whose **turn** collides with a
+    running turn returns `409` (`holder` lets the UI offer "open it"); a build merely **parked at
+    a gate does NOT 409** — two (or more) builds can sit parked at gates at once, both listed in the
+    sidebar / `GET /api/active` and reachable. The running build is unaffected. *(Lát 3 form — any
+    2nd build while one is non-terminal got `409 Busy` — is superseded.)*
 22. [ ] **SSE resilience**: dropping and re-opening `/stream` mid-build restores the
     current phase/status/gate (via re-fetching `/api/tasks/:id`) without losing the gate.
 23. [ ] **Security confinement (§J, §Revision 2026-06-10 — model C)**: a phase turn that

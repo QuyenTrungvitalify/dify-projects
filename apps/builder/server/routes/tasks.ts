@@ -1,15 +1,19 @@
 /**
- * routes/tasks.ts — the HTTP surface for spec 009 (Lát 3 gate + Lát 4 SSE-live evolution).
+ * routes/tasks.ts — the HTTP surface for spec 009 (Lát 3 gate · Lát 4 SSE-live · Lát 6 turn-lock).
  *
- * `/api/tasks` POST is the run-lock gate: one build at a time → 409 (AC #21). Validation + lock
- * acquire + task creation run synchronously, but the orchestrator phase work is dispatched
- * **fire-and-forget** so the response returns the new task's id IMMEDIATELY — the UI needs that id to
- * open `GET /api/tasks/:id/stream` before phase ① finishes (Lát 4; the Lát 3 header foretold "SSE
- * makes it live in Lát 4"). Every phase/status/gate transition then reaches the browser over SSE
- * (orchestrator `broadcast`); `GET /api/tasks/:id` stays the authoritative re-fetch on reconnect
- * (AC #22). `/confirm` + `/reply` follow suit: validate synchronously (a bad action / wrong status
- * still returns 4xx), then dispatch async and return an optimistic snapshot. `/cancel` stays
- * synchronous (instant). All mutating routes bind 127.0.0.1 only + Origin-check (index.ts).
+ * The run-lock is TURN-LEVEL (Lát 6, §I): it is acquired synchronously in the route — `acquireTurn`,
+ * the strict single-slot — RIGHT BEFORE the orchestrator work is dispatched, and released in the
+ * shared `dispatch` `finally` when that work settles (the build parks at a gate or terminates). So a
+ * build paused at a gate holds NOTHING and a 2nd build can start freely; the only 409 is a genuine
+ * TURN collision (another build's turn is actively running). Acquiring synchronously in the route also
+ * (a) gives the client a real 409, and (b) closes the double-dispatch race directly — two concurrent
+ * `/confirm` for one build: the 2nd `acquireTurn` fails — which is why the old `advancing` Set is gone.
+ *
+ * Phase work is dispatched **fire-and-forget** so the response returns the task id IMMEDIATELY — the
+ * UI needs it to open `GET /api/tasks/:id/stream` before phase ① finishes (Lát 4). Every
+ * phase/status/gate transition then reaches the browser over SSE (orchestrator `broadcast`);
+ * `GET /api/tasks/:id` stays the authoritative re-fetch on reconnect (AC #22). All mutating routes
+ * bind 127.0.0.1 only + Origin-check (index.ts).
  */
 import type { FastifyPluginAsync } from 'fastify';
 import { createTask, loadTask, saveTask, type Task } from '../state/task.js';
@@ -20,7 +24,7 @@ import {
   type ConfirmPayload,
   type OrchestratorCtx,
 } from '../lib/orchestrator.js';
-import { acquire, holderTaskId, liveSession, markCancelled, release } from '../lib/lock.js';
+import { acquireTurn, liveSession, markCancelled, releaseTurn, turnBusy, turnHolderId } from '../lib/lock.js';
 import { readArtifactContents } from '../lib/artifacts.js';
 
 export interface TasksRoutesOptions {
@@ -33,11 +37,19 @@ export interface TasksRoutesOptions {
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
+/** The turn-collision 409 (a turn is running for some build; parked builds never trigger it). The
+ *  `holder` lets the UI offer a one-tap "open it" jump to whichever build is running. */
+const turnBusyError = (): { error: string; holder: string | null } => ({
+  error: 'a turn is already running — try again in a moment',
+  holder: turnHolderId(),
+});
+
 const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) => {
   const { projectsDir, settingsPath, broadcast } = opts;
   const ctx: OrchestratorCtx = { projectsDir, settingsPath, log: app.log, broadcast };
 
-  /** Last-resort: on an UNEXPECTED throw, mark the task error, relay it, and free the lock. */
+  /** Last-resort: on an UNEXPECTED throw, mark the task error and relay it. The turn lock is freed by
+   *  the dispatch `finally` (which runs after this), so failSafe never touches the lock itself. */
   async function failSafe(taskId: string, reason: string): Promise<void> {
     try {
       const t = await loadTask(projectsDir, taskId);
@@ -50,24 +62,24 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     } catch {
       // task gone — nothing to mark
     }
-    release(taskId);
   }
 
-  // Tasks with an orchestrator step in flight. Guards the async-dispatch window: between a /confirm
-  // (or /reply) returning its optimistic snapshot and the dispatched work flipping the task to
-  // `running` on disk, a 2nd /confirm would still read `awaiting_confirm` + holder===id and dispatch
-  // AGAIN → two turns for one build. The synchronous `advancing` check closes that window.
-  const advancing = new Set<string>();
-
-  /** Run orchestrator work in the background; converge to a relayed `error` on an unexpected throw. */
+  /**
+   * Run orchestrator work in the background; converge to a relayed `error` on an unexpected throw, and
+   * ALWAYS release the turn lock when the work settles. The `finally` is the SINGLE release point: a
+   * turn is held from the route's `acquireTurn` until its dispatched work completes — i.e. until the
+   * build parks at a gate (`awaiting_confirm`) or terminates (`done`/`error`/`cancelled`). An auto-run
+   * chain (maybeAutoAdvance→confirmAdvance) is all awaited inside ONE dispatched promise, so the lock
+   * is held for the whole chain and freed exactly once at the end. `releaseTurn` is "clear iff matches",
+   * so even a stray release after a /cancel already let another build acquire is harmless.
+   */
   function dispatch(taskId: string, work: Promise<void>): void {
-    advancing.add(taskId);
     void work
       .catch((e) => {
         app.log.error({ err: errMsg(e), taskId }, 'orchestrator dispatch threw');
         void failSafe(taskId, errMsg(e));
       })
-      .finally(() => advancing.delete(taskId));
+      .finally(() => releaseTurn(taskId));
   }
 
   /** Optimistic snapshot returned right after dispatch — SSE delivers the authoritative transitions. */
@@ -80,16 +92,15 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
 
   const idOf = (req: { params: unknown }): string => (req.params as { id: string }).id;
 
-  // ── POST /api/tasks — acquire the run-lock (409 if held), create the task, run Phase ① → gate ──
+  // ── POST /api/tasks — acquire the turn (409 only if one is RUNNING), create the task, run Phase ① ──
   app.post('/api/tasks', async (req, reply) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const requirement = String(body.requirement ?? '').trim();
     if (!requirement) return reply.code(400).send({ error: 'requirement is required' });
 
-    // Fast path: a build already holds the lock → 409 without minting a task.
-    if (holderTaskId()) {
-      return reply.code(409).send({ error: 'Busy — a build is already running', holder: holderTaskId() });
-    }
+    // Fast path: a turn is already running → 409 without minting a task. A build PARKED at a gate does
+    // NOT block this (turn-level lock) — that is the whole point of Lát 6.
+    if (turnBusy()) return reply.code(409).send(turnBusyError());
 
     const task = await createTask(projectsDir, {
       requirement,
@@ -105,16 +116,17 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       workflowFile: (body.workflowFile as string | undefined) ?? undefined,
     });
 
-    // Race-safe acquire: two POSTs can both pass the fast-path check; the loser marks its stray task
-    // rejected and gets 409.
-    if (!acquire(task.taskId)) {
+    // Race-safe acquire: two POSTs can both pass the fast-path; the loser marks its stray task rejected
+    // and gets 409. `acquireTurn` is synchronous + strict (one turn at a time), so distinct minted ids
+    // can never both win.
+    if (!acquireTurn(task.taskId)) {
       task.status = 'error';
-      task.error = 'rejected — another build holds the run-lock';
+      task.error = 'rejected — another turn is running';
       await saveTask(projectsDir, task);
-      return reply.code(409).send({ error: 'Busy — a build is already running', holder: holderTaskId() });
+      return reply.code(409).send(turnBusyError());
     }
 
-    // Dispatch phase ① in the background; the UI opens /stream with the id we return now (Lát 4).
+    // Dispatch phase ① in the background; the dispatch `finally` releases the turn when ① parks/ends.
     dispatch(task.taskId, startTask(task, ctx));
     return reply.send(task);
   });
@@ -128,8 +140,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     } catch {
       return reply.code(404).send({ error: `no such task: ${id}` });
     }
-    // The artifact panel reads SPEC.md / main.yml / report from here (spec Endpoints :532). The diff
-    // producer is Lát 5 → `artifacts.diff` stays null (panel degrades to "no diff yet").
+    // The artifact panel reads SPEC.md / main.yml / report from here (spec Endpoints :532).
     const artifactContents = await readArtifactContents(projectsDir, task);
     return { ...task, artifactContents };
   });
@@ -150,14 +161,8 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     if (task.status !== 'awaiting_confirm') {
       return reply.code(409).send({ error: `task is ${task.status}, not awaiting_confirm` });
     }
-    // An awaiting_confirm build HOLDS the lock (§I). If this gate is NOT the holder (corrupt .runs
-    // state / stale file), confirming it would spawn a turn whose child setSession() silently drops —
-    // an untracked, unkillable turn. Reject instead.
-    if (holderTaskId() !== id) {
-      return reply.code(409).send({ error: 'this gate is not the active build (lock held by another task)', holder: holderTaskId() });
-    }
-
-    // Validate the action synchronously so a stale/unknown action returns 409 to the caller.
+    // Validate the action synchronously so a stale/unknown action returns 409 to the caller. This runs
+    // BEFORE acquireTurn — an early return here must never leak a lock.
     const action = task.gate?.actions.find((a) => a.id === actionId && a.kind === 'confirm');
     if (!action) {
       return reply.code(409).send({ error: `'${actionId}' is not a current confirm action` });
@@ -167,12 +172,14 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     if (typeof body.slug === 'string') payload.slug = body.slug;
     if (typeof body.name === 'string') payload.name = body.name;
 
-    // Close the async-dispatch race: a step is already advancing this build (a 2nd click before the
-    // first dispatch flips the disk status) → 409 instead of a duplicate turn.
-    if (advancing.has(id)) {
-      return reply.code(409).send({ error: 'a step is already in progress for this build' });
-    }
-    // Dispatch the advance in the background; SSE carries the next phase/gate (Lát 4).
+    // Acquire the turn LAST, right before dispatch. Strict + synchronous, so it also closes the
+    // double-dispatch race directly: a 2nd concurrent /confirm for THIS build → the loser 409s here
+    // (no `advancing` Set needed). A 409 means another build's turn is actively running — a build
+    // merely parked at a gate never blocks; the `holder` lets the UI offer "open it".
+    if (!acquireTurn(id)) return reply.code(409).send(turnBusyError());
+
+    // Dispatch the advance in the background; SSE carries the next phase/gate (Lát 4). The dispatch
+    // `finally` releases the turn when this work settles (the next gate / terminal).
     dispatch(id, confirmAdvance(task, actionId, ctx, payload));
     return reply.send(optimisticRunning(task));
   });
@@ -195,30 +202,18 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
         .code(409)
         .send({ error: `task is ${task.status}; /reply needs awaiting_confirm or error` });
     }
-    // An awaiting_confirm build HOLDS the lock — a non-holder gate is stale/corrupt (see /confirm).
-    if (task.status === 'awaiting_confirm' && holderTaskId() !== id) {
-      return reply.code(409).send({ error: 'this gate is not the active build (lock held by another task)', holder: holderTaskId() });
-    }
-    // Close the async-dispatch race (a 2nd reply/confirm before the dispatch flips disk status).
-    // BEFORE the error-retry acquire below, so a 409 here never leaks a just-taken lock.
-    if (advancing.has(id)) {
-      return reply.code(409).send({ error: 'a step is already in progress for this build' });
-    }
-    // Retry out of `error` re-acquires the lock (error released it, §I); 409 if another build holds it.
-    if (task.status === 'error' && !acquire(task.taskId)) {
-      return reply
-        .code(409)
-        .send({ error: 'Busy — another build holds the run-lock', holder: holderTaskId() });
-    }
+    // Acquire the turn — this covers BOTH a within-phase revise (out of awaiting_confirm) AND a Retry
+    // out of error (error freed the turn, so this re-takes it, §I). Strict + synchronous: a 2nd
+    // concurrent /reply or /confirm for this build, or any other build's running turn, 409s here (so no
+    // `advancing` Set). Acquired LAST so an earlier validation return can't leak the lock; a throw
+    // inside the dispatched work lands in failSafe + the dispatch `finally` releases, so it never leaks.
+    if (!acquireTurn(id)) return reply.code(409).send(turnBusyError());
 
-    // Dispatch the within-phase revise (or Retry-out-of-error) in the background; SSE carries it.
-    // A throw inside lands in dispatch → failSafe, which RELEASES the lock, so the error-retry lock
-    // taken just above can't leak even on an unexpected failure.
     dispatch(id, replyWithin(task, text, ctx));
     return reply.send(optimisticRunning(task));
   });
 
-  // ── POST /api/tasks/:id/cancel — kill the live turn (or just flip a paused gate) + free the lock ──
+  // ── POST /api/tasks/:id/cancel — kill the live turn if one is running, else just flip the parked gate ──
   app.post('/api/tasks/:id/cancel', async (req, reply) => {
     const id = idOf(req);
     let task;
@@ -228,12 +223,16 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       return reply.code(404).send({ error: `no such task: ${id}` });
     }
 
-    // Mark first (survives the lock release; the orchestrator's in-flight bail checks this).
+    // Mark first (survives the turn-lock release; the orchestrator's in-flight bail checks this).
     markCancelled(id);
+    // liveSession(id) is non-null ONLY if id is the build whose turn is currently running → kill it.
+    // The orchestrator then converges the state to `cancelled` and its dispatch `finally` frees the
+    // turn lock. A PARKED build holds no turn (liveSession null) → nothing to kill or release; we just
+    // set `cancelled` below. Either way, no separate release here (the dispatch `finally` owns it).
     const sess = liveSession(id);
     if (sess) {
       try {
-        sess.forceKill(); // running turn → the orchestrator converges the state to `cancelled`
+        sess.forceKill();
       } catch {
         // already exited
       }
@@ -247,7 +246,6 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       await saveTask(projectsDir, fresh);
       broadcast?.(id, 'task:update', fresh); // relay the cancel to the SSE clients (Lát 4)
     }
-    release(id); // frees the run-lock so a new POST /api/tasks succeeds (AC #24)
     return reply.send(await loadTask(projectsDir, id));
   });
 };

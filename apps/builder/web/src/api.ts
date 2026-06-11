@@ -5,13 +5,15 @@
    The UI never talks to Dify or `claude` — every call is to the
    builder backend, which owns all I/O (token never reaches here).
    ============================================================ */
-import type { WireTask, WireTreeProject, Seed, WireConfirmMode } from './types';
+import type { WireTask, WireTreeProject, WireTreeTask, Seed, WireConfirmMode } from './types';
 
-/** Thrown on a non-2xx response; carries the HTTP status so callers can branch (e.g. 409 busy). */
+/** Thrown on a non-2xx response; carries the HTTP status so callers can branch (e.g. 409 busy), plus
+ *  the `holder` taskId from a turn-collision 409 body so the UI can offer "open the running build". */
 export class ApiError extends Error {
   constructor(
     public status: number,
-    message: string
+    message: string,
+    public holder?: string | null
   ) {
     super(message);
     this.name = 'ApiError';
@@ -27,13 +29,15 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const res = await fetch(path, init);
   if (!res.ok) {
     let msg = `${method} ${path} → ${res.status}`;
+    let holder: string | null | undefined;
     try {
       const j = await res.json();
       if (j && typeof j.error === 'string') msg = j.error;
+      if (j && typeof j.holder === 'string') holder = j.holder;
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, holder);
   }
   // Some endpoints (PUT spec) return small JSON; tolerate empty bodies.
   const text = await res.text();
@@ -72,6 +76,8 @@ export const api = {
     request('PUT', `/api/tasks/${encodeURIComponent(id)}/spec`, { content }),
   /** GET /api/tree → the Project ▸ Workflow ▸ Task sidebar tree (AC #13). */
   tree: (): Promise<{ projects: WireTreeProject[] }> => request('GET', '/api/tree'),
+  /** GET /api/active → the in-progress (non-terminal) builds, newest first (Lát 6 load-recovery). */
+  active: (): Promise<{ active: WireTreeTask[] }> => request('GET', '/api/active'),
   /** GET /api/seeds → seed-picker apps (degrades to [] until Lát 5, AC #2). */
   seeds: (): Promise<{ seeds: Seed[]; note?: string }> => request('GET', '/api/seeds'),
 };
