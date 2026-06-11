@@ -26,7 +26,7 @@ export interface WireGateAction {
 }
 export interface WireGate {
   actions: WireGateAction[];
-  flag?: 'still_failing';
+  flag?: 'still_failing' | 'awaiting_import';
 }
 
 /** Artifact contents inlined on GET /api/tasks/:id (artifacts.ts). diff is Lát-5 (null here). */
@@ -44,7 +44,10 @@ export interface WireTask {
   workflowFile: string;
   requirement: string;
   seedPath: string | null;
-  deploy: 'none';
+  seedAppId?: string | null;
+  deploy: 'none' | 'selfhost' | 'cloud';
+  appId?: string | null;
+  appUrl?: string | null;
   confirmMode: WireConfirmMode;
   phase: WirePhase;
   status: WireStatus;

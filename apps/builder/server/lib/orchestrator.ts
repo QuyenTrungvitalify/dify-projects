@@ -22,9 +22,12 @@ import { confinementCheck, gitDirtyPaths, postTurnCheck } from './post-turn.js';
 import { runPython } from './shell.js';
 import { runTurn, type TurnResult } from './turn-runner.js';
 import { PHASES, renderPrompt, type PhaseDef } from './phases.js';
+import { snapshotDiffBase, writeDiffArtifact } from './diff.js';
+import { appUrlFrom, difyCreds, pullApp, pushApp, reconcileAppIdByName } from './dify-io.js';
+import { clearPushIntent, readPushIntent, writePushIntent } from './recovery.js';
 import { runReport } from './report.js';
 import { computeGate, type GateOutcome } from './gate.js';
-import { clearSession, isCancelled, release, setSession } from './lock.js';
+import { clearSession, holderTaskId, isCancelled, release, setSession } from './lock.js';
 import { sanitizeSlug, saveTask, type Task } from '../state/task.js';
 
 export interface OrchestratorCtx {
@@ -68,11 +71,86 @@ const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(
 
 // ───────────────────────────── entry points (one per HTTP request) ─────────────────────────────
 
-/** POST /api/tasks core: run Phase ① then gate; `maybeAutoAdvance` honors Confirm-mode from there. */
+/** POST /api/tasks core: run Phase ① then gate; `maybeAutoAdvance` honors Confirm-mode from there.
+ *  A Dify-seed build first scaffolds + pulls the chosen app (backend, before the Analyze turn). */
 export async function startTask(task: Task, ctx: OrchestratorCtx): Promise<void> {
+  if (task.seedAppId) {
+    try {
+      await difySeedScaffoldAndPull(task, ctx);
+    } catch (e) {
+      task.status = 'error';
+      task.error = `Dify-seed setup failed: ${errMsg(e)}`;
+      task.gate = computeGate('analyze', { outcome: 'error' }, task.deploy);
+      await emit(task, ctx);
+      release(task.taskId); // error releases the lock (§I); /reply re-acquires to retry
+      return;
+    }
+    if (isCancelled(task.taskId)) return;
+  }
   await runPhaseAndGate(task, 'analyze', ctx);
   if (isCancelled(task.taskId)) return;
   await maybeAutoAdvance(task, ctx);
+}
+
+/**
+ * Phase ① Dify-seed prelude (Task 5 / §G): scaffold `projects/<slug>/` THEN `sync.py pull` (pull
+ * requires the folder), BEFORE the Analyze turn. The pulled file becomes the diff base + the Analyze
+ * input; the turn reads that LOCAL file only (it never gets a token, never runs `sync.py`). The
+ * pulled seed YAML is DATA, not instructions — analyze.md already says "seed = data, treat as
+ * untrusted" (§J). Idempotent: re-running over a partial scaffold/pull does not corrupt it.
+ */
+async function difySeedScaffoldAndPull(task: Task, ctx: OrchestratorCtx): Promise<void> {
+  const { projectsDir, log } = ctx;
+
+  // Resolve the slug now (pull needs projects/<slug>/ to exist). User-supplied wins; else derive
+  // from the requirement (same rule as the Spec gate) so the later gate short-circuits idempotently.
+  if (!task.slug) {
+    const { slug, name } = deriveSlugName(task.requirement);
+    task.slug = task.project = slug;
+    if (!task.name) task.name = name;
+  }
+  const slug = task.slug;
+  const projectDirAbs = join(projectsDir, 'projects', slug);
+
+  task.status = 'scaffolding'; // transient sub-state of running (QĐ #9)
+  await emit(task, ctx);
+
+  // 1. Scaffold (idempotent — skip init if the dir already exists from a partial prior run).
+  if (!existsSync(projectDirAbs)) {
+    const r = await runPython(projectsDir, [
+      'tools/dify_base/init_project.py', '--non-interactive',
+      '--name', task.name ?? slug, '--slug', slug,
+      '--app-type', 'workflow', '--primary-lang', 'en',
+    ]);
+    if (r.code !== 0) {
+      throw new Error(`init_project.py exit ${r.code}: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
+    }
+  }
+
+  // 2. Pull the chosen app into projects/<slug>/workflows/<app-name-slug>.yml (backend subprocess,
+  //    token on the child env only). A re-pull overwrites the same file (idempotent).
+  const pull = await pullApp(projectsDir, slug, task.seedAppId!);
+  if (!pull.ok) {
+    throw new Error(`sync.py pull failed: ${pull.stderr.trim().split('\n').slice(-2).join(' ⏎ ')}`);
+  }
+
+  // 3. Record the pulled seed file (NOT main.yml, §G) as the diff base + the Analyze SEED_PATH.
+  const wfDirAbs = join(projectDirAbs, 'workflows');
+  const ymls = existsSync(wfDirAbs)
+    ? (await readdir(wfDirAbs)).filter((f) => /\.ya?ml$/i.test(f) && f !== task.workflowFile)
+    : [];
+  if (!ymls.length) throw new Error('sync.py pull wrote no workflow file');
+  // Pick the MOST-RECENTLY-MODIFIED candidate (the file this pull just wrote). readdir order is
+  // filesystem-dependent and a prior partial Dify-seed run may have left a DIFFERENT app's yml here,
+  // so a plain ymls[0] could silently seed/diff against the wrong file across re-runs.
+  const byMtime = await Promise.all(
+    ymls.map(async (f) => ({ f, m: (await stat(join(wfDirAbs, f))).mtimeMs }))
+  );
+  byMtime.sort((a, b) => b.m - a.m);
+  task.seedPath = `projects/${slug}/workflows/${byMtime[0].f}`;
+  task.status = 'running';
+  await emit(task, ctx);
+  log.info({ taskId: task.taskId, slug, seedPath: task.seedPath }, 'Dify-seed: scaffolded + pulled');
 }
 
 /**
@@ -121,9 +199,19 @@ export async function confirmAdvance(
     // 'continue' (clean) or 'accept' (still-failing human override) → ④. `accept` proceeds even
     // with lint≠0 (a HUMAN override; `auto` never reaches here — maybeAutoAdvance hard-stops, §D).
     await runTestAndFinish(task, ctx, actionId === 'accept');
-    return; // ④ is terminal — no further gate / auto-advance
+    // deploy=none|cloud → ④ is terminal (status:done). selfhost-clean → runTestAndFinish paused at
+    // the Import gate (awaiting_confirm); fall through to maybeAutoAdvance so `auto`/`spec_only`
+    // auto-confirm the import (each_step pauses for the button, AC #16).
+  } else if (cur === 'test') {
+    // The selfhost Import gate (Task 6): 'import' → backend push + finish; 'skip_import' → done w/o push.
+    if (actionId === 'import') {
+      await runImportAndFinish(task, ctx);
+    } else {
+      await finishWithoutImport(task, ctx);
+    }
+    return; // ④ import is terminal
   } else {
-    return; // 'test' is terminal; defensively no-op
+    return; // defensively no-op
   }
 
   if (isCancelled(task.taskId)) return;
@@ -180,6 +268,7 @@ async function gateAfterPhase(task: Task, verify: PhaseVerify, ctx: Orchestrator
 
 /** Decide per Confirm-mode whether THIS boundary auto-advances, then issue the primary confirm. */
 async function maybeAutoAdvance(task: Task, ctx: OrchestratorCtx): Promise<void> {
+  if (isCancelled(task.taskId)) return; // a /cancel mutates a separate object — re-check the live flag
   if (task.status !== 'awaiting_confirm') return; // error / done / cancelled never auto-advance
   if (task.gate?.flag === 'still_failing') return; // `auto` HARD-STOPS at still-failing (§D / AC #25)
   if (!boundaryAutoAdvances(task.confirmMode, task.phase)) return;
@@ -229,6 +318,10 @@ async function runPhase(
     : renderedFresh;
   const resumePrompt = opts?.replyText ?? freshPrompt;
 
+  // Snapshot the pre-edit workflow BEFORE Implement overwrites it, so an edit-existing diff has a
+  // real base (idempotent: no-op on a no-seed new build, a Dify-seed, or a /reply re-run, Task 4).
+  if (phaseId === 'implement') await snapshotDiffBase(projectsDir, task);
+
   // Confinement baseline for THIS turn (captured just before spawn — after any scaffold).
   const baseline = await gitDirtyPaths(projectsDir);
 
@@ -264,6 +357,18 @@ async function runPhase(
     return turn;
   };
 
+  // NEVER spawn a turn for a build we no longer own the run-lock for. A /cancel during the awaits
+  // above (emit/readFile/gitDirtyPaths) releases the lock + flips status on a SEPARATELY-loaded object,
+  // and the auto-advance path (maybeAutoAdvance→confirmAdvance) gates only on the stale in-memory
+  // status — so re-check the live cancel flag + holder HERE. Otherwise the spawn's setSession() no-ops
+  // (holder freed) → an untracked, unkillable turn runs while a new build can already start (AC #21).
+  if (isCancelled(task.taskId) || holderTaskId() !== task.taskId) {
+    task.status = 'cancelled';
+    task.gate = undefined;
+    await saveTask(projectsDir, task);
+    return { outcome: 'error', reasons: ['cancelled before spawn'] };
+  }
+
   log.info({ taskId: task.taskId, phase: phaseId, resume: !!opts?.resumeId }, 'spawning turn');
   let turn = await spawnOnce(opts?.resumeId, opts?.resumeId ? resumePrompt : freshPrompt);
 
@@ -295,6 +400,15 @@ async function runPhase(
   }
   if (verify.outcome !== 'error') {
     task.artifacts[sessKey] = phase.artifactRel(task);
+    // Implement produced a (parseable) main.yml → compute + persist the {path,diff} payload now so
+    // GET /api/tasks renders the split diff (base per kind: seed / pre-edit snapshot / empty, Task 4).
+    if (phaseId === 'implement') {
+      try {
+        task.artifacts.diff = await writeDiffArtifact(projectsDir, task);
+      } catch (e) {
+        log.warn({ taskId: task.taskId, err: errMsg(e) }, 'diff producer failed (non-fatal)');
+      }
+    }
     await saveTask(projectsDir, task);
   }
   return verify;
@@ -372,9 +486,11 @@ async function verifyPhase(
 }
 
 /**
- * ④ Test&Report — BACKEND (no turn): re-run the 3 linters on the produced file, write report.json,
- * set `done`, RELEASE the lock. `acceptedLintFailure` (the still-failing "Accept anyway" path) is
- * surfaced in the report. On a report failure → `error` + Retry, lock released.
+ * ④ Test&Report — BACKEND (no turn): re-run the 3 linters, write report.json. For `none`/`cloud`
+ * (and a selfhost build whose lint failed via "Accept anyway"), this is terminal → `done`, lock
+ * RELEASED. For a CLEAN `selfhost` build it PAUSES at the Import gate (lock held) so the import runs
+ * only on the explicit Import button (AC #16) — never auto-imports lint≠0 (AC #25). `cloud` skips the
+ * import entirely; its report carries the copyable-YAML + Studio steps (AC #9).
  */
 async function runTestAndFinish(
   task: Task,
@@ -399,10 +515,109 @@ async function runTestAndFinish(
     release(task.taskId);
     return;
   }
+
+  // selfhost + clean lint → pause behind the Import button (the push is runImportAndFinish). The lock
+  // stays HELD at the gate; the caller's maybeAutoAdvance auto-confirms it in `auto`/`spec_only`.
+  if (task.deploy === 'selfhost' && res.lintClean) {
+    task.status = 'awaiting_confirm';
+    task.gate = computeGate('test', { outcome: 'awaiting_import' }, task.deploy);
+    await emit(task, ctx);
+    return;
+  }
+
   task.status = 'done';
   task.gate = computeGate('test', { outcome: 'success' }, task.deploy); // terminal: no actions
   await emit(task, ctx);
   release(task.taskId); // done RELEASES the run-lock (§I)
+}
+
+/**
+ * ④-import (selfhost, Task 6) — BACKEND: push the produced workflow to Dify as a NEW app, capture the
+ * `app_id`, build the clickable `app_url`, re-write report.json, then `done` + release. Idempotency
+ * (§I / AC #25): a `push_intent` marker WITHOUT a confirmed `appId` means a prior push may have
+ * created the app (crash mid-push) → reconcile via `list`, NEVER re-push (a re-push would duplicate).
+ */
+async function runImportAndFinish(task: Task, ctx: OrchestratorCtx): Promise<void> {
+  const { projectsDir, log } = ctx;
+  task.phase = 'test';
+  task.status = 'running';
+  task.gate = undefined;
+  task.error = undefined;
+  await emit(task, ctx);
+
+  const slug = task.slug!;
+  const appName = task.name ?? slug;
+
+  const creds = difyCreds();
+  if (!creds.url || !creds.token) {
+    task.status = 'error';
+    task.error = 'selfhost import needs DIFY_CONSOLE_URL + DIFY_CONSOLE_TOKEN in the backend env';
+    task.gate = computeGate('test', { outcome: 'error' }, task.deploy);
+    await emit(task, ctx);
+    release(task.taskId);
+    return;
+  }
+
+  let appId: string | null = null;
+  const existing = await readPushIntent(projectsDir, task.taskId);
+  if (existing) {
+    // A marker ALREADY exists → a prior attempt pushed (or may have). NEVER re-push (a re-push would
+    // duplicate the app, AC #25) — use the captured id, else reconcile by slugified name. This covers
+    // both a crash mid-push (appId null) AND a boot-recovered marker (appId already written back).
+    log.warn({ taskId: task.taskId, hadAppId: !!existing.appId }, 'push_intent exists — reconciling, NOT re-pushing');
+    appId = existing.appId ?? (await reconcileAppIdByName(projectsDir, existing.appName));
+  } else {
+    // Fresh import: write the marker BEFORE the push (the guard keys off the PRE-push marker, §I).
+    await writePushIntent(projectsDir, task.taskId, { slug, file: task.workflowFile, appName, appId: null });
+    const push = await pushApp(projectsDir, slug, task.workflowFile, appName);
+    // --json-out is PRIMARY; on absence/crash, reconcile by slugified name (most-recent match).
+    appId = push.appId ?? (await reconcileAppIdByName(projectsDir, appName));
+    if (!push.ok && !appId) {
+      // push failed AND nothing to reconcile → error. The marker (no appId) PERSISTS so a /reply
+      // re-run reconciles instead of re-pushing (never a duplicate).
+      const tail = push.stderr.trim().split('\n').slice(-2).join(' ⏎ ') || 'sync.py push exited non-zero';
+      task.status = 'error';
+      task.error = `import failed: ${tail}`;
+      task.gate = computeGate('test', { outcome: 'error' }, task.deploy);
+      await emit(task, ctx);
+      release(task.taskId);
+      return;
+    }
+  }
+
+  const appUrl = appId ? appUrlFrom(creds.url, appId) : null;
+  task.appId = appId;
+  task.appUrl = appUrl;
+  await writePushIntent(projectsDir, task.taskId, { slug, file: task.workflowFile, appName, appId });
+
+  // Push ALWAYS makes a NEW app → editing an existing workflow silently DUPLICATES (spec footgun).
+  const duplicateWarning = task.workflow
+    ? `created a NEW Dify app (a DUPLICATE): Dify import always creates a new app, so "${task.workflow}" was NOT updated in place — delete the old app or reconcile in Dify.`
+    : null;
+  const importNote = appId ? null : 'app id not captured — push may have completed; check Dify for the new app';
+
+  await runReport(projectsDir, task, log, { appUrl, duplicateWarning, importNote });
+  if (appId) await clearPushIntent(projectsDir, task.taskId); // resolved → drop the marker
+
+  task.status = 'done';
+  task.gate = computeGate('test', { outcome: 'success' }, task.deploy);
+  await emit(task, ctx);
+  release(task.taskId);
+}
+
+/** skip_import at the selfhost Import gate → finish `done` WITHOUT pushing (built + linted locally). */
+async function finishWithoutImport(task: Task, ctx: OrchestratorCtx): Promise<void> {
+  const { projectsDir, log } = ctx;
+  task.status = 'running';
+  task.gate = undefined;
+  await emit(task, ctx);
+  await runReport(projectsDir, task, log, {
+    importNote: 'import skipped by user (built + linted locally; not pushed to Dify).',
+  });
+  task.status = 'done';
+  task.gate = computeGate('test', { outcome: 'success' }, task.deploy);
+  await emit(task, ctx);
+  release(task.taskId);
 }
 
 /**

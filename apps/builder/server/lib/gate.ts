@@ -11,10 +11,11 @@
  *   - kind:"reply"   → focus the composer for a within-phase change (POST /reply)
  *   - kind:"cancel"  → abandon (POST /cancel)
  */
-import type { Gate, GateAction, Phase } from '../state/task.js';
+import type { Deploy, Gate, GateAction, Phase } from '../state/task.js';
 
-/** Verify outcome the orchestrator resolves before gating (drives clean vs still-failing vs error). */
-export type GateOutcome = 'success' | 'error' | 'still_failing';
+/** Verify outcome the orchestrator resolves before gating. `awaiting_import` is the Lát-5 ④ state:
+ *  selfhost lint is clean but the import hasn't run yet → present the Import button (AC #16). */
+export type GateOutcome = 'success' | 'error' | 'still_failing' | 'awaiting_import';
 export interface GateVerify {
   outcome: GateOutcome;
 }
@@ -42,10 +43,11 @@ const CANCEL = (id: string, label: string): GateAction => ({
 const ERROR_GATE: Gate = { actions: [REPLY('retry', 'Retry phase')] };
 
 /**
- * Compute the gate for a finished phase. `deploy` is reserved for the Lát-5 ④ `selfhost`
- * Import button; here (`deploy=none`) ④-success is terminal with no actions.
+ * Compute the gate for a finished phase. `deploy` drives the Lát-5 ④ `selfhost` Import button:
+ * a clean selfhost ④ pauses at `awaiting_import` with an Import action (AC #16); `none`/`cloud`
+ * ④-success is terminal with no actions.
  */
-export function computeGate(phase: Phase, verify: GateVerify, _deploy: 'none'): Gate {
+export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy): Gate {
   if (verify.outcome === 'error') return { actions: [...ERROR_GATE.actions] };
 
   switch (phase) {
@@ -83,7 +85,23 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: 'none'): 
         ],
       };
     case 'test':
-      // ④ success with deploy=none is terminal — no actions (the selfhost Import button is Lát 5).
+      if (verify.outcome === 'awaiting_import') {
+        // selfhost ④: lint passed, the workflow is written, but the import to Dify hasn't run.
+        // Pause behind an explicit Import button (AC #16); `/confirm import` runs the backend push.
+        // `auto` auto-confirms this exactly like any other confirm gate (the duplicate-app footgun
+        // for auto+selfhost+edit-existing is surfaced as a report warning, not blocked here).
+        // Both are `confirm` (route /confirm): 'import' → backend push, 'skip_import' → finish `done`
+        // without pushing. `auto`/`spec_only` auto-confirm the FIRST confirm action ('import'). A
+        // CANCEL here would instead mark the whole build `cancelled`, discarding the linted workflow.
+        return {
+          actions: [
+            CONFIRM('import', 'Import to Dify'),
+            CONFIRM('skip_import', 'Skip import'),
+          ],
+          flag: 'awaiting_import',
+        };
+      }
+      // ④ success with deploy=none|cloud (or a completed selfhost import) is terminal — no actions.
       return { actions: [] };
   }
 }

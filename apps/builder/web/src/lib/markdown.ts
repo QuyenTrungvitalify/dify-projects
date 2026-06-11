@@ -24,16 +24,26 @@ function esc(s: string): string {
 
 /** Inline spans: code → bold → italic → links. Operates on ALREADY-escaped text. */
 function inline(escaped: string): string {
-  // `code` first so its content isn't re-processed for * / _ / links.
-  let out = escaped.replace(/`([^`]+)`/g, (_m, c) => `<code>${c}</code>`);
+  // Pull inline `code` spans out to NUL sentinels FIRST so their contents are genuinely shielded from
+  // the emphasis/link passes below (those .replace() calls scan the whole string, so a `*`/`_`/`[`
+  // inside a code span would otherwise be wrongly rewritten). Re-inserted verbatim at the end.
+  const codes: string[] = [];
+  let out = escaped.replace(/`([^`]+)`/g, (_m, c) => {
+    codes.push(`<code>${c}</code>`);
+    return `\x00${codes.length - 1}\x00`; // NUL can't occur in escaped model/user text
+  });
   // [label](url) — only http/https/relative; the url is escaped, javascript: is dropped.
   out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, url) => {
     const safe = /^(https?:\/\/|\/|\.\/|#)/i.test(url) ? url : '#';
     return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${label}</a>`;
   });
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
-  out = out.replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>');
+  // Emphasis only when the marker is flanked by non-word chars, so intra-word `my_var_name` / `a*b`
+  // (snake_case identifiers, multiplication — which Claude streams constantly) don't italicize.
+  out = out.replace(/(^|[^\w*])\*([^*\n]+)\*(?=[^\w*]|$)/g, '$1<em>$2</em>');
+  out = out.replace(/(^|[^\w_])_([^_\n]+)_(?=[^\w_]|$)/g, '$1<em>$2</em>');
+  // Re-insert the protected code spans.
+  out = out.replace(/\x00(\d+)\x00/g, (_m, n) => codes[Number(n)]);
   return out;
 }
 

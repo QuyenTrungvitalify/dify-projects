@@ -18,6 +18,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { writeFile } from 'node:fs/promises';
 import { loadTask } from '../state/task.js';
 import { buildTree, specPathFor } from '../lib/artifacts.js';
+import { listSeeds } from '../lib/dify-io.js';
 
 export interface UiRoutesOptions {
   projectsDir: string;
@@ -28,18 +29,38 @@ export interface UiRoutesOptions {
 const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
   const { projectsDir, now } = opts;
 
+  // taskId is a 13+-digit ms timestamp (mintTaskId). Reject anything else BEFORE it reaches
+  // loadTask → join(.runs, id, …): a crafted id like `../../..` would otherwise path-traverse off
+  // the runs dir (spec §J confinement; the dev-endpoint slug guard does the same in index.ts).
+  const isTaskId = (id: string): boolean => /^\d{13,}$/.test(id);
+
   // ── GET /api/tree — 3-level sidebar tree grouped by project.group ──
   app.get('/api/tree', async () => {
     return { projects: await buildTree(projectsDir, now()) };
   });
 
-  // ── GET /api/seeds — degrades to empty until the Lát 5 sync.py producer lands ──
+  // ── GET /api/seeds — existing Dify apps (backend `sync.py list`, token backend-only). Degrades
+  //    GRACEFULLY: `list` exits 1 for BOTH no-creds AND request failure (indistinguishable by code),
+  //    so we parse stderr → reason and ALWAYS return HTTP 200 with an empty list + reason (the picker
+  //    renders an empty list, never an error toast). The token is on the child env only, never logged. ──
   app.get('/api/seeds', async () => {
-    return { seeds: [], note: 'connect Dify to seed from a workspace app (available in Lát 5)' };
+    const { seeds, reason, stderrTail } = await listSeeds(projectsDir);
+    const NOTE: Record<string, string> = {
+      'no-credentials': 'connect Dify (DIFY_CONSOLE_URL / DIFY_CONSOLE_TOKEN) to seed from a workspace app',
+      'dify-unreachable': 'Dify unreachable — check DIFY_CONSOLE_URL and that the workspace is up',
+      unknown: 'could not list Dify apps',
+    };
+    if (reason) {
+      app.log.warn({ reason, stderrTail }, 'seeds: degraded to empty list');
+      return { seeds: [], reason, note: NOTE[reason] };
+    }
+    // Map app_id → the UI's `Seed.id` (the picker feeds this id back as the createTask `seed`).
+    return { seeds: seeds.map((s) => ({ id: s.app_id, name: s.name, mode: s.mode })) };
   });
 
   // ── GET /api/tasks/:id/spec — current SPEC.md content for the editable panel ──
   app.get<{ Params: { id: string } }>('/api/tasks/:id/spec', async (req, reply) => {
+    if (!isTaskId(req.params.id)) return reply.code(400).send({ error: 'invalid task id' });
     let task;
     try {
       task = await loadTask(projectsDir, req.params.id);
@@ -57,6 +78,7 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
 
   // ── PUT /api/tasks/:id/spec — persist an in-place SPEC.md edit (last-writer) ──
   app.put<{ Params: { id: string } }>('/api/tasks/:id/spec', async (req, reply) => {
+    if (!isTaskId(req.params.id)) return reply.code(400).send({ error: 'invalid task id' });
     let task;
     try {
       task = await loadTask(projectsDir, req.params.id);
@@ -73,6 +95,11 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
           : null;
     if (content == null) {
       return reply.code(400).send({ error: 'spec content is required (raw markdown or {content})' });
+    }
+    // Reject a blank Save: an empty SPEC.md would arm the ② gate's "artifact empty" failure on the
+    // next Implement, which the user wouldn't connect to their own clear-and-save (last-writer foot-gun).
+    if (content.trim() === '') {
+      return reply.code(400).send({ error: 'SPEC.md cannot be empty' });
     }
     await writeFile(specPathFor(projectsDir, task), content);
     return { ok: true, path: specPathFor(projectsDir, task) };

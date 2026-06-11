@@ -24,7 +24,7 @@ export interface ArtifactContents {
   yaml: string | null;
   /** parsed report.json (phase ④). */
   report: unknown | null;
-  /** Lát 5 produces the diff; null here (render-only, panel degrades). */
+  /** unified-diff text from `.runs/<taskId>/diff.json` (Lát 5 diff producer); null until Implement. */
   diff: string | null;
 }
 
@@ -63,7 +63,18 @@ export async function readArtifactContents(
       }
     }
   }
-  return { spec, yaml, report, diff: null };
+  // Diff: the producer writes `.runs/<taskId>/diff.json` = { path, diff } after Implement; surface
+  // the unified-diff text (the panel renders it via SplitDiffView, else degrades to "no diff yet").
+  let diff: string | null = null;
+  const diffRaw = await readMaybe(join(projectsDir, `apps/builder/.runs/${task.taskId}/diff.json`));
+  if (diffRaw) {
+    try {
+      diff = (JSON.parse(diffRaw) as { diff?: string }).diff ?? null;
+    } catch {
+      diff = null;
+    }
+  }
+  return { spec, yaml, report, diff };
 }
 
 // ───────────────────────────── sidebar tree ─────────────────────────────

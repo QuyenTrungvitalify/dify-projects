@@ -91,10 +91,15 @@ export class ClaudeSession {
     args.push('--settings', this.options.settingsPath);
     args.push('--setting-sources', 'local');
 
-    // Clean env — remove ALL Claude Code env vars to prevent nested-session issues.
+    // Clean env — remove ALL Claude Code env vars to prevent nested-session issues, AND every
+    // `DIFY_*` var (esp. DIFY_CONSOLE_TOKEN / DIFY_CONSOLE_URL / DIFY_API_KEY). Dify I/O is
+    // backend-owned: the token enters ONLY the backend's own `sync.py` subprocess env (dify-io.ts),
+    // NEVER a claude turn (spec §F/§J / spec-009 Lát 5 Task 8). The backend passes `{...process.env}`
+    // here, so if an operator exported the token (or a .env loaded it), this strip is the load-bearing
+    // guarantee that no generating turn can read it — defense beyond "phases never run sync.py".
     const env = { ...process.env };
     for (const key of Object.keys(env)) {
-      if (key.startsWith('CLAUDE_CODE') || key === 'CLAUDECODE') {
+      if (key.startsWith('CLAUDE_CODE') || key === 'CLAUDECODE' || key.startsWith('DIFY_')) {
         delete env[key];
       }
     }

@@ -53,12 +53,21 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     release(taskId);
   }
 
+  // Tasks with an orchestrator step in flight. Guards the async-dispatch window: between a /confirm
+  // (or /reply) returning its optimistic snapshot and the dispatched work flipping the task to
+  // `running` on disk, a 2nd /confirm would still read `awaiting_confirm` + holder===id and dispatch
+  // AGAIN → two turns for one build. The synchronous `advancing` check closes that window.
+  const advancing = new Set<string>();
+
   /** Run orchestrator work in the background; converge to a relayed `error` on an unexpected throw. */
   function dispatch(taskId: string, work: Promise<void>): void {
-    void work.catch((e) => {
-      app.log.error({ err: errMsg(e), taskId }, 'orchestrator dispatch threw');
-      void failSafe(taskId, errMsg(e));
-    });
+    advancing.add(taskId);
+    void work
+      .catch((e) => {
+        app.log.error({ err: errMsg(e), taskId }, 'orchestrator dispatch threw');
+        void failSafe(taskId, errMsg(e));
+      })
+      .finally(() => advancing.delete(taskId));
   }
 
   /** Optimistic snapshot returned right after dispatch — SSE delivers the authoritative transitions. */
@@ -87,6 +96,10 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       workflow: (body.workflow as string | null | undefined) ?? null,
       // Accept the spec's public `confirm_mode` (verbose) AND the internal token; normalized in createTask.
       confirmMode: (body.confirm_mode ?? body.confirmMode) as string | undefined,
+      // Deploy target (Lát 5): body value, else the operator default DEFAULT_DEPLOY, else 'none'.
+      deploy: (body.deploy as string | undefined) ?? process.env.DEFAULT_DEPLOY ?? undefined,
+      // Chosen Dify seed app id from the seed picker (Lát 5); null/absent = no Dify seed.
+      seed: (body.seed as string | null | undefined) ?? null,
       slug: (body.slug as string | null | undefined) ?? null,
       name: (body.name as string | null | undefined) ?? null,
       workflowFile: (body.workflowFile as string | undefined) ?? undefined,
@@ -154,6 +167,11 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     if (typeof body.slug === 'string') payload.slug = body.slug;
     if (typeof body.name === 'string') payload.name = body.name;
 
+    // Close the async-dispatch race: a step is already advancing this build (a 2nd click before the
+    // first dispatch flips the disk status) → 409 instead of a duplicate turn.
+    if (advancing.has(id)) {
+      return reply.code(409).send({ error: 'a step is already in progress for this build' });
+    }
     // Dispatch the advance in the background; SSE carries the next phase/gate (Lát 4).
     dispatch(id, confirmAdvance(task, actionId, ctx, payload));
     return reply.send(optimisticRunning(task));
@@ -180,6 +198,11 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // An awaiting_confirm build HOLDS the lock — a non-holder gate is stale/corrupt (see /confirm).
     if (task.status === 'awaiting_confirm' && holderTaskId() !== id) {
       return reply.code(409).send({ error: 'this gate is not the active build (lock held by another task)', holder: holderTaskId() });
+    }
+    // Close the async-dispatch race (a 2nd reply/confirm before the dispatch flips disk status).
+    // BEFORE the error-retry acquire below, so a 409 here never leaks a just-taken lock.
+    if (advancing.has(id)) {
+      return reply.code(409).send({ error: 'a step is already in progress for this build' });
     }
     // Retry out of `error` re-acquires the lock (error released it, §I); 409 if another build holds it.
     if (task.status === 'error' && !acquire(task.taskId)) {

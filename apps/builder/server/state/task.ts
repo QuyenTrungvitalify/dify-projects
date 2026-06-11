@@ -32,6 +32,10 @@ export type Status =
 /** Internal confirm-mode; the PUBLIC wire field is `confirm_mode` with verbose values (§A, AC #15). */
 export type ConfirmMode = 'each_step' | 'spec_only' | 'auto';
 
+/** Deploy target for Phase ④ (Lát 5). `none` = local only (no Dify); `selfhost` = backend import +
+ *  clickable `app_url`; `cloud` = skip import, emit copyable YAML + Studio steps (CSRF blocks auto). */
+export type Deploy = 'none' | 'selfhost' | 'cloud';
+
 /** A gate action button (spec §Revision Cleanups + §D): `kind` distinguishes a `/confirm` advance
  *  from a composer-focus `/reply` from a terminal `/cancel`. */
 export type GateActionKind = 'confirm' | 'reply' | 'cancel';
@@ -43,8 +47,9 @@ export interface GateAction {
 }
 export interface Gate {
   actions: GateAction[];
-  /** set on the still-failing Implement gate (cap-5, lint≠0) so `auto` + UI can detect it (§D). */
-  flag?: 'still_failing';
+  /** `still_failing` = the cap-5 lint≠0 Implement gate (`auto` HARD-STOPS, §D); `awaiting_import` =
+   *  the selfhost ④ Import gate (lint clean, import pending — `auto` auto-confirms it, AC #16). */
+  flag?: 'still_failing' | 'awaiting_import';
 }
 
 export interface Task {
@@ -53,8 +58,15 @@ export interface Task {
   workflow: string | null; // workflow name; null for new
   workflowFile: string; // "main.yml" for a new workflow
   requirement: string;
-  seedPath: string | null; // null for the no-seed/new-workflow path (Lát 3's only path)
-  deploy: 'none'; // Lát 3 is none-only (selfhost/cloud = Lát 5)
+  // The local seed/base for the diff (§G). For a Dify-seed task this is set to the pulled file by the
+  // backend scaffold-then-pull (Lát 5 Task 5); null for the no-seed/new-workflow path.
+  seedPath: string | null;
+  // The Dify workspace app id chosen in the seed picker (Lát 5). null = no Dify seed (local/no-seed).
+  seedAppId: string | null;
+  deploy: Deploy; // 'none' (Lát 3 default) | 'selfhost' | 'cloud' (Lát 5)
+  // selfhost Phase ④ result (Lát 5 Task 6): the NEW Dify app id captured from the import + its url.
+  appId?: string | null;
+  appUrl?: string | null;
   confirmMode: ConfirmMode; // drives pause-vs-auto-advance at each boundary (§D)
   phase: Phase;
   status: Status;
@@ -62,7 +74,7 @@ export interface Task {
   name: string | null;
   // PERSIST per-phase session_id (Lát 3's /reply reads these back to --resume within a phase).
   sessionIds: { analyze?: string; spec?: string; implement?: string };
-  artifacts: { analyze?: string; spec?: string; implement?: string; report?: string };
+  artifacts: { analyze?: string; spec?: string; implement?: string; report?: string; diff?: string };
   // the live gate (set at awaiting_confirm; cleared/ignored in terminal states).
   gate?: Gate;
   error?: string;
@@ -76,6 +88,10 @@ export interface CreateTaskInput {
   workflow?: string | null;
   /** verbose `confirm_mode` OR internal value — normalized via {@link normalizeConfirmMode}. */
   confirmMode?: string;
+  /** deploy target — 'none' | 'selfhost' | 'cloud' (normalized via {@link normalizeDeploy}, Lát 5). */
+  deploy?: string;
+  /** chosen Dify seed app id from the seed picker (null/empty = no Dify seed, Lát 5). */
+  seed?: string | null;
   /** user-supplied slug/name (else Spec proposes at the gate, AC #18). */
   slug?: string | null;
   name?: string | null;
@@ -93,6 +109,15 @@ export function normalizeConfirmMode(raw: unknown): ConfirmMode {
   if (s === 'spec_only' || s === 'confirm at spec only' || s === 'spec only') return 'spec_only';
   if (s === 'each_step' || s === 'confirm each step' || s === 'each step') return 'each_step';
   return 'each_step';
+}
+
+/** Normalize the public `deploy` field to {@link Deploy}. Unknown/missing → 'none' (the safe local
+ *  default; never silently selfhost/cloud — those reach Dify). */
+export function normalizeDeploy(raw: unknown): Deploy {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (s === 'selfhost' || s === 'self-host' || s === 'self host') return 'selfhost';
+  if (s === 'cloud') return 'cloud';
+  return 'none';
 }
 
 /** Sanitize a user-supplied slug to snake_case `[a-z0-9_]` (Task 5 / arg-validation, spec §J). */
@@ -138,8 +163,11 @@ export async function createTask(projectsDir: string, input: CreateTaskInput): P
     workflow,
     workflowFile: (input.workflowFile ?? 'main.yml').trim() || 'main.yml',
     requirement: input.requirement.trim(),
-    seedPath: null,
-    deploy: 'none',
+    seedPath: null, // set by the Dify-seed scaffold-then-pull (Task 5) when seedAppId is present
+    seedAppId: input.seed && input.seed.trim() ? input.seed.trim() : null,
+    deploy: normalizeDeploy(input.deploy),
+    appId: null,
+    appUrl: null,
     confirmMode: normalizeConfirmMode(input.confirmMode),
     phase: 'analyze',
     status: 'running',

@@ -73,6 +73,7 @@ export function connectSSE(taskId: string, handlers: SSEHandlers): () => void {
     });
 
     eventSource.addEventListener('phase:output', (e: MessageEvent) => {
+      if (waitingForInit) return; // symmetry with task:update — don't append a pre-init replayed fragment
       handlers.onPhaseOutput(JSON.parse(e.data));
     });
   }

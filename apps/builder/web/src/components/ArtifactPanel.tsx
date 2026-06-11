@@ -17,6 +17,7 @@ interface ReportShape {
   lint?: { validate?: number; lint_refs?: number; lint_plugin_hashes?: number };
   deploy?: string;
   app_url?: string | null;
+  duplicate_warning?: string | null;
   accepted_lint_failure?: boolean;
   notes?: string;
 }
@@ -159,9 +160,17 @@ function ReportTab({ report }: { report: ReportShape | null }) {
           </div>
           <a className="btn ghost au-go" href={report.app_url} target="_blank" rel="noopener noreferrer"><I.external />Open</a>
         </div>
+      ) : report.deploy === 'cloud' ? (
+        <div className="secret-note" style={{ marginTop: 14 }}>
+          <I.lock />Cloud deploy — import the YAML manually in Dify Studio (steps in the notes below; the YAML is in the main.yml tab).
+        </div>
+      ) : report.deploy === 'selfhost' ? (
+        <div className="secret-note" style={{ marginTop: 14 }}>
+          <I.lock />Not imported — use the Import button, or check Dify (see notes).
+        </div>
       ) : (
         <div className="secret-note" style={{ marginTop: 14 }}>
-          <I.lock />Deploy is off — no app URL. Set Deploy ≠ none to import &amp; get a link (Lát 5).
+          <I.lock />Deploy is off — no app URL. Set Deploy ≠ none to import &amp; get a link.
         </div>
       )}
       {report.notes && <div className="secret-note" style={{ marginTop: 10 }}>{report.notes}</div>}

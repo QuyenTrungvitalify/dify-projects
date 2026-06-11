@@ -131,6 +131,27 @@ function applyTask(t: WireTask): void {
   thread.value = items;
 }
 
+/**
+ * Optimistically close the active gate after a fire-and-forget /confirm or /reply: mark the trailing
+ * unresolved gate resolved + reflect the snapshot (so the buttons disappear and `busy` is true)
+ * WITHOUT pushing a run item. The optimistic snapshot still carries the OLD phase, so letting
+ * applyTask build the thread would synthesize a duplicate "Running <old phase>" disclosure; the
+ * authoritative SSE task:update opens the correct (next-phase / re-run) run item instead.
+ */
+function optimisticAdvance(t: WireTask, resolvedLabel: string): void {
+  task.value = t;
+  const items = thread.value.slice();
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].kind === 'run') break;
+    const g = items[i];
+    if (g.kind === 'gate' && !g.resolved) {
+      items[i] = { ...g, resolved: resolvedLabel };
+      break;
+    }
+  }
+  thread.value = items;
+}
+
 function applyOutput(phase: string, text: string): void {
   const items = thread.value.slice();
   const last = items[items.length - 1];
@@ -205,7 +226,8 @@ export async function confirm(action: WireGateAction, extra?: { slug?: string; n
   const t = task.value;
   if (!t) return;
   try {
-    applyTask(await api.confirm(t.taskId, action.id, extra));
+    // Optimistic: close the gate; SSE opens the next-phase run item (no duplicate "Running").
+    optimisticAdvance(await api.confirm(t.taskId, action.id, extra), action.label);
   } catch (e) {
     startError.value = e instanceof ApiError ? e.message : String(e);
   }
@@ -219,7 +241,8 @@ export async function reply(text: string): Promise<void> {
   items.push({ id: uid(), kind: 'user', text: text.trim() });
   thread.value = items;
   try {
-    applyTask(await api.reply(t.taskId, text.trim()));
+    // Optimistic: close the gate; SSE re-opens the current phase as a fresh run (no duplicate).
+    optimisticAdvance(await api.reply(t.taskId, text.trim()), 'Requested changes');
   } catch (e) {
     startError.value = e instanceof ApiError ? e.message : String(e);
   }

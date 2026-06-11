@@ -17,7 +17,7 @@
  */
 import Fastify from 'fastify';
 import { randomUUID } from 'node:crypto';
-import { existsSync, createReadStream, statSync } from 'node:fs';
+import { existsSync, createReadStream, statSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { dirname, join, resolve, normalize, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,14 +25,11 @@ import { ClaudeSession } from './lib/claude-session.js';
 import { runTurn } from './lib/turn-runner.js';
 import { postTurnCheck, gitDirtyPaths } from './lib/post-turn.js';
 import { reconcileOnBoot } from './lib/lock.js';
+import { reconcilePushIntents } from './lib/recovery.js';
 import tasksRoutes from './routes/tasks.js';
 import uiRoutes from './routes/ui.js';
 import ssePlugin, { createSSEState } from './plugins/sse.js';
 import { isOriginAllowed } from './plugins/sse-origin-check.js';
-
-const HOST = '127.0.0.1'; // hardcoded — never env-overridable
-// Spec §F: BUILDER_PORT (default 4123) is the ONLY configurable bind knob; HOST stays 127.0.0.1.
-const PORT = Number(process.env.BUILDER_PORT) || 4123;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -49,9 +46,45 @@ function findRepoRoot(start: string): string {
   return resolve(start, '..', '..');
 }
 
+/**
+ * Load `apps/builder/.env` (non-secret config + Dify console creds) into process.env BEFORE anything
+ * reads it. Existing process.env wins (an explicit export overrides the file). DIFY_CONSOLE_TOKEN may
+ * land here, but claude-session.ts strips every `DIFY_*` from the turn env — so the token still never
+ * reaches a claude turn (§J). No dependency: a tiny `KEY=value` parser (quotes + `#` comments).
+ */
+function loadEnvFile(path: string): void {
+  if (!existsSync(path)) return;
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch {
+    return;
+  }
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq === -1) continue;
+    const key = line.slice(0, eq).trim();
+    let val = line.slice(eq + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    if (key && !(key in process.env)) process.env[key] = val;
+  }
+}
+
+// Locate the repo + load .env from a path independent of DIFY_PROJECTS_DIR (which .env itself may set).
+const REPO_ROOT = findRepoRoot(__dirname);
+loadEnvFile(join(REPO_ROOT, 'apps/builder/.env'));
+
+const HOST = '127.0.0.1'; // hardcoded — never env-overridable (spec §J)
+// Spec §F: BUILDER_PORT (default 4123) is the ONLY configurable bind knob; HOST stays 127.0.0.1.
+const PORT = Number(process.env.BUILDER_PORT) || 4123;
+
 const DIFY_PROJECTS_DIR = process.env.DIFY_PROJECTS_DIR
   ? resolve(process.env.DIFY_PROJECTS_DIR)
-  : findRepoRoot(__dirname);
+  : REPO_ROOT;
 const SETTINGS_PATH = join(DIFY_PROJECTS_DIR, 'apps/builder/headless-settings.json');
 
 interface RunImplementBody {
@@ -242,6 +275,9 @@ async function start(): Promise<void> {
   // Boot reconcile BEFORE listening: a crash/restart left no live process, so any `running` task →
   // `error` (lock cleared); a paused `awaiting_confirm` gated build re-acquires the lock (AC #19/#24).
   await reconcileOnBoot(DIFY_PROJECTS_DIR, app.log);
+  // Then recover push idempotency (AC #25): a task whose push_intent marker lacks an app_id crashed
+  // mid-import → reconcile the id via `sync.py list` (never re-push) or surface "check Dify".
+  await reconcilePushIntents(DIFY_PROJECTS_DIR, app.log);
   await app.listen({ host: HOST, port: PORT });
   app.log.info({ host: HOST, port: PORT, projectsDir: DIFY_PROJECTS_DIR }, 'builder up');
 }

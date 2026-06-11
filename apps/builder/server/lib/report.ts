@@ -1,12 +1,14 @@
 /**
- * report.ts — Phase ④ Test&Report BACKEND (no claude turn), spec 009 Lát 2.
+ * report.ts — Phase ④ Test&Report BACKEND (no claude turn), spec 009 Lát 2 + Lát 5.
  *
- * `deploy=none` only: re-run the 3 linters on the produced `main.yml`, synthesize
- * `apps/builder/.runs/<taskId>/report.json` (shape per test.md :36–44, but `deploy:"none"`),
- * and gate on the report file existing + non-empty (there is NO `result` event — ④ is backend).
+ * Re-runs the 3 linters on the produced workflow and synthesizes
+ * `apps/builder/.runs/<taskId>/report.json` (shape per test.md :36–44). Deploy-aware (Lát 5):
+ *   - `none`     → local only; `app_url`/`duplicate_warning` null.
+ *   - `cloud`    → skip import (CSRF blocks auto); the notes carry the copyable-YAML + Studio steps.
+ *   - `selfhost` → the import (push) is a SEPARATE step (orchestrator `runImportAndFinish`); this fn
+ *                  writes the report and re-writes it with `app_url`/`duplicate_warning` after push.
  *
- * NEVER runs `sync.py` (Dify I/O is backend-owned and out of scope for Lát 2). The Dify token
- * appears nowhere.
+ * NEVER runs `sync.py` itself (that is `dify-io.ts`). The Dify token appears nowhere in the report.
  */
 import { join } from 'node:path';
 import { stat, writeFile } from 'node:fs/promises';
@@ -18,13 +20,35 @@ export interface ReportResult {
   ok: boolean;
   reasons: string[];
   reportRel: string;
+  /** all 3 linters exited 0 — gates whether a selfhost build may show the Import button (AC #25). */
+  lintClean: boolean;
+}
+
+export interface ReportOpts {
+  /** the still-failing "Accept anyway" human override (§D / AC #25). */
+  acceptedLintFailure?: boolean;
+  /** selfhost: the clickable workflow URL after a successful import (else null). */
+  appUrl?: string | null;
+  /** selfhost edit-existing: the prominent "created a NEW app (duplicate)" warning (spec footgun). */
+  duplicateWarning?: string | null;
+  /** selfhost: a note when the app id could not be captured ("push may have completed — check Dify"). */
+  importNote?: string | null;
+}
+
+/** The Dify Studio manual-import steps for the cloud path (AC #9) — copyable YAML lives in main.yml. */
+function cloudStudioNote(wfRel: string): string {
+  return (
+    'Cloud deploy: auto-import is blocked by CSRF, so import manually. The copyable YAML is the ' +
+    `produced workflow (${wfRel}, shown in the main.yml tab). Steps in Dify Studio: ` +
+    '① Studio → Create app → "Import DSL" → ② paste the YAML (or upload the file) → ③ Create.'
+  );
 }
 
 export async function runReport(
   projectsDir: string,
   task: Task,
   log: SessionLogger,
-  opts?: { acceptedLintFailure?: boolean }
+  opts?: ReportOpts
 ): Promise<ReportResult> {
   const slug = task.slug!;
   const wfRel = `projects/${slug}/workflows/${task.workflowFile}`;
@@ -45,14 +69,28 @@ export async function runReport(
       lintNotes.push(`${l.key} exit ${r.code}: ${detail}`);
     }
   }
+  const lintClean = lint.validate === 0 && lint.lint_refs === 0 && lint.lint_plugin_hashes === 0;
 
-  // 2. Synthesize report.json (deploy:"none"; app_url/duplicate_warning null — no Dify contact).
-  //    `accepted_lint_failure` marks the still-failing "Accept anyway" human override (§D / AC #25):
-  //    ④ proceeded with lint≠0 by explicit user choice — surfaced prominently, never an auto path.
+  // 2. Synthesize report.json. `accepted_lint_failure` marks the still-failing "Accept anyway"
+  //    human override (§D / AC #25). Deploy drives app_url / duplicate_warning / notes.
   const accepted = !!opts?.acceptedLintFailure;
-  const baseNote = lintNotes.length
+  const appUrl = opts?.appUrl ?? null;
+  const duplicateWarning = opts?.duplicateWarning ?? null;
+  const lintLine = lintNotes.length
     ? `lint failures recorded: ${lintNotes.join('; ')}`
-    : 'all linters passed; deploy=none (no Dify contact).';
+    : 'all linters passed';
+
+  const noteParts: string[] = [lintLine];
+  if (accepted) noteParts.unshift('ACCEPTED with failing linters (human "Accept anyway" override).');
+  if (task.deploy === 'none') noteParts.push('deploy=none (no Dify contact).');
+  if (task.deploy === 'cloud') noteParts.push(cloudStudioNote(wfRel));
+  if (task.deploy === 'selfhost') {
+    if (appUrl) noteParts.push(`imported to Dify: ${appUrl}`);
+    if (opts?.importNote) noteParts.push(opts.importNote);
+  }
+  // The duplicate warning leads the notes so the UI surfaces it prominently (spec footgun).
+  if (duplicateWarning) noteParts.unshift(`⚠ ${duplicateWarning}`);
+
   const report = {
     workflow_file: wfRel,
     lint: {
@@ -60,13 +98,11 @@ export async function runReport(
       lint_refs: lint.lint_refs,
       lint_plugin_hashes: lint.lint_plugin_hashes,
     },
-    deploy: 'none' as const,
-    app_url: null,
-    duplicate_warning: null,
+    deploy: task.deploy,
+    app_url: appUrl,
+    duplicate_warning: duplicateWarning,
     accepted_lint_failure: accepted,
-    notes: accepted
-      ? `ACCEPTED with failing linters (human "Accept anyway" override). ${baseNote}`
-      : baseNote,
+    notes: noteParts.join(' '),
   };
   const reportRel = `apps/builder/.runs/${task.taskId}/report.json`;
   const reportAbs = join(projectsDir, reportRel);
@@ -84,5 +120,5 @@ export async function runReport(
   if (size === 0) reasons.push(`report.json empty: ${reportRel}`);
   if (lintNotes.length) log.warn({ taskId: task.taskId, lintNotes }, 'report: lint non-zero');
 
-  return { ok: reasons.length === 0, reasons, reportRel };
+  return { ok: reasons.length === 0, reasons, reportRel, lintClean };
 }
