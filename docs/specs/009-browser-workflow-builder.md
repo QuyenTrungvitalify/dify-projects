@@ -681,60 +681,16 @@ primary `/confirm` action vs a composer-focus `/reply`).
 ### E. Permission scope (headless turns must not block)
 
 > **FULLY SUPERSEDED by §Revision 2026-06-10 → "Security / permissions" (model C, decided
-> by Lát 0 spike).** The body below is the **pre-spike draft** — its `--allowedTools`
-> fail-fast framing and its "**not** `--permission-mode acceptEdits`" claim are **wrong**
-> and retained only for history. Authoritative model: **broad-allow `--permission-mode
+> by Lát 0 spike).** The pre-spike draft body (an explicit `--allowedTools` fail-fast allowlist
+> that still listed `sync.py`) has been **removed** (spec 019 L6) so no contributor copies a dead
+> allowlist; its fail-fast framing and "**not** `--permission-mode acceptEdits`" claim were **wrong**.
+> Authoritative model: **broad-allow `--permission-mode
 > acceptEdits` + a dialect-fixed deny carve-out (no leading slash) + `--setting-sources
 > local` isolation, with the #3b post-turn `git status` confinement check (reject + revert)
 > as the real boundary.** A tool call outside the deny-list does **not** "fail fast" — under
 > `acceptEdits` it runs; confinement is enforced *after* the turn by #3b, not by the
 > permission layer (spike E2d proved an opaque Bash write escapes the deny). `sync.py` is
 > **not** in any turn allowlist (Dify I/O is backend-owned). See §Revision + `009-spike-findings.md`.
-
-Each spawned turn is non-interactive, so it must never wait for approval. Use an
-explicit `--allowedTools` allowlist scoped to the repo commands the phases run —
-**not** `--permission-mode acceptEdits` (which still blocks on Bash/network), and
-**not** `--dangerously-skip-permissions`:
-
-```
---allowedTools \
-  "Read" "Write" "Edit" "Glob" "Grep" \
-  "Bash(.venv/bin/python tools/dify_base/sync.py:*)" \
-  "Bash(.venv/bin/python tools/dify_base/find.py:*)" \
-  "Bash(.venv/bin/python tools/dify_base/init_project.py:*)" \
-  "Bash(.venv/bin/python tools/dify_base/lint_refs.py:*)" \
-  "Bash(.venv/bin/python tools/dify_base/lint_plugin_hashes.py:*)" \
-  "Bash(.venv/bin/python skills/mango-svip/scripts/generate_id.py:*)" \
-  "Bash(.venv/bin/python skills/mango-svip/scripts/validate_workflow.py:*)"
-```
-
-`generate_id.py` is **mandatory** in the allowlist: Phase ③ must mint
-timestamp-ms node IDs from it — hand-made string IDs render as literal text with
-no error and the validators do not catch it (AGENTS.md §4.1/§9), so omitting it
-makes acceptance #4 pass while the generated app is silently broken at runtime.
-
-A tool call **outside** the allowlist is **rejected and fails the turn fast** —
-it does **not** pause for approval (so it never hangs, the acceptance-#10
-guarantee), and it is **not** silently skipped. The corollary: the allowlist
-**must cover every command any phase runs** (note `generate_id.py` above, and
-the mandatory `--yes` on every `sync.py push`/`pull`). The allowlist string must
-be **byte-identical to the command prefix the backend constructs** (§A: relative
-`.venv/bin/python …`, `cwd=DIFY_PROJECTS_DIR` — not an absolute path). Nhịp 1
-must verify **both** directions: a disallowed call is rejected **and** every
-allowed phase command actually matches its pattern (a near-miss prefix silently
-fails the turn).
-
-**Filesystem scope (enforced, not aspirational).** Confinement is delivered by
-**per-spawn path-scoped rules under `--permission-mode dontAsk`** (no custom hook):
-allow `Edit`/`Write(/projects/<slug>/**)` and `(/apps/builder/.runs/<taskId>/**)`;
-static deny `Edit`/`Write` on `/tools/**`, `/skills/**`, `/.venv/**`, `/.git/**`,
-`/.claude/**`, plus `Read(/projects/*/envs/*.env)`; any unmatched file op auto-denies.
-The path matcher canonicalizes paths, so `../` and symlink escapes are caught. **Bash
-tool writes are NOT covered by these file rules** — a pinned script (e.g.
-`init_project.py --slug X`) can write into another project from its subprocess, so the
-backend additionally **validates** that `--slug`/`--project` equals the active task's
-slug. (The bare `Write`/`Edit` allowlist entries above are superseded by these
-path-scoped rules; the Bash allowlist still governs which commands are pre-approved.)
 
 ### F. Configuration (per user)
 

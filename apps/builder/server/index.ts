@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { ClaudeSession } from './lib/claude-session.js';
 import { runTurn } from './lib/turn-runner.js';
 import { postTurnCheck, gitDirtyPaths } from './lib/post-turn.js';
-import { reconcileOnBoot } from './lib/lock.js';
+import { reconcileOnBoot, acquireTurn, releaseTurn, turnHolderId } from './lib/lock.js';
 import { smokePermissionHook } from './lib/hook-check.js';
 import { reconcilePushIntents } from './lib/recovery.js';
 import { isValidWorkflowFile } from './state/task.js';
@@ -163,62 +163,75 @@ app.post('/api/dev/run-implement', async (req, reply) => {
 
   const taskId = randomUUID();
 
-  // 1. Confinement BASELINE — capture before any write/spawn. Only turn-introduced changes
-  //    (delta vs this set) are evaluated against the whitelist; pre-existing work is preserved.
-  const baseline = await gitDirtyPaths(DIFY_PROJECTS_DIR);
+  // L1 (spec 019): this dev smoke endpoint historically spawned a turn WITHOUT taking the turn-lock — an
+  // un-gated 2nd-writer path that can violate the single-writer invariant the #3b post-turn confinement
+  // check rests on (a curl here while a gated build's turn runs = two builds writing the tree at once, so
+  // the baseline-delta is no longer attributable). Hard-gate it on the SAME turn-lock the gated surface
+  // uses: 409 if any turn is running, and release in `finally` so the smoke path stays usable. The 409
+  // body mirrors routes/tasks.ts `turnBusyError()` ({ error, holder }).
+  if (!acquireTurn(taskId)) {
+    return reply.code(409).send({ error: 'a turn is already running — try again in a moment', holder: turnHolderId() });
+  }
+  try {
+    // 1. Confinement BASELINE — capture before any write/spawn. Only turn-introduced changes
+    //    (delta vs this set) are evaluated against the whitelist; pre-existing work is preserved.
+    const baseline = await gitDirtyPaths(DIFY_PROJECTS_DIR);
 
-  // 2. Materialize the requirement as SPEC.md and point {{PRIOR_ARTIFACT}} at it.
-  const runDir = join(DIFY_PROJECTS_DIR, 'apps/builder/.runs', taskId);
-  await mkdir(runDir, { recursive: true });
-  const specRel = `apps/builder/.runs/${taskId}/SPEC.md`;
-  await writeFile(join(runDir, 'SPEC.md'), miniSpec(requirement, slug, workflowFile, seedPath));
+    // 2. Materialize the requirement as SPEC.md and point {{PRIOR_ARTIFACT}} at it.
+    const runDir = join(DIFY_PROJECTS_DIR, 'apps/builder/.runs', taskId);
+    await mkdir(runDir, { recursive: true });
+    const specRel = `apps/builder/.runs/${taskId}/SPEC.md`;
+    await writeFile(join(runDir, 'SPEC.md'), miniSpec(requirement, slug, workflowFile, seedPath));
 
-  // 3. Ensure projects/<slug>/workflows/ exists (whitelisted; this slice runs no scaffold/init_project).
-  await mkdir(join(DIFY_PROJECTS_DIR, 'projects', slug, 'workflows'), { recursive: true });
+    // 3. Ensure projects/<slug>/workflows/ exists (whitelisted; this slice runs no scaffold/init_project).
+    await mkdir(join(DIFY_PROJECTS_DIR, 'projects', slug, 'workflows'), { recursive: true });
 
-  // 4. Render the Implement (③) prompt. implement.md has {{SLUG}} {{WORKFLOW_FILE}}
-  //    {{PRIOR_ARTIFACT}} {{SEED_PATH}} only — NO {{REQUIREMENT}} slot (it reads PRIOR_ARTIFACT as SPEC.md).
-  const tmpl = await readFile(
-    join(DIFY_PROJECTS_DIR, '.claude/skills/dify-build/implement.md'),
-    'utf8'
-  );
-  const prompt = tmpl
-    .replaceAll('{{SLUG}}', slug)
-    .replaceAll('{{WORKFLOW_FILE}}', workflowFile)
-    .replaceAll('{{PRIOR_ARTIFACT}}', specRel)
-    .replaceAll('{{SEED_PATH}}', seedPath);
+    // 4. Render the Implement (③) prompt. implement.md has {{SLUG}} {{WORKFLOW_FILE}}
+    //    {{PRIOR_ARTIFACT}} {{SEED_PATH}} only — NO {{REQUIREMENT}} slot (it reads PRIOR_ARTIFACT as SPEC.md).
+    const tmpl = await readFile(
+      join(DIFY_PROJECTS_DIR, '.claude/skills/dify-build/implement.md'),
+      'utf8'
+    );
+    const prompt = tmpl
+      .replaceAll('{{SLUG}}', slug)
+      .replaceAll('{{WORKFLOW_FILE}}', workflowFile)
+      .replaceAll('{{PRIOR_ARTIFACT}}', specRel)
+      .replaceAll('{{SEED_PATH}}', seedPath);
 
-  // 5. Spawn ONE Implement turn (model C), capture session_id + terminal result.
-  const session = new ClaudeSession(taskId, {
-    taskId,
-    workingDir: DIFY_PROJECTS_DIR,
-    settingsPath: SETTINGS_PATH,
-    log: app.log,
-  });
-  app.log.info({ taskId, slug, workflowFile, seedPath }, 'spawning Implement turn');
-  const turn = await runTurn(session, prompt);
+    // 5. Spawn ONE Implement turn (model C), capture session_id + terminal result.
+    const session = new ClaudeSession(taskId, {
+      taskId,
+      workingDir: DIFY_PROJECTS_DIR,
+      settingsPath: SETTINGS_PATH,
+      log: app.log,
+    });
+    app.log.info({ taskId, slug, workflowFile, seedPath }, 'spawning Implement turn');
+    const turn = await runTurn(session, prompt);
 
-  // 6. Post-turn verify (authoritative — never trust turn.isError alone).
-  const check = await postTurnCheck({
-    projectsDir: DIFY_PROJECTS_DIR,
-    slug,
-    workflowFile,
-    taskId,
-    baseline,
-    log: app.log,
-  });
+    // 6. Post-turn verify (authoritative — never trust turn.isError alone).
+    const check = await postTurnCheck({
+      projectsDir: DIFY_PROJECTS_DIR,
+      slug,
+      workflowFile,
+      taskId,
+      baseline,
+      log: app.log,
+    });
 
-  const reasons = [...check.reasons];
-  if (turn.note) reasons.push(turn.note);
+    const reasons = [...check.reasons];
+    if (turn.note) reasons.push(turn.note);
 
-  return {
-    taskId,
-    sessionId: turn.sessionId,
-    turnIsError: turn.isError,
-    status: check.status,
-    reasons,
-    workflowPath: `projects/${slug}/workflows/${workflowFile}`,
-  };
+    return {
+      taskId,
+      sessionId: turn.sessionId,
+      turnIsError: turn.isError,
+      status: check.status,
+      reasons,
+      workflowPath: `projects/${slug}/workflows/${workflowFile}`,
+    };
+  } finally {
+    releaseTurn(taskId);
+  }
 });
 
 // ── Origin / same-origin check on mutating requests (spec §J + 015 D6, local-CSRF defense) ──
