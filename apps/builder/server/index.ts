@@ -26,6 +26,7 @@ import { ClaudeSession } from './lib/claude-session.js';
 import { runTurn } from './lib/turn-runner.js';
 import { postTurnCheck, gitDirtyPaths } from './lib/post-turn.js';
 import { reconcileOnBoot } from './lib/lock.js';
+import { smokePermissionHook } from './lib/hook-check.js';
 import { reconcilePushIntents } from './lib/recovery.js';
 import { isValidWorkflowFile } from './state/task.js';
 import tasksRoutes from './routes/tasks.js';
@@ -286,6 +287,10 @@ app.get('/*', async (req, reply) => {
 });
 
 async function start(): Promise<void> {
+  // L4 (spec 019): smoke that the PreToolUse permission hook actually LOADS under this host's node. If
+  // it can't (e.g. Node < 22.6 — no native `.ts`), the turn sandbox fails OPEN and nothing else detects
+  // it; warn loudly (warn-not-fail for v1). Mirrors the real invocation, so a healthy host never trips.
+  await smokePermissionHook(DIFY_PROJECTS_DIR, SETTINGS_PATH, app.log);
   // Boot reconcile BEFORE listening: a crash/restart left no live process, so any `running`/
   // `scaffolding` task → `error`; a paused `awaiting_confirm` build survives untouched (turn-level
   // lock — it holds nothing) and stays reachable. `turnHolder` starts null (in-memory) (AC #19/#24).
