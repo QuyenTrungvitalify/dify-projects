@@ -126,10 +126,13 @@ the pass emits an advisory ("reachability NOT checked") so a mislabeled entry no
    projects 20). Produce a **false-positive report** (file · ref · why-it's-actually-fine). Fix the
    checker / extend the exclusion list until the report is **0 FP**. The report is the primary review
    artifact and ships **with the PR**.
-3. **Promote.** Only after the report is clean: fold reachability into the default `lint_refs.py` exit
-   code → it flows through `lintClean` (`lint_refs` key) and the pre-commit hook (which runs on
-   `templates/(patterns|probes)` + `projects/*/workflows`). A premature promote breaks vetted patterns +
-   committed projects — hence the gate on a clean report.
+3. **Promote — ✅ DONE.** After the report was reviewed clean: reachability is folded into the default
+   `lint_refs.py` exit code (`lint_file` step 3) → it flows through `lintClean` (`lint_refs` key, no
+   contract change) and the pre-commit hook (`templates/(patterns|probes)` + `projects/*/workflows`).
+   Verified non-breaking: the 27 gate-surface files and the full 72-file corpus all pass the default
+   gating run (exit 0); `pre-commit run dify-lint-refs --all-files` → Passed. The no-root **advisory** is
+   informational-only and does **not** gate (you can't hard-fail a file on a check you couldn't run); it
+   surfaces via `--check-reachability`, which remains the reachability-only, non-gating view.
 
 ## Open questions
 
@@ -155,21 +158,22 @@ the pass emits an advisory ("reachability NOT checked") so a mislabeled entry no
 
 ## Acceptance criteria
 
-1. `lint_refs.py --check-reachability <file>` exists, runs the BFS, **prints findings and exits 0**
-   (warn-only); the default invocation (no flag) is **byte-for-byte unchanged** in behavior.
-2. A **false-positive report over all 72 files** exists and is **0 FP** — every exclusion (E1–E6) that the
-   corpus actually exercises is implemented + cited in the report.
-3. A workflow with a **downstream-only / forward reference** (`{{#S.f#}}` where S runs after C, or S
-   unreachable) is **caught by `--check-reachability`**, with a clear message naming S and C. *Scope:*
-   main-DAG (and cross-branch-merge) consumers; intra-container forward refs are a documented v2 gap
-   (see **Known limitation** above).
-4. The four exclusion families the corpus exercises — `sys/env/conversation` (E1), iteration/loop bodies
-   (E2/E3), `variable-aggregator`/`answer` cross-branch merges (E4), if-else branches (E5) — produce
-   **no** reachability error.
-5. **Only after** (2) is clean: reachability folds into `lintClean` + pre-commit; the full corpus +
-   patterns + projects still pass pre-commit (no regression on vetted/committed files).
-6. The builder surfaces a reachability failure at **Implement** (through the existing `lint_refs` key),
-   not at Dify import — no contract / new-linter-id change.
+1. ✅ `lint_refs.py --check-reachability <file>` exists, runs the BFS, **prints findings and exits 0**
+   (reachability-only, non-gating view). *(Phase 3: the **default** invocation now additionally gates on
+   reachability — see AC5.)*
+2. ✅ A **false-positive report over all 72 files** exists and is **0 FP** — every exclusion that the
+   corpus exercises is implemented + cited ([020-fp-report.md](020-fp-report.md)).
+3. ✅ A workflow with a **downstream-only / forward reference** (`{{#S.f#}}` where S runs after C, or S
+   unreachable) is **caught**, with a clear message naming S and C. *Scope:* main-DAG (and cross-branch-
+   merge) consumers; intra-container forward refs are a documented v2 gap (see **Known limitation** above).
+4. ✅ The exclusion families the corpus exercises — `sys/env/conversation` (E1), iteration/loop bodies
+   (E2/E3), if-else branches (E5) — produce **no** reachability error. *(E4's weak rule was removed
+   post-review; `variable-aggregator`/`answer` use the strict ancestor rule + escape hatch.)*
+5. ✅ Reachability folds into `lintClean` + pre-commit (`lint_file` step 3); the full corpus + patterns +
+   projects still pass (27 gate files + 72 corpus → exit 0; `pre-commit run dify-lint-refs --all-files` →
+   Passed). No regression on vetted/committed files.
+6. ✅ The builder surfaces a reachability failure at **Implement** through the existing `lint_refs` key —
+   no contract / new-linter-id change ([linters.ts](../../apps/builder/server/lib/linters.ts) unchanged).
 
 ## References
 

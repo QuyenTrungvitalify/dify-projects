@@ -43,10 +43,12 @@ caught (see `tests/fixtures/lint_refs/reach_forward_ref.yml` + `test_reachabilit
 ## Conclusion
 
 - **0 false positives over 72 files** → the phase-2 gate is satisfied.
-- The pass is warn-only today (`--check-reachability` prints, exits 0; the default invocation is
-  byte-for-byte unchanged) and is regression-tested (3 new tests in `tests/test_lint_refs.py`).
-- **Ready for phase 3 (promote)** — fold reachability into the default `lint_refs.py` exit code so it
-  flows through `lintClean` + pre-commit — **pending review of this report** (spec 020 AC5).
+- **Phase 3 PROMOTED** (post-review): reachability is folded into the default `lint_refs.py` exit code, so
+  it gates through `lintClean` + pre-commit. Re-verified non-breaking — 27 gate-surface files + all 72
+  corpus files pass the default gating run (exit 0); `pre-commit run dify-lint-refs --all-files` → Passed.
+  `--check-reachability` remains the reachability-only, non-gating view.
+- Regression-tested: **23** tests in `tests/test_lint_refs.py` (incl. the gate, escape hatch, no-root,
+  loop, and answer-forward cases).
 
 > Reproduce (note: corpus filenames contain spaces / non-ASCII, so `$(ls …)` word-splits and silently
 > skips ~17 files — use a NUL-delimited list):

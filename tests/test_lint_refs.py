@@ -78,16 +78,38 @@ def test_lint_refs_patterns_clean() -> None:
 # ── O1 / spec 020 — graph-reachability (warn-only, phase 1) ──────────────────────────────────────
 
 
-def test_reachability_warn_only_default_unchanged() -> None:
-    """Phase-1 discipline: the DEFAULT run does not gate on reachability yet. The forward-ref fixture
-    has valid ids/fields, so the existing checks pass (exit 0) — reachability is opt-in via the flag."""
+def test_reachability_default_gates_forward_ref() -> None:
+    """Phase-3 (promoted): the DEFAULT run now GATES on reachability. The forward-ref fixture has valid
+    ids/fields (existing checks pass), but the forward ref alone makes it exit 1."""
     result = subprocess.run(
         [sys.executable, str(TOOL), str(FIXTURES_DIR / "reach_forward_ref.yml")],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, f"default run must not gate on reachability:\n{result.stdout}"
-    assert "reachability:" not in result.stdout
+    assert result.returncode == 1, f"default run must gate on the forward ref:\n{result.stdout}"
+    assert "{{#300.text#}}" in result.stdout and "not upstream-reachable" in result.stdout
+
+
+def test_reachability_default_escape_hatch_suppresses() -> None:
+    """Phase-3: the escape hatch works in the gating default path too — reach_allow.yml suppresses its
+    forward ref and (with valid ids/fields) passes clean."""
+    result = subprocess.run(
+        [sys.executable, str(TOOL), str(FIXTURES_DIR / "reach_allow.yml")],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"escape hatch must suppress in the gate:\n{result.stdout}"
+
+
+def test_reachability_default_no_root_does_not_gate() -> None:
+    """Phase-3: a no-root file is not hard-failed on something we couldn't check. The advisory is surfaced
+    only by --check-reachability; the default gate stays clean (valid ids/fields → exit 0)."""
+    result = subprocess.run(
+        [sys.executable, str(TOOL), str(FIXTURES_DIR / "reach_no_root.yml")],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"no-root must not gate the default run:\n{result.stdout}"
 
 
 def test_reachability_flag_catches_forward_ref() -> None:

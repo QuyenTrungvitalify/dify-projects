@@ -11,7 +11,7 @@ Usage:
 
 Exit codes:
     0 — clean
-    1 — at least one broken reference
+    1 — at least one broken reference (unknown node/field, or — spec 020 — a forward/unreachable ref)
     2 — usage error / YAML parse error / file not found
 """
 from __future__ import annotations
@@ -174,6 +174,8 @@ CONTAINER_START_TYPES = {"iteration-start", "loop-start"}
 # suppresses a specific reachability finding (the rare legitimate graph shape the BFS can't model).
 # Anchored to line-start (`^\s*#`, MULTILINE) so a `#` inside a quoted string/prompt can't forge a marker.
 REACH_ALLOW_RE = re.compile(r"^[^\S\n]*#\s*lint-refs:\s*allow-reach\s+([^\n#]+)", re.MULTILINE)
+# Sentinel in the no-root advisory message: it is informational ("couldn't check"), never a gate error.
+REACH_ADVISORY = "reachability NOT checked"
 
 
 def _iter_refs(obj):
@@ -289,7 +291,7 @@ def check_reachability(data: dict, yaml_path: Path, allow: set[tuple[str, str]] 
                 continue
             for sid, field in _qualifying_refs(n):
                 return [
-                    f"{yaml_path}: no start/container-start node — reachability NOT checked "
+                    f"{yaml_path}: no start/container-start node — {REACH_ADVISORY} "
                     f"(found node-to-node ref {{{{#{sid}.{field}#}}}}; add a start node or verify the graph)"
                 ]
         return []
@@ -380,14 +382,22 @@ def lint_file(yaml_path: Path) -> tuple[int, list[str], list[str]]:
                 f"{yaml_path}: {sel_str} → field '{field}' not in outputs of node '{node_id}' (known: {known})"
             )
 
+    # 3. O1 (spec 020 phase 3): graph-reachability — forward/dangling refs over the edge DAG now GATE by
+    # default (same exit code as a broken ref; the message distinguishes them — spec 020 Q4). The no-root
+    # advisory ("couldn't check") is NOT a hard failure here — it's surfaced only by the explicit
+    # `--check-reachability` mode, so an un-anchorable file is never gated on something we couldn't verify.
+    for finding in check_reachability(data, yaml_path, _parse_reach_allowlist(text)):
+        if REACH_ADVISORY not in finding:
+            errors.append(finding)
+
     return (1 if errors else 0), errors, warnings
 
 
 def main(argv: list[str]) -> int:
-    # O1 (spec 020) phase 1: `--check-reachability` is a WARN-ONLY mode — it runs ONLY the graph-
-    # reachability pass, PRINTS findings, and ALWAYS exits 0 (it never gates a build/commit yet). The
-    # default invocation (no flag) is byte-for-byte unchanged. Promotion into the gate (lintClean +
-    # pre-commit) happens only after a clean false-positive report over the corpus (spec 020 phase 3).
+    # O1 (spec 020) phase 3 (PROMOTED): the default invocation now GATES on graph-reachability — a
+    # forward/dangling ref contributes to exit code 1, flowing through `lintClean` + pre-commit. The
+    # `--check-reachability` flag remains a reachability-ONLY, non-gating view (prints, exits 0) for
+    # isolated/debug runs and for surfacing the no-root advisory.
     if "--check-reachability" in argv:
         for arg in (a for a in argv if a != "--check-reachability"):
             path = Path(arg)
