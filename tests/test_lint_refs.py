@@ -116,3 +116,54 @@ def test_reachability_patterns_clean() -> None:
     assert result.returncode == 0
     reach = [ln for ln in result.stdout.splitlines() if ln.startswith("reachability:")]
     assert reach == [], "patterns should be reachability-clean:\n" + "\n".join(reach)
+
+
+def _reach_lines(fname: str) -> list[str]:
+    """Run --check-reachability on a fixture; return the `reachability:` finding lines (warn-only → exit 0)."""
+    result = subprocess.run(
+        [sys.executable, str(TOOL), "--check-reachability", str(FIXTURES_DIR / fname)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, "warn-only mode must exit 0"
+    return [ln for ln in result.stdout.splitlines() if ln.startswith("reachability:")]
+
+
+def test_reachability_answer_forward_caught() -> None:
+    """Mục 2 — strict ancestor rule catches an `answer` referencing a node that runs after it (the old
+    weaker E4 rule hid this)."""
+    reach = _reach_lines("reach_answer_forward.yml")
+    assert len(reach) == 1, f"expected 1 finding, got:\n" + "\n".join(reach)
+    assert "{{#later.text#}}" in reach[0] and "'ans'" in reach[0]
+
+
+def test_reachability_escape_hatch_suppresses() -> None:
+    """Mục 1 — `# lint-refs: allow-reach 300.text` suppresses the otherwise-flagged forward ref."""
+    assert _reach_lines("reach_allow.yml") == []
+
+
+def test_reachability_escape_hatch_ignores_marker_in_string() -> None:
+    """Mục 1 — the marker must be a full-line comment; the same text inside a prompt string does NOT
+    suppress (no false-negative injection via prompt content)."""
+    reach = _reach_lines("reach_allow_in_string.yml")
+    assert len(reach) == 1, f"marker-in-string must not suppress, got:\n" + "\n".join(reach)
+    assert "{{#300.text#}}" in reach[0] and "'200'" in reach[0]
+
+
+def test_reachability_no_root_advisory() -> None:
+    """Mục 5 — a rootless file with a node-to-node ref is NOT silently skipped; it emits one advisory."""
+    reach = _reach_lines("reach_no_root.yml")
+    assert len(reach) == 1, f"expected 1 advisory, got:\n" + "\n".join(reach)
+    assert "no start" in reach[0] and "NOT checked" in reach[0]
+
+
+def test_reachability_loop_valid_clean() -> None:
+    """Mục 4 — a valid loop (loop-start anchor, in-loop body refs, post-loop output read) is clean."""
+    assert _reach_lines("reach_loop_valid.yml") == []
+
+
+def test_reachability_loop_forward_caught() -> None:
+    """Mục 4 — a main-DAG forward ref is caught even when a loop is present; the loop body adds no noise."""
+    reach = _reach_lines("reach_loop_forward.yml")
+    assert len(reach) == 1, f"expected 1 finding, got:\n" + "\n".join(reach)
+    assert "{{#after.text#}}" in reach[0] and "'mid'" in reach[0]

@@ -1,0 +1,17 @@
+# Spec 020 Mục 1 — same forward ref as reach_forward_ref.yml ({{#300.text#}} in '200'), but the file
+# opts out via the escape-hatch comment below. Expect 0 reachability findings (suppressed).
+# lint-refs: allow-reach 300.text
+app:
+  name: reach-allow
+workflow:
+  graph:
+    nodes:
+      - id: '100'
+        data: {type: start, variables: []}
+      - id: '200'
+        data: {type: llm, prompt: "summarize {{#300.text#}}"}
+      - id: '300'
+        data: {type: llm, prompt: "hello"}
+    edges:
+      - {source: '100', target: '200'}
+      - {source: '200', target: '300'}

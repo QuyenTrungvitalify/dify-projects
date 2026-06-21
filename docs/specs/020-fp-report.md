@@ -36,7 +36,7 @@ caught (see `tests/fixtures/lint_refs/reach_forward_ref.yml` + `test_reachabilit
 | Exclusion | FPs it prevents on the corpus | Verdict |
 |---|---|---|
 | **E3** (container body) | **48** refs would FP without it | **Load-bearing** — iteration/loop body nodes reference main-DAG / iteration inputs that aren't main-DAG ancestors. |
-| **E4** (aggregator/answer weaker rule) | **0** on this corpus | **Precautionary** — the aggregators' incoming edges already make their branch sources ancestors, so the strict rule would also pass here. Kept as the correct safety net for the cross-branch case (spec 020 Q1) — it never tightens, only loosens, so it cannot introduce a FP. |
+| **E4** (aggregator/answer weaker rule) | **0** on this corpus | **REMOVED post-review** — the aggregators' incoming edges already make their branch sources ancestors, so the strict rule also passes here (re-measured: still 0 FP). The weaker "reachable-from-any-start" rule prevented 0 FPs while *hiding* real forward refs (e.g. an `answer` referencing a node that runs after it), so `variable-aggregator`/`answer` now use the same strict ancestor rule as every other consumer. Rare legitimate cross-branch shapes are handled by the escape hatch (`# lint-refs: allow-reach <id>.<field>`), not by blanket leniency. |
 | **E1** (sys/env/conversation) | 118 refs excluded | Necessary — these are not node outputs. |
 | **E2** (source is `*-start`) | 0 | Not triggered (body refs to `*-start` are already E3-excluded by consumer). Kept belt-and-suspenders. |
 
@@ -48,4 +48,31 @@ caught (see `tests/fixtures/lint_refs/reach_forward_ref.yml` + `test_reachabilit
 - **Ready for phase 3 (promote)** — fold reachability into the default `lint_refs.py` exit code so it
   flows through `lintClean` + pre-commit — **pending review of this report** (spec 020 AC5).
 
-> Reproduce: `python3 tools/dify_base/lint_refs.py --check-reachability $(ls corpus/awesome-dify-workflow/DSL/*.yml templates/patterns/*.yml templates/probes/*.yml projects/*/workflows/*.yml)`
+> Reproduce (note: corpus filenames contain spaces / non-ASCII, so `$(ls …)` word-splits and silently
+> skips ~17 files — use a NUL-delimited list):
+> ```sh
+> { find corpus/awesome-dify-workflow/DSL -maxdepth 1 -name '*.yml' -print0
+>   find templates/patterns templates/probes -maxdepth 1 -name '*.yml' -print0
+>   find projects -path '*/workflows/*.yml' -print0
+> } | xargs -0 python3 tools/dify_base/lint_refs.py --check-reachability
+> ```
+
+## Post-review changes (2026-06-21)
+
+Adversarial review of this report tightened the checker before any promotion:
+
+- **E4 weak rule removed** — `variable-aggregator`/`answer` now use the strict ancestor rule (re-measured:
+  still **0 FP** over 72 files). The weak rule bought 0 FP-reduction here while hiding answer/aggregator
+  forward refs. (+ test `test_reachability_answer_forward_caught`)
+- **Escape hatch added** — `# lint-refs: allow-reach <id>.<field>` suppresses a specific finding, so a
+  promoted hard gate has a per-ref override (not just `git commit --no-verify`).
+  (+ test `test_reachability_escape_hatch_suppresses`)
+- **Rootless files no longer silently skipped** — a file with node-to-node refs but no start/container
+  anchor now emits an advisory. (+ test `test_reachability_no_root_advisory`)
+- **Loop fixtures added** — the corpus exercises **0** loops (`type:loop`/`loop-start`/`isInLoop` all
+  absent), so loop handling was untested; two fixtures now cover it.
+  (+ tests `test_reachability_loop_valid_clean`, `test_reachability_loop_forward_caught`)
+- **Known limitation (deferred):** E3 skips *every* container-body consumer, so a forward ref BETWEEN two
+  nodes inside the same iteration/loop body is **not caught** (52 such body→body refs in the corpus go
+  unchecked). Catching them needs per-container sub-graph reachability — a v2 follow-up, documented in the
+  spec's exclusion table so the gate does not over-claim coverage.

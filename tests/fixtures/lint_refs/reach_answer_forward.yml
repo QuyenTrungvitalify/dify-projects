@@ -1,0 +1,17 @@
+# Spec 020 Mục 2 — an `answer` node references {{#later.text#}}, but 'later' runs AFTER the answer
+# (ans → later). The previous weaker E4 rule for answer/aggregator hid this; the strict ancestor rule
+# now CATCHES it. Expect exactly 1 finding: {{#later.text#}} in 'ans'.
+app:
+  name: reach-answer-forward
+workflow:
+  graph:
+    nodes:
+      - id: 'start1'
+        data: {type: start, variables: []}
+      - id: 'ans'
+        data: {type: answer, answer: "result is {{#later.text#}}"}
+      - id: 'later'
+        data: {type: llm, prompt: "runs after the answer"}
+    edges:
+      - {source: 'start1', target: 'ans'}
+      - {source: 'ans', target: 'later'}

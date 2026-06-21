@@ -1,0 +1,17 @@
+# Spec 020 Mục 1 — the escape-hatch marker must be a FULL-LINE comment. Here the marker text appears
+# INSIDE a prompt string (not a real comment), so it must NOT suppress the forward ref: '200' references
+# {{#300.text#}} which runs after it. Expect exactly 1 finding (the marker-in-string is ignored).
+app:
+  name: reach-allow-in-string
+workflow:
+  graph:
+    nodes:
+      - id: '100'
+        data: {type: start, variables: []}
+      - id: '200'
+        data: {type: llm, prompt: "rules: # lint-refs: allow-reach 300.text -- then read {{#300.text#}}"}
+      - id: '300'
+        data: {type: llm, prompt: "x"}
+    edges:
+      - {source: '100', target: '200'}
+      - {source: '200', target: '300'}

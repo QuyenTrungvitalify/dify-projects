@@ -170,7 +170,10 @@ def walk_value_selectors(obj, path: tuple = ()):
 # AGENTS.md §4.2's "#1 cause of silent import success + runtime failure". This pass verifies that over
 # the `graph.edges[]` DAG, with the Dify-shape carve-outs the corpus actually needs (see exclusions).
 CONTAINER_START_TYPES = {"iteration-start", "loop-start"}
-CROSS_BRANCH_MERGE_TYPES = {"variable-aggregator", "answer"}
+# Escape-hatch marker: a FULL-LINE comment `# lint-refs: allow-reach <id>.<field>[, <id>.<field>...]`
+# suppresses a specific reachability finding (the rare legitimate graph shape the BFS can't model).
+# Anchored to line-start (`^\s*#`, MULTILINE) so a `#` inside a quoted string/prompt can't forge a marker.
+REACH_ALLOW_RE = re.compile(r"^[^\S\n]*#\s*lint-refs:\s*allow-reach\s+([^\n#]+)", re.MULTILINE)
 
 
 def _iter_refs(obj):
@@ -203,16 +206,39 @@ def _bfs(adj: dict[str, list[str]], seeds: list[str]) -> set[str]:
     return seen
 
 
-def check_reachability(data: dict, yaml_path: Path) -> list[str]:
-    """O1 (spec 020) — WARN-ONLY advisory: every `{{#S.field#}}` / value_selector source must be
-    upstream-reachable to its consumer node. Never raises; returns human findings.
+def _parse_reach_allowlist(text: str) -> set[tuple[str, str]]:
+    """Escape hatch (spec 020): collect `(source_id, field)` pairs the file marks as intentionally
+    allowed via `# lint-refs: allow-reach <id>.<field>[, <id>.<field> ...]` comments. `field` is the
+    first segment after the id (matching REF_PATTERN's captured field)."""
+    allow: set[tuple[str, str]] = set()
+    for m in REACH_ALLOW_RE.finditer(text):
+        for tok in re.split(r"[,\s]+", m.group(1).strip()):
+            sid, _, rest = tok.partition(".")
+            field = rest.split(".")[0]
+            if sid and field:
+                allow.add((sid, field))
+    return allow
 
-    Exclusions (the corpus needs every one — see spec 020):
-      E1  sys/env/conversation selectors        — not node outputs, no ordering applies
-      E2  source is an iteration/loop-start      — synthetic container entry, refs to it are fine
-      E3  consumer is inside a container         — its refs resolve in the container scope, not the DAG
-      E4  consumer is variable-aggregator/answer — cross-branch merge → weaker "reachable-from-start" rule
+
+def check_reachability(data: dict, yaml_path: Path, allow: set[tuple[str, str]] | None = None) -> list[str]:
+    """O1 (spec 020) — WARN-ONLY advisory: every `{{#S.field#}}` / value_selector source must be an
+    upstream ancestor of its consumer node. Never raises; returns human findings.
+
+    Exclusions (see spec 020):
+      E1  sys/env/conversation selectors    — not node outputs, no ordering applies
+      E2  source is an iteration/loop-start  — synthetic container entry, refs to it are fine
+      E3  consumer is inside a container     — its refs resolve in the container scope, not the main DAG
+
+    KNOWN LIMITATION (spec 020 Mục 3, deferred): because E3 skips *every* container-body consumer, a
+    forward ref BETWEEN two nodes inside the same iteration/loop body is NOT caught. Catching those needs
+    per-container sub-graph reachability — a v2 follow-up.
+
+    `variable-aggregator`/`answer` use the same strict ancestor rule as everything else: the measurement
+    (docs/specs/020-fp-report.md) showed the earlier weaker "reachable-from-any-start" rule prevented 0
+    false positives on the corpus while hiding real forward refs, so it was dropped. The escape hatch
+    (`allow`) covers any rare legitimate cross-branch shape the strict rule would over-flag.
     """
+    allow = allow or set()
     graph = ((data.get("workflow") or {}).get("graph") or {}) if isinstance(data.get("workflow"), dict) else {}
     nodes = graph.get("nodes") or []
     edges = graph.get("edges") or []
@@ -242,12 +268,31 @@ def check_reachability(data: dict, yaml_path: Path) -> list[str]:
         adj.setdefault(str(s), []).append(str(t))
         radj.setdefault(str(t), []).append(str(s))
 
+    def _qualifying_refs(node: dict):
+        """node-to-node refs in `node.data` that the reachability rule actually judges (after E1/E2)."""
+        for sid, field in _iter_refs(node.get("data") or {}):
+            if sid in SPECIAL_NS:                            # E1
+                continue
+            if sid not in node_type:                         # not-found is the existing check's job
+                continue
+            if node_type.get(sid) in CONTAINER_START_TYPES:  # E2
+                continue
+            yield sid, field
+
     # Roots = start nodes + container entries (iteration/loop bodies begin at their *-start). Without an
-    # anchor we cannot judge reachability (unusual fragment / non-workflow) → skip the file (warn-only).
+    # anchor we cannot judge reachability — but DON'T silently skip (spec 020 Mục 5): if the file still
+    # carries node-to-node refs, surface an advisory so a mislabeled entry node isn't a blind spot.
     roots = [nid for nid, ty in node_type.items() if ty == "start" or ty in CONTAINER_START_TYPES]
     if not roots:
+        for n in nodes:
+            if not isinstance(n, dict) or not n.get("id"):
+                continue
+            for sid, field in _qualifying_refs(n):
+                return [
+                    f"{yaml_path}: no start/container-start node — reachability NOT checked "
+                    f"(found node-to-node ref {{{{#{sid}.{field}#}}}}; add a start node or verify the graph)"
+                ]
         return []
-    reachable_from_start = _bfs(adj, roots)
 
     findings: list[str] = []
     for n in nodes:
@@ -261,17 +306,12 @@ def check_reachability(data: dict, yaml_path: Path) -> list[str]:
             continue
         ctype = node_type.get(cid)
         ancestors = _bfs(radj, [cid]) - {cid}
-        for sid, field in _iter_refs(n.get("data") or {}):
-            if sid in SPECIAL_NS:                            # E1
+        for sid, field in _qualifying_refs(n):
+            if sid == cid:                  # defensive: self-ref
                 continue
-            if sid not in node_type:                         # not-found is the existing check's job
+            if (sid, field) in allow:       # escape hatch
                 continue
-            if node_type.get(sid) in CONTAINER_START_TYPES:  # E2
-                continue
-            if sid == cid:                                   # defensive: self-ref
-                continue
-            ok = (sid in reachable_from_start) if ctype in CROSS_BRANCH_MERGE_TYPES else (sid in ancestors)
-            if not ok:
+            if sid not in ancestors:        # strict: S must run before C
                 findings.append(
                     f"{yaml_path}: {{{{#{sid}.{field}#}}}} in node '{cid}'"
                     f"{f' ({ctype})' if ctype else ''} → source not upstream-reachable"
@@ -355,12 +395,13 @@ def main(argv: list[str]) -> int:
                 print(f"{path}: file not found", file=sys.stderr)
                 continue
             try:
-                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+                text = path.read_text(encoding="utf-8")
+                data = yaml.safe_load(text)
             except (OSError, yaml.YAMLError) as exc:
                 print(f"warning: {path}: cannot parse — {exc}", file=sys.stderr)
                 continue
             if isinstance(data, dict):
-                for finding in check_reachability(data, path):
+                for finding in check_reachability(data, path, _parse_reach_allowlist(text)):
                     print(f"reachability: {finding}")
         return 0  # WARN-ONLY: never gate
 
