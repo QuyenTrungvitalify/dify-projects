@@ -73,3 +73,46 @@ def test_lint_refs_patterns_clean() -> None:
     assert result.returncode == 0, (
         f"patterns flagged broken refs:\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
+
+
+# ── O1 / spec 020 — graph-reachability (warn-only, phase 1) ──────────────────────────────────────
+
+
+def test_reachability_warn_only_default_unchanged() -> None:
+    """Phase-1 discipline: the DEFAULT run does not gate on reachability yet. The forward-ref fixture
+    has valid ids/fields, so the existing checks pass (exit 0) — reachability is opt-in via the flag."""
+    result = subprocess.run(
+        [sys.executable, str(TOOL), str(FIXTURES_DIR / "reach_forward_ref.yml")],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"default run must not gate on reachability:\n{result.stdout}"
+    assert "reachability:" not in result.stdout
+
+
+def test_reachability_flag_catches_forward_ref() -> None:
+    """--check-reachability flags a forward/downstream-only ref (and ONLY that), exiting 0 (warn-only)."""
+    result = subprocess.run(
+        [sys.executable, str(TOOL), "--check-reachability", str(FIXTURES_DIR / "reach_forward_ref.yml")],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, "warn-only mode must exit 0"
+    reach = [ln for ln in result.stdout.splitlines() if ln.startswith("reachability:")]
+    assert len(reach) == 1, f"expected exactly 1 finding (the forward ref), got:\n{result.stdout}"
+    assert "{{#300.text#}}" in reach[0] and "'200'" in reach[0]
+
+
+def test_reachability_patterns_clean() -> None:
+    """templates/patterns/*.yml are reachability-clean under --check-reachability (0 false positives)."""
+    repo_root = Path(__file__).parent.parent
+    patterns = sorted((repo_root / "templates" / "patterns").glob("*.yml"))
+    assert patterns, "no patterns found — fixture broken"
+    result = subprocess.run(
+        [sys.executable, str(TOOL), "--check-reachability", *map(str, patterns)],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    reach = [ln for ln in result.stdout.splitlines() if ln.startswith("reachability:")]
+    assert reach == [], "patterns should be reachability-clean:\n" + "\n".join(reach)
