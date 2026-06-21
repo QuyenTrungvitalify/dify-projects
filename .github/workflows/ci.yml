@@ -52,3 +52,42 @@ jobs:
       - name: Pytest
         # tests/test_workflow_smoke.py skips gracefully without DIFY_API_KEY.
         run: pytest tests/ -v --tb=short
+
+  # Spec 011: compile + type-check + unit-test the builder app (server + web). Pre-commit excludes
+  # apps/ (own TS/Node toolchain), so this is the ONLY regression net for the gate/lock/CSRF logic.
+  builder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            apps/builder/package-lock.json
+            apps/builder/web/package-lock.json
+
+      - name: Install server deps
+        working-directory: apps/builder
+        run: npm ci
+
+      - name: Install web deps
+        working-directory: apps/builder/web
+        run: npm ci
+
+      - name: Server type-check (tsc --noEmit, server + tests)
+        working-directory: apps/builder
+        run: npm run typecheck
+
+      - name: Server unit tests (node --test via tsx)
+        working-directory: apps/builder
+        run: npm test
+
+      - name: Web build (tsc --noEmit + vite build)
+        working-directory: apps/builder/web
+        run: npm run build
+
+      - name: Web unit tests (vitest)
+        working-directory: apps/builder/web
+        run: npm test

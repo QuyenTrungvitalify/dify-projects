@@ -40,15 +40,34 @@ export function difyCreds(): { url?: string; token?: string } {
   };
 }
 
-/** Replace the live Dify token (and any obvious `Bearer <token>`) with `***` so it can never leak
- *  into a log line, the SSE stream, or `.runs/` JSON. Defensive — `sync.py` should never echo it. */
+/**
+ * Replace the live Dify token (and any obvious `Bearer <token>`) with `***` so it can never leak into a
+ * log line, the SSE stream, or `.runs/` JSON. Defensive — `sync.py` should never echo it.
+ *
+ * Spec 015 D7 (S8) widens the scrub: (a) the token is redacted even when SHORT (≥4 chars, was ≥8) and
+ * in its URL-encoded / base64 ENCODED forms (a trace may carry the token percent-encoded in a URL or
+ * base64'd in a header); (b) `DIFY_CONSOLE_URL` is redacted too (the console host is sensitive and can
+ * appear in sync.py error tails). This runs ONLY over captured sync.py stdout/stderr — the user-facing
+ * `app_url` is built separately from the creds and is NOT redacted, so clickable links survive.
+ */
 export function redactSecrets(text: string): string {
   if (!text) return text;
-  const { token } = difyCreds();
+  const { url, token } = difyCreds();
   let out = text;
-  if (token && token.length >= 8) out = out.split(token).join('***');
+  if (token) {
+    // Plain + encoded forms. Skip a form shorter than 4 chars (over-redaction risk on a tiny token).
+    const forms = [token, encodeURIComponent(token), Buffer.from(token, 'utf8').toString('base64')];
+    for (const form of forms) {
+      if (form && form.length >= 4) out = out.split(form).join('***');
+    }
+  }
+  if (url) {
+    out = out.split(url).join('***');
+    const trimmed = url.replace(/\/+$/, '');
+    if (trimmed && trimmed !== url) out = out.split(trimmed).join('***');
+  }
   // Belt-and-suspenders: scrub any Authorization: Bearer header value that might appear in a trace.
-  out = out.replace(/(Bearer\s+)[A-Za-z0-9._-]{8,}/g, '$1***');
+  out = out.replace(/(Bearer\s+)[A-Za-z0-9._-]{4,}/g, '$1***');
   return out;
 }
 
@@ -124,14 +143,34 @@ export async function listSeeds(
   return { seeds: parseListTable(r.stdout) };
 }
 
-/** Pull ONE app's DSL into `projects/<slug>/workflows/<app-name-slug>.yml` (the folder must pre-exist). */
+/** Pull ONE app's DSL into `projects/<slug>/workflows/<app-name-slug>.yml` (the folder must pre-exist).
+ *  Reports the EXACT file written (parsed from sync.py's `✓ …/workflows/<file> (<n> bytes)` line) so the
+ *  caller seeds/diffs against the precise pulled YAML, not a max-mtime guess (spec 014 D7 / 011 R15). */
 export async function pullApp(
   projectsDir: string,
   slug: string,
   appId: string
-): Promise<{ ok: boolean; stderr: string }> {
+): Promise<{ ok: boolean; file: string | null; stderr: string }> {
   const r = await runSyncPy(projectsDir, ['pull', '--project', slug, '--app-id', appId, '--yes']);
-  return { ok: r.code === 0, stderr: r.stderr };
+  return { ok: r.code === 0, file: pulledFileFromStdout(r.stdout), stderr: r.stderr };
+}
+
+/**
+ * The basename of the workflow file `sync.py pull` wrote, parsed from its per-app line
+ * `  ✓ projects/<slug>/workflows/<file>.yml (<n> bytes)` (cmd_pull). Used so a Dify-seed build seeds +
+ * diffs against the EXACT pulled file instead of scanning the workflows dir by mtime — a clock-skew tie
+ * (or another app's stale yml left by a partial prior run) could otherwise pick the wrong YAML (014 D7 /
+ * 011 R15). Returns the last match's basename (single-app `--app-id` pull writes exactly one), or null
+ * when the line is absent/unparseable (the caller then falls back to the mtime scan).
+ */
+export function pulledFileFromStdout(stdout: string): string | null {
+  let found: string | null = null;
+  for (const line of stdout.split('\n')) {
+    if (!line.includes('✓')) continue; // only the per-app "saved" lines
+    const m = line.match(/\/workflows\/([^\s/]+\.ya?ml)\b/i);
+    if (m) found = m[1];
+  }
+  return found;
 }
 
 /**
@@ -184,22 +223,44 @@ export function appIdFromJsonOut(stdout: string): string | null {
   return null;
 }
 
+/** Outcome of a name-reconcile. `ambiguous` is set when ≥2 same-named apps match: we CANNOT tell which
+ *  is this build's, so we refuse to attach one (the caller surfaces "ambiguous — verify in Dify"). */
+export interface ReconcileResult {
+  appId: string | null;
+  ambiguous: boolean;
+}
+
 /**
- * Crash/absent fallback: find the app id by slugified name via `sync.py list`. Push always creates a
- * NEW app, so repeated pushes of the same name slugify identically → pick the MOST-RECENTLY-CREATED
- * match (Dify returns newest first; we also tie-break by list order). Returns null if no match / list
- * unavailable (→ "push may have completed — check Dify").
+ * Pure name-match (spec 014 D6 / C6 — the unit-tested core). Push always creates a NEW app, so the
+ * crash/absent fallback finds the id by slugified name. `sync.py list` exposes ONLY id/mode/name — no
+ * created-at or other disambiguator (cmd_list) — so when MORE THAN ONE app shares the name (a prior
+ * crashed-then-retried import, or two builds with the same derived name) we cannot safely pick "the
+ * newest": doing so could attach the WRONG app_id. Degrade to `ambiguous` instead of guessing.
+ *   - 0 matches → { appId: null, ambiguous: false }  (nothing to reconcile)
+ *   - exactly 1 → { appId, ambiguous: false }        (unambiguous — attach it)
+ *   - ≥2 matches → { appId: null, ambiguous: true }  ("verify in Dify"; never a silent newest-pick)
+ */
+export function pickReconciledApp(rows: SeedRow[], appName: string): ReconcileResult {
+  const want = slugifyName(appName);
+  const matches = rows.filter((row) => slugifyName(row.name) === want);
+  if (matches.length === 1) return { appId: matches[0].app_id, ambiguous: false };
+  if (matches.length > 1) return { appId: null, ambiguous: true };
+  return { appId: null, ambiguous: false };
+}
+
+/**
+ * Crash/absent fallback: find the app id by slugified name via `sync.py list`. Delegates the match to
+ * {@link pickReconciledApp} — exactly one name match attaches; ≥2 returns `ambiguous` so the caller
+ * warns instead of silently attaching the wrong app (spec 014 D6 / C6). List unavailable (code≠0) →
+ * `{ appId: null, ambiguous: false }` (→ "push may have completed — check Dify").
  */
 export async function reconcileAppIdByName(
   projectsDir: string,
   appName: string
-): Promise<string | null> {
+): Promise<ReconcileResult> {
   const r = await runSyncPy(projectsDir, ['list']);
-  if (r.code !== 0) return null;
-  const want = slugifyName(appName);
-  const matches = parseListTable(r.stdout).filter((row) => slugifyName(row.name) === want);
-  // `sync.py list` page 1 returns newest-first; the first match is the most-recently-created.
-  return matches.length ? matches[0].app_id : null;
+  if (r.code !== 0) return { appId: null, ambiguous: false };
+  return pickReconciledApp(parseListTable(r.stdout), appName);
 }
 
 /** Mirror `sync.py`'s `_slugify` (name → lowercase, non-alnum → "_") so name-matching agrees with it. */

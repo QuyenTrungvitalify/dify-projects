@@ -27,10 +27,12 @@ import { runTurn } from './lib/turn-runner.js';
 import { postTurnCheck, gitDirtyPaths } from './lib/post-turn.js';
 import { reconcileOnBoot } from './lib/lock.js';
 import { reconcilePushIntents } from './lib/recovery.js';
+import { isValidWorkflowFile } from './state/task.js';
 import tasksRoutes from './routes/tasks.js';
 import uiRoutes from './routes/ui.js';
+import { BODY_LIMIT_BYTES } from './lib/attachments.js';
 import ssePlugin, { createSSEState } from './plugins/sse.js';
-import { isOriginAllowed } from './plugins/sse-origin-check.js';
+import { isOriginAllowedForMutation } from './plugins/sse-origin-check.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -111,7 +113,11 @@ This SPEC.md is the source of truth for what to build.
 `;
 }
 
-const app = Fastify({ logger: true });
+// bodyLimit (BODY_LIMIT_BYTES, attachments.ts) is sized to clear a max multi-image turn — MAX_IMAGES(3)
+// × 10 MB decoded, base64-inflated ~33% (≈40 MB) plus JSON overhead — so an over-limit image turn yields
+// validateImages' friendly 400, never a raw Fastify 413 (spec 012 D1 / 014 D7; invariant unit-pinned).
+// Localhost-only bind + Origin-CSRF check (below) bound the DoS surface this opens.
+const app = Fastify({ logger: true, bodyLimit: BODY_LIMIT_BYTES });
 
 // Raw-body parser so PUT /api/tasks/:id/spec can take the SPEC.md markdown as text/plain (routes/ui.ts).
 app.addContentTypeParser('text/plain', { parseAs: 'string' }, (_req, body, done) => done(null, body));
@@ -147,6 +153,11 @@ app.post('/api/dev/run-implement', async (req, reply) => {
   // Defensive slug guard — keep it inside projects/<slug>/, no traversal.
   if (!/^[a-zA-Z0-9_]+$/.test(slug)) {
     return reply.code(400).send({ error: 'slug must match ^[a-zA-Z0-9_]+$' });
+  }
+  // Spec 015 D5 (S4): the workflowFile flows into projects/<slug>/workflows/<file> + sync.py push —
+  // reject any non-`*.yml`/`*.yaml` basename or `..` traversal (same guard as POST /api/tasks).
+  if (!isValidWorkflowFile(workflowFile)) {
+    return reply.code(400).send({ error: 'workflowFile must be a plain *.yml/*.yaml basename (no path separators or "..")' });
   }
 
   const taskId = randomUUID();
@@ -209,12 +220,14 @@ app.post('/api/dev/run-implement', async (req, reply) => {
   };
 });
 
-// ── Origin / same-origin check on mutating requests (spec §J, local-CSRF defense) ──
-// A browser page on another origin can't POST/PUT a mutation here. `undefined` Origin (curl) is
-// allowed. The SSE GET route runs its own check before hijack; this covers the rest.
+// ── Origin / same-origin check on mutating requests (spec §J + 015 D6, local-CSRF defense) ──
+// A browser page on another origin can't POST/PUT a mutation here. Spec 015 D6: an ABSENT Origin is now
+// REJECTED on mutations (isOriginAllowedForMutation) — closing the absent-Origin CSRF loophole; a
+// curl/script caller must send `-H "Origin: http://127.0.0.1:<port>"`. The SSE GET route keeps the
+// lenient isOriginAllowed (a same-origin EventSource may omit Origin) and runs its own check before hijack.
 app.addHook('onRequest', async (req, reply) => {
   const mutating = req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE' || req.method === 'PATCH';
-  if (mutating && !isOriginAllowed(req.headers.origin, PORT)) {
+  if (mutating && !isOriginAllowedForMutation(req.headers.origin, PORT)) {
     return reply.code(403).send({ error: 'origin not allowed' });
   }
 });

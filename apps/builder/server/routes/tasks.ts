@@ -16,7 +16,17 @@
  * bind 127.0.0.1 only + Origin-check (index.ts).
  */
 import type { FastifyPluginAsync } from 'fastify';
-import { createTask, loadTask, saveTask, type Task } from '../state/task.js';
+import {
+  bumpRev,
+  createTask,
+  isValidWorkflowFile,
+  loadTask,
+  normalizeConfirmMode,
+  restoreTargetPhase,
+  saveTask,
+  type Task,
+} from '../state/task.js';
+import { computeGate } from '../lib/gate.js';
 import {
   confirmAdvance,
   replyWithin,
@@ -24,8 +34,9 @@ import {
   type ConfirmPayload,
   type OrchestratorCtx,
 } from '../lib/orchestrator.js';
-import { acquireTurn, liveSession, markCancelled, releaseTurn, turnBusy, turnHolderId } from '../lib/lock.js';
+import { acquireTurn, evictCancelled, isCancelled, liveSession, markCancelled, releaseTurn, turnBusy, turnHolderId, unmarkCancelled } from '../lib/lock.js';
 import { readArtifactContents } from '../lib/artifacts.js';
+import { saveAttachments, validateImages } from '../lib/attachments.js';
 
 export interface TasksRoutesOptions {
   projectsDir: string;
@@ -56,6 +67,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       if (t.status !== 'done' && t.status !== 'cancelled') {
         t.status = 'error';
         t.error = `internal error: ${reason}`;
+        bumpRev(t); // D5: strictly increase rev so a stale same-rev GET can't resurrect the prior state
         await saveTask(projectsDir, t);
         broadcast?.(taskId, 'task:update', t);
       }
@@ -79,7 +91,22 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
         app.log.error({ err: errMsg(e), taskId }, 'orchestrator dispatch threw');
         void failSafe(taskId, errMsg(e));
       })
-      .finally(() => releaseTurn(taskId));
+      .finally(() => {
+        releaseTurn(taskId);
+        // Bound cancelledTasks (spec 014 D7): once the chain has SETTLED, evict the flag if the build is
+        // terminal. Done here — AFTER the whole dispatched chain — never inside releaseTurn, so the flag
+        // still outlived every post-await `isCancelled` check (only evict on TERMINAL, not on release).
+        // A still-parked (awaiting_confirm) build keeps nothing to evict; a terminal one drops its flag.
+        void loadTask(projectsDir, taskId)
+          .then((t) => {
+            if (t.status === 'done' || t.status === 'error' || t.status === 'cancelled') {
+              evictCancelled(taskId);
+            }
+          })
+          .catch(() => {
+            /* task gone — nothing to evict */
+          });
+      });
   }
 
   /** Optimistic snapshot returned right after dispatch — SSE delivers the authoritative transitions. */
@@ -98,6 +125,18 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     const requirement = String(body.requirement ?? '').trim();
     if (!requirement) return reply.code(400).send({ error: 'requirement is required' });
 
+    // Spec 015 D5 (S4): a supplied workflowFile must be a safe `*.yml`/`*.yaml` basename (no traversal).
+    // It reaches `sync.py push --file workflows/<file>` at ④ outside the turn, so reject `../` here.
+    const wfRaw = (body.workflowFile as string | undefined)?.trim();
+    if (wfRaw && !isValidWorkflowFile(wfRaw)) {
+      return reply.code(400).send({ error: 'workflowFile must be a plain *.yml/*.yaml basename (no path separators or "..")' });
+    }
+
+    // Spec 012: validate any attached images (type/size/count → 400) BEFORE minting a task or touching
+    // the lock — images augment, never replace, the requirement (Q2: text stays required above).
+    const imgCheck = validateImages(body.images);
+    if (!imgCheck.ok) return reply.code(400).send({ error: imgCheck.error });
+
     // Fast path: a turn is already running → 409 without minting a task. A build PARKED at a gate does
     // NOT block this (turn-level lock) — that is the whole point of Lát 6.
     if (turnBusy()) return reply.code(409).send(turnBusyError());
@@ -115,6 +154,20 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       name: (body.name as string | null | undefined) ?? null,
       workflowFile: (body.workflowFile as string | undefined) ?? undefined,
     });
+
+    // Persist the images to `.runs/<taskId>/uploads/` + record the paths on the task, BEFORE acquiring
+    // the turn (a disk failure → 500 with NO lock held, NO turn started — spec §Validation/failure modes).
+    if (imgCheck.images.length) {
+      try {
+        task.attachments = await saveAttachments(projectsDir, task.taskId, imgCheck.images, 0);
+        await saveTask(projectsDir, task);
+      } catch (e) {
+        task.status = 'error';
+        task.error = `image write failed: ${errMsg(e)}`;
+        await saveTask(projectsDir, task);
+        return reply.code(500).send({ error: `failed to save images: ${errMsg(e)}` });
+      }
+    }
 
     // Race-safe acquire: two POSTs can both pass the fast-path; the loser marks its stray task rejected
     // and gets 409. `acquireTurn` is synchronous + strict (one turn at a time), so distinct minted ids
@@ -184,12 +237,62 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     return reply.send(optimisticRunning(task));
   });
 
+  // ── PATCH /api/tasks/:id — live-patch a build's confirm_mode (spec 010 F2 Part A) ──
+  // A PURE data write (no turn, no lock): persist `confirmMode` + relay `task:update`. The next
+  // boundary — the next Continue (/confirm re-loads the task from disk) or the next auto-advance —
+  // reads `task.confirmMode` fresh (`maybeAutoAdvance`/`boundaryAutoAdvances`), so switching a PARKED
+  // build to `auto` then clicking Continue once runs the rest hands-free.
+  //
+  // TWO rejections, both 409:
+  //   - terminal (done/cancelled) → no next boundary to honor it.
+  //   - THIS build's turn is currently running (`turnHolderId() === id`) → the live orchestrator drives
+  //     `maybeAutoAdvance` off its IN-MEMORY task (old mode) and its gate `emit` would clobber this
+  //     write back to disk — so a patch mid-turn is both ineffective AND silently reverted (a lying
+  //     control, the very thing F2 fixes). Reject it; the user patches once the build parks at a gate.
+  //     (A patch to a DIFFERENT, parked build while some OTHER build's turn runs is fine — distinct
+  //     task.json, no writer race.) Only `confirm_mode` is patchable; workflow/deploy are start-bound.
+  app.patch('/api/tasks/:id', async (req, reply) => {
+    const id = idOf(req);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (body.confirm_mode === undefined && body.confirmMode === undefined) {
+      return reply.code(400).send({ error: 'confirm_mode is required' });
+    }
+    let task;
+    try {
+      task = await loadTask(projectsDir, id);
+    } catch {
+      return reply.code(404).send({ error: `no such task: ${id}` });
+    }
+    if (task.status === 'done' || task.status === 'cancelled') {
+      return reply.code(409).send({ error: `task is ${task.status} — confirm_mode is no longer changeable` });
+    }
+    if (turnHolderId() === id) {
+      return reply.code(409).send({
+        error: 'this build has a turn running — change confirm-mode once it pauses at a gate',
+      });
+    }
+    // A /cancel can land during the loadTask above; without this re-check, saveTask would write the
+    // stale in-memory snapshot (status:awaiting_confirm) back, RESURRECTING the just-cancelled build.
+    if (isCancelled(id)) {
+      return reply.code(409).send({ error: 'task was cancelled — confirm_mode is no longer changeable' });
+    }
+    task.confirmMode = normalizeConfirmMode(body.confirm_mode ?? body.confirmMode);
+    bumpRev(task); // D5: this direct broadcast bypasses emit — bump so a stale GET can't revert confirmMode
+    await saveTask(projectsDir, task);
+    broadcast?.(id, 'task:update', task);
+    return reply.send(task);
+  });
+
   // ── POST /api/tasks/:id/reply — revise WITHIN the current phase (or Retry out of error) ──
   app.post('/api/tasks/:id/reply', async (req, reply) => {
     const id = idOf(req);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const text = String(body.text ?? '').trim();
     if (!text) return reply.code(400).send({ error: 'text is required' });
+
+    // Spec 012: validate reply-turn images (type/size/count → 400) before loading/locking.
+    const imgCheck = validateImages(body.images);
+    if (!imgCheck.ok) return reply.code(400).send({ error: imgCheck.error });
 
     let task;
     try {
@@ -202,6 +305,21 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
         .code(409)
         .send({ error: `task is ${task.status}; /reply needs awaiting_confirm or error` });
     }
+
+    // Save the reply-turn images APPENDED after any earlier ones (D5: never overwrite), BEFORE
+    // acquireTurn (a disk failure → 500 with no lock held). `replyWithin` reads `task.attachments`
+    // from this in-memory object, so the just-saved paths reach the resumed turn's prompt.
+    if (imgCheck.images.length) {
+      try {
+        const start = task.attachments?.length ?? 0;
+        const rels = await saveAttachments(projectsDir, id, imgCheck.images, start);
+        task.attachments = [...(task.attachments ?? []), ...rels];
+        await saveTask(projectsDir, task);
+      } catch (e) {
+        return reply.code(500).send({ error: `failed to save images: ${errMsg(e)}` });
+      }
+    }
+
     // Acquire the turn — this covers BOTH a within-phase revise (out of awaiting_confirm) AND a Retry
     // out of error (error freed the turn, so this re-takes it, §I). Strict + synchronous: a 2nd
     // concurrent /reply or /confirm for this build, or any other build's running turn, 409s here (so no
@@ -243,10 +361,52 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       fresh.status = 'cancelled';
       fresh.gate = undefined;
       fresh.error = fresh.error ?? 'cancelled by user';
+      bumpRev(fresh); // D5: strictly increase rev so an in-flight same-rev GET can't resurrect the gate
       await saveTask(projectsDir, fresh);
       broadcast?.(id, 'task:update', fresh); // relay the cancel to the SSE clients (Lát 4)
     }
+    // Bound cancelledTasks (spec 014 D7): a PARKED build's cancel never runs a dispatch (no `finally` to
+    // evict), so the flag we just marked would leak. If NO turn is in flight for this id, no orchestrator
+    // will read the flag → evict it now. If a turn IS in flight (we force-killed it above), the
+    // orchestrator still needs the flag through its chain; its dispatch `finally` evicts on terminal.
+    if (turnHolderId() !== id) evictCancelled(id);
     return reply.send(await loadTask(projectsDir, id));
+  });
+
+  // ── POST /api/tasks/:id/restore — reopen a CANCELLED build at the gate BEFORE its cancelled phase ──
+  // Undo the /confirm that advanced too far: rewind ONE boundary to the previous phase's gate
+  // (awaiting_confirm). That phase provably completed + was gated, and its artifacts are preserved on
+  // disk (the spec was already moved to projects/<slug>/ by the spec-gate scaffold), so re-confirming
+  // re-runs the cancelled phase fresh from a coherent point. A restore runs NO turn (just re-parks),
+  // so it takes no lock. `analyze` has no prior gate → reopen as a retryable `error` (/reply Retry).
+  app.post('/api/tasks/:id/restore', async (req, reply) => {
+    const id = idOf(req);
+    let task;
+    try {
+      task = await loadTask(projectsDir, id);
+    } catch {
+      return reply.code(404).send({ error: `no such task: ${id}` });
+    }
+    if (task.status !== 'cancelled') {
+      return reply.code(409).send({ error: `task is ${task.status} — only a cancelled build can be restored` });
+    }
+    unmarkCancelled(id); // clear the in-flight flag so the next /confirm or /reply can actually run a turn
+    const target = restoreTargetPhase(task.phase);
+    if (target) {
+      task.phase = target;
+      task.status = 'awaiting_confirm';
+      task.gate = computeGate(target, { outcome: 'success' }, task.deploy);
+      task.error = undefined;
+    } else {
+      // cancelled during the first phase (analyze) — no prior gate; reopen as a retryable error.
+      task.status = 'error';
+      task.gate = computeGate('analyze', { outcome: 'error' }, task.deploy);
+      task.error = 'restored — Retry to re-run analyze';
+    }
+    bumpRev(task); // D5: direct broadcast bypasses emit — bump so a stale GET can't clobber the restored gate
+    await saveTask(projectsDir, task);
+    broadcast?.(id, 'task:update', task);
+    return reply.send(task);
   });
 };
 

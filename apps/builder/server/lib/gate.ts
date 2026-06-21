@@ -39,6 +39,12 @@ const CANCEL = (id: string, label: string): GateAction => ({
   route: '/cancel',
 });
 
+/** Spec 010 F1: a low-emphasis "discard this build" present on EVERY parked gate so a build paused at
+ *  a normal boundary is dismissable from the gate card (not only the still-failing Implement gate). It
+ *  hits the same non-destructive POST /cancel as Abandon — `.runs/` + `projects/` stay on disk. Rendered
+ *  set apart from the primary Continue (so it can't be fat-fingered). */
+const DISCARD = (): GateAction => CANCEL('discard', 'Discard build');
+
 /** The Retry-out-of-error gate — same for every phase (§I: never auto-advances out of error). */
 const ERROR_GATE: Gate = { actions: [REPLY('retry', 'Retry phase')] };
 
@@ -56,6 +62,7 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy): 
         actions: [
           CONFIRM('continue', 'Continue to Spec'),
           REPLY('changes', 'Request changes'),
+          DISCARD(), // F1: dismiss a build parked at Analyze
         ],
       };
     case 'spec':
@@ -64,6 +71,7 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy): 
         actions: [
           CONFIRM('continue', 'Implement this spec'),
           REPLY('changes', 'Edit spec'),
+          DISCARD(), // F1: dismiss a build parked at Spec
         ],
       };
     case 'implement':
@@ -82,21 +90,33 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy): 
         actions: [
           CONFIRM('continue', 'Continue to Test'),
           REPLY('changes', 'Request changes'),
+          DISCARD(), // F1: dismiss a build parked at a clean Implement
         ],
       };
     case 'test':
+      if (verify.outcome === 'still_failing') {
+        // ④ re-lint failed and the human did NOT already accept at ③ (spec 014 D2 / C2). Never silently
+        // `done`: park for an explicit Accept (finish, tagged `accepted_lint_failure`) or Discard. `auto`
+        // HARD-STOPS on the `still_failing` flag — autonomy never ships a lint-failing workflow (AC #25).
+        return {
+          actions: [
+            CONFIRM('accept', 'Accept anyway'),
+            DISCARD(),
+          ],
+          flag: 'still_failing',
+        };
+      }
       if (verify.outcome === 'awaiting_import') {
-        // selfhost ④: lint passed, the workflow is written, but the import to Dify hasn't run.
-        // Pause behind an explicit Import button (AC #16); `/confirm import` runs the backend push.
-        // `auto` auto-confirms this exactly like any other confirm gate (the duplicate-app footgun
-        // for auto+selfhost+edit-existing is surfaced as a report warning, not blocked here).
-        // Both are `confirm` (route /confirm): 'import' → backend push, 'skip_import' → finish `done`
-        // without pushing. `auto`/`spec_only` auto-confirm the FIRST confirm action ('import'). A
-        // CANCEL here would instead mark the whole build `cancelled`, discarding the linted workflow.
+        // selfhost ④: lint passed, the workflow is written, but the import to Dify hasn't run. Pause
+        // behind an explicit Import button (AC #16). Deploy is ALWAYS a human decision: `auto`/`spec_only`
+        // PARK here too (spec 014 D1) — maybeAutoAdvance hard-stops on the `awaiting_import` flag and does
+        // NOT auto-confirm the import. 'import' → backend push, 'skip_import' → finish `done` without
+        // pushing. A CANCEL/Discard here marks the build `cancelled`, leaving the linted workflow on disk.
         return {
           actions: [
             CONFIRM('import', 'Import to Dify'),
             CONFIRM('skip_import', 'Skip import'),
+            DISCARD(), // F1: dismiss a build parked at the selfhost Import gate (the linted .yml stays on disk)
           ],
           flag: 'awaiting_import',
         };

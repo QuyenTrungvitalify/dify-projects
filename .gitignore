@@ -40,3 +40,11 @@ apps/*/.env*
 # Stray repo-root run dir (a turn writes `.runs/<taskId>/`; the backend relocates these into
 # apps/builder/.runs/ — see orchestrator.relocateRunArtifacts — but the empty/leftover root one is junk).
 /.runs/
+
+# Builder QA scratch projects (spec 011 R2): the builder writes each QA run's output to
+# projects/<derived-slug>/. These are regenerable throwaways — gitignored so they don't pollute the
+# repo or the generated INDEX.md (build_index.py skips gitignored YAMLs). Real hand-made projects
+# (news_automation/, eiken_stem_proofread/) are NOT matched and stay tracked/indexable.
+projects/workflow_*/
+projects/start_1_llm_node/
+projects/test/

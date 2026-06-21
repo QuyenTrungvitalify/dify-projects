@@ -25,7 +25,9 @@ Read, do not restate: [AGENTS.md](../../../AGENTS.md) **§3** (5-step build sequ
   Hand-made string IDs render as literal text with **no validator error** and silently break
   the app at runtime (§4.1 / §9). Iteration-start child = `<iteration_id>start`.
 - **Variable refs `{{#<node_id>.<field>#}}`:** `<field>` MUST be in the source node's declared
-  `outputs`; source MUST be reachable upstream. The #1 cause of silent-import-then-fail (§4.2).
+  `outputs` and the source node MUST be upstream. `lint_refs.py` checks the id-exists + field-in-
+  `outputs` part (not graph reachability — keeping refs upstream is on you). The #1 cause of
+  silent-import-then-fail (§4.2).
 - **Plugin hashes:** NEVER fabricate `@<sha256>`. New pattern → `dependencies: []` + a
   `# TODO: add plugin hash from target workspace` comment (§4.3).
 - **DSL version:** top-level `version: 0.6.0` (or the project's `dsl_version`).

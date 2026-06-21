@@ -44,6 +44,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (text ? JSON.parse(text) : {}) as T;
 }
 
+/** An image attached in the composer (spec 012): base64 data-URL rides the JSON body, no multipart. */
+export interface ImageAttachment {
+  name: string;
+  mime: string;
+  dataUrl: string;
+}
+
 export interface CreateTaskBody {
   requirement: string;
   workflow?: string | null;
@@ -52,6 +59,8 @@ export interface CreateTaskBody {
   slug?: string | null;
   name?: string | null;
   seed?: string | null;
+  /** spec 012: 1–3 images attached at build start; backend saves them + injects their paths (AC2). */
+  images?: ImageAttachment[];
 }
 
 export const api = {
@@ -62,12 +71,21 @@ export const api = {
   /** POST /api/tasks/:id/confirm → advance the gate (carries the chosen action id, + slug/name at ②). */
   confirm: (id: string, actionId: string, extra?: { slug?: string; name?: string }): Promise<WireTask> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/confirm`, { actionId, ...extra }),
-  /** POST /api/tasks/:id/reply → within-phase change request / Retry-out-of-error. */
-  reply: (id: string, text: string): Promise<WireTask> =>
-    request('POST', `/api/tasks/${encodeURIComponent(id)}/reply`, { text }),
+  /** POST /api/tasks/:id/reply → within-phase change request / Retry-out-of-error (+ optional images, AC3). */
+  reply: (id: string, text: string, images?: ImageAttachment[]): Promise<WireTask> =>
+    request('POST', `/api/tasks/${encodeURIComponent(id)}/reply`, {
+      text,
+      ...(images && images.length ? { images } : {}),
+    }),
+  /** PATCH /api/tasks/:id → live-patch confirm_mode on a non-terminal build (spec 010 F2; 409 if terminal). */
+  patchTask: (id: string, patch: { confirm_mode: string }): Promise<WireTask> =>
+    request('PATCH', `/api/tasks/${encodeURIComponent(id)}`, patch),
   /** POST /api/tasks/:id/cancel → abandon: kill child, terminal status, release lock (AC #24). */
   cancel: (id: string): Promise<WireTask> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/cancel`),
+  /** POST /api/tasks/:id/restore → reopen a cancelled build at the previous phase's gate (undo Continue). */
+  restore: (id: string): Promise<WireTask> =>
+    request('POST', `/api/tasks/${encodeURIComponent(id)}/restore`),
   /** GET /api/tasks/:id/spec → current SPEC.md content for the editable panel. */
   getSpec: (id: string): Promise<{ content: string }> =>
     request('GET', `/api/tasks/${encodeURIComponent(id)}/spec`),

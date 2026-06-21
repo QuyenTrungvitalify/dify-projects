@@ -6,11 +6,20 @@
    Lát 5, AC #4 render-half). Secrets are never rendered — token stays
    backend-side; only the .secret-note reminder shows.
    ============================================================ */
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import type { VNode } from 'preact';
 import { I } from './Icon';
 import { SplitDiffView } from './SplitDiffView';
+import { renderMarkdownHtml } from '../lib/markdown';
+import { t as tr, tf } from '../lib/i18n';
 import type { ArtifactTab, WireTask, WireArtifacts, FileChange } from '../types';
+
+type SpecMode = 'edit' | 'preview' | 'split';
+const SPEC_MODES: { key: SpecMode; labelKey: string }[] = [
+  { key: 'edit', labelKey: 'specEdit' },
+  { key: 'preview', labelKey: 'specPreview' },
+  { key: 'split', labelKey: 'specSplit' },
+];
 
 interface ReportShape {
   workflow_file?: string;
@@ -26,8 +35,21 @@ function SpecTab({ task, content, onSave }: { task: WireTask; content: string; o
   const [val, setVal] = useState(content);
   const [saved, setSaved] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [mode, setMode] = useState<SpecMode>('edit');
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  // After a toolbar edit re-renders the controlled textarea, re-apply focus + selection here (the
+  // value isn't in the DOM until the next render, so it can't be set synchronously in the handler).
+  const pendingSel = useRef<[number, number] | null>(null);
   // Re-seed when the task or its server content changes (e.g. switching tasks / a re-fetch).
   useEffect(() => { setVal(content); setSaved(true); }, [content, task.taskId]);
+  useEffect(() => {
+    const sel = pendingSel.current;
+    if (sel && taRef.current) {
+      pendingSel.current = null;
+      taRef.current.focus();
+      taRef.current.setSelectionRange(sel[0], sel[1]);
+    }
+  });
 
   const save = async (): Promise<void> => {
     setSaving(true);
@@ -39,24 +61,106 @@ function SpecTab({ task, content, onSave }: { task: WireTask; content: string; o
     }
   };
 
+  // --- toolbar primitives (operate on the textarea's current selection) ---
+  const commit = (next: string, selStart: number, selEnd: number): void => {
+    setVal(next); setSaved(false); pendingSel.current = [selStart, selEnd];
+  };
+  // Wrap the selection (or a placeholder when empty) in before/after markers; selects the inner text.
+  const wrap = (before: string, after: string, placeholder = 'text'): void => {
+    const el = taRef.current; if (!el) return;
+    const s = el.selectionStart, e = el.selectionEnd;
+    const inner = val.slice(s, e) || placeholder;
+    commit(val.slice(0, s) + before + inner + after + val.slice(e), s + before.length, s + before.length + inner.length);
+  };
+  // Prepend a marker to every line the selection touches (headings / lists / quote).
+  const prefix = (mark: string): void => {
+    const el = taRef.current; if (!el) return;
+    const s = el.selectionStart, e = el.selectionEnd;
+    const from = val.lastIndexOf('\n', s - 1) + 1;
+    const toNl = val.indexOf('\n', e);
+    const to = toNl === -1 ? val.length : toNl;
+    const block = val.slice(from, to).split('\n').map((ln) => mark + ln).join('\n');
+    commit(val.slice(0, from) + block + val.slice(to), from, from + block.length);
+  };
+  // Fenced code block; cursor lands on the empty middle line when nothing is selected.
+  const codeBlock = (): void => {
+    const el = taRef.current; if (!el) return;
+    const s = el.selectionStart, e = el.selectionEnd;
+    const inner = val.slice(s, e), open = '```\n', close = '\n```';
+    commit(val.slice(0, s) + open + inner + close + val.slice(e), s + open.length, s + open.length + inner.length);
+  };
+  // Markdown link: selection becomes the label, the literal "url" is selected for quick typing.
+  const link = (): void => {
+    const el = taRef.current; if (!el) return;
+    const s = el.selectionStart, e = el.selectionEnd;
+    const label = val.slice(s, e) || 'text';
+    const urlAt = s + 1 + label.length + 2;
+    commit(val.slice(0, s) + `[${label}](url)` + val.slice(e), urlAt, urlAt + 3);
+  };
+
+  type Tool = { sep: true } | { label: VNode; title: string; run: () => void };
+  const tools: Tool[] = [
+    { label: <b>B</b>, title: tr('tbBold'), run: () => wrap('**', '**') },
+    { label: <i>I</i>, title: tr('tbItalic'), run: () => wrap('*', '*') },
+    { label: <s>S</s>, title: tr('tbStrike'), run: () => wrap('~~', '~~') },
+    { label: <span className="stb-mono">{'</>'}</span>, title: tr('tbInlineCode'), run: () => wrap('`', '`', 'code') },
+    { sep: true },
+    { label: <>H1</>, title: tr('tbH1'), run: () => prefix('# ') },
+    { label: <>H2</>, title: tr('tbH2'), run: () => prefix('## ') },
+    { label: <>H3</>, title: tr('tbH3'), run: () => prefix('### ') },
+    { sep: true },
+    { label: <>•</>, title: tr('tbBullet'), run: () => prefix('- ') },
+    { label: <>1.</>, title: tr('tbNumbered'), run: () => prefix('1. ') },
+    { label: <>""</>, title: tr('tbQuote'), run: () => prefix('> ') },
+    { label: <span className="stb-mono">{'{ }'}</span>, title: tr('tbCodeBlock'), run: codeBlock },
+    { sep: true },
+    { label: <I.link />, title: tr('tbLink'), run: link },
+    { label: <span className="stb-mono">{'{{ }}'}</span>, title: tr('tbVariable'), run: () => wrap('{{', '}}', '') },
+  ];
+
+  // Preview renders the LIVE (possibly unsaved) text so edits show immediately; the renderer
+  // escapes HTML, so this is safe to inject. Empty draft → a muted placeholder.
+  const editor = (
+    <textarea ref={taRef} className="spec-edit" value={val} spellcheck={false}
+      onChange={(e) => { setVal(e.currentTarget.value); setSaved(false); }}
+    />
+  );
+  const preview = val.trim()
+    ? <div className="spec-preview md-stream" dangerouslySetInnerHTML={{ __html: renderMarkdownHtml(val) }} />
+    : <div className="spec-preview md-stream spec-preview-empty">{tr('nothingToPreview')}</div>;
+
   return (
-    <div>
-      <div className="art-section-title">SPEC.md <span className="ast-line" /></div>
-      {content === '' && <div className="secret-note" style={{ marginBottom: 8 }}>No SPEC.md yet — it appears after the Spec phase.</div>}
-      <textarea className="spec-edit" value={val} spellcheck={false}
-        onChange={(e) => { setVal(e.currentTarget.value); setSaved(false); }}
-      />
+    <div className="spec-tab">
+      <div className="art-section-title">SPEC.md <span className="ast-line" />
+        <div className="seg spec-mode">
+          {SPEC_MODES.map((m) => (
+            <button key={m.key} className={mode === m.key ? 'on' : ''} onClick={() => setMode(m.key)}>{tr(m.labelKey)}</button>
+          ))}
+        </div>
+      </div>
+      {content === '' && <div className="secret-note" style={{ marginBottom: 8 }}>{tr('noSpecYet')}</div>}
+      {mode !== 'preview' && (
+        <div className="spec-toolbar">
+          {tools.map((t, i) => 'sep' in t
+            ? <span key={i} className="stb-sep" />
+            // preventDefault on mousedown keeps focus (and the selection) in the textarea while clicking.
+            : <button key={i} className="stb" title={t.title} onMouseDown={(e) => e.preventDefault()} onClick={t.run}>{t.label}</button>)}
+        </div>
+      )}
+      {mode === 'split'
+        ? <div className="spec-split">{editor}{preview}</div>
+        : mode === 'preview' ? preview : editor}
       <div className="spec-bar">
         <button className="btn primary" disabled={saved || saving} onClick={save} style={saved ? { opacity: 0.5 } : undefined}>
-          <I.save />{saving ? 'Saving…' : 'Save spec'}
+          <I.save />{saving ? tr('saving') : tr('saveSpec')}
         </button>
         <span className="sb-status">
           {saved
-            ? <><I.check style={{ width: 13, height: 13, color: 'var(--ok)' }} />Saved · feeds Implement</>
-            : <><span className="dirty-dot" />Unsaved changes</>}
+            ? <><I.check style={{ width: 13, height: 13, color: 'var(--ok)' }} />{tr('savedFeedsImplement')}</>
+            : <><span className="dirty-dot" />{tr('unsavedChanges')}</>}
         </span>
       </div>
-      <div className="secret-note"><I.lock />API token redacted · never shown</div>
+      <div className="secret-note"><I.lock />{tr('tokenRedacted')}</div>
     </div>
   );
 }
@@ -70,6 +174,19 @@ function YamlTab({ yaml, report }: { yaml: string | null; report: ReportShape | 
         { name: 'lint_plugin_hashes', code: lint.lint_plugin_hashes },
       ]
     : [];
+  // spec 016 D3: one-click Copy — essential for deploy=cloud (paste into Studio → Import DSL), useful
+  // for every deploy. Transient "Copied" feedback; clipboard failures (e.g. denied permission) no-op.
+  const [copied, setCopied] = useState(false);
+  const copyYaml = async (): Promise<void> => {
+    if (!yaml) return;
+    try {
+      await navigator.clipboard.writeText(yaml);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked — leave the button idle */
+    }
+  };
   return (
     <div>
       <div className="art-section-title">main.yml <span className="ast-line" /></div>
@@ -77,17 +194,23 @@ function YamlTab({ yaml, report }: { yaml: string | null; report: ReportShape | 
         <div className="codeblock">
           <div className="cb-head"><I.yaml style={{ width: 13, height: 13 }} />
             <span className="cb-name">main.yml</span>
-            <span className="cb-lang">yaml · {yaml.split('\n').length} lines</span>
+            <span className="cb-lang">{tf('yamlLines', { n: yaml.split('\n').length })}</span>
+            <button className={'cb-copy' + (copied ? ' copied' : '')} onClick={() => void copyYaml()}
+              title={tr('copyYaml')} aria-label={tr('copyYaml')}>
+              {copied
+                ? <><I.check style={{ width: 12, height: 12 }} />{tr('copied')}</>
+                : <><I.copy style={{ width: 12, height: 12 }} />{tr('copyYaml')}</>}
+            </button>
           </div>
           <pre>{yaml}</pre>
         </div>
       ) : (
-        <div className="secret-note">No main.yml yet — it appears after the Implement phase.</div>
+        <div className="secret-note">{tr('noYamlYet')}</div>
       )}
 
       {linters.length > 0 && (
         <>
-          <div className="art-section-title" style={{ marginTop: 20 }}>Lint results <span className="ast-line" /></div>
+          <div className="art-section-title" style={{ marginTop: 20 }}>{tr('lintResults')} <span className="ast-line" /></div>
           <div className="lint-list">
             {linters.map((l) => {
               const pass = l.code === 0;
@@ -95,7 +218,7 @@ function YamlTab({ yaml, report }: { yaml: string | null; report: ReportShape | 
                 <div key={l.name} className={'lint-row ' + (pass ? 'pass' : 'fail')}>
                   <span className="lr-ic">{pass ? <I.checkCircle /> : <I.warn />}</span>
                   <span className="lr-name">{l.name}</span>
-                  <span className="lr-msg">{pass ? 'ok' : `exit ${l.code}`}</span>
+                  <span className="lr-msg">{pass ? tr('lintOk') : `exit ${l.code}`}</span>
                 </div>
               );
             })}
@@ -110,15 +233,15 @@ function DiffTab({ diff }: { diff: string | null }) {
   if (!diff) {
     return (
       <div>
-        <div className="art-section-title">Split diff <span className="ast-line" /></div>
-        <div className="secret-note">No diff yet — the seed/pattern diff producer lands in Lát 5.</div>
+        <div className="art-section-title">{tr('splitDiff')} <span className="ast-line" /></div>
+        <div className="secret-note">{tr('noDiffYet')}</div>
       </div>
     );
   }
   const file: FileChange = { path: 'main.yml', status: 'modified', additions: 0, deletions: 0, diff };
   return (
     <div>
-      <div className="art-section-title">Split diff <span className="ast-line" /></div>
+      <div className="art-section-title">{tr('splitDiff')} <span className="ast-line" /></div>
       <SplitDiffView file={file} />
     </div>
   );
@@ -128,22 +251,22 @@ function ReportTab({ report }: { report: ReportShape | null }) {
   if (!report) {
     return (
       <div>
-        <div className="art-section-title">Run report <span className="ast-line" /></div>
-        <div className="secret-note">No report yet — it appears after the Test phase.</div>
+        <div className="art-section-title">{tr('runReport')} <span className="ast-line" /></div>
+        <div className="secret-note">{tr('noReportYet')}</div>
       </div>
     );
   }
   const lint = report.lint ?? {};
   const lintPass = lint.validate === 0 && lint.lint_refs === 0 && lint.lint_plugin_hashes === 0;
   const rows: { k: string; v: string; ok: boolean }[] = [
-    { k: 'Workflow file', v: report.workflow_file ?? '—', ok: false },
-    { k: 'Lint', v: lintPass ? 'all passed' : 'failures recorded', ok: lintPass },
-    { k: 'Deploy', v: report.deploy === 'none' ? 'not deployed (local)' : report.deploy ?? '—', ok: false },
+    { k: tr('rWorkflowFile'), v: report.workflow_file ?? '—', ok: false },
+    { k: tr('rLint'), v: lintPass ? tr('rLintAllPassed') : tr('rLintFailures'), ok: lintPass },
+    { k: tr('rDeploy'), v: report.deploy === 'none' ? tr('rNotDeployed') : report.deploy ?? '—', ok: false },
   ];
-  if (report.accepted_lint_failure) rows.push({ k: 'Accepted', v: 'lint failure overridden (human)', ok: false });
+  if (report.accepted_lint_failure) rows.push({ k: tr('rAccepted'), v: tr('rLintOverridden'), ok: false });
   return (
     <div>
-      <div className="art-section-title">Run report <span className="ast-line" /></div>
+      <div className="art-section-title">{tr('runReport')} <span className="ast-line" /></div>
       <div>
         {rows.map((r) => (
           <div key={r.k} className="report-row">
@@ -155,22 +278,22 @@ function ReportTab({ report }: { report: ReportShape | null }) {
       {report.app_url ? (
         <div className="app-url-card">
           <div className="au-meta">
-            <div className="au-label">DEPLOYED · {report.deploy}</div>
+            <div className="au-label">{tf('deployedTag', { deploy: report.deploy ?? '' })}</div>
             <a className="au-link" href={report.app_url} target="_blank" rel="noopener noreferrer">{report.app_url}</a>
           </div>
-          <a className="btn ghost au-go" href={report.app_url} target="_blank" rel="noopener noreferrer"><I.external />Open</a>
+          <a className="btn ghost au-go" href={report.app_url} target="_blank" rel="noopener noreferrer"><I.external />{tr('open')}</a>
         </div>
       ) : report.deploy === 'cloud' ? (
         <div className="secret-note" style={{ marginTop: 14 }}>
-          <I.lock />Cloud deploy — import the YAML manually in Dify Studio (steps in the notes below; the YAML is in the main.yml tab).
+          <I.lock />{tr('noteCloud')}
         </div>
       ) : report.deploy === 'selfhost' ? (
         <div className="secret-note" style={{ marginTop: 14 }}>
-          <I.lock />Not imported — use the Import button, or check Dify (see notes).
+          <I.lock />{tr('noteSelfhost')}
         </div>
       ) : (
         <div className="secret-note" style={{ marginTop: 14 }}>
-          <I.lock />Deploy is off — no app URL. Set Deploy ≠ none to import &amp; get a link.
+          <I.lock />{tr('noteDeployOff')}
         </div>
       )}
       {report.notes && <div className="secret-note" style={{ marginTop: 10 }}>{report.notes}</div>}
@@ -191,10 +314,10 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
   const lintWarn = report ? !(report.lint?.validate === 0 && report.lint?.lint_refs === 0 && report.lint?.lint_plugin_hashes === 0) : false;
 
   const allTabs: { key: ArtifactTab; label: string; icon: VNode; dot?: string }[] = [
-    { key: 'spec', label: 'Spec', icon: <I.doc /> },
+    { key: 'spec', label: tr('tab_spec'), icon: <I.doc /> },
     { key: 'yaml', label: 'main.yml', icon: <I.yaml />, dot: report ? (lintWarn ? 'warn' : 'ok') : undefined },
-    { key: 'diff', label: 'Diff', icon: <I.diff /> },
-    { key: 'report', label: 'Report', icon: <I.report /> },
+    { key: 'diff', label: tr('tab_diff'), icon: <I.diff /> },
+    { key: 'report', label: tr('tab_report'), icon: <I.report /> },
   ];
   const tabs = allTabs.filter((t) => available.includes(t.key));
   const activeTab = tabs.some((t) => t.key === tab) ? tab : tabs[0]?.key ?? 'spec';
@@ -204,10 +327,10 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
       <div className="artifact-head">
         <I.panel style={{ width: 15, height: 15, color: 'var(--tx-muted)' }} />
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
-          <span className="ah-title">Artifact</span>
-          <span className="ah-sub">{task.slug ?? task.name ?? 'new workflow'}</span>
+          <span className="ah-title">{tr('artifact')}</span>
+          <span className="ah-sub">{task.slug ?? task.name ?? tr('newWorkflow')}</span>
         </div>
-        <button className="icon-btn artifact-close" style={{ marginLeft: 'auto' }} onClick={onClose} title="Hide panel"><I.close /></button>
+        <button className="icon-btn artifact-close" style={{ marginLeft: 'auto' }} onClick={onClose} title={tr('hidePanel')}><I.close /></button>
       </div>
 
       <div className="artifact-tabs">
