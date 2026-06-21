@@ -104,26 +104,6 @@ export function parsePatch(raw: string): ParsedDiff {
   return { hunks, isBinary: false, isTooLarge: false };
 }
 
-// ─── Unified Row Builder ─────────────────────────────────
-
-export type UnifiedRow = UnifiedContentRow | SplitHunkHeaderRow;
-
-export interface UnifiedContentRow {
-  type: 'content';
-  line: DiffLine;
-}
-
-export function buildUnifiedRows(hunks: DiffHunk[]): UnifiedRow[] {
-  const rows: UnifiedRow[] = [];
-  for (const hunk of hunks) {
-    rows.push({ type: 'hunk-header', header: hunk.header });
-    for (const line of hunk.lines) {
-      rows.push({ type: 'content', line });
-    }
-  }
-  return rows;
-}
-
 // ─── Split Row Builder ───────────────────────────────────
 
 export function buildSplitRows(hunks: DiffHunk[]): SplitRow[] {
