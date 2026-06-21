@@ -29,12 +29,15 @@ import { lintClean } from './linters.js';
 import { computeGate, type GateOutcome } from './gate.js';
 import { clearSession, isCancelled, setSession, turnHolderId } from './lock.js';
 import { emit, errMsg, httpError, resolveRunners, type OrchestratorCtx, type ConfirmPayload } from './orchestrator-shared.js';
+import { deriveSlugName, firstFreeSlug } from './slug.js';
 import { sanitizeSlug, saveTask, type Task } from '../state/task.js';
 
 // L2 (spec 019): the runner seams, ctx types, ConfirmPayload, and emit/errMsg/httpError moved to
-// orchestrator-shared.ts (a leaf the extracted scaffold/import modules can import without a cycle).
-// Re-export the public types so routes/tasks.ts + the tests keep importing them from here unchanged.
+// orchestrator-shared.ts (a leaf the extracted scaffold/import modules can import without a cycle); the
+// pure slug helpers moved to slug.ts. Re-export the public surface so routes/tasks.ts + the tests keep
+// importing them from here unchanged.
 export type { OrchestratorCtx, OrchestratorRunners, ConfirmPayload } from './orchestrator-shared.js';
+export { deriveSlugName, firstFreeSlug };
 
 /** Per-turn wall-clock budget (spec §I default 10 min; per-phase config is a later refinement). */
 const TURN_TIMEOUT_MS = 10 * 60 * 1000;
@@ -817,44 +820,3 @@ async function relocateRunArtifacts(
   log.info({ taskId }, 'relocated turn artifacts → apps/builder/.runs/');
 }
 
-/** Deterministic slug/name from the requirement: lowercase, [a-z0-9_], ≤4 content words. */
-export function deriveSlugName(requirement: string): { slug: string; name: string } {
-  const stop = new Set([
-    'a', 'an', 'the', 'that', 'this', 'takes', 'take', 'and', 'returns', 'return', 'of', 'to',
-    'with', 'for', 'in', 'on', 'is', 'are', 'it', 'its',
-  ]);
-  const words = requirement
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  const content = words.filter((w) => !stop.has(w));
-  const picked = (content.length ? content : words).slice(0, 4);
-  const slug = (picked.join('_') || 'workflow').slice(0, 40).replace(/_+$/, '') || 'workflow';
-  const name =
-    slug
-      .split('_')
-      .filter(Boolean)
-      .map((w) => w[0].toUpperCase() + w.slice(1))
-      .join(' ') || 'Workflow';
-  return { slug, name };
-}
-
-/**
- * F4 (spec 010): the first slug in `slug, slug_2, slug_3, …` whose `projects/<slug>/` does NOT exist.
- * Returns `slug` unchanged when it is already free (today's behavior). Synchronous `existsSync` is fine
- * here — this runs once per Spec-gate confirm, single-writer under the turn lock.
- */
-export function firstFreeSlug(projectsDir: string, slug: string): string {
-  const exists = (s: string): boolean => existsSync(join(projectsDir, 'projects', s));
-  if (!exists(slug)) return slug;
-  for (let n = 2; n < 1000; n++) {
-    const suffix = `_${n}`;
-    // Reserve room for the suffix BEFORE the 40-char cap, else a near-40-char slug truncates the
-    // suffix away and collapses back onto the colliding slug (never finding a free candidate).
-    const cand = `${slug.slice(0, 40 - suffix.length).replace(/_+$/, '')}${suffix}`;
-    if (!exists(cand)) return cand;
-  }
-  return `${slug.slice(0, 26)}_${Date.now()}`; // pathological fallback (≤40, never expected); non-colliding
-}
