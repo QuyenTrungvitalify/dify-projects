@@ -30,6 +30,7 @@ import { runReport as realRunReport } from './report.js';
 import { lintClean } from './linters.js';
 import { computeGate, type GateOutcome } from './gate.js';
 import { clearSession, isCancelled, setSession, turnHolderId } from './lock.js';
+import { applyAnalysisToTask } from './analysis.js';
 import { sanitizeSlug, saveTask, type Task } from '../state/task.js';
 
 /**
@@ -590,7 +591,10 @@ async function verifyPhase(
   if (size === 0) reasons.push(`artifact empty: ${rel}`);
   if (phase.id === 'analyze' && size > 0) {
     try {
-      JSON.parse(await readFile(abs, 'utf8'));
+      // O2 (spec 019): also fold the chosen pattern + needed feature-set from analyze.json onto the
+      // task and compute the pattern-coverage advisory (never a hard-fail). Throws on invalid JSON →
+      // the same error path as before.
+      applyAnalysisToTask(task, await readFile(abs, 'utf8'), projectsDir);
     } catch (e) {
       reasons.push(`analyze.json invalid JSON: ${errMsg(e)}`);
     }

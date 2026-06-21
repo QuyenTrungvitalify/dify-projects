@@ -152,9 +152,13 @@ function gateView(t: WireTask): GateView {
       meta, summary, showReportLink: true };
   }
   switch (t.phase) {
-    case 'analyze':
-      return { tone: '', badge: tr('gateAnalyzeBadge'), title: tr('gateAnalyzeTitle'), meta,
-        summary: [tr('gateAnalyzeSummary1'), tr('gateAnalyzeSummary2')] };
+    case 'analyze': {
+      // O2 (spec 019): surface the chosen pattern + any pattern-coverage advisory at the Analyze gate.
+      const lines = [tr('gateAnalyzeSummary1'), tr('gateAnalyzeSummary2')];
+      if (t.patternAdvisory) lines.unshift(t.patternAdvisory);
+      if (t.analysisPattern) lines.unshift(tf('gatePattern', { pattern: t.analysisPattern }));
+      return { tone: '', badge: tr('gateAnalyzeBadge'), title: tr('gateAnalyzeTitle'), meta, summary: lines };
+    }
     case 'spec':
       return { tone: '', badge: tr('gateSpecBadge'), title: tr('gateSpecTitle'), meta,
         summary: [tr('gateSpecSummary1')], showSpecLink: true };

@@ -135,6 +135,9 @@ export async function runReport(
   // F4 (spec 010): a derived-slug collision was auto-suffixed at the Spec gate — record it so an `auto`
   // run (which never showed a gate) still surfaces the rename, and each_step has it in the report too.
   if (task.slugNote) noteParts.push(task.slugNote);
+  // O2 (spec 019): carry the pattern-coverage advisory into the report too (an `auto` run never shows
+  // the Analyze gate where it first appears). Advisory only — it never fails the build.
+  if (task.patternAdvisory) noteParts.push(task.patternAdvisory);
   if (accepted) noteParts.unshift('ACCEPTED with failing linters (human "Accept anyway" override).');
   if (task.deploy === 'none') noteParts.push('deploy=none (no Dify contact).');
   if (task.deploy === 'cloud') noteParts.push(cloudStudioNote(wfRel));
