@@ -64,6 +64,13 @@ export interface WireTask {
   /** F4 (spec 010): set when a new-workflow build's derived slug collided + was auto-suffixed — shown
    *  on the next gate so the user learns it built `<slug>_2` rather than overwriting `<slug>`. */
   slugNote?: string;
+  /** O2 (spec 019): the chosen template pattern + the feature-set Analyze said the build needs, shown
+   *  at the Analyze gate. `patternAdvisory` is set (advisory only) when the pattern lacks a needed
+   *  feature. All optional — absent on a pre-019 snapshot. */
+  analysisPattern?: string;
+  analysisFeatures?: string[];
+  analysisFindQuery?: string;
+  patternAdvisory?: string;
   /** spec 012: repo-relative paths of images attached via the composer (persisted on the task). */
   attachments?: string[];
   /** present on GET /api/tasks/:id (not on SSE task:update). */

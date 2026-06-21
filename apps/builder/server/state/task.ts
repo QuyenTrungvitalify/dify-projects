@@ -87,6 +87,15 @@ export interface Task {
   // new-workflow build's DERIVED slug collided with an existing project and was auto-suffixed (F4), so
   // the user learns it built `<slug>_2` instead of overwriting `<slug>`.
   slugNote?: string;
+  // O2 (spec 019): the chosen template pattern + the feature-set Analyze determined the build needs
+  // (the `find.py --has` vocabulary) + the find.py query it ran, persisted from analyze.json so the
+  // Analyze gate can surface them. ALL optional + back-compat — an old `.runs/<id>/task.json` without
+  // them loads and reconciles unchanged.
+  analysisPattern?: string;
+  analysisFeatures?: string[];
+  analysisFindQuery?: string;
+  // O2 advisory (NOT a hard-fail): set when the chosen pattern lacks a feature the analysis needs.
+  patternAdvisory?: string;
   // Spec 012: repo-relative paths of images attached via the composer (saved under
   // `.runs/<taskId>/uploads/`). The orchestrator injects these paths into the turn prompt so the turn
   // can `Read` them. Appended across turns (create + each reply); lives/dies with the task dir.

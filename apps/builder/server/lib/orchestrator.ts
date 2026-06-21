@@ -30,7 +30,8 @@ import { emit, errMsg, httpError, resolveRunners, type OrchestratorCtx, type Con
 import { deriveSlugName, firstFreeSlug } from './slug.js';
 import { difySeedScaffoldAndPull, localEditSeed, scaffoldAtSpecGate, relocateRunArtifacts } from './scaffold.js';
 import { runImportAndFinish, finishWithoutImport } from './import.js';
-import { saveTask, type Task } from '../state/task.js';
+import { applyAnalysisToTask } from './analysis.js';
+import { sanitizeSlug, saveTask, type Task } from '../state/task.js';
 
 // L2 (spec 019): the runner seams, ctx types, ConfirmPayload, and emit/errMsg/httpError moved to
 // orchestrator-shared.ts (a leaf the extracted scaffold/import modules can import without a cycle); the
@@ -418,7 +419,10 @@ async function verifyPhase(
   if (size === 0) reasons.push(`artifact empty: ${rel}`);
   if (phase.id === 'analyze' && size > 0) {
     try {
-      JSON.parse(await readFile(abs, 'utf8'));
+      // O2 (spec 019): also fold the chosen pattern + needed feature-set from analyze.json onto the
+      // task and compute the pattern-coverage advisory (never a hard-fail). Throws on invalid JSON →
+      // the same error path as before.
+      applyAnalysisToTask(task, await readFile(abs, 'utf8'), projectsDir);
     } catch (e) {
       reasons.push(`analyze.json invalid JSON: ${errMsg(e)}`);
     }
