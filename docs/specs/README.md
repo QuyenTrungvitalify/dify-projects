@@ -22,9 +22,20 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 | [006](006-implementation-plan.md) | Master phased implementation plan | Approved* | — (meta) |
 | [007](007-capability-docs-and-patterns.md) | Capability docs: pitfall log + plugin behavior matrix | Approved | S |
 | [008](008-meta-workflow-builder.md) | Meta Workflow Builder (Dify-builds-Dify auto-generator) | Draft | M |
-| [009](009-browser-workflow-builder.md) | Dify Workflow Builder App (conversational, phased, human-gated) | Draft | L |
+| [009](009-browser-workflow-builder.md) | Dify Workflow Builder App (conversational, phased, human-gated) | Done† | L |
+| [010](010-builder-ux-hardening.md) | Builder UX hardening (post-009 QA): cancellable builds, live confirm-mode, slug-collision guard | Done† | S |
+| [011](011-builder-test-coverage-and-remediation.md) | Builder test coverage + review remediation (automated tests, CI compile, fix backlog) | Approved | M |
+| [012](012-builder-image-attachments.md) | Builder image attachments (drag/paste/picker → path-injection into the turn) | Approved | S |
+| [013](013-builder-linter-contract-and-test-seams.md) | Builder linter-contract unification + orchestrator test seams (keystone for 014–017) | Implemented | L |
+| [014](014-builder-terminal-correctness-and-state-integrity.md) | Builder ④-terminal correctness + state & deploy-gate integrity (deploy-needs-confirm, no silent done-but-broken, idempotent import) | Implemented | M |
+| [015](015-builder-security-turn-sandbox.md) | Builder security & turn-permission hardening (lightweight PreToolUse hook ported from nexus — closes the python-bypass/token/confinement chain; no server/queue) | Implemented | M |
+| [016](016-builder-gate-ux-hardening.md) | Builder gate & 4-phase UX hardening (the always-reached deploy gate card, R7 crash-guard, Copy-YAML, safe/distinct affordances; frontend-only) | Implemented | S |
+| [017](017-builder-prompt-linter-and-perf.md) | Builder skill-prompt + linter hardening & 4-phase performance (if-else cases check, plugin-TODO note, custom path, prose; parallel linters, memoized streaming) | Implemented | M |
+| [018](018-builder-turn-write-allowlist.md) | Turn write-confinement allowlist (015 follow-up — a turn can no longer overwrite its own hook/orchestrator/settings to neuter the gate) | Implemented | S |
 
 \* Spec 001 + 006 have 2 minor Q awaiting confirm; can proceed with defaults.
+
+† Spec 009/010 merged (builder Lát 0–6). Residual items tracked in [011](011-builder-test-coverage-and-remediation.md): 009 live-run verification of AC #15/#25 (R10), 010 F2-Part-B deferred.
 
 ## How to use
 

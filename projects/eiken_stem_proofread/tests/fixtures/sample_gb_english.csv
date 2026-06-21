@@ -1,0 +1,21 @@
+#,Item ID,Grade,Category 1,Target,Stem,Answer Choice 1,Answer Choice 2,Answer Choice 3,Answer Choice 4,Correct Answer Number
+1,GB-001,2,Vocabulary,GB: mum + colour,My mum (          ) the colour of the new car.,likes,like,liked,liking,1
+2,GB-002,2,Vocabulary,GB: neighbourhood,The neighbourhood is (          ) quiet today.,very,much,many,more,1
+3,GB-003,2,Vocabulary,GB: maths,He (          ) maths in school.,studies,study,studied,studying,1
+4,GB-004,2,Vocabulary,GB: pub culture,We had (          ) fish and chips at the pub.,a,an,some,the,3
+5,GB-005,2,Vocabulary,GB: lift (US: elevator),The lift is (          ) the corner.,in,on,at,by,4
+6,GB-006,2,Vocabulary,GB: luggage,She bought new (          ) for the trip.,luggage,luggages,baggage,baggages,1
+7,GB-007,2,Vocabulary,GB: cinema (US: movie theater),He (          ) to the cinema with his friends.,goes,go,went,going,1
+8,GB-008,2,Vocabulary,GB: biscuits (US: cookies),The biscuits are (          ) the table.,in,on,at,under,2
+9,GB-009,2,Vocabulary,GB: favourite + colour,My favourite colour is (          ).,blue,blueish,blueing,blued,1
+10,GB-010,2,Vocabulary,GB: travelled + kilometres,He travelled (          ) kilometres yesterday.,100,100s,hundred,100th,1
+11,GB-011,2,Vocabulary,GB: counsellor,The counsellor (          ) advice to students.,gives,give,gave,given,1
+12,GB-012,2,Vocabulary,GB: labelled,She labelled the (          ) carefully.,box,boxes,boxed,boxing,1
+13,GB-013,2,Vocabulary,GB: cancelled,They (          ) the appointment yesterday.,cancelled,cancel,canceling,canceled,1
+14,GB-014,2,Vocabulary,GB: mum,The mum took her child to (          ) school.,a,the,—,some,2
+15,GB-015,2,Vocabulary,GB: apologised,He apologised for (          ) the meeting.,miss,missing,missed,to miss,2
+16,GB-016,2,Vocabulary,[TEST] GB grammar: 'mum have',My mum have (          ) colour pencils.,many,much,any,some,1
+17,GB-017,2,Vocabulary,[TEST] GB grammar: 'neighbourhood are',The neighbourhood are (          ) quiet.,very,more,much,many,1
+18,GB-018,2,Vocabulary,[TEST] GB grammar: 'dont' + 'the colour',He dont like (          ) colour blue.,a,an,the,some,3
+19,GB-019,2,Vocabulary,[TEST] GB grammar: 'didnt cancelled',She didnt cancelled (          ) appointment.,a,an,the,her,4
+20,GB-020,2,Vocabulary,[TEST] GB grammar: 'teacher are',The maths teacher are (          ) today.,sick,sicker,sickly,sicken,1

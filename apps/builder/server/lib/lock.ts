@@ -97,6 +97,31 @@ export function isCancelled(taskId: string): boolean {
   return cancelledTasks.has(taskId);
 }
 
+/** Clear the cancelled flag so a /restore'd build can run a turn again (without this, the orchestrator's
+ *  post-await `isCancelled` checks would bail the resumed turn). In-memory only — a restart already
+ *  clears the Set, so this only matters for a same-process restore. */
+export function unmarkCancelled(taskId: string): void {
+  cancelledTasks.delete(taskId);
+}
+
+/**
+ * Evict a build's cancelled flag once it has reached a TERMINAL status and its dispatched work has fully
+ * settled — bounding `cancelledTasks` so it can't grow without limit over a long-lived server (spec 014
+ * D7). Call this ONLY on terminal settle (done/error/cancelled), NEVER on a plain turn-lock release: the
+ * flag MUST outlive the release so the orchestrator's post-await `isCancelled` checks (which run after
+ * the turn await unwinds, before the dispatched chain finishes) still see it. By the time a chain is
+ * terminal-settled, no further check needs it, and a later /restore re-acquire would clear it anyway.
+ * Same body as {@link unmarkCancelled}; named distinctly so the call sites document their intent.
+ */
+export function evictCancelled(taskId: string): void {
+  cancelledTasks.delete(taskId);
+}
+
+/** Count of tracked cancelled flags — for the bounded-Set test (spec 014 D7). */
+export function cancelledCount(): number {
+  return cancelledTasks.size;
+}
+
 /**
  * Boot reconcile (called ONCE from index.ts at startup, AC #19 + #24). `turnHolder` is in-memory only,
  * so it starts null — NOTHING is held across a restart. Scan `.runs/<taskId>/task.json`:

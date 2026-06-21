@@ -1,0 +1,29 @@
+# Spec 020 O1 fixture — a FORWARD reference. Node '200' references {{#300.text#}}, but '300' runs
+# AFTER '200' (edge 200→300). All node ids + fields are VALID, so the default lint_refs check passes
+# (exit 0); only the warn-only --check-reachability pass flags the forward ref. Node '400' shows a
+# VALID backref ({{#200.text#}}, where 200 IS upstream) — it must NOT be flagged.
+app:
+  name: reach-forward-ref
+workflow:
+  graph:
+    nodes:
+      - id: '100'
+        data:
+          type: start
+          variables: []
+      - id: '200'
+        data:
+          type: llm
+          prompt: "summarize {{#300.text#}}"
+      - id: '300'
+        data:
+          type: llm
+          prompt: "hello"
+      - id: '400'
+        data:
+          type: llm
+          prompt: "valid backref {{#200.text#}}"
+    edges:
+      - {source: '100', target: '200'}
+      - {source: '200', target: '300'}
+      - {source: '300', target: '400'}

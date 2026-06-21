@@ -1,0 +1,25 @@
+# Spec 020 Mục 4 — a loop coexists with a MAIN-DAG forward ref: 'mid' references {{#after.text#}} but
+# 'after' runs later (mid → loop1 → after). The forward ref MUST be caught; the loop body must add no
+# noise. Expect exactly 1 finding: {{#after.text#}} in 'mid'.
+app:
+  name: reach-loop-forward
+workflow:
+  graph:
+    nodes:
+      - id: 'start1'
+        data: {type: start, variables: []}
+      - id: 'mid'
+        data: {type: llm, prompt: "FORWARD {{#after.text#}}"}
+      - id: 'loop1'
+        data: {type: loop, outputs: {result: {}}}
+      - id: 'loop1start'
+        data: {type: loop-start}
+      - id: 'L1'
+        data: {type: llm, isInLoop: true, loop_id: 'loop1', prompt: "x"}
+      - id: 'after'
+        data: {type: llm, prompt: "runs last"}
+    edges:
+      - {source: 'start1', target: 'mid'}
+      - {source: 'mid', target: 'loop1'}
+      - {source: 'loop1start', target: 'L1'}
+      - {source: 'loop1', target: 'after'}

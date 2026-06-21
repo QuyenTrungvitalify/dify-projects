@@ -11,7 +11,7 @@ Usage:
 
 Exit codes:
     0 — clean
-    1 — at least one broken reference
+    1 — at least one broken reference (unknown node/field, or — spec 020 — a forward/unreachable ref)
     2 — usage error / YAML parse error / file not found
 """
 from __future__ import annotations
@@ -164,6 +164,163 @@ def walk_value_selectors(obj, path: tuple = ()):
             yield from walk_value_selectors(item, path + (f"[{i}]",))
 
 
+# ── O1 (spec 020): graph-reachability check (warn-only) ──────────────────────────────────────────
+# Beyond "node id exists" + "field is a declared output", a `{{#S.field#}}` ref is only valid if the
+# source node S is UPSTREAM-reachable to its consumer C (S runs before C; no forward/dangling ref) —
+# AGENTS.md §4.2's "#1 cause of silent import success + runtime failure". This pass verifies that over
+# the `graph.edges[]` DAG, with the Dify-shape carve-outs the corpus actually needs (see exclusions).
+CONTAINER_START_TYPES = {"iteration-start", "loop-start"}
+# Escape-hatch marker: a FULL-LINE comment `# lint-refs: allow-reach <id>.<field>[, <id>.<field>...]`
+# suppresses a specific reachability finding (the rare legitimate graph shape the BFS can't model).
+# Anchored to line-start (`^\s*#`, MULTILINE) so a `#` inside a quoted string/prompt can't forge a marker.
+REACH_ALLOW_RE = re.compile(r"^[^\S\n]*#\s*lint-refs:\s*allow-reach\s+([^\n#]+)", re.MULTILINE)
+# Sentinel in the no-root advisory message: it is informational ("couldn't check"), never a gate error.
+REACH_ADVISORY = "reachability NOT checked"
+
+
+def _iter_refs(obj):
+    """Yield (source_id, field) for every `{{#id.field#}}` in any string AND every
+    `value_selector: [id, field]` array found anywhere under `obj`."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == "value_selector" and isinstance(v, list) and len(v) >= 2:
+                yield str(v[0]), str(v[1])
+            else:
+                yield from _iter_refs(v)
+    elif isinstance(obj, list):
+        for item in obj:
+            yield from _iter_refs(item)
+    elif isinstance(obj, str):
+        for m in REF_PATTERN.finditer(obj):
+            yield m.group(1), m.group(2)
+
+
+def _bfs(adj: dict[str, list[str]], seeds: list[str]) -> set[str]:
+    """Forward closure: every node reachable from `seeds` over `adj`."""
+    seen: set[str] = set(seeds)
+    stack = list(seeds)
+    while stack:
+        cur = stack.pop()
+        for nxt in adj.get(cur, []):
+            if nxt not in seen:
+                seen.add(nxt)
+                stack.append(nxt)
+    return seen
+
+
+def _parse_reach_allowlist(text: str) -> set[tuple[str, str]]:
+    """Escape hatch (spec 020): collect `(source_id, field)` pairs the file marks as intentionally
+    allowed via `# lint-refs: allow-reach <id>.<field>[, <id>.<field> ...]` comments. `field` is the
+    first segment after the id (matching REF_PATTERN's captured field)."""
+    allow: set[tuple[str, str]] = set()
+    for m in REACH_ALLOW_RE.finditer(text):
+        for tok in re.split(r"[,\s]+", m.group(1).strip()):
+            sid, _, rest = tok.partition(".")
+            field = rest.split(".")[0]
+            if sid and field:
+                allow.add((sid, field))
+    return allow
+
+
+def check_reachability(data: dict, yaml_path: Path, allow: set[tuple[str, str]] | None = None) -> list[str]:
+    """O1 (spec 020) — WARN-ONLY advisory: every `{{#S.field#}}` / value_selector source must be an
+    upstream ancestor of its consumer node. Never raises; returns human findings.
+
+    Exclusions (see spec 020):
+      E1  sys/env/conversation selectors    — not node outputs, no ordering applies
+      E2  source is an iteration/loop-start  — synthetic container entry, refs to it are fine
+      E3  consumer is inside a container     — its refs resolve in the container scope, not the main DAG
+
+    KNOWN LIMITATION (spec 020 Mục 3, deferred): because E3 skips *every* container-body consumer, a
+    forward ref BETWEEN two nodes inside the same iteration/loop body is NOT caught. Catching those needs
+    per-container sub-graph reachability — a v2 follow-up.
+
+    `variable-aggregator`/`answer` use the same strict ancestor rule as everything else: the measurement
+    (docs/specs/020-fp-report.md) showed the earlier weaker "reachable-from-any-start" rule prevented 0
+    false positives on the corpus while hiding real forward refs, so it was dropped. The escape hatch
+    (`allow`) covers any rare legitimate cross-branch shape the strict rule would over-flag.
+    """
+    allow = allow or set()
+    graph = ((data.get("workflow") or {}).get("graph") or {}) if isinstance(data.get("workflow"), dict) else {}
+    nodes = graph.get("nodes") or []
+    edges = graph.get("edges") or []
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        return []
+
+    node_type: dict[str, str | None] = {}
+    in_container: dict[str, bool] = {}
+    for n in nodes:
+        if not isinstance(n, dict):
+            continue
+        nid = n.get("id")
+        if not nid:
+            continue
+        d = n.get("data") or {}
+        node_type[str(nid)] = d.get("type")
+        in_container[str(nid)] = bool(d.get("isInIteration") or d.get("isInLoop"))
+
+    adj: dict[str, list[str]] = {}
+    radj: dict[str, list[str]] = {}
+    for e in edges:
+        if not isinstance(e, dict):
+            continue
+        s, t = e.get("source"), e.get("target")
+        if s is None or t is None:
+            continue
+        adj.setdefault(str(s), []).append(str(t))
+        radj.setdefault(str(t), []).append(str(s))
+
+    def _qualifying_refs(node: dict):
+        """node-to-node refs in `node.data` that the reachability rule actually judges (after E1/E2)."""
+        for sid, field in _iter_refs(node.get("data") or {}):
+            if sid in SPECIAL_NS:                            # E1
+                continue
+            if sid not in node_type:                         # not-found is the existing check's job
+                continue
+            if node_type.get(sid) in CONTAINER_START_TYPES:  # E2
+                continue
+            yield sid, field
+
+    # Roots = start nodes + container entries (iteration/loop bodies begin at their *-start). Without an
+    # anchor we cannot judge reachability — but DON'T silently skip (spec 020 Mục 5): if the file still
+    # carries node-to-node refs, surface an advisory so a mislabeled entry node isn't a blind spot.
+    roots = [nid for nid, ty in node_type.items() if ty == "start" or ty in CONTAINER_START_TYPES]
+    if not roots:
+        for n in nodes:
+            if not isinstance(n, dict) or not n.get("id"):
+                continue
+            for sid, field in _qualifying_refs(n):
+                return [
+                    f"{yaml_path}: no start/container-start node — {REACH_ADVISORY} "
+                    f"(found node-to-node ref {{{{#{sid}.{field}#}}}}; add a start node or verify the graph)"
+                ]
+        return []
+
+    findings: list[str] = []
+    for n in nodes:
+        if not isinstance(n, dict):
+            continue
+        cid = n.get("id")
+        if not cid:
+            continue
+        cid = str(cid)
+        if in_container.get(cid):  # E3
+            continue
+        ctype = node_type.get(cid)
+        ancestors = _bfs(radj, [cid]) - {cid}
+        for sid, field in _qualifying_refs(n):
+            if sid == cid:                  # defensive: self-ref
+                continue
+            if (sid, field) in allow:       # escape hatch
+                continue
+            if sid not in ancestors:        # strict: S must run before C
+                findings.append(
+                    f"{yaml_path}: {{{{#{sid}.{field}#}}}} in node '{cid}'"
+                    f"{f' ({ctype})' if ctype else ''} → source not upstream-reachable"
+                )
+    return findings
+
+
 def lint_file(yaml_path: Path) -> tuple[int, list[str], list[str]]:
     """Lint one file. Return (exit_code, errors, warnings)."""
     try:
@@ -225,12 +382,41 @@ def lint_file(yaml_path: Path) -> tuple[int, list[str], list[str]]:
                 f"{yaml_path}: {sel_str} → field '{field}' not in outputs of node '{node_id}' (known: {known})"
             )
 
+    # 3. O1 (spec 020 phase 3): graph-reachability — forward/dangling refs over the edge DAG now GATE by
+    # default (same exit code as a broken ref; the message distinguishes them — spec 020 Q4). The no-root
+    # advisory ("couldn't check") is NOT a hard failure here — it's surfaced only by the explicit
+    # `--check-reachability` mode, so an un-anchorable file is never gated on something we couldn't verify.
+    for finding in check_reachability(data, yaml_path, _parse_reach_allowlist(text)):
+        if REACH_ADVISORY not in finding:
+            errors.append(finding)
+
     return (1 if errors else 0), errors, warnings
 
 
 def main(argv: list[str]) -> int:
+    # O1 (spec 020) phase 3 (PROMOTED): the default invocation now GATES on graph-reachability — a
+    # forward/dangling ref contributes to exit code 1, flowing through `lintClean` + pre-commit. The
+    # `--check-reachability` flag remains a reachability-ONLY, non-gating view (prints, exits 0) for
+    # isolated/debug runs and for surfacing the no-root advisory.
+    if "--check-reachability" in argv:
+        for arg in (a for a in argv if a != "--check-reachability"):
+            path = Path(arg)
+            if not path.exists():
+                print(f"{path}: file not found", file=sys.stderr)
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+                data = yaml.safe_load(text)
+            except (OSError, yaml.YAMLError) as exc:
+                print(f"warning: {path}: cannot parse — {exc}", file=sys.stderr)
+                continue
+            if isinstance(data, dict):
+                for finding in check_reachability(data, path, _parse_reach_allowlist(text)):
+                    print(f"reachability: {finding}")
+        return 0  # WARN-ONLY: never gate
+
     if not argv:
-        print("usage: lint_refs.py <file.yml> [<file.yml> ...]", file=sys.stderr)
+        print("usage: lint_refs.py [--check-reachability] <file.yml> [<file.yml> ...]", file=sys.stderr)
         return 2
 
     overall = 0

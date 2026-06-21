@@ -25,9 +25,23 @@
       "Write(.claude/**)",
       "Edit(.claude/**)",
       "Read(projects/*/envs/*.env)",
+      "Read(apps/builder/.env)",
       "Bash(sudo:*)",
       "Bash(rm -rf /)",
       "Bash(rm -rf ~)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node --disable-warning=ExperimentalWarning apps/builder/server/hooks/permission-gate.ts"
+          }
+        ]
+      }
     ]
   }
 }

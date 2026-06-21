@@ -57,6 +57,15 @@ export interface WireTask {
   artifacts: Record<string, string | undefined>;
   gate?: WireGate;
   error?: string;
+  /** Monotonic snapshot revision (server `emit`); the store drops any snapshot whose `rev` is strictly
+   *  older than the last applied for this task, so a late reconnect GET can't revert a newer live
+   *  update (spec 014 D5 / 011 R8). Absent on a pre-014 snapshot ⇒ 0. */
+  rev?: number;
+  /** F4 (spec 010): set when a new-workflow build's derived slug collided + was auto-suffixed — shown
+   *  on the next gate so the user learns it built `<slug>_2` rather than overwriting `<slug>`. */
+  slugNote?: string;
+  /** spec 012: repo-relative paths of images attached via the composer (persisted on the task). */
+  attachments?: string[];
   /** present on GET /api/tasks/:id (not on SSE task:update). */
   artifactContents?: WireArtifacts;
 }

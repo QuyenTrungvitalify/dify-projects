@@ -67,12 +67,13 @@ dify-projects/
 │
 ├── templates/                 # Project starter + workflow patterns
 │   ├── _base/project/         # Scaffolded by init_project.py
-│   └── patterns/              # 5 reusable workflow skeletons
+│   └── patterns/              # 6 reusable workflow skeletons
 │       ├── file-to-llm.yml      # File upload → 1 LLM call → output (simplest)
 │       ├── file-iteration.yml   # File upload → split → iterate → aggregate
 │       ├── multi-step-llm.yml   # 3 chained LLM calls (refine pattern)
 │       ├── rag-qa.yml           # Knowledge retrieval + LLM
-│       └── agent-with-tools.yml # Agent node with pluggable tools
+│       ├── agent-with-tools.yml # Agent node with pluggable tools
+│       └── meta-workflow-builder.yml # NL requirement → generate + auto-import a Dify workflow
 │
 ├── examples/                  # Fully-worked projects (importable as-is)
 │   └── md_en2ja/              # Markdown EN→JA translator w/ code-block masking
@@ -159,6 +160,7 @@ Tạo `projects/<slug>/` với cấu trúc chuẩn (workflows/, prompts/, inputs
 | `multi-step-llm.yml` | Chain 3 LLM calls (generate → critique → refine) | 5 | llm × 3 |
 | `rag-qa.yml` | Q&A grounded in knowledge base | 4 | knowledge-retrieval, llm |
 | `agent-with-tools.yml` | ReAct agent with pluggable tools | 3 | agent |
+| `meta-workflow-builder.yml` | NL requirement → generate + auto-import a new Dify workflow (meta) | 11 | llm, http-request (Dify console API) |
 
 Mỗi pattern có comment `# TODO:` đánh dấu chỗ cần customize (model, prompt, plugin hash, dataset IDs, ...).
 

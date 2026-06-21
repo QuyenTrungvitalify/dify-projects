@@ -1,6 +1,6 @@
 # Spec 009 — Dify Workflow Builder App (conversational, phased, human-gated)
 
-**Status**: Draft (2026-06-08, iterated — now a **dedicated app**, not a nexus
+**Status**: Done — merged (builder Lát 0–6); residual R10 live-run verification tracked in spec 011. (2026-06-08, iterated — now a **dedicated app**, not a nexus
 config and not a one-shot wrapper; **revised 2026-06-09** after a grounded
 technical review — contract fixes (`main.yml` filename, `project.group` key,
 mandatory headless `--yes`, `generate_id.py` in the allowlist), plus new

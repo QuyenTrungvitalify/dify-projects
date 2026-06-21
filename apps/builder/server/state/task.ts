@@ -78,6 +78,19 @@ export interface Task {
   // the live gate (set at awaiting_confirm; cleared/ignored in terminal states).
   gate?: Gate;
   error?: string;
+  // Monotonic snapshot revision, bumped on every persisted UI-visible transition (orchestrator `emit`).
+  // The web store drops any snapshot whose `rev` is strictly older than the last applied for this task,
+  // so a late reconnect/init GET can never clobber a newer live `task:update` (spec 014 D5 / 011 R8).
+  // Absent on a pre-014 task.json ⇒ treated as 0 (trivial migration: the next `emit` bumps it to 1).
+  rev?: number;
+  // F1/010: a one-line informational note surfaced on the next gate + in the report. Set when a
+  // new-workflow build's DERIVED slug collided with an existing project and was auto-suffixed (F4), so
+  // the user learns it built `<slug>_2` instead of overwriting `<slug>`.
+  slugNote?: string;
+  // Spec 012: repo-relative paths of images attached via the composer (saved under
+  // `.runs/<taskId>/uploads/`). The orchestrator injects these paths into the turn prompt so the turn
+  // can `Read` them. Appended across turns (create + each reply); lives/dies with the task dir.
+  attachments?: string[];
 }
 
 export interface CreateTaskInput {
@@ -118,6 +131,33 @@ export function normalizeDeploy(raw: unknown): Deploy {
   if (s === 'selfhost' || s === 'self-host' || s === 'self host') return 'selfhost';
   if (s === 'cloud') return 'cloud';
   return 'none';
+}
+
+/** The phase ordering of a build: analyze → spec → implement → test. */
+export const PHASE_ORDER: Phase[] = ['analyze', 'spec', 'implement', 'test'];
+
+/**
+ * The phase a cancelled build rewinds to on /restore: the PREVIOUS boundary. A phase only ever starts
+ * after the previous phase's gate was confirmed, so the previous phase definitely completed and was
+ * gated — re-parking there (`awaiting_confirm`) is always a valid state, and its artifacts are on disk
+ * (the spec was already moved to `projects/<slug>/` by the spec-gate scaffold). `analyze` is the first
+ * phase and has no prior gate → null (the caller reopens it as a retryable `error` instead).
+ */
+export function restoreTargetPhase(phase: Phase): Phase | null {
+  const i = PHASE_ORDER.indexOf(phase);
+  return i > 0 ? PHASE_ORDER[i - 1] : null;
+}
+
+/**
+ * Spec 015 D5 (S4) — a `workflowFile` MUST be a plain basename ending in `.yml`/`.yaml`: no path
+ * separators, no `..` traversal. `workflowFile` flows into `sync.py push --file workflows/<file>` at ④
+ * (backend, OUTSIDE the turn — the hook can't gate it), so an un-sanitized `../../x/main.yml` would
+ * escape `projects/<slug>/`. The basename charset `[A-Za-z0-9._-]` admits every real workflow name
+ * (`main.yml`, `chatflow.yml`, an `app-name-slug.yml` pulled from Dify) while the explicit `..` reject
+ * forecloses traversal even within the charset (Q5: no legitimate `*.yml` selection is rejected).
+ */
+export function isValidWorkflowFile(name: string): boolean {
+  return /^[A-Za-z0-9._-]+\.ya?ml$/.test(name) && !name.includes('..');
 }
 
 /** Sanitize a user-supplied slug to snake_case `[a-z0-9_]` (Task 5 / arg-validation, spec §J). */
@@ -184,6 +224,18 @@ export async function createTask(projectsDir: string, input: CreateTaskInput): P
 export async function loadTask(projectsDir: string, taskId: string): Promise<Task> {
   const raw = await readFile(taskFile(projectsDir, taskId), 'utf8');
   return JSON.parse(raw) as Task;
+}
+
+/**
+ * Bump the monotonic snapshot revision (spec 014 D5 / 011 R8). The orchestrator's `emit` bumps `rev`
+ * for turn transitions, but the routes that broadcast a `task:update` DIRECTLY (cancel / restore /
+ * failSafe / PATCH confirm_mode) bypass `emit` — call this before their `saveTask`+`broadcast` so the
+ * relayed snapshot STRICTLY increases `rev`. Otherwise an in-flight same-rev enrichment GET (issued
+ * when the prior gate was applied) can resolve afterwards and, because the web store applies on
+ * `rev >= last`, RESURRECT the just-replaced gate over the cancelled/error state.
+ */
+export function bumpRev(task: Task): void {
+  task.rev = (task.rev ?? 0) + 1;
 }
 
 /** Atomic write: temp file then `rename` (so a crash never leaves a half-written task.json). */

@@ -13,7 +13,7 @@
  * "push may have completed — check Dify".
  */
 import { existsSync } from 'node:fs';
-import { readFile, readdir, unlink, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, readdir, rename, unlink, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { reconcileAppIdByName, appUrlFrom, difyCreds } from './dify-io.js';
 import { runsRoot, saveTask, type Task } from '../state/task.js';
@@ -33,14 +33,20 @@ export interface PushIntent {
 const markerPath = (projectsDir: string, taskId: string): string =>
   join(runsRoot(projectsDir), taskId, 'push_intent.json');
 
-/** Write/overwrite the push_intent marker (atomic-ish: the dir already exists for a live task). */
+/** Write/overwrite the push_intent marker ATOMICALLY (temp + rename). A crash mid-write must never
+ *  leave a torn marker that readPushIntent parses to `null` → fresh-import branch → re-push → a
+ *  DUPLICATE Dify app (spec 014 D3 / C3). rename() is atomic on POSIX: a concurrent/next reader sees
+ *  either the previous marker or the complete new one, never a half-written file. */
 export async function writePushIntent(
   projectsDir: string,
   taskId: string,
   intent: PushIntent
 ): Promise<void> {
   await mkdir(join(runsRoot(projectsDir), taskId), { recursive: true });
-  await writeFile(markerPath(projectsDir, taskId), JSON.stringify(intent, null, 2));
+  const target = markerPath(projectsDir, taskId);
+  const tmp = `${target}.tmp`;
+  await writeFile(tmp, JSON.stringify(intent, null, 2));
+  await rename(tmp, target);
 }
 
 /** Read the push_intent marker, or null if none exists / it is unreadable. */
@@ -72,7 +78,12 @@ export async function clearPushIntent(projectsDir: string, taskId: string): Prom
  * slugified name; if found, write it back into the marker + the task (so the app is visible), else
  * annotate the task "push may have completed — check Dify". Never re-pushes.
  */
-export async function reconcilePushIntents(projectsDir: string, log: SessionLogger): Promise<void> {
+export async function reconcilePushIntents(
+  projectsDir: string,
+  log: SessionLogger,
+  // Injectable for tests (014 D6): defaults to the real name-reconcile (shells `sync.py list`).
+  reconcile: typeof reconcileAppIdByName = reconcileAppIdByName
+): Promise<void> {
   const root = runsRoot(projectsDir);
   if (!existsSync(root)) return;
   let entries: string[];
@@ -94,15 +105,19 @@ export async function reconcilePushIntents(projectsDir: string, log: SessionLogg
       continue;
     }
 
-    const recovered = await reconcileAppIdByName(projectsDir, intent.appName);
+    const rec = await reconcile(projectsDir, intent.appName);
     const { url } = difyCreds();
-    if (recovered) {
-      intent.appId = recovered;
+    if (rec.appId) {
+      intent.appId = rec.appId;
       await writePushIntent(projectsDir, taskId, intent);
-      task.appId = recovered;
-      task.appUrl = url ? appUrlFrom(url, recovered) : null;
-      task.error = `recovered after a mid-import restart: app was imported (id ${recovered}). ${task.error ?? ''}`.trim();
-      log.warn({ taskId, appId: recovered }, 'boot: recovered push_intent app id');
+      task.appId = rec.appId;
+      task.appUrl = url ? appUrlFrom(url, rec.appId) : null;
+      task.error = `recovered after a mid-import restart: app was imported (id ${rec.appId}). ${task.error ?? ''}`.trim();
+      log.warn({ taskId, appId: rec.appId }, 'boot: recovered push_intent app id');
+    } else if (rec.ambiguous) {
+      // ≥2 same-named apps — we can't tell which is this build's, so we attach NONE (D6 / C6).
+      task.error = `ambiguous import — multiple Dify apps named like "${intent.appName}"; none attached. Verify in Dify. ${task.error ?? ''}`.trim();
+      log.warn({ taskId }, 'boot: push_intent ambiguous — surfaced "verify in Dify"');
     } else {
       task.error = `push may have completed — check Dify (interrupted mid-import). ${task.error ?? ''}`.trim();
       log.warn({ taskId }, 'boot: push_intent unresolved — surfaced "check Dify"');

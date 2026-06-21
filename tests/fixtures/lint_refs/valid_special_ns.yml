@@ -28,7 +28,13 @@ workflow:
     suggested_questions_after_answer: { enabled: false }
     text_to_speech: { enabled: false, language: '', voice: '' }
   graph:
-    edges: []
+    edges:
+    - source: '1700000000001'
+      target: '1700000000002'
+    - source: '1700000000002'
+      target: '1700000000003'
+    - source: '1700000000003'
+      target: '1700000000004'
     nodes:
     - id: '1700000000001'
       type: custom

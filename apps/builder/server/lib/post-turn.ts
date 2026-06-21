@@ -8,6 +8,14 @@
  *                     outside the whitelist is REVERTED (not just flagged — findings E2d / plan
  *                     Cross-cutting #3b), then status:error.
  *
+ * Spec 015 D2 — this confinement scan is now a BACKSTOP, not the primary defense. The PreToolUse
+ * permission hook (apps/builder/server/hooks/permission-gate.ts) DENIES a bad write BEFORE it happens
+ * (protected roots: .venv/, apps/builder/.env, .claude/, tools/, skills/, sibling .runs/<other>/), so
+ * the chain is closed pre-execution rather than reverted-if-seen. This git-porcelain pass still runs to
+ * catch anything the hook abstained on (e.g. a tracked-file modification outside the whitelist). Note it
+ * remains blind to `.gitignore`'d in-dir writes (a `.venv/bin/*` write shows only as a collapsed `!! .venv/`
+ * even under `--ignored`), which is EXACTLY why the hook — not this scan — is the load-bearing fix for S1.
+ *
  * Baseline-delta (vs. an absolute git-status check): this repo carries pre-existing uncommitted
  * work (other projects/, docs, .claude, …). We only ever evaluate/revert paths the *turn* newly
  * dirtied — paths already dirty at request start are never touched. The acceptance's
@@ -16,6 +24,7 @@
 import { join } from 'node:path';
 import { stat } from 'node:fs/promises';
 import { runPython, runGit } from './shell.js';
+import { LINTERS, LINT_DETAIL_LINES, type LintCodes } from './linters.js';
 import type { SessionLogger } from './claude-session.js';
 
 export interface PostTurnParams {
@@ -36,7 +45,7 @@ export interface PostTurnDetail {
   /** `yaml.safe_load` succeeded (false = truncated/corrupt → hard error, not a lint failure). */
   yamlOk: boolean;
   /** the 3 linter exit codes (null when the artifact was missing/empty so they never ran). */
-  lintCodes: { validate: number; lint_refs: number; lint_plugin_hashes: number } | null;
+  lintCodes: LintCodes | null;
   /** every node id matched `^\d{13}$`. */
   idsOk: boolean;
   /** reverted out-of-confinement paths (non-empty = a security breach → always hard error). */
@@ -112,22 +121,22 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
   // 2: the 3 linters, each must exit 0. Do NOT branch on a shared exit code — semantics differ
   //    per tool (findings/plan); each non-zero is its own reason. Capture each exit code so Lát 3
   //    can tell a "clean" Implement (all 0) from a "still-failing" one (lint≠0) — §D variants.
-  let lintCodes: PostTurnDetail['lintCodes'] = null;
+  let lintCodes: LintCodes | null = null;
   if (size > 0) {
-    const linters: Array<{ name: string; key: keyof NonNullable<PostTurnDetail['lintCodes']>; args: string[] }> = [
-      { name: 'validate_workflow.py', key: 'validate', args: ['skills/mango-svip/scripts/validate_workflow.py', rel] },
-      { name: 'lint_refs.py', key: 'lint_refs', args: ['tools/dify_base/lint_refs.py', rel] },
-      { name: 'lint_plugin_hashes.py', key: 'lint_plugin_hashes', args: ['tools/dify_base/lint_plugin_hashes.py', rel] },
-    ];
     lintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 };
-    for (const lint of linters) {
-      const r = await runPython(p.projectsDir, lint.args);
-      lintCodes[lint.key] = r.code;
+    // D5 (spec 017): run the 3 linters CONCURRENTLY — independent read-only python spawns (NOT gated
+    // by the 015 turn hook), so ~3 cold spawns collapse to ~1 spawn's wall-clock. Behavior-equivalent:
+    // fold the results in LINTERS order afterwards, so the keyed codes AND the reason ORDER are
+    // byte-identical to the former sequential loop (pinned by linters.test.ts; AC #20 unbroken).
+    const results = await Promise.all(LINTERS.map((lint) => runPython(p.projectsDir, [lint.script, rel])));
+    LINTERS.forEach((lint, i) => {
+      const r = results[i];
+      lintCodes![lint.key] = r.code;
       if (r.code !== 0) {
-        const detail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-6).join(' ⏎ ');
+        const detail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-LINT_DETAIL_LINES).join(' ⏎ ');
         reasons.push(`${lint.name} exit ${r.code}: ${detail}`);
       }
-    }
+    });
   }
 
   // 3: 13-digit node-id regex (validators miss hand-written string IDs — AGENTS.md §4.1).
@@ -201,7 +210,7 @@ export async function gitDirtyPaths(projectsDir: string): Promise<Set<string>> {
  *   "XY <path>"  |  "R  <orig> -> <new>"  (renames → the new path)
  * Paths with special chars are git-quoted; strip the surrounding quotes.
  */
-function parsePorcelainPath(line: string): string | null {
+export function parsePorcelainPath(line: string): string | null {
   if (line.length < 4) return null;
   let rest = line.slice(3);
   const arrow = rest.indexOf(' -> ');

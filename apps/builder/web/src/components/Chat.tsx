@@ -9,10 +9,13 @@
    ============================================================ */
 import { Fragment } from 'preact';
 import type { JSX, VNode } from 'preact';
-import { useState, useRef, useEffect } from 'preact/hooks';
+import { useState, useRef, useEffect, useMemo } from 'preact/hooks';
 import { I } from './Icon';
 import { Twist } from './Sidebar';
 import { renderMarkdownHtml } from '../lib/markdown';
+import { PHASE_LABELS, phaseIndex, phaseLabelAt } from '../lib/phase';
+import { t as tr, tf, phaseLabel, tAction } from '../lib/i18n';
+import type { ComposerImage } from '../lib/attachments';
 import type {
   PhaseStates,
   PhaseKey,
@@ -21,13 +24,6 @@ import type {
   WireTask,
   WireGateAction,
 } from '../types';
-
-const PHASE_LABELS: { key: PhaseKey; label: string }[] = [
-  { key: 'analyze', label: 'Analyze' },
-  { key: 'spec', label: 'Spec' },
-  { key: 'implement', label: 'Implement' },
-  { key: 'test', label: 'Test' },
-];
 
 /* render text with <c>mono</c> chips (kept for any chip-bearing summary line) */
 export function richText(str: string): (VNode | string)[] {
@@ -42,8 +38,6 @@ export function richText(str: string): (VNode | string)[] {
 export function numCircle(n: number): string {
   return ['①', '②', '③', '④'][n - 1] || String(n);
 }
-
-const phaseIndex = (key: PhaseKey): number => PHASE_LABELS.findIndex((p) => p.key === key) + 1;
 
 /* ---- phase indicator ---- */
 export function PhaseTrack({ phaseStates, current }: { phaseStates: PhaseStates; current: PhaseKey | null }) {
@@ -61,7 +55,7 @@ export function PhaseTrack({ phaseStates, current }: { phaseStates: PhaseStates;
               <span className="phase-num">
                 {st === 'done' ? <I.check style={{ width: 11, height: 11 }} /> : (i + 1)}
               </span>
-              {ph.label}
+              {phaseLabel(ph.key)}
             </div>
             {i < PHASE_LABELS.length - 1 && <span className="phase-sep">·</span>}
           </Fragment>
@@ -71,23 +65,32 @@ export function PhaseTrack({ phaseStates, current }: { phaseStates: PhaseStates;
   );
 }
 
-/* ---- disclosure: "Running ① Analyze…" / streamed output ---- */
-export function Disclosure({ phaseKey, running, output }: {
+/* ---- disclosure: "Running ① Analyze…" / "Stopped during ① Analyze" / streamed output ---- */
+export function Disclosure({ phaseKey, running, output, stopped }: {
   phaseKey: PhaseKey;
   running: boolean;
   output: string;
+  /** the phase's turn was cancelled mid-flight — muted "Stopped during …" + alert icon (design handoff). */
+  stopped?: boolean;
 }) {
   const [open, setOpen] = useState(running);
   useEffect(() => { if (running) setOpen(true); }, [running]);
   const idx = phaseIndex(phaseKey);
+  const phLabel = phaseLabel(phaseLabelAt(idx));
   const label = running
-    ? <>Running <b style={{ color: 'var(--tx-1)', fontWeight: 500 }}>{numCircle(idx)} {PHASE_LABELS[idx - 1].label}</b><span className="dots" /></>
-    : <>{numCircle(idx)} {PHASE_LABELS[idx - 1].label}</>;
-  const html = output.trim() ? renderMarkdownHtml(output) : '';
+    ? <>{tr('running')} <b style={{ color: 'var(--tx-1)', fontWeight: 500 }}>{numCircle(idx)} {phLabel}</b><span className="dots" /></>
+    : stopped
+      ? <>{tr('stoppedDuring')} <b style={{ color: 'var(--tx-2)', fontWeight: 500 }}>{numCircle(idx)} {phLabel}</b></>
+      : <>{numCircle(idx)} {phLabel}</>;
+  // D6 (017): memoize the markdown render on the buffer so an unrelated re-render (another thread
+  // item, a sibling signal) doesn't re-parse the whole accumulated output. Byte-identical HTML.
+  const html = useMemo(() => (output.trim() ? renderMarkdownHtml(output) : ''), [output]);
   return (
     <div>
       <button className="disclosure" onClick={() => setOpen((o) => !o)}>
-        {running ? <span className="spin" /> : <I.checkCircle style={{ width: 14, height: 14, color: 'var(--ok)' }} />}
+        {running ? <span className="spin" />
+          : stopped ? <I.alert style={{ width: 14, height: 14, color: 'var(--tx-faint)' }} />
+          : <I.checkCircle style={{ width: 14, height: 14, color: 'var(--ok)' }} />}
         <span className="disc-label">{label}</span>
         <Twist open={open} />
       </button>
@@ -95,7 +98,7 @@ export function Disclosure({ phaseKey, running, output }: {
         <div className="disc-detail md-stream" dangerouslySetInnerHTML={{ __html: html }} />
       )}
       {open && !html && running && (
-        <div className="disc-detail"><div className="dd-line">Working…</div></div>
+        <div className="disc-detail"><div className="dd-line">{tr('working')}</div></div>
       )}
     </div>
   );
@@ -103,7 +106,7 @@ export function Disclosure({ phaseKey, running, output }: {
 
 /* ---- gate card (renders the backend gate.actions[]) ---- */
 interface GateView {
-  tone: '' | 'warn' | 'danger' | 'error' | 'done';
+  tone: '' | 'warn' | 'danger' | 'error' | 'done' | 'deploy';
   badge: string;
   title: string;
   meta: string;
@@ -116,48 +119,63 @@ interface GateView {
 /** Synthesize the gate's presentational copy from the live task (the backend sends only actions). */
 function gateView(t: WireTask): GateView {
   const idx = phaseIndex(t.phase as PhaseKey);
-  const meta = `phase ${idx} / 4`;
+  const meta = tf('phaseMeta', { idx });
   const errLines = (t.error ?? '').split(' | ').map((s) => s.trim()).filter(Boolean);
 
   if (t.status === 'error') {
-    return { tone: 'error', badge: 'Phase failed', title: `${PHASE_LABELS[idx - 1].label} errored`, meta: 'exit 1',
-      summary: errLines.length ? errLines : ['No files were written. Retry re-runs only this phase from the approved input.'] };
+    return { tone: 'error', badge: tr('gateErrorBadge'), title: tf('gateErroredTitle', { phase: phaseLabel(phaseLabelAt(idx)) }), meta: tr('exit1'),
+      summary: errLines.length ? errLines : [tr('gateErrorSummary')] };
   }
   if (t.status === 'cancelled') {
-    return { tone: 'error', badge: 'Cancelled', title: 'Build abandoned', meta, summary: ['Cancelled by user — the spec/artifacts so far are preserved.'] };
+    return { tone: 'error', badge: tr('gateCancelledBadge'), title: tr('gateCancelledTitle'), meta, summary: [tr('gateCancelledSummary')] };
   }
   if (t.status === 'done') {
-    return { tone: 'done', badge: 'Done', title: 'Test passed — workflow updated', meta: 'phase 4 / 4',
-      summary: ['Linters re-run on the produced main.yml.', 'Open the report in the panel for the details.'], showReportLink: true };
+    return { tone: 'done', badge: tr('gateDoneBadge'), title: tr('gateDoneTitle'), meta: tr('phaseMeta4'),
+      summary: [tr('gateDoneSummary1'), tr('gateDoneSummary2')], showReportLink: true };
   }
+  // F4 (spec 010): the slug-collision note rides on the task from the Spec-gate scaffold → surface it
+  // (once) at the Implement gate, leading the summary, so the user sees the rename before continuing.
+  const slugLine = (lines: string[]): string[] => (t.slugNote ? [t.slugNote, ...lines] : lines);
   // awaiting_confirm
   if (t.gate?.flag === 'still_failing') {
-    return { tone: 'warn', badge: 'Lint still failing', title: 'Still failing after the cap-5 attempts', meta,
-      summary: errLines.length ? errLines : ['The agent self-corrected as far as it could in one turn.', 'Your call: accept anyway, keep trying, or abandon.'],
+    return { tone: 'warn', badge: tr('gateFailBadge'), title: tr('gateFailTitle'), meta,
+      summary: slugLine(errLines.length ? errLines : [tr('gateFailSummary1'), tr('gateFailSummary2')]),
       showDiffLink: true };
+  }
+  // D1 (spec 016): the deploy gate. After 014 D1 EVERY selfhost build (incl. auto/spec_only) parks here
+  // with the `awaiting_import` flag — name the target + explain Import vs Skip so the card isn't blank.
+  if (t.gate?.flag === 'awaiting_import') {
+    const summary = [tr('gateImportSummary1'), tr('gateImportSummary2'), tr('gateImportSummary3')];
+    if (t.workflow) summary.push(tf('gateImportSummaryEdit', { workflow: t.workflow })); // edit-existing footgun
+    return { tone: 'deploy', badge: tr('gateImportBadge'),
+      title: tf('gateImportTitle', { file: t.workflowFile }),
+      meta, summary, showReportLink: true };
   }
   switch (t.phase) {
     case 'analyze':
-      return { tone: '', badge: 'Analyze complete', title: 'Ready to write the spec', meta,
-        summary: ['Requirement analyzed.', 'Continue to draft the spec, or request changes.'] };
+      return { tone: '', badge: tr('gateAnalyzeBadge'), title: tr('gateAnalyzeTitle'), meta,
+        summary: [tr('gateAnalyzeSummary1'), tr('gateAnalyzeSummary2')] };
     case 'spec':
-      return { tone: '', badge: 'Spec ready', title: 'Spec drafted — review before I build', meta,
-        summary: ['SPEC.md is editable in the panel — tweak it before implement (last-writer wins).'], showSpecLink: true };
+      return { tone: '', badge: tr('gateSpecBadge'), title: tr('gateSpecTitle'), meta,
+        summary: [tr('gateSpecSummary1')], showSpecLink: true };
     case 'implement':
-      return { tone: '', badge: 'Implemented', title: 'main.yml built and linted', meta,
-        summary: ['Workflow YAML generated; all linters green.'], showDiffLink: true };
+      return { tone: '', badge: tr('gateImplBadge'), title: tr('gateImplTitle'), meta,
+        summary: slugLine([tr('gateImplSummary1')]), showDiffLink: true };
     default:
-      return { tone: '', badge: 'Ready', title: 'Continue', meta, summary: [] };
+      return { tone: '', badge: tr('gateReadyBadge'), title: tr('gateReadyTitle'), meta, summary: [] };
   }
 }
 
-export function GateCard({ task, resolved, busy, onConfirm, onReply, onCancel, onOpenArtifact }: {
+export function GateCard({ task, resolved, busy, onConfirm, onReply, onCancel, onRestore, onOpenArtifact }: {
   task: WireTask;
   resolved?: string;
   busy?: boolean;
   onConfirm: (action: WireGateAction, extra?: { slug?: string; name?: string }) => void;
-  onReply: (text: string) => void;
+  /** `label` is the chosen reply action's English label (Edit spec / Keep trying / Request changes) so
+   *  the resolved gate reads true instead of a generic "Requested changes" (spec 016 D4). */
+  onReply: (text: string, label: string) => void;
   onCancel: (action: WireGateAction) => void;
+  onRestore?: () => void;
   onOpenArtifact: (tab: ArtifactTab) => void;
 }) {
   const [replying, setReplying] = useState(false);
@@ -166,7 +184,8 @@ export function GateCard({ task, resolved, busy, onConfirm, onReply, onCancel, o
   const actions = task.gate?.actions ?? [];
   const tone = v.tone ? ' tone-' + v.tone : '';
   const badgeIcon = v.tone === 'error' ? <I.alert /> : v.tone === 'warn' ? <I.warn />
-    : v.tone === 'danger' ? <I.lock /> : v.tone === 'done' ? <I.checkCircle /> : <I.spark />;
+    : v.tone === 'danger' ? <I.lock /> : v.tone === 'done' ? <I.checkCircle />
+    : v.tone === 'deploy' ? <I.external /> : <I.spark />;
 
   const replyAction = actions.find((a) => a.kind === 'reply');
 
@@ -174,6 +193,9 @@ export function GateCard({ task, resolved, busy, onConfirm, onReply, onCancel, o
     if (a.kind === 'cancel') return 'ghost';
     if (a.kind === 'reply') return 'ghost';
     if (task.gate?.flag === 'still_failing') return 'warn'; // "Accept anyway"
+    // D4 (spec 016): at the deploy gate, Import is the one primary (green) button; Skip is a quiet
+    // secondary so the irreversible push isn't a coin-flip between two identical green buttons.
+    if (task.gate?.flag === 'awaiting_import' && a.id === 'skip_import') return 'ghost';
     return 'ok';
   };
 
@@ -196,16 +218,16 @@ export function GateCard({ task, resolved, busy, onConfirm, onReply, onCancel, o
       {(v.showSpecLink || v.showReportLink || v.showDiffLink) && (
         <div className="gate-strip" style={{ background: 'transparent', border: 'none', paddingTop: 0 }}>
           {v.showSpecLink && (
-            <button className="gs-link" style={{ marginLeft: 0 }} onClick={() => onOpenArtifact('spec')}><I.doc />open SPEC.md</button>
+            <button className="gs-link" style={{ marginLeft: 0 }} onClick={() => onOpenArtifact('spec')}><I.doc />{tr('openSpec')}</button>
           )}
           {v.showDiffLink && (
             <>
               <button className="gs-link" style={{ marginLeft: 0 }} onClick={() => onOpenArtifact('yaml')}><I.yaml />main.yml</button>
-              <button className="gs-link" onClick={() => onOpenArtifact('diff')}><I.diff />view diff</button>
+              <button className="gs-link" onClick={() => onOpenArtifact('diff')}><I.diff />{tr('viewDiff')}</button>
             </>
           )}
           {v.showReportLink && (
-            <button className="gs-link" style={{ marginLeft: 0 }} onClick={() => onOpenArtifact('report')}><I.report />open report</button>
+            <button className="gs-link" style={{ marginLeft: 0 }} onClick={() => onOpenArtifact('report')}><I.report />{tr('openReport')}</button>
           )}
         </div>
       )}
@@ -213,34 +235,40 @@ export function GateCard({ task, resolved, busy, onConfirm, onReply, onCancel, o
       {resolved ? (
         <div className="gate-foot" style={{ background: 'transparent' }}>
           <span className="secret-note" style={{ color: 'var(--ok)', padding: 0 }}>
-            <I.check style={{ width: 13, height: 13 }} />{resolved}
+            <I.check style={{ width: 13, height: 13 }} />{tAction(resolved)}
           </span>
         </div>
       ) : replying && replyAction ? (
         <div className="gate-reply">
-          <textarea autoFocus placeholder="What should change before continuing?"
+          <textarea autoFocus placeholder={tr('phWhatShouldChange')}
             value={reply} onChange={(e) => setReplyText(e.currentTarget.value)}
           />
           <div className="gr-actions">
-            <button className="btn ghost" onClick={() => { setReplying(false); setReplyText(''); }}>Cancel</button>
+            <button className="btn ghost" onClick={() => { setReplying(false); setReplyText(''); }}>{tr('cancel')}</button>
             <button className="btn primary" disabled={!reply.trim()}
-              onClick={() => { onReply(reply); setReplying(false); setReplyText(''); }}>
-              <I.arrowUp style={{ width: 13, height: 13 }} />Send &amp; re-run
+              onClick={() => { onReply(reply, replyAction.label); setReplying(false); setReplyText(''); }}>
+              <I.arrowUp style={{ width: 13, height: 13 }} />{tr('sendRerun')}
             </button>
           </div>
+        </div>
+      ) : task.status === 'cancelled' && onRestore ? (
+        <div className="gate-foot">
+          <button className="btn ghost" disabled={busy} onClick={() => onRestore()}>
+            <I.undo />{tr('restoreBuild')}
+          </button>
         </div>
       ) : actions.length > 0 ? (
         <div className="gate-foot">
           {actions.map((a) => {
             if (a.kind === 'reply') {
-              return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => setReplying(true)}><I.message />{a.label}</button>;
+              return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => setReplying(true)}><I.message />{tAction(a.label)}</button>;
             }
             if (a.kind === 'cancel') {
-              return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => onCancel(a)}>{a.label}</button>;
+              return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => onCancel(a)}>{tAction(a.label)}</button>;
             }
             return (
               <button key={a.id} className={'btn ' + btnClass(a)} disabled={busy} onClick={() => onConfirm(a)}>
-                {task.gate?.flag === 'still_failing' ? <I.check /> : <I.check />}{a.label}
+                {task.gate?.flag === 'awaiting_import' && a.id === 'import' ? <I.external /> : <I.check />}{tAction(a.label)}
               </button>
             );
           })}
@@ -251,13 +279,16 @@ export function GateCard({ task, resolved, busy, onConfirm, onReply, onCancel, o
 }
 
 /* ---- setting dropdown (below-input run settings, AC #14) ---- */
-function SettingSelect({ icon, label, value, options, onChange, mono }: {
+function SettingSelect({ icon, label, value, options, onChange, mono, disabled, title }: {
   icon?: VNode;
   label: string;
   value: string;
   options: { v: string; l: string }[];
   onChange: (v: string) => void;
   mono?: boolean;
+  /** F2 (spec 010): a read-only chip (Workflow/Deploy in conversation view — start-bound, not patchable). */
+  disabled?: boolean;
+  title?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -270,12 +301,14 @@ function SettingSelect({ icon, label, value, options, onChange, mono }: {
   const sel = options.find((o) => o.v === value);
   return (
     <div className="setting-select" ref={ref} style={{ position: 'relative' }}>
-      <button className={'setting-chip' + (mono ? ' mono' : '')} onClick={() => setOpen((o) => !o)} type="button">
+      <button className={'setting-chip' + (mono ? ' mono' : '') + (disabled ? ' disabled' : '')}
+        onClick={() => { if (!disabled) setOpen((o) => !o); }} type="button"
+        disabled={disabled} title={disabled ? (title ?? tr('setAtStart')) : undefined}>
         {icon}<span className="sc-key">{label}:</span>
         <span className="sc-val">{sel ? sel.l : value}</span>
-        <Twist open={open} />
+        {!disabled && <Twist open={open} />}
       </button>
-      {open && (
+      {open && !disabled && (
         <div className="setting-menu">
           {options.map((o) => (
             <button key={o.v} type="button" className={'setting-opt' + (o.v === value ? ' on' : '')}
@@ -290,7 +323,7 @@ function SettingSelect({ icon, label, value, options, onChange, mono }: {
 }
 
 /* ---- composer (shared empty + dock); 3 settings BELOW the input (AC #14) ---- */
-export function Composer({ value, onChange, onSend, settings, onSettings, workflows, placeholder, disabled }: {
+export function Composer({ value, onChange, onSend, settings, onSettings, workflows, placeholder, disabled, lockStartBound, lockConfirm, images, onAddFiles, onRemoveImage }: {
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
@@ -300,8 +333,20 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
   workflows?: string[];
   placeholder: string;
   disabled?: boolean;
+  /** F2 (spec 010): conversation view — Workflow + Deploy are start-bound (read-only); only Confirm is
+   *  live-patchable. In the empty view all three are editable (they feed the next build). */
+  lockStartBound?: boolean;
+  /** F2 (spec 010): also freeze the Confirm chip while the live build's turn is RUNNING — a patch then
+   *  would 409 (the backend rejects it; the in-memory orchestrator can't honor it). Editable once parked. */
+  lockConfirm?: boolean;
+  /** spec 012: image attachments held by the parent (App). Absent → the attach affordance is hidden. */
+  images?: ComposerImage[];
+  onAddFiles?: (files: File[]) => void;
+  onRemoveImage?: (id: string) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
   useEffect(() => {
     const el = ref.current; if (!el) return;
     el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 180) + 'px';
@@ -311,25 +356,79 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (ready) onSend(); }
   };
 
-  const workflowOpts = [{ v: 'none', l: 'none (new)' }, ...(workflows ?? []).map((w) => ({ v: w, l: w }))];
+  // spec 012: the attach affordance is active only when the parent wired a handler and input is enabled.
+  const canAttach = !!onAddFiles && !disabled;
+  const takeFiles = (list: FileList | null | undefined): void => {
+    const files = Array.from(list ?? []);
+    if (files.length && onAddFiles) onAddFiles(files);
+  };
+  const onPaste: JSX.ClipboardEventHandler<HTMLTextAreaElement> = (e) => {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (canAttach && files.length) { e.preventDefault(); takeFiles(e.clipboardData?.files); }
+  };
+  const onDrop: JSX.DragEventHandler<HTMLDivElement> = (e) => {
+    if (!canAttach) return;
+    e.preventDefault(); setDragOver(false);
+    takeFiles(e.dataTransfer?.files);
+  };
+  const onDragOver: JSX.DragEventHandler<HTMLDivElement> = (e) => {
+    if (!canAttach || !Array.from(e.dataTransfer?.types ?? []).includes('Files')) return;
+    e.preventDefault(); setDragOver(true);
+  };
+
+  const workflowOpts = [{ v: 'none', l: tr('noneNew') }, ...(workflows ?? []).map((w) => ({ v: w, l: w }))];
+  const imgs = images ?? [];
 
   return (
-    <div className="composer">
+    <div className={'composer' + (dragOver ? ' drag-over' : '')}
+      onDrop={onDrop} onDragOver={onDragOver} onDragLeave={() => setDragOver(false)}>
+      {dragOver && (
+        <div className="composer-drop-hint"><I.image />{tr('dropImages')}</div>
+      )}
+      {imgs.length > 0 && (
+        <div className="composer-attachments">
+          {imgs.map((img) => (
+            <div key={img.id} className="img-chip" title={img.name}>
+              <img src={img.dataUrl} alt={img.name} />
+              <span className="ic-name">{img.name}</span>
+              <button className="ic-rm" type="button" aria-label={tr('removeImage')} title={tr('removeImage')}
+                onClick={() => onRemoveImage?.(img.id)}>
+                <I.close />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <textarea ref={ref} className="composer-input" rows={1}
         placeholder={placeholder} value={value} disabled={disabled}
         onChange={(e) => onChange(e.currentTarget.value)}
-        onKeyDown={onKeyDown}
+        onKeyDown={onKeyDown} onPaste={onPaste}
       />
       <div className="composer-row">
-        <SettingSelect mono icon={<I.sliders style={{ width: 12, height: 12 }} />} label="Workflow"
-          value={settings.workflow} options={workflowOpts} onChange={(v) => onSettings({ workflow: v })} />
-        <SettingSelect label="Confirm" value={settings.confirm}
-          options={[{ v: 'each step', l: 'each step' }, { v: 'spec only', l: 'spec only' }, { v: 'auto', l: 'auto' }]}
-          onChange={(v) => onSettings({ confirm: v })} />
-        <SettingSelect label="Deploy" value={settings.deploy}
-          options={[{ v: 'none', l: 'none' }, { v: 'selfhost', l: 'selfhost' }, { v: 'cloud', l: 'cloud' }]}
-          onChange={(v) => onSettings({ deploy: v })} />
+        <SettingSelect mono icon={<I.sliders style={{ width: 12, height: 12 }} />} label={tr('workflow')}
+          value={settings.workflow} options={workflowOpts} onChange={(v) => onSettings({ workflow: v })}
+          disabled={lockStartBound} title={tr('workflowFixed')} />
+        <SettingSelect label={tr('confirm')} value={settings.confirm}
+          options={[{ v: 'each step', l: tr('eachStep') }, { v: 'spec only', l: tr('specOnly') }, { v: 'auto', l: tr('auto') }]}
+          onChange={(v) => onSettings({ confirm: v })}
+          disabled={lockConfirm} title={tr('confirmModeHint')} />
+        <SettingSelect label={tr('deploy')} value={settings.deploy}
+          options={[{ v: 'none', l: tr('none') }, { v: 'selfhost', l: tr('selfhost') }, { v: 'cloud', l: tr('cloud') }]}
+          onChange={(v) => onSettings({ deploy: v })}
+          disabled={lockStartBound} title={tr('deployFixed')} />
         <span className="spacer" />
+        {onAddFiles && (
+          <>
+            <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple
+              style={{ display: 'none' }}
+              onChange={(e) => { takeFiles(e.currentTarget.files); e.currentTarget.value = ''; }} />
+            <button className="composer-attach" type="button" disabled={!canAttach}
+              aria-label={tr('attachImage')} title={tr('attachImage')}
+              onClick={() => fileRef.current?.click()}>
+              <I.image />
+            </button>
+          </>
+        )}
         <button className={'composer-send' + (ready ? ' ready' : '')} onClick={() => { if (ready) onSend(); }} disabled={!ready}>
           <I.arrowUp />
         </button>

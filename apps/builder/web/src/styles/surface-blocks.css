@@ -6,6 +6,7 @@
    ============================================================ */
 
 :root {
+  color-scheme: dark;
   /* --- surfaces (near-black, faintly warm) --- */
   --bg-canvas:    #1a1917;
   --bg-sidebar:   #161513;
@@ -51,6 +52,25 @@
   --diff-add-bg: oklch(0.74 0.066 150 / 0.09);
   --diff-del:    oklch(0.68 0.095 28);
   --diff-del-bg: oklch(0.68 0.095 28 / 0.09);
+  --code-num:    oklch(0.74 0.066 150);
+
+  /* --- text sitting ON accent / danger fills --- */
+  --on-accent: #15140f;
+  --on-danger: #faf2ee;
+
+  /* --- elevated modal surfaces --- */
+  --bg-modal:       #1c1b18;
+  --bg-modal-hover: #2e2b27;
+
+  /* --- raised translucent tints (light overlays on dark) --- */
+  --tint-1: rgba(255, 255, 255, 0.008);
+  --tint-2: rgba(255, 255, 255, 0.012);
+  --tint-3: rgba(255, 255, 255, 0.015);
+  --scroll-thumb:       rgba(255, 255, 255, 0.07);
+  --scroll-thumb-hover: rgba(255, 255, 255, 0.13);
+
+  /* --- scrim behind modals --- */
+  --scrim: rgba(8, 7, 6, 0.6);
 
   /* --- geometry --- */
   --r-card: 16px;
@@ -68,7 +88,84 @@
 
   --sb-w: 268px;          /* sidebar width */
   --sb-w-collapsed: 60px;
-  --artifact-w: 432px;
+  --artifact-w: 864px;
+}
+
+/* ============================================================
+   LIGHT THEME — color tokens only.
+   Same design language, palette inverted. Geometry, type,
+   radii, spacing and shadow-geometry are NOT touched here.
+   ============================================================ */
+:root[data-theme="light"] {
+  color-scheme: light;
+  /* --- surfaces (warm off-white; cards raised whiter than canvas) --- */
+  --bg-canvas:    #f7f4ee;
+  --bg-sidebar:   #f1ede5;   /* recessed, a touch darker */
+  --bg-elevated:  #fffefb;   /* input, cards — raised */
+  --bg-elevated-2:#ece6dc;   /* hover / nested — darker */
+  --bg-chip:      #f1ece3;
+  --bg-overlay:   rgba(40, 34, 26, 0.35);
+
+  /* --- hairline borders (dark, faint) --- */
+  --border:       rgba(34, 28, 20, 0.10);
+  --border-soft:  rgba(34, 28, 20, 0.06);
+  --border-strong:rgba(34, 28, 20, 0.16);
+
+  /* --- text (low contrast → high; warm grays) --- */
+  --tx-faint:   #a39c90;
+  --tx-muted:   #847d72;
+  --tx-2:       #635c52;
+  --tx-1:       #3c3833;
+  --tx-strong:  #241f1a;
+
+  /* --- accent (same periwinkle hue, lower L for light bg) --- */
+  --accent:        oklch(0.54 0.10 256);
+  --accent-dim:    oklch(0.54 0.10 256 / 0.12);
+  --accent-line:   oklch(0.54 0.10 256 / 0.42);
+  --accent-tx:     oklch(0.47 0.11 256);
+
+  /* --- semantic (shared lower L, hue-varied) --- */
+  --ok:        oklch(0.52 0.085 150);
+  --ok-dim:    oklch(0.52 0.085 150 / 0.15);
+  --warn:      oklch(0.55 0.090 78);
+  --warn-dim:  oklch(0.55 0.090 78 / 0.16);
+  --danger:    oklch(0.52 0.150 28);
+  --danger-dim:oklch(0.52 0.150 28 / 0.13);
+
+  /* --- monospace identifier / path chip (warm tan, dark text) --- */
+  --mono-chip-bg: rgba(150, 104, 50, 0.10);
+  --mono-chip-tx: #875f30;
+  --mono-chip-bd: rgba(150, 104, 50, 0.22);
+  --code-comment: oklch(0.55 0.060 150);
+  --code-num:     oklch(0.50 0.085 150);
+
+  /* --- diff --- */
+  --diff-add:    oklch(0.50 0.085 150);
+  --diff-add-bg: oklch(0.52 0.085 150 / 0.14);
+  --diff-del:    oklch(0.52 0.150 28);
+  --diff-del-bg: oklch(0.52 0.150 28 / 0.10);
+
+  /* --- text on accent / danger fills (now dark, so text is light) --- */
+  --on-accent: #f8f6ff;
+  --on-danger: #fdf4f0;
+
+  /* --- elevated modal surfaces --- */
+  --bg-modal:       #ffffff;
+  --bg-modal-hover: #ece6dc;
+
+  /* --- raised tints invert to faint dark overlays --- */
+  --tint-1: rgba(30, 24, 16, 0.022);
+  --tint-2: rgba(30, 24, 16, 0.032);
+  --tint-3: rgba(30, 24, 16, 0.045);
+  --scroll-thumb:       rgba(40, 34, 26, 0.18);
+  --scroll-thumb-hover: rgba(40, 34, 26, 0.30);
+
+  /* --- scrim — softer, still dims --- */
+  --scrim: rgba(40, 34, 26, 0.30);
+
+  /* --- shadows — soft & light for white surfaces --- */
+  --shadow-pop: 0 18px 50px -16px rgba(40, 34, 26, 0.18), 0 2px 8px -2px rgba(40, 34, 26, 0.10);
+  --shadow-panel: -24px 0 60px -30px rgba(40, 34, 26, 0.14);
 }
 
 * { box-sizing: border-box; }
@@ -91,8 +188,8 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 
 /* slim scrollbars */
 *::-webkit-scrollbar { width: 9px; height: 9px; }
-*::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.07); border-radius: 9px; border: 2px solid transparent; background-clip: padding-box; }
-*::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.13); background-clip: padding-box; }
+*::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 9px; border: 2px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); background-clip: padding-box; }
 *::-webkit-scrollbar-track { background: transparent; }
 
 /* ============================================================
@@ -114,7 +211,9 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   min-width: 0;
   height: 100vh;
 }
-.main.has-artifact { grid-template-columns: 1fr var(--artifact-w); }
+/* Artifact open: chat keeps full width — the panel floats as an absolute overlay
+   (see .artifact below), so we do NOT carve a grid column for it. */
+.main.has-artifact { grid-template-columns: 1fr 0px; }
 
 /* ============================================================
    SIDEBAR
@@ -144,6 +243,15 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .icon-btn:hover { background: var(--bg-elevated-2); color: var(--tx-1); }
 .icon-btn svg { width: 15px; height: 15px; }
+/* New-project (header action): give it the same bordered, elevated affordance as the New-task
+   button below — without a border the bare icon floats with no edge (most visible in light mode). */
+.sb-head-actions .icon-btn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-btn);
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+}
+.sb-head-actions .icon-btn:hover { background: var(--bg-elevated-2); border-color: var(--border-strong); color: var(--tx-1); }
 
 .sb-newtask {
   margin: 4px 12px 6px;
@@ -186,6 +294,11 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .tree-task .tw-name { color: var(--tx-muted); font-size: 12.5px; font-weight: 400; }
 .tree-task .tw-time { color: var(--tx-faint); font-size: 11px; margin-left: auto; padding-left: 8px; flex-shrink: 0; }
 .tree-task:hover .tw-name { color: var(--tx-2); }
+
+/* F1: the in-progress row's hover-× (cancel without opening). The × shares the row with the status
+   hint; on hover the hint stays and the × fades in beside it. */
+.sb-active .tree-task .row-actions { margin-left: 4px; }
+.sb-active .tree-task:hover .row-actions { opacity: 1; }
 
 .tree-task.active { background: var(--bg-elevated-2); }
 .tree-task.active .tw-name { color: var(--tx-strong); font-weight: 450; }
@@ -258,7 +371,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .phase-step.done .phase-num { background: var(--ok-dim); border-color: transparent; color: var(--ok); }
 .phase-step.done { color: var(--tx-muted); }
 .phase-step.active { background: var(--accent-dim); color: var(--accent-tx); }
-.phase-step.active .phase-num { background: var(--accent); border-color: transparent; color: #15140f; font-weight: 600; }
+.phase-step.active .phase-num { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 600; }
 .phase-step.error .phase-num { background: var(--danger-dim); border-color: transparent; color: var(--danger); }
 .phase-step.error { color: var(--danger); }
 .phase-sep { color: var(--tx-faint); font-size: 11px; opacity: 0.5; }
@@ -273,6 +386,11 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .ghost-pill:hover { background: var(--bg-elevated); color: var(--tx-1); border-color: var(--border-strong); }
 .ghost-pill svg { width: 13px; height: 13px; }
+
+/* Stop pill (design handoff): cancel the open running build from the chat top-right (danger-toned). */
+.stop-pill { border-color: var(--danger-dim); color: var(--danger); }
+.stop-pill:hover { background: var(--danger-dim); color: var(--danger); border-color: var(--danger); }
+.stop-pill .stop-sq { width: 8px; height: 8px; border-radius: 2px; background: var(--danger); }
 
 /* thread scroll region */
 .thread {
@@ -309,7 +427,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   padding: 16px 18px 12px;
   transition: border-color 0.16s, box-shadow 0.16s;
 }
-.composer:focus-within { border-color: var(--border-strong); box-shadow: 0 0 0 4px rgba(255,255,255,0.015); }
+.composer:focus-within { border-color: var(--border-strong); box-shadow: 0 0 0 4px var(--tint-3); }
 .composer-input {
   width: 100%; background: transparent; border: none; resize: none;
   color: var(--tx-1); font-family: var(--sans); font-size: 15px; line-height: 1.55;
@@ -337,6 +455,9 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .setting-chip .tw-twist { width: 12px; }
 .setting-chip .tw-twist svg { width: 10px; height: 10px; color: var(--tx-muted); }
 .setting-chip.mono .sc-val { font-family: var(--mono); font-size: 11.5px; }
+/* F2 (spec 010): a start-bound chip (Workflow/Deploy in conversation view) — read-only, no hover/caret. */
+.setting-chip.disabled { cursor: default; opacity: 0.6; }
+.setting-chip.disabled:hover { background: var(--bg-chip); color: var(--tx-2); border-color: var(--border); }
 
 .composer-send {
   display: grid; place-items: center; width: 32px; height: 32px;
@@ -344,7 +465,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   background: var(--bg-elevated-2); color: var(--tx-muted);
   transition: background 0.14s, color 0.14s;
 }
-.composer-send.ready { background: var(--accent); color: #15140f; }
+.composer-send.ready { background: var(--accent); color: var(--on-accent); }
 .composer-send.ready:hover { filter: brightness(1.08); }
 .composer-send svg { width: 16px; height: 16px; }
 .composer-circle {
@@ -352,6 +473,42 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   border: none; background: transparent; color: var(--tx-muted);
 }
 .composer-circle:hover { color: var(--tx-1); }
+
+/* image attachments (spec 012) */
+.composer { position: relative; }
+.composer.drag-over { border-color: var(--accent); box-shadow: 0 0 0 4px var(--tint-3); }
+.composer-drop-hint {
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  display: grid; place-items: center; gap: 6px; border-radius: var(--r-input);
+  background: color-mix(in srgb, var(--bg-elevated) 86%, transparent);
+  color: var(--accent); font-size: 13px; font-weight: 500;
+}
+.composer-drop-hint svg { width: 18px; height: 18px; }
+.composer-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
+.img-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 6px 4px 4px; border-radius: var(--r-chip);
+  background: var(--bg-chip); border: 1px solid var(--border); max-width: 220px;
+}
+.img-chip img { width: 30px; height: 30px; object-fit: cover; border-radius: 6px; display: block; }
+.img-chip .ic-name {
+  font-size: 11.5px; color: var(--tx-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.img-chip .ic-rm {
+  display: grid; place-items: center; width: 18px; height: 18px; flex-shrink: 0;
+  border: none; background: transparent; color: var(--tx-muted); border-radius: 5px;
+}
+.img-chip .ic-rm:hover { background: var(--bg-elevated-2); color: var(--tx-1); }
+.img-chip .ic-rm svg { width: 12px; height: 12px; }
+.composer-attach {
+  display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0;
+  border-radius: 9px; border: none; background: var(--bg-elevated-2); color: var(--tx-muted);
+  transition: background 0.14s, color 0.14s;
+}
+.composer-attach:hover { background: var(--bg-chip); color: var(--tx-1); }
+.composer-attach:disabled { opacity: 0.4; cursor: default; }
+.composer-attach svg { width: 16px; height: 16px; }
 
 .empty-suggest { margin-top: 22px; display: flex; flex-direction: column; gap: 7px; width: 100%; }
 .suggest-label { font-size: 11px; color: var(--tx-faint); letter-spacing: 0.05em; padding-left: 2px; margin-bottom: 1px; }
@@ -428,7 +585,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* blockquote like the reference */
 .quote {
   border-left: 2px solid var(--accent-line);
-  background: rgba(255,255,255,0.012);
+  background: var(--tint-2);
   padding: 11px 16px; margin: 0 0 14px; border-radius: 0 8px 8px 0;
   color: var(--tx-2); font-size: 13px;
 }
@@ -487,14 +644,25 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .gate-strip .gs-pass svg { width: 13px; height: 13px; }
 .gate-strip .gs-fail { display: inline-flex; align-items: center; gap: 6px; color: var(--warn); }
 .gate-strip .gs-fail svg { width: 13px; height: 13px; }
-.gate-strip .gs-link { margin-left: auto; color: var(--accent-tx); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.gate-strip .gs-link:hover { text-decoration: underline; }
-.gate-strip .gs-link svg { width: 12px; height: 12px; }
+/* gs-link: inline action chip (open file / view diff / jump-to-build). Self-contained so it
+   neutralizes the UA <button> box; styled as a pill to match .ghost-pill / .empty-crumb. */
+.gs-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 11px; border-radius: var(--r-pill);
+  border: 1px solid var(--border-soft); background: transparent;
+  color: var(--accent-tx); font-size: 12px; line-height: 1.45; white-space: nowrap;
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+}
+.gs-link:hover { background: var(--accent-dim); border-color: var(--accent-line); color: var(--accent-tx); }
+.gs-link svg { width: 13px; height: 13px; opacity: 0.85; }
+/* layout: in a gate strip the trailing link is pushed to the right edge (leading links
+   cancel this with an inline marginLeft:0). */
+.gate-strip .gs-link { margin-left: auto; }
 
 .gate-foot {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 11px 16px; border-top: 1px solid var(--border-soft);
-  background: rgba(255,255,255,0.008);
+  background: var(--tint-1);
 }
 
 /* gate buttons */
@@ -507,11 +675,11 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .btn svg { width: 14px; height: 14px; }
 .btn:hover { background: var(--bg-elevated-2); border-color: var(--border-strong); }
-.btn.primary { background: var(--accent); border-color: transparent; color: #14130f; font-weight: 500; }
+.btn.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 500; }
 .btn.primary:hover { filter: brightness(1.08); background: var(--accent); }
 .btn.ok { background: var(--ok-dim); border-color: transparent; color: var(--ok); }
 .btn.ok:hover { filter: brightness(1.12); }
-.btn.danger { background: var(--danger); border-color: transparent; color: #faf2ee; font-weight: 500; }
+.btn.danger { background: var(--danger); border-color: transparent; color: var(--on-danger); font-weight: 500; }
 .btn.danger:hover { filter: brightness(1.08); }
 .btn.warn { background: var(--warn-dim); border-color: transparent; color: var(--warn); }
 .btn.warn:hover { filter: brightness(1.12); }
@@ -529,6 +697,12 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .gate.tone-error .gate-badge { background: var(--danger-dim); color: var(--danger); }
 .gate.tone-done { border-color: var(--ok-dim); }
 .gate.tone-done .gate-badge { background: var(--ok-dim); color: var(--ok); }
+/* deploy gate (awaiting_import, spec 016 D1): a solid-accent badge + accent border so the
+   "ready to deploy / Import" moment reads as the one actionable step, distinct from the neutral
+   default card and from the past-tense green "done" tone. */
+.gate.tone-deploy { border-color: var(--accent-line); }
+.gate.tone-deploy .gate-badge { background: var(--accent); color: var(--on-accent); }
+.gate.tone-deploy .gate-foot { background: var(--accent-dim); }
 
 /* request-changes inline reply box */
 .gate-reply { padding: 0 16px 14px; }
@@ -564,7 +738,24 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* ============================================================
    ARTIFACT PANEL (right, slide-in)
    ============================================================ */
+/* Click-away scrim: a transparent layer over the chat area beneath the panel, so a click
+   outside the panel dismisses it. Lives inside .main → does NOT cover the left sidebar.
+   Transparent (no dim) → the chat stays visually unchanged; the panel sits above it. */
+.artifact-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: transparent;
+}
+
 .artifact {
+  /* Fixed overlay over the chat area (.main is position: relative, so this pins to
+     the right edge of the chat column — NOT over the left sidebar). */
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: var(--artifact-w);
+  max-width: 92vw;
+  z-index: 30;
   background: var(--bg-sidebar);
   border-left: 1px solid var(--border-soft);
   box-shadow: var(--shadow-panel);
@@ -607,10 +798,75 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   width: 100%; background: var(--bg-canvas); border: 1px solid var(--border);
   border-radius: 12px; padding: 14px 16px; color: var(--tx-1);
   font-family: var(--mono); font-size: 12.5px; line-height: 1.7;
-  resize: vertical; min-height: 260px; white-space: pre;
+  resize: none; min-height: 160px; white-space: pre;
   tab-size: 2;
 }
 .spec-edit:focus { outline: none; border-color: var(--border-strong); }
+
+/* Fill the panel: SpecTab is a flex column the height of the artifact body (the panel is 100vh),
+   so the active surface grows to the window's available height while the toolbar + Save bar stay
+   pinned around it. Falls back to body scroll only when the window is too short for the floor. */
+.spec-tab { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.spec-tab > .spec-edit,
+.spec-tab > .spec-preview,
+.spec-tab > .spec-split { flex: 1 1 auto; min-height: 160px; }
+
+/* Edit / Preview / Split mode toggle (reuses .seg). Sits in the SPEC.md title row, so undo the
+   title's uppercase + tracking for the control labels. */
+.spec-mode { margin-left: 10px; flex-shrink: 0; text-transform: none; letter-spacing: 0; }
+.spec-mode button { cursor: pointer; }
+/* markdown formatting toolbar (B / I / S / </> · H1-3 · list/quote/code · link · {{}}) */
+.spec-toolbar {
+  display: flex; align-items: center; gap: 1px; flex-wrap: wrap;
+  margin-bottom: 8px; padding: 4px 6px;
+  background: var(--bg-canvas); border: 1px solid var(--border-soft); border-radius: 9px;
+}
+.stb {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 28px; height: 26px; padding: 0 7px; border-radius: 6px;
+  border: none; background: transparent; color: var(--tx-muted);
+  font-size: 12.5px; line-height: 1; cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+}
+.stb:hover { background: var(--bg-elevated-2); color: var(--tx-strong); }
+.stb b { font-weight: 700; }
+.stb i { font-style: italic; }
+.stb s { text-decoration: line-through; }
+.stb .stb-mono { font-family: var(--mono); font-size: 11px; }
+.stb svg { width: 14px; height: 14px; }
+.stb-sep { width: 1px; height: 15px; background: var(--border); margin: 0 5px; flex-shrink: 0; }
+/* rendered-markdown preview pane — same frame as .spec-edit; typography comes from .md-stream */
+.spec-preview {
+  width: 100%; box-sizing: border-box;
+  background: var(--bg-canvas); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 16px;
+  min-height: 260px; overflow-y: auto;
+}
+.spec-preview-empty { color: var(--tx-faint); font-style: italic; }
+/* The spec preview is a WIDE pane, unlike the cramped chat stream that .md-stream is tuned for.
+   Override the typography here (scoped to .spec-preview — chat is untouched) so a full spec doc
+   reads comfortably: a real heading hierarchy, roomier prose, and larger code blocks. Flow-diagram
+   code keeps nowrap + horizontal scroll so its column alignment never breaks. */
+.spec-preview.md-stream { font-size: 13.5px; line-height: 1.65; }
+.spec-preview.md-stream p { margin: 0 0 10px; }
+.spec-preview.md-stream h1, .spec-preview.md-stream h2,
+.spec-preview.md-stream h3, .spec-preview.md-stream h4 { margin: 18px 0 8px; line-height: 1.3; }
+.spec-preview.md-stream h1 { font-size: 19px; }
+.spec-preview.md-stream h2 { font-size: 16.5px; }
+.spec-preview.md-stream h3 { font-size: 14.5px; }
+.spec-preview.md-stream h4 { font-size: 13.5px; }
+.spec-preview.md-stream ul, .spec-preview.md-stream ol { margin: 0 0 10px; padding-left: 22px; }
+.spec-preview.md-stream li { margin: 3px 0; }
+.spec-preview.md-stream code { font-size: 12.5px; }
+.spec-preview.md-stream pre.md-code { padding: 12px 14px; margin: 0 0 12px; }
+.spec-preview.md-stream pre.md-code code { font-size: 12.5px; line-height: 1.6; }
+.spec-preview.md-stream table.md-table { font-size: 13px; }
+/* side-by-side: editor + live preview share the row (the row fills the column height), each
+   scrolls independently */
+.spec-split { display: flex; gap: 12px; align-items: stretch; min-height: 0; }
+.spec-split > .spec-edit,
+.spec-split > .spec-preview { flex: 1 1 0; min-width: 0; min-height: 0; margin: 0; }
+
 .spec-bar { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 .spec-bar .sb-status { font-size: 11.5px; color: var(--tx-faint); display: inline-flex; align-items: center; gap: 6px; }
 .spec-bar .sb-status .dirty-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
@@ -627,11 +883,20 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .codeblock .cb-head .cb-name { color: var(--tx-1); }
 .codeblock .cb-head .cb-lang { margin-left: auto; color: var(--tx-faint); }
+/* Copy-YAML button (spec 016 D3) — sits at the right of the code header after the line count. */
+.codeblock .cb-head .cb-copy {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border); border-radius: 7px;
+  padding: 3px 8px; color: var(--tx-2); font-family: var(--sans); font-size: 11px;
+}
+.codeblock .cb-head .cb-copy:hover { border-color: var(--border-strong); color: var(--tx-1); }
+.codeblock .cb-head .cb-copy.copied { border-color: var(--ok-dim); color: var(--ok); }
+.codeblock .cb-head .cb-copy svg { width: 12px; height: 12px; }
 .codeblock pre { margin: 0; padding: 12px 14px; overflow-x: auto; line-height: 1.65; color: var(--tx-2); }
 .codeblock .ln { color: var(--tx-faint); user-select: none; display: inline-block; width: 24px; }
 .tok-key { color: var(--accent-tx); }
 .tok-str { color: var(--mono-chip-tx); }
-.tok-num { color: oklch(0.74 0.066 150); }
+.tok-num { color: var(--code-num); }
 .tok-com { color: var(--tx-faint); font-style: italic; }
 
 /* lint results */
@@ -670,7 +935,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .diff-line.add .dl-txt { color: var(--diff-add); }
 .diff-line.del { background: var(--diff-del-bg); }
 .diff-line.del .dl-txt { color: var(--diff-del); }
-.diff-line.empty { background: rgba(255,255,255,0.012); }
+.diff-line.empty { background: var(--tint-2); }
 .dstat-add { color: var(--diff-add); }
 .dstat-del { color: var(--diff-del); }
 
@@ -749,7 +1014,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
    ============================================================ */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 100;
-  background: rgba(8, 7, 6, 0.6);
+  background: var(--scrim);
   backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
   display: grid; place-items: center; padding: 24px;
   animation: overlay-in 0.16s ease both;
@@ -757,7 +1022,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 @keyframes overlay-in { from { opacity: 0; } }
 .modal {
   width: 540px; max-width: 100%;
-  background: #1c1b18;
+  background: var(--bg-modal);
   border: 1px solid var(--border-strong);
   border-radius: 18px;
   box-shadow: var(--shadow-pop);
@@ -794,7 +1059,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
   padding: 16px; border-radius: 12px;
   border: 1px solid var(--border-strong);
-  background: linear-gradient(180deg, rgba(255,255,255,0.012), transparent);
+  background: linear-gradient(180deg, var(--tint-2), transparent);
   color: var(--tx-2); font-size: 14px;
   transition: background 0.14s, color 0.14s, border-color 0.14s;
 }
@@ -808,9 +1073,45 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   background: var(--bg-elevated-2); color: var(--tx-2); font-size: 13px;
   transition: background 0.14s, color 0.14s;
 }
-.modal-skip:hover { background: #2e2b27; color: var(--tx-1); }
+.modal-skip:hover { background: var(--bg-modal-hover); color: var(--tx-1); }
 .modal-create { padding: 9px 18px; font-size: 13px; }
 .modal-create:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---- ConfirmModal (common OK/Cancel) — replaces window.confirm() (design_handoff_modals) ----
+   `.confirm-modal.danger` drives the red icon + (with the .btn.danger OK) the destructive variant. */
+.confirm-modal {
+  width: 432px; max-width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: "icon body" ". foot";
+  column-gap: 15px; row-gap: 18px;
+  background: var(--bg-modal);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  box-shadow: var(--shadow-pop);
+  padding: 22px 22px 18px;
+  animation: modal-in 0.2s cubic-bezier(0.22,0.61,0.36,1) both;
+}
+.confirm-icon {
+  grid-area: icon;
+  display: grid; place-items: center;
+  width: 36px; height: 36px; border-radius: 10px;
+  background: var(--accent-dim); color: var(--accent-tx);
+}
+.confirm-icon svg { width: 19px; height: 19px; }
+.confirm-modal.danger .confirm-icon { background: var(--danger-dim); color: var(--danger); }
+.confirm-body { grid-area: body; padding-top: 2px; }
+.confirm-title { font-size: 15.5px; font-weight: 600; color: var(--tx-strong); letter-spacing: -0.005em; margin-bottom: 6px; }
+.confirm-message { font-size: 13px; color: var(--tx-2); line-height: 1.6; }
+.confirm-message .mchip,
+.confirm-message code {
+  font-family: var(--mono); font-size: 0.88em;
+  background: var(--mono-chip-bg); color: var(--mono-chip-tx);
+  border: 1px solid var(--mono-chip-bd);
+  padding: 1px 5px; border-radius: 5px;
+}
+.confirm-foot { grid-area: foot; display: flex; justify-content: flex-end; gap: 9px; }
+.confirm-foot .btn { padding: 8px 16px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
@@ -859,6 +1160,11 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .md-stream pre.md-code code { background: none; border: none; padding: 0; color: var(--tx-2); }
 .md-stream blockquote { border-left: 2px solid var(--border-strong); margin: 0 0 8px; padding: 2px 0 2px 10px; color: var(--tx-muted); }
 .md-stream a { color: var(--accent-tx); }
+.md-stream del { color: var(--tx-faint); }
+.md-stream table.md-table { border-collapse: collapse; width: 100%; margin: 0 0 8px; font-size: 12px; display: block; overflow-x: auto; }
+.md-stream table.md-table th, .md-stream table.md-table td { border: 1px solid var(--border-soft); padding: 5px 9px; text-align: left; vertical-align: top; }
+.md-stream table.md-table th { background: var(--bg-chip); color: var(--tx-1); font-weight: 600; }
+.md-stream table.md-table tbody tr:nth-child(even) { background: var(--bg-chip); }
 
 /* diff: hunk-header row + word-level change highlight (SplitDiffView) */
 .diff-line.hunk { color: var(--tx-faint); background: var(--bg-chip); }

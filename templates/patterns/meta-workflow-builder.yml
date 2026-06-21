@@ -1,0 +1,440 @@
+# Pattern: Meta Workflow Builder (Dify-builds-Dify)
+#
+# Use case: user mô tả requirement bằng natural language → workflow này sinh ra
+# 1 Dify workflow YAML mới + tự import vào Dify local qua Console API.
+#
+# Flow:
+#   Start (requirement text + app_name)
+#     → LLM Planner (output structured JSON plan)
+#     → Code (parse plan, generate timestamp-ms node IDs, emit final YAML + import body)
+#     → HTTP Request (POST /console/api/apps/imports → tạo app trong workspace)
+#     → End (return new_app_id + yaml_content)
+#
+# V1 chỉ cover pattern `file-to-llm` (file upload → 1 LLM call → output). Mở rộng:
+# thêm pattern khác bằng cách bổ sung Python template trong Code node, và update
+# Planner prompt để chọn pattern phù hợp.
+#
+# Customization points (`# TODO:`):
+#   1. LLM Planner: model.provider + model.name (recommended: GPT-4o-mini / Claude Haiku)
+#   2. Plugin hash in `dependencies[]` cho LLM Planner
+#   3. environment_variables:
+#        - DIFY_CONSOLE_URL  (e.g. http://localhost/console/api)
+#        - DIFY_CONSOLE_TOKEN (bearer access token — xem AGENTS.md §sync token guide)
+#   4. Pattern templates trong Code node — hiện chỉ có file-to-llm; thêm RAG /
+#      multi-step / iteration / agent tùy nhu cầu.
+#
+# Gotchas đã handle:
+#   - Node ID timestamp-ms quoted string ✓
+#   - Edge ID format <src>-source-<tgt>-target ✓
+#   - Variable refs {{#<id>.<field>#}} đúng node ID ✓
+#   - Code node: chỉ stdlib (json, re, time) — KHÔNG dùng yaml lib (chưa probe được) ✓
+
+app:
+  description: 'Generate a new Dify workflow YAML from a natural-language requirement and auto-import it into the local workspace.'
+  icon: "\U0001F916"
+  icon_background: '#E8F0FE'
+  icon_type: emoji
+  mode: workflow
+  name: 'Meta Workflow Builder'
+  use_icon_as_answer_icon: false
+dependencies: []
+# TODO: add the LLM Planner provider plugin hash here, e.g.:
+#   - type: marketplace
+#     value:
+#       marketplace_plugin_unique_identifier: langgenius/openai:0.0.31@<sha256>
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables:
+  - id: env-dify-console-url
+    name: DIFY_CONSOLE_URL
+    value: 'http://host.docker.internal/console/api'   # TODO: adjust if Dify is reachable elsewhere
+    value_type: string
+  - id: env-dify-console-token
+    name: DIFY_CONSOLE_TOKEN
+    value: 'CHANGE_ME'                                  # TODO: paste bearer token (DevTools → any /console/api/* request)
+    value_type: secret
+  features:
+    file_upload:
+      allowed_file_extensions: []
+      allowed_file_types: [document]
+      allowed_file_upload_methods: [local_file, remote_url]
+      enabled: false
+      fileUploadConfig:
+        batch_count_limit: 1
+        file_size_limit: 15
+        file_upload_limit: 1
+        workflow_file_upload_limit: 1
+      number_limits: 1
+    opening_statement: ''
+    retriever_resource: { enabled: true }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: 1780062078753-source-1780062078756-target
+      source: '1780062078753'
+      target: '1780062078756'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: llm }
+      zIndex: 0
+    - id: 1780062078756-source-1780062078758-target
+      source: '1780062078756'
+      target: '1780062078758'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: code }
+      zIndex: 0
+    - id: 1780062078758-source-1780062078760-target
+      source: '1780062078758'
+      target: '1780062078760'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: http-request }
+      zIndex: 0
+    - id: 1780062078760-source-1780062078762-target
+      source: '1780062078760'
+      target: '1780062078762'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: http-request, targetType: end }
+      zIndex: 0
+
+    nodes:
+
+    # ---------------------------------------------------------------------
+    # 1. Start — collect requirement + desired app name
+    # ---------------------------------------------------------------------
+    - id: '1780062078753'
+      type: custom
+      data:
+        title: 'Requirement Input'
+        type: start
+        variables:
+        - label: requirement
+          variable: requirement
+          type: paragraph
+          required: true
+          max_length: 4000
+          options: []
+          placeholder: 'e.g. "Upload an English PDF and summarize it into 5 Vietnamese bullet points."'
+          hint: 'Describe what the generated workflow should do.'
+        - label: app_name
+          variable: app_name
+          type: text-input
+          required: true
+          max_length: 80
+          options: []
+          placeholder: 'e.g. "PDF → VN Summary"'
+          hint: 'Name shown in Dify after the new app is created.'
+      position: { x: 0, y: 280 }
+      positionAbsolute: { x: 0, y: 280 }
+      width: 242
+      height: 107
+      sourcePosition: right
+      targetPosition: left
+
+    # ---------------------------------------------------------------------
+    # 2. LLM Planner — outputs a strict JSON plan describing the target workflow
+    # ---------------------------------------------------------------------
+    - id: '1780062078756'
+      type: custom
+      data:
+        title: 'Planner LLM'
+        type: llm
+        # TODO: pick a model — provider + name must match a plugin installed locally.
+        model:
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.1
+            response_format: json_object
+        prompt_template:
+        - role: system
+          text: |
+            You are a Dify workflow planner. The user gives a natural-language
+            requirement. You output a STRICT JSON object (no prose, no code fences)
+            describing how to instantiate the `file-to-llm` pattern (file upload
+            → document-extractor → 1 LLM call → end).
+
+            Output schema:
+            {
+              "pattern": "file-to-llm",                    // only supported value for now
+              "description": "<short app description>",
+              "allowed_extensions": [".pdf", ".txt"],      // file types user will upload
+              "model_provider": "langgenius/openai",       // plugin provider id
+              "model_name": "gpt-4o-mini",                 // model name within provider
+              "system_prompt": "<the instruction for the generated workflow's LLM>"
+            }
+
+            Rules:
+            - Return raw JSON only. No markdown, no commentary.
+            - `system_prompt` is what the generated workflow will use, not what
+              you would use — write it for the END user's task.
+            - Pick allowed_extensions conservatively from {.pdf, .txt, .md, .docx, .csv}.
+            - If unsure about model_provider/model_name, default to the values above.
+        - role: user
+          text: |
+            Requirement:
+            ---
+            {{#1780062078753.requirement#}}
+            ---
+            Desired app name: {{#1780062078753.app_name#}}
+        memory: null
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+      position: { x: 342, y: 280 }
+      positionAbsolute: { x: 342, y: 280 }
+      width: 241
+      height: 98
+      sourcePosition: right
+      targetPosition: left
+
+    # ---------------------------------------------------------------------
+    # 3. Code — parse plan JSON, generate IDs, emit YAML string + import body
+    # ---------------------------------------------------------------------
+    - id: '1780062078758'
+      type: custom
+      data:
+        title: 'YAML Mutator'
+        type: code
+        code_language: python3
+        variables:
+        - variable: plan_text
+          value_selector: ['1780062078756', text]
+        - variable: app_name
+          value_selector: ['1780062078753', app_name]
+        code: |
+          def main(plan_text: str, app_name: str) -> dict:
+              import json
+              import re
+              import time
+
+              # Strip code fences if planner wrapped output despite instructions
+              cleaned = plan_text.strip()
+              cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned)
+              cleaned = re.sub(r'\s*```$', '', cleaned)
+              plan = json.loads(cleaned)
+
+              # Fresh timestamp-ms IDs for the GENERATED workflow's 4 nodes
+              base = int(time.time() * 1000)
+              sid = str(base)
+              did = str(base + 3)
+              lid = str(base + 6)
+              eid = str(base + 9)
+
+              desc = plan.get('description', 'Generated workflow').replace("'", "''")
+              prompt = plan.get('system_prompt', 'You are a helpful assistant.')
+              exts = plan.get('allowed_extensions', ['.txt', '.pdf'])
+              provider = plan.get('model_provider', 'langgenius/openai')
+              model = plan.get('model_name', 'gpt-4o-mini')
+              safe_name = app_name.replace("'", "''")
+
+              # Inline list form (e.g. ['.pdf', '.txt']) — avoids YAML indent
+              # gymnastics when same list is reused at different nesting depths.
+              ext_inline = "[" + ", ".join(repr(e) for e in exts) + "]"
+
+              # Build generated YAML as plain string (no yaml lib — sandbox-safe)
+              yaml_content = (
+                  "app:\n"
+                  f"  description: '{desc}'\n"
+                  "  icon: \"\\U0001F4C4\"\n"
+                  "  icon_background: '#E8F0FE'\n"
+                  "  icon_type: emoji\n"
+                  "  mode: workflow\n"
+                  f"  name: '{safe_name}'\n"
+                  "  use_icon_as_answer_icon: false\n"
+                  "dependencies: []\n"
+                  "kind: app\n"
+                  "version: 0.6.0\n"
+                  "workflow:\n"
+                  "  conversation_variables: []\n"
+                  "  environment_variables: []\n"
+                  "  features:\n"
+                  "    file_upload:\n"
+                  f"      allowed_file_extensions: {ext_inline}\n"
+                  "      allowed_file_types: [document]\n"
+                  "      allowed_file_upload_methods: [local_file, remote_url]\n"
+                  "      enabled: false\n"
+                  "      fileUploadConfig:\n"
+                  "        batch_count_limit: 1\n"
+                  "        file_size_limit: 15\n"
+                  "        file_upload_limit: 1\n"
+                  "        workflow_file_upload_limit: 1\n"
+                  "      number_limits: 1\n"
+                  "    opening_statement: ''\n"
+                  "    retriever_resource: { enabled: true }\n"
+                  "    sensitive_word_avoidance: { enabled: false }\n"
+                  "    speech_to_text: { enabled: false }\n"
+                  "    suggested_questions: []\n"
+                  "    suggested_questions_after_answer: { enabled: false }\n"
+                  "    text_to_speech: { enabled: false, language: '', voice: '' }\n"
+                  "  graph:\n"
+                  "    edges:\n"
+                  f"    - id: {sid}-source-{did}-target\n"
+                  f"      source: '{sid}'\n      target: '{did}'\n"
+                  "      sourceHandle: source\n      targetHandle: target\n      type: custom\n"
+                  "      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: document-extractor }\n"
+                  "      zIndex: 0\n"
+                  f"    - id: {did}-source-{lid}-target\n"
+                  f"      source: '{did}'\n      target: '{lid}'\n"
+                  "      sourceHandle: source\n      targetHandle: target\n      type: custom\n"
+                  "      data: { isInIteration: false, isInLoop: false, sourceType: document-extractor, targetType: llm }\n"
+                  "      zIndex: 0\n"
+                  f"    - id: {lid}-source-{eid}-target\n"
+                  f"      source: '{lid}'\n      target: '{eid}'\n"
+                  "      sourceHandle: source\n      targetHandle: target\n      type: custom\n"
+                  "      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: end }\n"
+                  "      zIndex: 0\n"
+                  "    nodes:\n"
+                  f"    - id: '{sid}'\n"
+                  "      type: custom\n      data:\n"
+                  "        title: 'File Input'\n        type: start\n        variables:\n"
+                  f"        - allowed_file_extensions: {ext_inline}\n"
+                  "          allowed_file_types: [document]\n"
+                  "          allowed_file_upload_methods: [local_file, remote_url]\n"
+                  "          hint: 'Upload the file to process.'\n"
+                  "          label: input_file\n          max_length: 1\n          options: []\n"
+                  "          placeholder: ''\n          required: true\n          type: file-list\n"
+                  "          variable: input_file\n"
+                  "      position: { x: 0, y: 280 }\n      positionAbsolute: { x: 0, y: 280 }\n"
+                  "      width: 242\n      height: 107\n      sourcePosition: right\n      targetPosition: left\n"
+                  f"    - id: '{did}'\n"
+                  "      type: custom\n      data:\n"
+                  "        title: 'Extract Text'\n        type: document-extractor\n        is_array_file: true\n"
+                  f"        variable_selector: ['{sid}', input_file]\n"
+                  "      position: { x: 342, y: 280 }\n      positionAbsolute: { x: 342, y: 280 }\n"
+                  "      width: 241\n      height: 103\n      sourcePosition: right\n      targetPosition: left\n"
+                  f"    - id: '{lid}'\n"
+                  "      type: custom\n      data:\n"
+                  "        title: 'LLM Call'\n        type: llm\n"
+                  "        model:\n"
+                  f"          provider: '{provider}'\n          name: '{model}'\n"
+                  "          mode: chat\n          completion_params: { temperature: 0.3 }\n"
+                  "        prompt_template:\n"
+                  "        - role: system\n          text: |\n"
+                  + ''.join(f"            {line}\n" for line in prompt.splitlines())
+                  + "        - role: user\n          text: |\n"
+                  "            Document content (extracted from uploaded file):\n"
+                  "            ---\n"
+                  f"            {{{{#{did}.text#}}}}\n"
+                  "            ---\n"
+                  "        memory: null\n"
+                  "        context: { enabled: false, variable_selector: [] }\n"
+                  "        vision: { enabled: false }\n"
+                  "      position: { x: 684, y: 280 }\n      positionAbsolute: { x: 684, y: 280 }\n"
+                  "      width: 241\n      height: 98\n      sourcePosition: right\n      targetPosition: left\n"
+                  f"    - id: '{eid}'\n"
+                  "      type: custom\n      data:\n"
+                  "        title: 'Output'\n        type: end\n        outputs:\n"
+                  "        - variable: result\n"
+                  f"          value_selector: ['{lid}', text]\n"
+                  "          value_type: string\n"
+                  "      position: { x: 1026, y: 280 }\n      positionAbsolute: { x: 1026, y: 280 }\n"
+                  "      width: 241\n      height: 120\n      sourcePosition: right\n      targetPosition: left\n"
+                  "    viewport: { x: 0, y: 0, zoom: 0.7 }\n"
+              )
+
+              import_body = json.dumps({
+                  "mode": "yaml-content",
+                  "yaml_content": yaml_content,
+                  "name": app_name,
+              })
+
+              return {
+                  "yaml_content": yaml_content,
+                  "import_body": import_body,
+                  "generated_ids": f"{sid},{did},{lid},{eid}",
+              }
+        outputs:
+          yaml_content:
+            type: string
+            children: null
+          import_body:
+            type: string
+            children: null
+          generated_ids:
+            type: string
+            children: null
+      position: { x: 684, y: 280 }
+      positionAbsolute: { x: 684, y: 280 }
+      width: 241
+      height: 80
+      sourcePosition: right
+      targetPosition: left
+
+    # ---------------------------------------------------------------------
+    # 4. HTTP Request — POST generated YAML to Dify Console import endpoint
+    # ---------------------------------------------------------------------
+    - id: '1780062078760'
+      type: custom
+      data:
+        title: 'Import to Dify'
+        type: http-request
+        method: post
+        url: '{{#env.DIFY_CONSOLE_URL#}}/apps/imports'
+        authorization:
+          type: api-key
+          config:
+            type: bearer
+            api_key: '{{#env.DIFY_CONSOLE_TOKEN#}}'
+        headers: |
+          Content-Type:application/json
+        params: ''
+        body:
+          type: raw-text
+          data:
+          - key: ''
+            type: text
+            value: '{{#1780062078758.import_body#}}'
+        timeout:
+          connect: 10
+          read: 60
+          write: 60
+        ssl_verify: false
+      position: { x: 1026, y: 280 }
+      positionAbsolute: { x: 1026, y: 280 }
+      width: 241
+      height: 124
+      sourcePosition: right
+      targetPosition: left
+
+    # ---------------------------------------------------------------------
+    # 5. End — surface result back to caller
+    # ---------------------------------------------------------------------
+    - id: '1780062078762'
+      type: custom
+      data:
+        title: 'Output'
+        type: end
+        outputs:
+        - variable: import_status_code
+          value_selector: ['1780062078760', status_code]
+          value_type: number
+        - variable: import_response
+          value_selector: ['1780062078760', body]
+          value_type: string
+        - variable: generated_yaml
+          value_selector: ['1780062078758', yaml_content]
+          value_type: string
+        - variable: generated_ids
+          value_selector: ['1780062078758', generated_ids]
+          value_type: string
+      position: { x: 1368, y: 280 }
+      positionAbsolute: { x: 1368, y: 280 }
+      width: 241
+      height: 160
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.6 }

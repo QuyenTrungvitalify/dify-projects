@@ -10,6 +10,7 @@ Usage:
     python3 tools/dify_base/build_index.py
 """
 import json
+import subprocess
 import yaml
 from pathlib import Path
 from collections import Counter
@@ -204,14 +205,37 @@ def write_markdown(entries, out_path):
         f.write('\n'.join(lines))
 
 
+def _filter_gitignored(paths):
+    """Drop paths git would ignore, so the index mirrors the repo rather than local scratch.
+
+    The builder writes each QA run to projects/<slug>/ (gitignored — spec 011 R2); without this,
+    rglob would scan those throwaways and leak them into the tracked INDEX.md. Safe fallback: if git
+    is unavailable (or errors), keep all paths — the index is never worse than today.
+    """
+    if not paths:
+        return paths
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(BASE), "check-ignore", "--stdin"],
+            input="\n".join(str(p) for p in paths),
+            capture_output=True, text=True,
+        )
+    except Exception:
+        return paths
+    if proc.returncode not in (0, 1):  # 0 = some ignored, 1 = none ignored, >1 = error
+        return paths
+    ignored = {line.strip() for line in proc.stdout.splitlines() if line.strip()}
+    return [p for p in paths if str(p) not in ignored]
+
+
 def main():
     all_entries = []
     skipped = []
     for scan_dir, source_tag in SCAN_PATHS:
         if not scan_dir.exists():
             continue
-        # Recursive scan to catch YAMLs in subdirs (e.g., corpus/.../图文知识库/)
-        for yml in sorted(scan_dir.rglob("*.yml")):
+        # Recursive scan to catch YAMLs in subdirs (e.g., corpus/.../图文知识库/), minus gitignored scratch.
+        for yml in _filter_gitignored(sorted(scan_dir.rglob("*.yml"))):
             info = analyze(yml)
             if info:
                 info['source'] = source_tag

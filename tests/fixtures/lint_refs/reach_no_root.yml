@@ -1,0 +1,13 @@
+# Spec 020 Mục 5 — no start / container-start node, but a node-to-node ref ({{#B.text#}} in 'A')
+# exists. The pass must NOT silently skip: it emits a single advisory that reachability was not checked.
+app:
+  name: reach-no-root
+workflow:
+  graph:
+    nodes:
+      - id: 'A'
+        data: {type: llm, prompt: "{{#B.text#}}"}
+      - id: 'B'
+        data: {type: llm, prompt: "hello"}
+    edges:
+      - {source: 'A', target: 'B'}

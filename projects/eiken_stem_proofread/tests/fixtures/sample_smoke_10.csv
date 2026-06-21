@@ -1,0 +1,11 @@
+#,Item ID,Grade,Category 1,Target,Stem,Answer Choice 1,Answer Choice 2,Answer Choice 3,Answer Choice 4,Correct Answer Number
+1,E2-001,2,Vocabulary,Grammar,She (          ) to school every day.,goes,go,went,going,1
+2,E2-002,2,Vocabulary,Grammar,I (          ) my homework before lunch.,finish,finished,finishing,finishes,2
+3,E2-003,2,Vocabulary,Grammar,The book is (          ) the table.,in,on,at,by,2
+4,E2-004,2,Vocabulary,Grammar,He (          ) speak three languages.,can,should,must,may,1
+5,E2-005,2,Vocabulary,Grammar,She is (          ) excellent student.,a,an,the,some,2
+6,E2-006,2,Vocabulary,Grammar,They (          ) dinner when I called.,are eating,ate,were eating,eat,3
+7,E2-007,2,Vocabulary,[TEST] Grammar: 'She have' agreement,She have (          ) apple every morning.,a,an,the,some,2
+8,E2-008,2,Vocabulary,[TEST] Spelling: 'dont',He dont (          ) to read from a paper.,want,wants,wanted,wanting,1
+9,E2-009,2,Vocabulary,[TEST] Missing placeholder,She goes to school every day.,walks,runs,drives,rides,1
+10,E2-010,2,Vocabulary,[TEST] Missing placeholder,The weather is very nice today.,sunny,rainy,cloudy,snowy,1

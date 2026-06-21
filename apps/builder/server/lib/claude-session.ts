@@ -22,7 +22,7 @@
  * Lát 1 smoke test). The canonical `claude -p …` string in the spike doc is equivalent.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createInterface } from 'node:readline';
+import { createInterface, type Interface } from 'node:readline';
 
 /** Minimal logger shape — a Fastify (pino) logger or a console-shim both satisfy it. */
 export interface SessionLogger {
@@ -57,6 +57,14 @@ export class ClaudeSession {
   private process: ChildProcess | null = null;
   alive = false;
   capturedSessionId: string | null = null;
+
+  // The stdout line reader + the bound stream listeners, kept so a kill can detach them (011 R14 / spec
+  // 014 D7): a force-killed child must leave NOTHING attached, else each killed turn leaks a readline
+  // interface + stderr/exit/error listeners → slow memory growth on a long-lived server.
+  private rl: Interface | null = null;
+  private onStderrData: ((data: Buffer) => void) | null = null;
+  private onProcExit: ((code: number | null) => void) | null = null;
+  private onProcError: ((err: Error) => void) | null = null;
 
   // Callbacks
   onEvent: ((event: ClaudeStreamEvent) => void) | null = null;
@@ -103,6 +111,11 @@ export class ClaudeSession {
         delete env[key];
       }
     }
+    // Spec 015 D1: expose THIS turn's task id to the PreToolUse permission hook
+    // (apps/builder/server/hooks/permission-gate.ts) so its sibling-`.runs/<other>/` write guard
+    // knows which run dir is "self" (the turn's own `.runs/<taskId>/` stays writable; another task's
+    // does not). Set AFTER the strip loop so it survives. Harmless when the hook isn't loaded.
+    env.BUILDER_TASK_ID = this.taskId;
 
     try {
       this.process = spawn('claude', args, {
@@ -123,9 +136,23 @@ export class ClaudeSession {
       return false;
     }
 
+    this.attachListeners();
+    return true;
+  }
+
+  /**
+   * Wire the stdout(readline)/stderr/exit/error listeners to `this.process`, keeping references so
+   * {@link detachListeners} can remove them all on kill (011 R14). Note the natural-exit handler does
+   * NOT detach (readline may still have buffered result lines to flush after `exit`); only an explicit
+   * kill detaches — the leak the spec targets is the FORCE-KILLED child.
+   */
+  private attachListeners(): void {
+    const p = this.process;
+    if (!p) return;
+
     // Parse stdout (stream-json: one JSON object per line).
-    const rl = createInterface({ input: this.process.stdout! });
-    rl.on('line', (line) => {
+    this.rl = createInterface({ input: p.stdout! });
+    this.rl.on('line', (line) => {
       try {
         const event: ClaudeStreamEvent = JSON.parse(line);
         this.onEvent?.(event);
@@ -134,22 +161,53 @@ export class ClaudeSession {
       }
     });
 
-    this.process.stderr!.on('data', (data: Buffer) => {
+    this.onStderrData = (data: Buffer): void => {
       const text = data.toString().trim();
       if (text) this.log.error({ sessionId: this.id, stderr: text }, 'Claude CLI stderr');
-    });
+    };
+    p.stderr!.on('data', this.onStderrData);
 
-    this.process.on('exit', (code) => {
+    this.onProcExit = (code: number | null): void => {
       this.alive = false;
       this.onExit?.(code);
-    });
+    };
+    p.on('exit', this.onProcExit);
 
-    this.process.on('error', (err) => {
+    this.onProcError = (err: Error): void => {
       this.log.error({ sessionId: this.id, err: err.message }, 'Process error');
       this.alive = false;
-    });
+    };
+    p.on('error', this.onProcError);
+  }
 
-    return true;
+  /**
+   * Remove every listener this session attached + close the readline interface (011 R14 / spec 014 D7).
+   * Idempotent. Called from kill/forceKill so a killed child leaves nothing attached — no readline, no
+   * stderr `data`, no `exit`/`error` listeners — preventing a per-turn listener/memory leak.
+   */
+  detachListeners(): void {
+    if (this.rl) {
+      this.rl.removeAllListeners('line');
+      this.rl.close();
+      this.rl = null;
+    }
+    const p = this.process;
+    if (p) {
+      if (this.onStderrData && p.stderr) p.stderr.removeListener('data', this.onStderrData);
+      if (this.onProcExit) p.removeListener('exit', this.onProcExit);
+      if (this.onProcError) p.removeListener('error', this.onProcError);
+    }
+    this.onStderrData = null;
+    this.onProcExit = null;
+    this.onProcError = null;
+  }
+
+  /** TEST SEAM (011 R14): attach the lifecycle listeners to an already-spawned child so the
+   *  detach-on-kill behavior is unit-testable WITHOUT a real `claude` on PATH (a CI box has none). */
+  attachTo(child: ChildProcess): void {
+    this.process = child;
+    this.alive = true;
+    this.attachListeners();
   }
 
   /** Process PID (null if not spawned or already exited). */
@@ -165,6 +223,7 @@ export class ClaudeSession {
         // Process may already have exited.
       }
     }
+    this.detachListeners(); // leave nothing attached on the killed child (011 R14)
     this.alive = false;
   }
 
@@ -177,6 +236,7 @@ export class ClaudeSession {
         // Process may already have exited.
       }
     }
+    this.detachListeners(); // leave nothing attached on the killed child (011 R14)
     this.alive = false;
   }
 }

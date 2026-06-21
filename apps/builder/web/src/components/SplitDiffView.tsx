@@ -8,8 +8,10 @@
    ArtifactPanel passes no diff and this never renders (panel degrades).
    ============================================================ */
 import { Fragment } from 'preact';
+import { useMemo } from 'preact/hooks';
 import { I } from './Icon';
 import { parsePatch, buildSplitRows, type SplitRow, type WordSegment } from '../lib/diff-parser';
+import { t as tr } from '../lib/i18n';
 import type { FileChange } from '../types';
 
 function segs(parts: WordSegment[] | undefined, fallback: string) {
@@ -20,13 +22,17 @@ function segs(parts: WordSegment[] | undefined, fallback: string) {
 }
 
 export function SplitDiffView({ file }: { file: FileChange }) {
-  const parsed = parsePatch(file.diff);
+  // D7 (017): memoize the parse + Myers word-diff on the diff text — it's pure in `file.diff`, so an
+  // unrelated re-render (panel resize, sibling state) no longer re-parses the whole patch.
+  const { parsed, rows } = useMemo(() => {
+    const p = parsePatch(file.diff);
+    return { parsed: p, rows: p.isBinary || p.isTooLarge ? ([] as SplitRow[]) : buildSplitRows(p.hunks) };
+  }, [file.diff]);
   if (parsed.isBinary || parsed.isTooLarge) {
-    return <div className="secret-note">Binary or oversized diff — not shown.</div>;
+    return <div className="secret-note">{tr('diffBinary')}</div>;
   }
-  const rows: SplitRow[] = buildSplitRows(parsed.hunks);
   if (rows.length === 0) {
-    return <div className="secret-note">No textual changes in this file.</div>;
+    return <div className="secret-note">{tr('diffNoChanges')}</div>;
   }
 
   return (

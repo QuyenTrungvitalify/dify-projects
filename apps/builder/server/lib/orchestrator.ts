@@ -15,20 +15,39 @@
  * move) is re-homed from Lát 2's raw advance to the ②→③ `/confirm` (AC #18).
  */
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, rename, rm, rmdir, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, readFile, rename, rm, rmdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ClaudeSession, type SessionLogger } from './claude-session.js';
-import { confinementCheck, gitDirtyPaths, postTurnCheck } from './post-turn.js';
-import { runPython } from './shell.js';
-import { runTurn, type TurnResult } from './turn-runner.js';
+import { confinementCheck, gitDirtyPaths, postTurnCheck as realPostTurnCheck } from './post-turn.js';
+import { runPython as realRunPython } from './shell.js';
+import { runTurn as realRunTurn, type TurnResult } from './turn-runner.js';
 import { PHASES, renderPrompt, type PhaseDef } from './phases.js';
+import { attachmentBlock } from './attachments.js';
 import { snapshotDiffBase, writeDiffArtifact } from './diff.js';
 import { appUrlFrom, difyCreds, pullApp, pushApp, reconcileAppIdByName } from './dify-io.js';
 import { clearPushIntent, readPushIntent, writePushIntent } from './recovery.js';
-import { runReport } from './report.js';
+import { runReport as realRunReport } from './report.js';
+import { lintClean } from './linters.js';
 import { computeGate, type GateOutcome } from './gate.js';
 import { clearSession, isCancelled, setSession, turnHolderId } from './lock.js';
 import { sanitizeSlug, saveTask, type Task } from '../state/task.js';
+
+/**
+ * Injectable subprocess seams (spec 013 D2, fixes C2). The orchestrator's verdict/advance code hard-
+ * imports the runners that spawn a `claude` turn / a python subprocess / the report — so the riskiest
+ * behaviors (AC #15 auto hands-free, AC #25 auto hard-stop / never-auto-import-lint≠0, AC #23
+ * confinement revert) could only be exercised with a REAL claude turn + git tree. These optional seams
+ * default to the real impls; production is untouched (absent ⇒ identical behavior) and only tests
+ * inject fakes. `postTurnCheck` is included (beyond the spec's runTurn/runReport/runPython) because the
+ * ③ Implement verdict flows through it — without it the advance ladder can't be driven without a real
+ * `.venv` (013 Q3 seam scope).
+ */
+export interface OrchestratorRunners {
+  runTurn: typeof realRunTurn;
+  runPython: typeof realRunPython;
+  runReport: typeof realRunReport;
+  postTurnCheck: typeof realPostTurnCheck;
+}
 
 export interface OrchestratorCtx {
   projectsDir: string;
@@ -42,6 +61,19 @@ export interface OrchestratorCtx {
    * identically with or without it).
    */
   broadcast?: (taskId: string, event: string, data: unknown) => void;
+  /** 013 D2: tests inject subprocess fakes here; absent ⇒ the real impls (no behavior change). */
+  runners?: Partial<OrchestratorRunners>;
+}
+
+/** Resolve the runner seams once: each falls back to its real impl when not injected. */
+function resolveRunners(ctx: OrchestratorCtx): OrchestratorRunners {
+  const r = ctx.runners ?? {};
+  return {
+    runTurn: r.runTurn ?? realRunTurn,
+    runPython: r.runPython ?? realRunPython,
+    runReport: r.runReport ?? realRunReport,
+    postTurnCheck: r.postTurnCheck ?? realPostTurnCheck,
+  };
 }
 
 /**
@@ -49,6 +81,12 @@ export interface OrchestratorCtx {
  * every UI-visible transition so the browser mirror stays in lock-step with task.json.
  */
 async function emit(task: Task, ctx: OrchestratorCtx): Promise<void> {
+  // Bump the monotonic snapshot revision FIRST so the persisted file AND the broadcast carry the same
+  // new `rev` (spec 014 D5 / 011 R8): the web store uses it to drop a late GET that would otherwise
+  // clobber a newer live update. Every UI-visible transition flows through `emit`, so `rev` increases
+  // exactly once per transition; direct `saveTask` calls (session-id persistence) never broadcast, so
+  // they deliberately do not bump it.
+  task.rev = (task.rev ?? 0) + 1;
   await saveTask(ctx.projectsDir, task);
   ctx.broadcast?.(task.taskId, 'task:update', task);
 }
@@ -85,6 +123,19 @@ export async function startTask(task: Task, ctx: OrchestratorCtx): Promise<void>
       return; // the dispatch `finally` frees the turn lock; /reply re-acquires to retry (§I)
     }
     if (isCancelled(task.taskId)) return;
+  } else if (task.workflow) {
+    // Edit-existing of a LOCAL workflow (no Dify seed): resolve the chosen slug into a real seed so
+    // Analyze summarizes it and the diff has a pre-edit base (closes the targeting gap, GAP #14).
+    try {
+      await localEditSeed(task, ctx);
+    } catch (e) {
+      task.status = 'error';
+      task.error = `edit-existing setup failed: ${errMsg(e)}`;
+      task.gate = computeGate('analyze', { outcome: 'error' }, task.deploy);
+      await emit(task, ctx);
+      return;
+    }
+    if (isCancelled(task.taskId)) return;
   }
   await runPhaseAndGate(task, 'analyze', ctx);
   if (isCancelled(task.taskId)) return;
@@ -100,6 +151,7 @@ export async function startTask(task: Task, ctx: OrchestratorCtx): Promise<void>
  */
 async function difySeedScaffoldAndPull(task: Task, ctx: OrchestratorCtx): Promise<void> {
   const { projectsDir, log } = ctx;
+  const { runPython } = resolveRunners(ctx); // 013 D2: real impl unless a test injects a fake
 
   // Resolve the slug now (pull needs projects/<slug>/ to exist). User-supplied wins; else derive
   // from the requirement (same rule as the Spec gate) so the later gate short-circuits idempotently.
@@ -133,23 +185,74 @@ async function difySeedScaffoldAndPull(task: Task, ctx: OrchestratorCtx): Promis
     throw new Error(`sync.py pull failed: ${pull.stderr.trim().split('\n').slice(-2).join(' ⏎ ')}`);
   }
 
-  // 3. Record the pulled seed file (NOT main.yml, §G) as the diff base + the Analyze SEED_PATH.
+  // 3. Record the pulled seed file (NOT main.yml, §G) as the diff base + the Analyze SEED_PATH. Prefer
+  //    the EXACT file sync.py reported writing (014 D7 / 011 R15) — deterministic and immune to a
+  //    clock-skew mtime tie or a different app's stale yml left by a partial prior run.
   const wfDirAbs = join(projectDirAbs, 'workflows');
-  const ymls = existsSync(wfDirAbs)
-    ? (await readdir(wfDirAbs)).filter((f) => /\.ya?ml$/i.test(f) && f !== task.workflowFile)
-    : [];
-  if (!ymls.length) throw new Error('sync.py pull wrote no workflow file');
-  // Pick the MOST-RECENTLY-MODIFIED candidate (the file this pull just wrote). readdir order is
-  // filesystem-dependent and a prior partial Dify-seed run may have left a DIFFERENT app's yml here,
-  // so a plain ymls[0] could silently seed/diff against the wrong file across re-runs.
-  const byMtime = await Promise.all(
-    ymls.map(async (f) => ({ f, m: (await stat(join(wfDirAbs, f))).mtimeMs }))
-  );
-  byMtime.sort((a, b) => b.m - a.m);
-  task.seedPath = `projects/${slug}/workflows/${byMtime[0].f}`;
+  let pulledFile =
+    pull.file && pull.file !== task.workflowFile && existsSync(join(wfDirAbs, pull.file))
+      ? pull.file
+      : null;
+  if (!pulledFile) {
+    // Fallback (sync.py output unparseable/old format): the prior max-mtime scan. readdir order is
+    // filesystem-dependent and a prior partial run may have left a DIFFERENT app's yml, so pick the
+    // most-recently-modified candidate rather than a plain ymls[0].
+    const ymls = existsSync(wfDirAbs)
+      ? (await readdir(wfDirAbs)).filter((f) => /\.ya?ml$/i.test(f) && f !== task.workflowFile)
+      : [];
+    if (!ymls.length) throw new Error('sync.py pull wrote no workflow file');
+    const byMtime = await Promise.all(
+      ymls.map(async (f) => ({ f, m: (await stat(join(wfDirAbs, f))).mtimeMs }))
+    );
+    byMtime.sort((a, b) => b.m - a.m);
+    pulledFile = byMtime[0].f;
+  }
+  task.seedPath = `projects/${slug}/workflows/${pulledFile}`;
   task.status = 'running';
   await emit(task, ctx);
   log.info({ taskId: task.taskId, slug, seedPath: task.seedPath }, 'Dify-seed: scaffolded + pulled');
+}
+
+/**
+ * Phase ① local edit-existing prelude (GAP #14 fix): when the build targets an existing LOCAL
+ * workflow (`task.workflow` set, no Dify seed), resolve it into a real seed so Analyze summarizes the
+ * existing graph and the diff has a pre-edit base — instead of silently building greenfield.
+ *
+ * We (1) point `task.slug` at the chosen workflow (NOT a requirement-derived slug — so the Spec-gate
+ * scaffold skips init/derive and Implement edits the RIGHT project in place), and (2) SNAPSHOT the
+ * current workflow file into `.runs/<taskId>/seed.yml` — an immutable copy that Implement (which
+ * overwrites `projects/<slug>/workflows/<workflowFile>`) cannot clobber, so it serves BOTH the Analyze
+ * SEED_PATH and the diff base (`resolveBase` prefers `seedPath`; `snapshotDiffBase` no-ops when set).
+ * Mirrors the Dify-seed prelude (a separate, stable seed file) minus the network pull; the turn reads
+ * the snapshot as DATA only (§J). If the target has no `<workflowFile>` yet, we still target the slug
+ * but leave the seed empty (from-scratch-into-the-existing-project) — a benign fallback.
+ */
+export async function localEditSeed(task: Task, ctx: OrchestratorCtx): Promise<void> {
+  const { projectsDir, log } = ctx;
+  const slug = sanitizeSlug(task.workflow!.trim());
+  task.slug = task.project = slug; // target the chosen workflow, not a requirement-derived slug
+
+  // The canonical workflow file in the target project (this app scaffolds `main.yml`).
+  const srcRel = `projects/${slug}/workflows/${task.workflowFile}`;
+  const srcAbs = join(projectsDir, srcRel);
+  if (!existsSync(srcAbs)) {
+    log.warn(
+      { taskId: task.taskId, slug, srcRel },
+      'edit-existing: target has no workflow file — building into the existing project with an empty seed'
+    );
+    await emit(task, ctx); // persist the resolved slug even on the no-seed fallback
+    return;
+  }
+
+  // Immutable pre-edit snapshot: Analyze reads it, the diff bases on it; Implement writes the live
+  // file (not this copy), so it survives the overwrite. (Re-runs via /reply reuse the same snapshot.)
+  const seedRel = `apps/builder/.runs/${task.taskId}/seed.yml`;
+  const seedAbs = join(projectsDir, seedRel);
+  await mkdir(join(projectsDir, `apps/builder/.runs/${task.taskId}`), { recursive: true });
+  if (!existsSync(seedAbs)) await copyFile(srcAbs, seedAbs); // idempotent: keep the TRUE pre-edit state
+  task.seedPath = seedRel;
+  await emit(task, ctx);
+  log.info({ taskId: task.taskId, slug, seedPath: seedRel }, 'edit-existing: snapshotted local workflow as seed');
 }
 
 /**
@@ -197,17 +300,21 @@ export async function confirmAdvance(
     // 'continue' (clean) or 'accept' (still-failing human override) → ④. `accept` proceeds even
     // with lint≠0 (a HUMAN override; `auto` never reaches here — maybeAutoAdvance hard-stops, §D).
     await runTestAndFinish(task, ctx, actionId === 'accept');
-    // deploy=none|cloud → ④ is terminal (status:done). selfhost-clean → runTestAndFinish paused at
-    // the Import gate (awaiting_confirm); fall through to maybeAutoAdvance so `auto`/`spec_only`
-    // auto-confirm the import (each_step pauses for the button, AC #16).
+    // deploy=none|cloud → ④ is terminal (status:done) unless lint failed (spec 014 D2 → a ④ accept
+    // gate). selfhost-clean → runTestAndFinish parks at the Import gate. Either parked gate is a
+    // `flag` that maybeAutoAdvance HARD-STOPS on (D1 deploy / D2 still-failing), so `auto`/`spec_only`
+    // wait for the explicit human button rather than auto-confirming (AC #16/#25 reworded).
   } else if (cur === 'test') {
-    // The selfhost Import gate (Task 6): 'import' → backend push + finish; 'skip_import' → done w/o push.
+    // ④ gates: 'import' → backend push + finish; 'skip_import' → done w/o push; 'accept' → the D2
+    // still-failing override (finish `done`, tagged accepted_lint_failure). 'discard' is /cancel.
     if (actionId === 'import') {
       await runImportAndFinish(task, ctx);
+    } else if (actionId === 'accept') {
+      await runTestAndFinish(task, ctx, /*acceptedLintFailure*/ true);
     } else {
       await finishWithoutImport(task, ctx);
     }
-    return; // ④ import is terminal
+    return; // ④ is terminal
   } else {
     return; // defensively no-op
   }
@@ -270,6 +377,7 @@ async function maybeAutoAdvance(task: Task, ctx: OrchestratorCtx): Promise<void>
   if (isCancelled(task.taskId)) return; // a /cancel mutates a separate object — re-check the live flag
   if (task.status !== 'awaiting_confirm') return; // error / done / cancelled never auto-advance
   if (task.gate?.flag === 'still_failing') return; // `auto` HARD-STOPS at still-failing (§D / AC #25)
+  if (task.gate?.flag === 'awaiting_import') return; // deploy is ALWAYS an explicit human decision (spec 014 D1)
   if (!boundaryAutoAdvances(task.confirmMode, task.phase)) return;
   const primary = task.gate?.actions.find((a) => a.kind === 'confirm');
   if (!primary) return; // terminal (④) — nothing to advance
@@ -279,7 +387,7 @@ async function maybeAutoAdvance(task: Task, ctx: OrchestratorCtx): Promise<void>
 /** auto → always; spec_only → pause only after Spec (② pauses, ①/③ auto); else (each_step OR any
  *  corrupt/unrecognized persisted value) → never auto. Fail-SAFE toward pausing, never toward an
  *  autonomous `auto` run (a stale `confirmMode:null` in a reconciled task.json must not silently run). */
-function boundaryAutoAdvances(mode: Task['confirmMode'], phase: Task['phase']): boolean {
+export function boundaryAutoAdvances(mode: Task['confirmMode'], phase: Task['phase']): boolean {
   if (mode === 'auto') return true;
   if (mode === 'spec_only') return phase !== 'spec';
   return false; // each_step (and any unknown/corrupt value)
@@ -299,6 +407,7 @@ async function runPhase(
   opts?: { resumeId?: string; replyText?: string }
 ): Promise<PhaseVerify> {
   const { projectsDir, settingsPath, log } = ctx;
+  const { runTurn } = resolveRunners(ctx); // 013 D2: real impl unless a test injects a fake
   const phase = PHASES.find((p) => p.id === phaseId) as PhaseDef;
   const sessKey = phaseId;
 
@@ -310,12 +419,19 @@ async function runPhase(
 
   const body = await readFile(join(projectsDir, phase.promptFile!), 'utf8');
   const renderedFresh = renderPrompt(body, phase.injectVars(task));
+  // Spec 012: the trailing `添付画像:` path block (empty string when no images). Appended ONCE to
+  // whichever prompt string is finally sent — this is the single seam BOTH the fresh render and the
+  // /reply resume prompt pass through (the resume prompt skips phases.ts injectVars entirely), so it is
+  // the only place that covers create→Analyze AND a reply at any phase (AC2/AC3). Every phase benefits,
+  // including a fresh Implement turn (which has no {{REQUIREMENT}} token to inject into).
+  const block = attachmentBlock(task.attachments);
   // A /reply with a live session sends ONLY the change request (the resumed session has context); a
   // fresh fallback sends the rendered body + the request appended (seeded with the artifact PATH).
-  const freshPrompt = opts?.replyText
-    ? `${renderedFresh}\n\n## Change request (revise the existing artifact; do not restart from scratch)\n${opts.replyText}`
-    : renderedFresh;
-  const resumePrompt = opts?.replyText ?? freshPrompt;
+  const freshPrompt =
+    (opts?.replyText
+      ? `${renderedFresh}\n\n## Change request (revise the existing artifact; do not restart from scratch)\n${opts.replyText}`
+      : renderedFresh) + block;
+  const resumePrompt = opts?.replyText ? `${opts.replyText}${block}` : freshPrompt;
 
   // Snapshot the pre-edit workflow BEFORE Implement overwrites it, so an edit-existing diff has a
   // real base (idempotent: no-op on a no-seed new build, a Dify-seed, or a /reply re-run, Task 4).
@@ -374,7 +490,10 @@ async function runPhase(
 
   // Resume-failure fallback (spec §A persistence caveat / Q3): a bad/expired session id makes the
   // child exit before any result event — re-run as a FRESH turn seeded with the artifact PATH.
-  if (opts?.resumeId && turn.isError && !turn.result) {
+  // A wall-clock TIMEOUT (or a spawn failure) sets turn.note — that is NOT a resume failure, and
+  // re-running would silently spend a SECOND full TURN_TIMEOUT_MS. Exclude it so a /reply timeout
+  // parks at error like a fresh-turn timeout instead of doubling the budget (spec 014 D4 / C4).
+  if (opts?.resumeId && turn.isError && !turn.result && !turn.note) {
     log.warn({ taskId: task.taskId, phase: phaseId }, 'resume failed → fresh turn seeded with artifact');
     turn = await spawnOnce(undefined, freshPrompt);
   }
@@ -423,6 +542,7 @@ async function verifyPhase(
   turnNote: string | undefined
 ): Promise<PhaseVerify> {
   const { projectsDir, log } = ctx;
+  const { postTurnCheck } = resolveRunners(ctx); // 013 D2: real impl unless a test injects a fake
 
   // The skill bodies write task artifacts to the shorthand `.runs/<taskId>/` (cwd = repo root).
   // Relocate them into the canonical `apps/builder/.runs/<taskId>/` (spec §A :517) BEFORE verifying.
@@ -447,12 +567,9 @@ async function verifyPhase(
     const hardError = !!turnNote || !d.artifactOk || !d.yamlOk || d.confinementBreaches.length > 0;
     if (hardError) return { outcome: 'error', reasons };
 
-    const lintClean =
-      d.lintCodes != null &&
-      d.lintCodes.validate === 0 &&
-      d.lintCodes.lint_refs === 0 &&
-      d.lintCodes.lint_plugin_hashes === 0;
-    if (lintClean && d.idsOk) return { outcome: 'success', reasons: [] };
+    // The Implement success gate consumes the SHARED lintClean (013 D1) — the identical clean-test the
+    // ④ report's Import precondition uses, so the ③ gate and the ④ report can never disagree.
+    if (lintClean(d.lintCodes) && d.idsOk) return { outcome: 'success', reasons: [] };
 
     // Present + parseable + in-confinement, but lint≠0 or non-13-digit ids → still-failing gate
     // (cap-5 reached; the agent self-corrected as far as it could in its one turn — §D / AC #20).
@@ -499,6 +616,7 @@ async function runTestAndFinish(
   acceptedLintFailure: boolean
 ): Promise<void> {
   const { projectsDir, log } = ctx;
+  const { runReport } = resolveRunners(ctx); // 013 D2: real impl unless a test injects a fake
   task.phase = 'test';
   task.status = 'running';
   task.gate = undefined;
@@ -516,11 +634,21 @@ async function runTestAndFinish(
     return; // the dispatch `finally` frees the turn lock (§I)
   }
 
-  // selfhost + clean lint → park behind the Import button (the push is runImportAndFinish). The
-  // caller's maybeAutoAdvance auto-confirms it in `auto`/`spec_only`; the turn lock frees on settle.
+  // selfhost + clean lint → park behind the Import button (the push is runImportAndFinish). Deploy is
+  // ALWAYS a human decision: `auto`/`spec_only` PARK here too (spec 014 D1) — maybeAutoAdvance no longer
+  // auto-confirms the import; the turn lock frees on settle and the build waits for Import/Skip.
   if (task.deploy === 'selfhost' && res.lintClean) {
     task.status = 'awaiting_confirm';
     task.gate = computeGate('test', { outcome: 'awaiting_import' }, task.deploy);
+    await emit(task, ctx);
+    return;
+  }
+
+  // lint≠0 and NOT a human-accepted ③ override → never silently `done` (spec 014 D2 / C2). Park at a
+  // still-failing ④ gate for an explicit Accept (finish, tagged) or Discard; `auto` HARD-STOPS (flag).
+  if (!res.lintClean && !acceptedLintFailure) {
+    task.status = 'awaiting_confirm';
+    task.gate = computeGate('test', { outcome: 'still_failing' }, task.deploy);
     await emit(task, ctx);
     return;
   }
@@ -539,6 +667,7 @@ async function runTestAndFinish(
  */
 async function runImportAndFinish(task: Task, ctx: OrchestratorCtx): Promise<void> {
   const { projectsDir, log } = ctx;
+  const { runReport } = resolveRunners(ctx); // 013 D2: real impl unless a test injects a fake
   task.phase = 'test';
   task.status = 'running';
   task.gate = undefined;
@@ -558,19 +687,33 @@ async function runImportAndFinish(task: Task, ctx: OrchestratorCtx): Promise<voi
   }
 
   let appId: string | null = null;
+  let reconcileAmbiguous = false; // ≥2 same-named apps matched — never silently attach the wrong one (D6)
   const existing = await readPushIntent(projectsDir, task.taskId);
   if (existing) {
     // A marker ALREADY exists → a prior attempt pushed (or may have). NEVER re-push (a re-push would
     // duplicate the app, AC #25) — use the captured id, else reconcile by slugified name. This covers
     // both a crash mid-push (appId null) AND a boot-recovered marker (appId already written back).
     log.warn({ taskId: task.taskId, hadAppId: !!existing.appId }, 'push_intent exists — reconciling, NOT re-pushing');
-    appId = existing.appId ?? (await reconcileAppIdByName(projectsDir, existing.appName));
+    if (existing.appId) {
+      appId = existing.appId;
+    } else {
+      const rec = await reconcileAppIdByName(projectsDir, existing.appName);
+      appId = rec.appId;
+      reconcileAmbiguous = rec.ambiguous;
+    }
   } else {
     // Fresh import: write the marker BEFORE the push (the guard keys off the PRE-push marker, §I).
     await writePushIntent(projectsDir, task.taskId, { slug, file: task.workflowFile, appName, appId: null });
     const push = await pushApp(projectsDir, slug, task.workflowFile, appName);
-    // --json-out is PRIMARY; on absence/crash, reconcile by slugified name (most-recent match).
-    appId = push.appId ?? (await reconcileAppIdByName(projectsDir, appName));
+    // --json-out is PRIMARY; on absence/crash, reconcile by slugified name (D6: exactly-one match, else
+    // ambiguous — never a silent newest-pick that could attach the wrong app).
+    if (push.appId) {
+      appId = push.appId;
+    } else {
+      const rec = await reconcileAppIdByName(projectsDir, appName);
+      appId = rec.appId;
+      reconcileAmbiguous = rec.ambiguous;
+    }
     if (!push.ok && !appId) {
       // push failed AND nothing to reconcile → error. The marker (no appId) PERSISTS so a /reply
       // re-run reconciles instead of re-pushing (never a duplicate).
@@ -592,7 +735,13 @@ async function runImportAndFinish(task: Task, ctx: OrchestratorCtx): Promise<voi
   const duplicateWarning = task.workflow
     ? `created a NEW Dify app (a DUPLICATE): Dify import always creates a new app, so "${task.workflow}" was NOT updated in place — delete the old app or reconcile in Dify.`
     : null;
-  const importNote = appId ? null : 'app id not captured — push may have completed; check Dify for the new app';
+  // D6 (C6): when ≥2 same-named apps matched we attached NONE (can't tell which is this build's), so say
+  // so explicitly rather than letting a generic "check Dify" imply a single new app exists.
+  const importNote = appId
+    ? null
+    : reconcileAmbiguous
+      ? `ambiguous import — multiple Dify apps are named like "${appName}"; none was attached. Verify in Dify which one is this build.`
+      : 'app id not captured — push may have completed; check Dify for the new app';
 
   await runReport(projectsDir, task, log, { appUrl, duplicateWarning, importNote });
   if (appId) await clearPushIntent(projectsDir, task.taskId); // resolved → drop the marker
@@ -605,6 +754,7 @@ async function runImportAndFinish(task: Task, ctx: OrchestratorCtx): Promise<voi
 /** skip_import at the selfhost Import gate → finish `done` WITHOUT pushing (built + linted locally). */
 async function finishWithoutImport(task: Task, ctx: OrchestratorCtx): Promise<void> {
   const { projectsDir, log } = ctx;
+  const { runReport } = resolveRunners(ctx); // 013 D2: real impl unless a test injects a fake
   task.status = 'running';
   task.gate = undefined;
   await emit(task, ctx);
@@ -630,9 +780,13 @@ async function scaffoldAtSpecGate(
   override?: ConfirmPayload
 ): Promise<void> {
   const { projectsDir, log } = ctx;
+  const { runPython } = resolveRunners(ctx); // 013 D2: real impl unless a test injects a fake
 
   // Apply a user-edited slug/name from the confirm payload (AC #18), else propose from the requirement.
   if (override?.slug && override.slug.trim()) {
+    // User-supplied slug (override branch) — used AS-IS even if it targets an existing project: an
+    // explicit slug is plausibly a deliberate retarget. The F4 collision suffix runs ONLY on the
+    // derived path below, never here.
     task.slug = task.project = sanitizeSlug(override.slug.trim());
   }
   if (override?.name && override.name.trim()) {
@@ -640,8 +794,21 @@ async function scaffoldAtSpecGate(
   }
   if (!task.slug) {
     const { slug, name } = deriveSlugName(task.requirement);
-    task.slug = task.project = slug;
     if (!task.name) task.name = name;
+    // F4 (spec 010): a genuine NEW-workflow build whose DERIVED slug collides with an existing
+    // `projects/<slug>/` would scaffold idempotently (skip init) and Implement would OVERWRITE that
+    // unrelated project's main.yml — silent data loss. Auto-suffix to the first free `<slug>_N` and
+    // record a note (surfaced on the next gate + in the report). This block is the GENUINE-NEW path
+    // ONLY: edit-existing (local) resolves its slug in `localEditSeed`, Dify-seed in
+    // `difySeedScaffoldAndPull`, and the explicit-override branch above — each sets `task.slug` before
+    // here. So reaching `!task.slug` means a fresh new workflow ⇒ always take first-free (which also
+    // forecloses the GAP #14 data-loss tail: no edit-existing build can bypass the collision suffix).
+    const free = firstFreeSlug(projectsDir, slug);
+    if (free !== slug) {
+      task.slugNote = `'${slug}' already exists — using '${free}' to avoid overwriting it.`;
+      log.info({ taskId: task.taskId, derived: slug, used: free }, 'slug collision — auto-suffixed');
+    }
+    task.slug = task.project = free;
   }
   const slug = task.slug;
   const projectSpecRel = `projects/${slug}/SPEC.md`;
@@ -714,7 +881,7 @@ async function relocateRunArtifacts(
 }
 
 /** Deterministic slug/name from the requirement: lowercase, [a-z0-9_], ≤4 content words. */
-function deriveSlugName(requirement: string): { slug: string; name: string } {
+export function deriveSlugName(requirement: string): { slug: string; name: string } {
   const stop = new Set([
     'a', 'an', 'the', 'that', 'this', 'takes', 'take', 'and', 'returns', 'return', 'of', 'to',
     'with', 'for', 'in', 'on', 'is', 'are', 'it', 'its',
@@ -735,6 +902,24 @@ function deriveSlugName(requirement: string): { slug: string; name: string } {
       .map((w) => w[0].toUpperCase() + w.slice(1))
       .join(' ') || 'Workflow';
   return { slug, name };
+}
+
+/**
+ * F4 (spec 010): the first slug in `slug, slug_2, slug_3, …` whose `projects/<slug>/` does NOT exist.
+ * Returns `slug` unchanged when it is already free (today's behavior). Synchronous `existsSync` is fine
+ * here — this runs once per Spec-gate confirm, single-writer under the turn lock.
+ */
+export function firstFreeSlug(projectsDir: string, slug: string): string {
+  const exists = (s: string): boolean => existsSync(join(projectsDir, 'projects', s));
+  if (!exists(slug)) return slug;
+  for (let n = 2; n < 1000; n++) {
+    const suffix = `_${n}`;
+    // Reserve room for the suffix BEFORE the 40-char cap, else a near-40-char slug truncates the
+    // suffix away and collapses back onto the colliding slug (never finding a free candidate).
+    const cand = `${slug.slice(0, 40 - suffix.length).replace(/_+$/, '')}${suffix}`;
+    if (!exists(cand)) return cand;
+  }
+  return `${slug.slice(0, 26)}_${Date.now()}`; // pathological fallback (≤40, never expected); non-colliding
 }
 
 /** Tag an Error with an HTTP status code the route maps to a response. */

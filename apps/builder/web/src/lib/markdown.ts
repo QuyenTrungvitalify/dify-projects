@@ -42,14 +42,52 @@ function inline(escaped: string): string {
   // (snake_case identifiers, multiplication — which Claude streams constantly) don't italicize.
   out = out.replace(/(^|[^\w*])\*([^*\n]+)\*(?=[^\w*]|$)/g, '$1<em>$2</em>');
   out = out.replace(/(^|[^\w_])_([^_\n]+)_(?=[^\w_]|$)/g, '$1<em>$2</em>');
+  // Strikethrough: ~~text~~ (matches the spec-editor toolbar's S button).
+  out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   // Re-insert the protected code spans.
   out = out.replace(/\x00(\d+)\x00/g, (_m, n) => codes[Number(n)]);
   return out;
 }
 
 /**
+ * Split one GFM table row into trimmed cells. Strips the optional leading/trailing pipe, splits on
+ * unescaped `|`, and unescapes `\|` inside cells. Hand-rolled (no lookbehind) so it works on every
+ * target browser.
+ */
+function splitRow(row: string): string[] {
+  let s = row.trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|')) s = s.slice(0, -1);
+  const cells: string[] = [];
+  let cur = '';
+  for (let k = 0; k < s.length; k++) {
+    const ch = s[k];
+    if (ch === '\\' && s[k + 1] === '|') {
+      cur += '|';
+      k++;
+      continue;
+    }
+    if (ch === '|') {
+      cells.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
+/** A GFM delimiter row: must contain a pipe and every cell is `:?-+:?` (e.g. `| :--- | ---: |`). */
+function isDelimiterRow(line: string): boolean {
+  if (!line.includes('|')) return false;
+  const cells = splitRow(line);
+  return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c));
+}
+
+/**
  * Render markdown → an HTML string. Block-level scan over lines: fenced code blocks are emitted
- * verbatim (escaped, never re-parsed), then headings / lists / blockquotes / paragraphs.
+ * verbatim (escaped, never re-parsed), then tables / headings / lists / blockquotes / paragraphs.
  */
 export function renderMarkdownHtml(text: string, _workingDir?: string): string {
   const src = String(text ?? '');
@@ -81,6 +119,31 @@ export function renderMarkdownHtml(text: string, _workingDir?: string): string {
       }
       i++; // consume the closing fence (or EOF)
       html.push(`<pre class="md-code"${lang}><code>${esc(body.join('\n'))}</code></pre>`);
+      continue;
+    }
+
+    // GFM table: a header row with pipes immediately followed by a `|---|---|` delimiter row.
+    if (line.includes('|') && i + 1 < lines.length && isDelimiterRow(lines[i + 1])) {
+      closeList();
+      const aligns = splitRow(lines[i + 1]).map((c) => {
+        const l = c.startsWith(':');
+        const r = c.endsWith(':');
+        return l && r ? 'center' : r ? 'right' : l ? 'left' : '';
+      });
+      const cell = (raw: string, idx: number, tag: 'th' | 'td'): string => {
+        const a = aligns[idx] ? ` style="text-align:${aligns[idx]}"` : '';
+        return `<${tag}${a}>${inline(esc(raw))}</${tag}>`;
+      };
+      const rowHtml = (cells: string[], tag: 'th' | 'td'): string =>
+        `<tr>${cells.map((c, idx) => cell(c, idx, tag)).join('')}</tr>`;
+      const out: string[] = [`<table class="md-table"><thead>${rowHtml(splitRow(line), 'th')}</thead><tbody>`];
+      i += 2; // consume header + delimiter
+      while (i < lines.length && lines[i].trim() !== '' && lines[i].includes('|')) {
+        out.push(rowHtml(splitRow(lines[i]), 'td'));
+        i++;
+      }
+      out.push('</tbody></table>');
+      html.push(out.join(''));
       continue;
     }
 

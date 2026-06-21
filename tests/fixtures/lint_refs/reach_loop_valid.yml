@@ -1,0 +1,24 @@
+# Spec 020 Mục 4 — a VALID loop. loop-start anchors the body; body nodes (isInLoop) reference each
+# other + sys vars, the post-loop 'after' reads the loop's output. No forward/dangling ref → 0 findings.
+app:
+  name: reach-loop-valid
+workflow:
+  graph:
+    nodes:
+      - id: 'start1'
+        data: {type: start, variables: [{variable: q}]}
+      - id: 'loop1'
+        data: {type: loop, outputs: {result: {}}}
+      - id: 'loop1start'
+        data: {type: loop-start}
+      - id: 'L1'
+        data: {type: llm, isInLoop: true, loop_id: 'loop1', prompt: "process {{#sys.query#}}"}
+      - id: 'L2'
+        data: {type: llm, isInLoop: true, loop_id: 'loop1', prompt: "refine {{#L1.text#}}"}
+      - id: 'after'
+        data: {type: answer, answer: "done {{#loop1.result#}}"}
+    edges:
+      - {source: 'start1', target: 'loop1'}
+      - {source: 'loop1start', target: 'L1'}
+      - {source: 'L1', target: 'L2'}
+      - {source: 'loop1', target: 'after'}
