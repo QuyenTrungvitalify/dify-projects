@@ -1,0 +1,21 @@
+#,Item ID,Grade,Category 1,Target,Stem,Answer Choice 1,Answer Choice 2,Answer Choice 3,Answer Choice 4,Correct Answer Number
+1,EDGE-001,2,Vocabulary,EDGE: A:/B: dialog,"A: How was your weekend?
+B: It was great! I (          ) my grandparents.",visit,visited,visiting,have visited,2
+2,EDGE-002,2,Vocabulary,EDGE: dialog with time,"A: What time is the meeting?
+B: It (          ) at 3 PM in the main room.",start,starts,started,starting,2
+3,EDGE-003,2,Vocabulary,EDGE: dialog future,"A: Did you finish the report?
+B: Not yet, but I (          ) it by tomorrow.",finish,finished,will finish,have finished,3
+4,EDGE-004,2,Vocabulary,EDGE: dialog with 'Person',"Person A: Where are you going?
+Person B: I'm going to (          ) groceries.",buy,buys,bought,buying,1
+5,EDGE-005,2,Vocabulary,EDGE: teacher-student dialog,"Teacher: Can you explain this concept?
+Student: I'll (          ) my best to explain.",do,does,did,doing,1
+6,EDGE-006,2,Vocabulary,EDGE: very long stem,"In the late nineteenth century, when industrialization was rapidly transforming the economies and societies of Western nations, many workers found themselves struggling to (          ) the new realities of factory labor and urban living.",adapt,adapts,adapted,adapting,4
+7,EDGE-007,2,Vocabulary,EDGE: very long stem,"Despite the numerous challenges that the research team encountered during the course of their lengthy investigation, including limited funding, equipment failures, and unfavorable weather conditions, they ultimately (          ) groundbreaking results that surprised the entire scientific community.",achieve,achieves,achieved,achieving,3
+8,EDGE-008,2,Vocabulary,EDGE: very long stem,"The committee, after carefully reviewing all of the submitted proposals from various departments throughout the university, finally (          ) a decision that would significantly affect the institution's research priorities for years to come.",reach,reaches,reached,reaching,3
+9,EDGE-009,2,Vocabulary,EDGE: quotes in stem,"She said ""I (          ) ready,"" with confidence.",am,is,are,be,1
+10,EDGE-010,2,Vocabulary,EDGE: fractions,The recipe calls for 1/2 cup of (          ).,sugar,sugars,sweet,sweets,1
+11,EDGE-011,2,Vocabulary,EDGE: currency,He paid $50.99 for (          ) book.,a,an,the,some,3
+12,EDGE-012,2,Vocabulary,EDGE: similar choices (told/said),She (          ) him about the problem.,told,said,spoke,talked,1
+13,EDGE-013,2,Vocabulary,EDGE: for/since distinction,It's been raining (          ) 3 hours.,for,since,during,while,1
+14,EDGE-014,2,Vocabulary,[TEST] No placeholder,She enjoys reading books in her free time.,novels,fiction,stories,comics,1
+15,EDGE-015,2,Vocabulary,EDGE: all 4 choices same word,The (          ) is on the table.,book,book,book,book,1

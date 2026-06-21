@@ -1,0 +1,1619 @@
+app:
+  description: 'PoC: News automation end-to-end. Collect Chatwork OCR + Web RSS → dedup → score → top 2 → draft polished description → write to Google Sheets via Apps Script webhook.'
+  icon: "\U0001F4F0"
+  icon_background: '#FEF3C7'
+  icon_type: emoji
+  mode: workflow
+  name: 'News Automation (PoC)'
+  use_icon_as_answer_icon: false
+dependencies:
+- current_identifier: null
+  type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: langgenius/openai:0.3.7@f16dcbd99f632f3f3f29212641afae3e54795d6545ffcf6464038eee0481d05c
+    version: null
+- current_identifier: null
+  type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: langgenius/google:0.0.9@d360bbc433f39be1b11909cb9c32e6be4a17ea06af083f9e1c7613bb802bf517
+    version: null
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions: []
+      allowed_file_types:
+      - document
+      allowed_file_upload_methods:
+      - local_file
+      enabled: false
+      fileUploadConfig:
+        batch_count_limit: 5
+        file_size_limit: 15
+        file_upload_limit: 20
+        workflow_file_upload_limit: 10
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource: { enabled: false }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    # Start → fan-out to Section A (Chatwork) and Section B (RSS)
+    - id: 1781160126474-source-1781160126476-target
+      source: '1781160126474'
+      target: '1781160126476'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: http-request }
+      zIndex: 0
+    - id: 1781160126474-source-1781245558313-target
+      source: '1781160126474'
+      target: '1781245558313'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: code }
+      zIndex: 0
+
+    # Section A: Chatwork OCR chain (copied from probe)
+    - id: 1781160126476-source-1781160126478-target
+      source: '1781160126476'
+      target: '1781160126478'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: http-request, targetType: code }
+      zIndex: 0
+    - id: 1781160126478-source-1781160126480-target
+      source: '1781160126478'
+      target: '1781160126480'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: iteration }
+      zIndex: 0
+    - id: 1781160126480start-source-1781160126483-target
+      source: 1781160126480start
+      target: '1781160126483'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1781160126480', sourceType: iteration-start, targetType: http-request }
+      zIndex: 1002
+    - id: 1781160126483-source-1781170608079-target
+      source: '1781160126483'
+      target: '1781170608079'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1781160126480', sourceType: http-request, targetType: code }
+      zIndex: 1002
+    - id: 1781170608079-source-1781183383883-target
+      source: '1781170608079'
+      target: '1781183383883'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1781160126480', sourceType: code, targetType: http-request }
+      zIndex: 1002
+    - id: 1781183383883-source-1781231410602-target
+      source: '1781183383883'
+      target: '1781231410602'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1781160126480', sourceType: http-request, targetType: llm }
+      zIndex: 1002
+    - id: 1781231410602-source-1781160126485-target
+      source: '1781231410602'
+      target: '1781160126485'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1781160126480', sourceType: llm, targetType: code }
+      zIndex: 1002
+    - id: 1781160126480-source-1781245558311-target
+      source: '1781160126480'
+      target: '1781245558311'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: iteration, targetType: code }
+      zIndex: 0
+
+    # Section B: Dynamic Google Search chain
+    - id: 1781245558313-source-1781249467749-target
+      source: '1781245558313'
+      target: '1781249467749'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: code }
+      zIndex: 0
+    - id: 1781249467749-source-1781245558315-target
+      source: '1781249467749'
+      target: '1781245558315'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: iteration }
+      zIndex: 0
+    - id: 1781245558315start-source-1781245558317-target
+      source: 1781245558315start
+      target: '1781245558317'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1781245558315', sourceType: iteration-start, targetType: tool }
+      zIndex: 1002
+    - id: 1781245558317-source-1781245558320-target
+      source: '1781245558317'
+      target: '1781245558320'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1781245558315', sourceType: tool, targetType: code }
+      zIndex: 1002
+
+    # Both A and B converge into Dedup
+    - id: 1781245558311-source-1781245558324-target
+      source: '1781245558311'
+      target: '1781245558324'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: code }
+      zIndex: 0
+    - id: 1781245558315-source-1781245558324-target
+      source: '1781245558315'
+      target: '1781245558324'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: iteration, targetType: code }
+      zIndex: 0
+
+    # Section C: Score
+    - id: 1781245558324-source-1781245558327-target
+      source: '1781245558324'
+      target: '1781245558327'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: iteration }
+      zIndex: 0
+    - id: 1781245558327start-source-1781245558329-target
+      source: 1781245558327start
+      target: '1781245558329'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1781245558327', sourceType: iteration-start, targetType: llm }
+      zIndex: 1002
+    - id: 1781245558329-source-1781245558331-target
+      source: '1781245558329'
+      target: '1781245558331'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1781245558327', sourceType: llm, targetType: code }
+      zIndex: 1002
+    - id: 1781245558327-source-1781245558333-target
+      source: '1781245558327'
+      target: '1781245558333'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: iteration, targetType: code }
+      zIndex: 0
+
+    # Section D: Draft
+    - id: 1781245558333-source-1781245558335-target
+      source: '1781245558333'
+      target: '1781245558335'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: iteration }
+      zIndex: 0
+    - id: 1781245558335start-source-1781245558338-target
+      source: 1781245558335start
+      target: '1781245558338'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1781245558335', sourceType: iteration-start, targetType: llm }
+      zIndex: 1002
+    - id: 1781245558338-source-1781245558340-target
+      source: '1781245558338'
+      target: '1781245558340'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1781245558335', sourceType: llm, targetType: code }
+      zIndex: 1002
+    - id: 1781245558335-source-1781245558342-target
+      source: '1781245558335'
+      target: '1781245558342'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: iteration, targetType: code }
+      zIndex: 0
+
+    # Section E: Write to Sheet
+    - id: 1781245558342-source-1781245558344-target
+      source: '1781245558342'
+      target: '1781245558344'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: http-request }
+      zIndex: 0
+    - id: 1781245558344-source-1781248954086-target
+      source: '1781245558344'
+      target: '1781248954086'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: http-request, targetType: code }
+      zIndex: 0
+    - id: 1781248954086-source-1781245558347-target
+      source: '1781248954086'
+      target: '1781245558347'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: end }
+      zIndex: 0
+
+    nodes:
+    # ============================================================
+    # START
+    # ============================================================
+    - id: '1781160126474'
+      type: custom
+      data:
+        title: 'Input'
+        desc: 'Chatwork token + room_id + hours_back'
+        type: start
+        variables:
+        - type: text-input
+          variable: chatwork_api_token
+          label: 'Chatwork API Token'
+          required: true
+          max_length: 200
+          default: ''
+          hint: 'From Chatwork Account Settings > API Token'
+          options: []
+          placeholder: ''
+        - type: text-input
+          variable: room_id
+          label: 'Chatwork Room ID'
+          required: true
+          max_length: 50
+          default: ''
+          hint: 'Digits after #!rid in the room URL'
+          options: []
+          placeholder: ''
+        - type: text-input
+          variable: hours_back
+          label: 'Hours back to scan'
+          required: true
+          max_length: 10
+          default: '24'
+          hint: 'How many hours of message history to scan (integer, default 24)'
+          options: []
+          placeholder: '24'
+        - type: paragraph
+          variable: search_keywords
+          label: 'Search keywords (themes)'
+          required: true
+          max_length: 200
+          default: 'AI 最新 ニュース; DX 日本 事例 2026; 生成AI 業務 活用'
+          hint: 'Themes for Google Search. LLM will generate Japan-focused queries from these.'
+          options: []
+          placeholder: 'AI; DX; 生成AI'
+      position: { x: 0, y: 400 }
+      positionAbsolute: { x: 0, y: 400 }
+      width: 242
+      height: 240
+      sourcePosition: right
+      targetPosition: left
+
+    # ============================================================
+    # SECTION A: Chatwork OCR (copied verbatim from probe — already verified)
+    # ============================================================
+    - id: '1781160126476'
+      type: custom
+      data:
+        title: 'A1: List Messages'
+        desc: 'GET Chatwork /rooms/{room_id}/messages'
+        type: http-request
+        method: get
+        url: 'https://api.chatwork.com/v2/rooms/{{#1781160126474.room_id#}}/messages?force=1'
+        authorization: { type: no-auth, config: null }
+        headers: 'X-ChatWorkToken: {{#1781160126474.chatwork_api_token#}}'
+        params: ''
+        body: { type: none, data: [] }
+        timeout: { max_connect_timeout: 10, max_read_timeout: 60, max_write_timeout: 20 }
+        ssl_verify: true
+        retry_config: { retry_enabled: true, max_retries: 3, retry_interval: 100 }
+        variables: []
+      position: { x: 320, y: 200 }
+      positionAbsolute: { x: 320, y: 200 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1781160126478'
+      type: custom
+      data:
+        title: 'A2: Parse File Messages'
+        desc: 'Regex extract download URLs from message bodies'
+        type: code
+        code_language: python3
+        code: |
+          import json
+          import re
+          import time
+
+          PATTERN = re.compile(r"\[download:(\d+)\]([^\[]*)\[/download\]")
+
+          def main(messages_json, room_id, hours_back) -> dict:
+              if not messages_json:
+                  return {"file_urls": [], "count": 0, "error": "messages_json empty"}
+              if not room_id:
+                  return {"file_urls": [], "count": 0, "error": "room_id empty"}
+              try:
+                  hours = int(str(hours_back).strip()) if hours_back else 24
+              except (ValueError, TypeError):
+                  hours = 24
+              cutoff = int(time.time()) - hours * 3600
+              try:
+                  messages = json.loads(messages_json)
+              except json.JSONDecodeError as e:
+                  return {"file_urls": [], "count": 0, "error": f"JSON decode: {e}"}
+              if not isinstance(messages, list):
+                  return {"file_urls": [], "count": 0, "error": f"Expected list, got {type(messages).__name__}"}
+
+              urls = []
+              for msg in messages:
+                  if not isinstance(msg, dict):
+                      continue
+                  body = msg.get("body") or ""
+                  send_time = msg.get("send_time") or 0
+                  try:
+                      send_time = int(send_time)
+                  except (ValueError, TypeError):
+                      send_time = 0
+                  if send_time < cutoff:
+                      continue
+                  for m in PATTERN.finditer(body):
+                      file_id = m.group(1)
+                      urls.append(f"https://api.chatwork.com/v2/rooms/{room_id}/files/{file_id}?create_download_url=1")
+              return {"file_urls": urls, "count": len(urls), "error": ""}
+        outputs:
+          file_urls: { type: 'array[string]', children: null }
+          count: { type: number, children: null }
+          error: { type: string, children: null }
+        variables:
+        - value_selector: ['1781160126476', body]
+          value_type: string
+          variable: messages_json
+        - value_selector: ['1781160126474', room_id]
+          value_type: string
+          variable: room_id
+        - value_selector: ['1781160126474', hours_back]
+          value_type: string
+          variable: hours_back
+      position: { x: 620, y: 200 }
+      positionAbsolute: { x: 620, y: 200 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1781160126480'
+      type: custom
+      data:
+        title: 'A3: Iter Chatwork OCR'
+        desc: 'Per file: download + LLM Vision OCR'
+        type: iteration
+        error_handle_mode: continue-on-error
+        flatten_output: true
+        is_parallel: true
+        iterator_input_type: 'array[string]'
+        iterator_selector: ['1781160126478', file_urls]
+        output_selector: ['1781160126485', result]
+        output_type: 'array[string]'
+        parallel_nums: 2
+        start_node_id: 1781160126480start
+        width: 1450
+        height: 240
+      position: { x: 920, y: 100 }
+      positionAbsolute: { x: 920, y: 100 }
+      width: 1450
+      height: 240
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1
+
+    - id: 1781160126480start
+      type: custom-iteration-start
+      data: { title: '', desc: '', type: iteration-start, isInIteration: true }
+      parentId: '1781160126480'
+      position: { x: 24, y: 96 }
+      positionAbsolute: { x: 944, y: 196 }
+      width: 44
+      height: 48
+      sourcePosition: right
+      targetPosition: left
+      draggable: false
+      selectable: false
+      zIndex: 1002
+
+    - id: '1781160126483'
+      type: custom
+      data:
+        title: 'A3.1: File API'
+        desc: 'GET Chatwork file API → JSON {download_url, filename, ...}'
+        type: http-request
+        isInIteration: true
+        iteration_id: '1781160126480'
+        method: get
+        url: '{{#1781160126480.item#}}'
+        authorization: { type: no-auth, config: null }
+        headers: 'X-ChatWorkToken: {{#1781160126474.chatwork_api_token#}}'
+        params: ''
+        body: { type: none, data: [] }
+        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 20 }
+        ssl_verify: true
+        retry_config: { retry_enabled: true, max_retries: 3, retry_interval: 100 }
+        variables: []
+        error_strategy: default-value
+        default_value:
+        - { key: body, type: string, value: '{"error":"chatwork_file_api_failed"}' }
+        - { key: status_code, type: number, value: 0 }
+      parentId: '1781160126480'
+      extent: parent
+      position: { x: 100, y: 96 }
+      positionAbsolute: { x: 1020, y: 196 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1781170608079'
+      type: custom
+      data:
+        title: 'A3.2: Extract URL'
+        desc: 'Parse file JSON → download_url + filename'
+        type: code
+        code_language: python3
+        isInIteration: true
+        iteration_id: '1781160126480'
+        code: |
+          import json
+          def main(file_body) -> dict:
+              if not file_body:
+                  return {"download_url": "", "filename": "", "extract_error": "file_body empty"}
+              try:
+                  data = json.loads(file_body)
+              except json.JSONDecodeError as e:
+                  return {"download_url": "", "filename": "", "extract_error": f"JSON decode: {e}"}
+              return {
+                  "download_url": data.get("download_url") or "",
+                  "filename": data.get("filename") or "",
+                  "extract_error": "",
+              }
+        outputs:
+          download_url: { type: string, children: null }
+          filename: { type: string, children: null }
+          extract_error: { type: string, children: null }
+        variables:
+        - value_selector: ['1781160126483', body]
+          value_type: string
+          variable: file_body
+      parentId: '1781160126480'
+      extent: parent
+      position: { x: 360, y: 96 }
+      positionAbsolute: { x: 1280, y: 196 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1781183383883'
+      type: custom
+      data:
+        title: 'A3.3: Download Image'
+        desc: 'GET signed CloudFront URL → binary in files output'
+        type: http-request
+        isInIteration: true
+        iteration_id: '1781160126480'
+        method: get
+        url: '{{#1781170608079.download_url#}}'
+        authorization: { type: no-auth, config: null }
+        headers: 'Accept: image/png,image/jpeg,image/webp,image/*;q=0.9,*/*;q=0.5'
+        params: ''
+        body: { type: none, data: [] }
+        timeout: { max_connect_timeout: 15, max_read_timeout: 60, max_write_timeout: 20 }
+        ssl_verify: true
+        retry_config: { retry_enabled: true, max_retries: 2, retry_interval: 500 }
+        variables: []
+        error_strategy: default-value
+        default_value:
+        - { key: body, type: string, value: '' }
+        - { key: status_code, type: number, value: 0 }
+      parentId: '1781160126480'
+      extent: parent
+      position: { x: 620, y: 96 }
+      positionAbsolute: { x: 1540, y: 196 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1781231410602'
+      type: custom
+      data:
+        title: 'A3.4: OCR Vision (gpt-4o-mini)'
+        desc: 'LLM Vision via Dify provider config — zero key in workflow'
+        type: llm
+        isInIteration: true
+        iteration_id: '1781160126480'
+        model:
+          provider: langgenius/openai/openai
+          name: gpt-4o-mini
+          mode: chat
+          completion_params: { temperature: 0.2, max_tokens: 1500, response_format: json_object }
+        prompt_template:
+        - id: ocr-system-001
+          role: system
+          text: |-
+            あなたはAI/DX関連ニュース記事のスクリーンショットからメタデータを抽出する専門アシスタントです。
+            出力は必ず JSON 形式で、以下の4つのキーのみを含めてください：
+            - title: 記事の見出し（最も大きく/太字で表示されているタイトル1行のみ、100文字以内）
+            - source_url: 完全なURL（"https://" または "http://" で始まり、"/" を含むパス付き）が画像内に明示的に文字列として表示されている場合のみ抽出。中途半端なドメイン名（例：「github.com」「example.jp」のような短縮形）は不採用。明確に判読できない・存在しない場合は必ず "" を返す。
+            - summary: 本文の要約 2〜3文（日本語、120文字以内）
+            - raw_text: 画像内で読み取れる本文全文（タイトル以外、改行はスペース）
+            ルール: 推測禁止／URLは完全な形式のみ／JSON のみ出力／画像判読不能なら全部 ""
+        - id: ocr-user-001
+          role: user
+          text: '次の画像から上記4項目を抽出してください。'
+        context: { enabled: false, variable_selector: [] }
+        vision:
+          enabled: true
+          configs:
+            detail: high
+            variable_selector: ['1781183383883', files]
+        variables: []
+      parentId: '1781160126480'
+      extent: parent
+      position: { x: 880, y: 96 }
+      positionAbsolute: { x: 1800, y: 196 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1781160126485'
+      type: custom
+      data:
+        title: 'A3.5: Wrap OCR Record'
+        desc: 'Combine OCR + metadata into JSON record'
+        type: code
+        code_language: python3
+        isInIteration: true
+        iteration_id: '1781160126480'
+        code: |
+          import json
+          def main(iter_item, download_url, filename, ocr_text, file_status, download_status) -> dict:
+              def _int(v):
+                  try:
+                      return int(v) if v is not None else 0
+                  except (ValueError, TypeError):
+                      return 0
+              ocr_payload = None
+              ocr_error = ""
+              if ocr_text:
+                  try:
+                      ocr_payload = json.loads(ocr_text)
+                  except json.JSONDecodeError:
+                      ocr_payload = {"raw_content": ocr_text[:500]}
+                      ocr_error = "LLM not JSON"
+              record = {
+                  "source": "chatwork",
+                  "chatwork_file_url": iter_item or "",
+                  "filename": filename or "",
+                  "download_url": download_url or "",
+                  "file_status": _int(file_status),
+                  "download_status": _int(download_status),
+                  "ocr_error": ocr_error,
+                  "ocr": ocr_payload,
+              }
+              return {"result": json.dumps(record, ensure_ascii=False)}
+        outputs:
+          result: { type: string, children: null }
+        variables:
+        - value_selector: ['1781160126480', item]
+          value_type: string
+          variable: iter_item
+        - value_selector: ['1781170608079', download_url]
+          value_type: string
+          variable: download_url
+        - value_selector: ['1781170608079', filename]
+          value_type: string
+          variable: filename
+        - value_selector: ['1781231410602', text]
+          value_type: string
+          variable: ocr_text
+        - value_selector: ['1781160126483', status_code]
+          value_type: number
+          variable: file_status
+        - value_selector: ['1781183383883', status_code]
+          value_type: number
+          variable: download_status
+      parentId: '1781160126480'
+      extent: parent
+      position: { x: 1140, y: 96 }
+      positionAbsolute: { x: 2060, y: 196 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    # ============================================================
+    # SECTION A.5: Map Chatwork OCR → Unified Schema
+    # ============================================================
+    - id: '1781245558311'
+      type: custom
+      data:
+        title: 'A4: Map Chatwork → Unified'
+        desc: 'Convert OCR records to unified schema {source, title, source_url, description}'
+        type: code
+        code_language: python3
+        code: |
+          import json
+          def main(records) -> dict:
+              # records: array[string] from iteration A output
+              unified = []
+              for r in records or []:
+                  if not r:
+                      continue
+                  try:
+                      rec = json.loads(r)
+                  except json.JSONDecodeError:
+                      continue
+                  ocr = rec.get("ocr") or {}
+                  title = (ocr.get("title") or "").strip()
+                  src_url = (ocr.get("source_url") or "").strip()
+                  summary = (ocr.get("summary") or "").strip()
+                  raw_text = (ocr.get("raw_text") or "").strip()
+                  # Skip if completely empty (OCR failed)
+                  if not title and not summary and not raw_text:
+                      continue
+                  unified.append(json.dumps({
+                      "source": "chatwork",
+                      "title": title or "(no title)",
+                      "source_url": src_url,
+                      "description": summary or raw_text[:200],
+                      "filename": rec.get("filename", ""),
+                  }, ensure_ascii=False))
+              return {"unified": unified, "count": len(unified)}
+        outputs:
+          unified: { type: 'array[string]', children: null }
+          count: { type: number, children: null }
+        variables:
+        - value_selector: ['1781160126480', output]
+          value_type: 'array[string]'
+          variable: records
+      position: { x: 2440, y: 200 }
+      positionAbsolute: { x: 2440, y: 200 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    # ============================================================
+    # SECTION B: RSS Fetch
+    # ============================================================
+    - id: '1781245558313'
+      type: custom
+      data:
+        title: 'B0: Generate Search Queries'
+        desc: 'LLM expands user keywords into 3 Google search queries (JP)'
+        type: llm
+        model:
+          provider: langgenius/openai/openai
+          name: gpt-4o-mini
+          mode: chat
+          completion_params: { temperature: 0.4, max_tokens: 300 }
+        prompt_template:
+        - id: query-gen-system-001
+          role: system
+          text: |-
+            あなたはGoogle検索クエリ設計の専門アシスタントです。
+            ユーザーが指定したテーマ・キーワードをもとに、AI/DX関連の最新ニュース記事を効率よく見つけるための日本語Google検索クエリを **正確に3行** 生成してください。
+
+            クエリ作成の方針:
+            - クエリ1: 一般的な最新ニュース検索（例：「AI ニュース 2026」）
+            - クエリ2: 実際の活用事例・導入事例（例：「DX 事例 日本 2026」）
+            - クエリ3: 特定セグメント（生成AI / LLM / 業務効率化 など）
+
+            ルール:
+            - 各クエリは1行（改行で区切る）
+            - 日本国内ニュースが優先されるよう、日本固有のキーワードを含める
+            - 余計な装飾・番号・記号・説明文は禁止
+            - 出力は3行のクエリのみ（合計3行）
+        - id: query-gen-user-001
+          role: user
+          text: 'ユーザー指定のテーマ: {{#1781160126474.search_keywords#}}'
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+        variables: []
+      position: { x: 320, y: 600 }
+      positionAbsolute: { x: 320, y: 600 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1781249467749'
+      type: custom
+      data:
+        title: 'B1: Split Queries'
+        desc: 'Split LLM output (newline-separated) into array of search queries'
+        type: code
+        code_language: python3
+        code: |
+          def main(llm_text) -> dict:
+              if not llm_text:
+                  return {"queries": [], "count": 0}
+              lines = []
+              for raw in str(llm_text).splitlines():
+                  s = raw.strip()
+                  # Strip leading bullets / numbers if model accidentally included
+                  for prefix in ("- ", "* ", "1. ", "2. ", "3. ", "・"):
+                      if s.startswith(prefix):
+                          s = s[len(prefix):].strip()
+                          break
+                  if s:
+                      lines.append(s)
+              # Cap at 3 to keep Dify array limit safe
+              return {"queries": lines[:3], "count": len(lines[:3])}
+        outputs:
+          queries: { type: 'array[string]', children: null }
+          count: { type: number, children: null }
+        variables:
+        - value_selector: ['1781245558313', text]
+          value_type: string
+          variable: llm_text
+      position: { x: 620, y: 600 }
+      positionAbsolute: { x: 620, y: 600 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1781245558315'
+      type: custom
+      data:
+        title: 'B2: Iter Google Search'
+        desc: 'Per query: Google search + parse results'
+        type: iteration
+        error_handle_mode: continue-on-error
+        flatten_output: true
+        is_parallel: true
+        iterator_input_type: 'array[string]'
+        iterator_selector: ['1781249467749', queries]
+        output_selector: ['1781245558320', items]
+        output_type: 'array[string]'
+        parallel_nums: 3
+        start_node_id: 1781245558315start
+        width: 600
+        height: 240
+      position: { x: 620, y: 540 }
+      positionAbsolute: { x: 620, y: 540 }
+      width: 600
+      height: 240
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1
+
+    - id: 1781245558315start
+      type: custom-iteration-start
+      data: { title: '', desc: '', type: iteration-start, isInIteration: true }
+      parentId: '1781245558315'
+      position: { x: 24, y: 96 }
+      positionAbsolute: { x: 644, y: 636 }
+      width: 44
+      height: 48
+      sourcePosition: right
+      targetPosition: left
+      draggable: false
+      selectable: false
+      zIndex: 1002
+
+    - id: '1781245558317'
+      type: custom
+      data:
+        title: 'B2.1: Google Search'
+        desc: 'Search Google (JP locale) for the iteration query'
+        type: tool
+        isInIteration: true
+        iteration_id: '1781245558315'
+        is_team_authorization: true
+        provider_id: langgenius/google/google
+        provider_name: langgenius/google/google
+        provider_type: builtin
+        plugin_id: langgenius/google
+        plugin_unique_identifier: langgenius/google:0.0.9@d360bbc433f39be1b11909cb9c32e6be4a17ea06af083f9e1c7613bb802bf517
+        tool_name: google_search
+        tool_label: GoogleSearch
+        tool_description: 'A tool for performing a Google SERP search and extracting snippets and webpages. Input should be a search query.'
+        tool_node_version: '2'
+        tool_configurations: {}
+        tool_parameters:
+          query:
+            type: mixed
+            value: '{{#1781245558315.item#}}'
+          gl: { type: mixed, value: jp }
+          hl: { type: mixed, value: ja }
+          location: { type: mixed, value: Japan }
+        paramSchemas: []
+        params:
+          gl: ''
+          hl: ''
+          location: ''
+          query: ''
+      parentId: '1781245558315'
+      extent: parent
+      position: { x: 100, y: 96 }
+      positionAbsolute: { x: 720, y: 636 }
+      width: 242
+      height: 52
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1781245558320'
+      type: custom
+      data:
+        title: 'B2.2: Parse Search Results'
+        desc: 'Extract {title, url, snippet} from Google Search tool output → array[string] JSON'
+        type: code
+        code_language: python3
+        isInIteration: true
+        iteration_id: '1781245558315'
+        code: |
+          import json
+
+          def _try_parse(value):
+              if isinstance(value, str):
+                  text = value.strip()
+                  if not text:
+                      return None
+                  try:
+                      return json.loads(text)
+                  except json.JSONDecodeError:
+                      return text
+              return value
+
+          def _extract_results(value):
+              v = _try_parse(value)
+              if v is None:
+                  return []
+              if isinstance(v, list):
+                  out = []
+                  for x in v:
+                      if isinstance(x, dict):
+                          # Dive into nested organic_results if present
+                          if "organic_results" in x and isinstance(x["organic_results"], list):
+                              out.extend(x["organic_results"])
+                          else:
+                              out.append(x)
+                      elif isinstance(x, str):
+                          p = _try_parse(x)
+                          if isinstance(p, dict):
+                              out.append(p)
+                  return out
+              if isinstance(v, dict):
+                  for key in ("organic_results", "results", "items", "data", "value"):
+                      if key in v and isinstance(v[key], list):
+                          return v[key]
+                  return [v]
+              return []
+
+          def _clean(s):
+              return " ".join(str(s or "").split())
+
+          def _domain(url: str) -> str:
+              if not url:
+                  return ""
+              s = url
+              if "://" in s:
+                  s = s.split("://", 1)[1]
+              if "/" in s:
+                  s = s.split("/", 1)[0]
+              return s.replace("www.", "")[:50]
+
+          def main(search_result, query) -> dict:
+              raw = _extract_results(search_result)
+              items = []
+              for r in raw:
+                  if not isinstance(r, dict):
+                      continue
+                  title = _clean(r.get("title") or r.get("name") or "")
+                  url = _clean(r.get("url") or r.get("link") or r.get("href") or "")
+                  snippet = _clean(r.get("snippet") or r.get("description") or r.get("body") or r.get("text") or "")
+                  if not url:
+                      continue
+                  items.append(json.dumps({
+                      "source": _domain(url) or "google_search",
+                      "title": title[:200],
+                      "source_url": url,
+                      "description": snippet[:300],
+                      "published_at": _clean(r.get("date") or ""),
+                      "_query": (query or "")[:120],
+                  }, ensure_ascii=False))
+              # Cap per query at 9 so flattened across 3 queries stays <30 (Dify array output limit)
+              return {"items": items[:9], "feed_error": "" if items else "no items matched"}
+        outputs:
+          items: { type: 'array[string]', children: null }
+          feed_error: { type: string, children: null }
+        variables:
+        - value_selector: ['1781245558317', json]
+          value_type: 'array[object]'
+          variable: search_result
+        - value_selector: ['1781245558315', item]
+          value_type: string
+          variable: query
+      parentId: '1781245558315'
+      extent: parent
+      position: { x: 360, y: 96 }
+      positionAbsolute: { x: 980, y: 636 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    # ============================================================
+    # MERGE + DEDUP
+    # ============================================================
+    - id: '1781245558324'
+      type: custom
+      data:
+        title: 'C: Merge + Dedup'
+        desc: 'Concat Chatwork + RSS arrays, dedup by normalized URL'
+        type: code
+        code_language: python3
+        code: |
+          import json
+
+          TRACKER_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "ref", "fbclid", "gclid"}
+
+          def _normalize(url: str) -> str:
+              if not url:
+                  return ""
+              s = url.strip()
+              # Drop fragment
+              if "#" in s:
+                  s = s.split("#", 1)[0]
+              # Filter query params
+              if "?" in s:
+                  base, query = s.split("?", 1)
+                  kept = []
+                  for kv in query.split("&"):
+                      if not kv:
+                          continue
+                      k = kv.split("=", 1)[0].lower()
+                      if k not in TRACKER_PARAMS:
+                          kept.append(kv)
+                  s = base + ("?" + "&".join(kept) if kept else "")
+              # Strip trailing slash from path
+              if s.endswith("/") and s.count("/") > 2:
+                  s = s.rstrip("/")
+              # Lowercase scheme + host
+              if "://" in s:
+                  scheme, rest = s.split("://", 1)
+                  if "/" in rest:
+                      host, path = rest.split("/", 1)
+                      s = scheme.lower() + "://" + host.lower() + "/" + path
+                  else:
+                      s = scheme.lower() + "://" + rest.lower()
+              return s
+
+          def main(chatwork_items, rss_items) -> dict:
+              combined = []
+              combined.extend(chatwork_items or [])
+              combined.extend(rss_items or [])
+
+              seen = set()
+              unique = []
+              dropped_dup = 0
+              for s in combined:
+                  if not s:
+                      continue
+                  try:
+                      obj = json.loads(s)
+                  except json.JSONDecodeError:
+                      continue
+                  key = _normalize(obj.get("source_url") or "") or obj.get("title", "")
+                  if not key:
+                      continue
+                  if key in seen:
+                      dropped_dup += 1
+                      continue
+                  seen.add(key)
+                  obj["_dedup_key"] = key
+                  unique.append(json.dumps(obj, ensure_ascii=False))
+
+              # Cap at 28 (Dify array output limit is 30); preserve original count in total_out
+              capped = unique[:28]
+              return {
+                  "deduped": capped,
+                  "total_in": len(combined),
+                  "total_out": len(unique),
+                  "total_capped": len(capped),
+                  "dropped_dup": dropped_dup,
+              }
+        outputs:
+          deduped: { type: 'array[string]', children: null }
+          total_in: { type: number, children: null }
+          total_out: { type: number, children: null }
+          total_capped: { type: number, children: null }
+          dropped_dup: { type: number, children: null }
+        variables:
+        - value_selector: ['1781245558311', unified]
+          value_type: 'array[string]'
+          variable: chatwork_items
+        - value_selector: ['1781245558315', output]
+          value_type: 'array[string]'
+          variable: rss_items
+      position: { x: 2740, y: 400 }
+      positionAbsolute: { x: 2740, y: 400 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    # ============================================================
+    # SECTION C: Score
+    # ============================================================
+    - id: '1781245558327'
+      type: custom
+      data:
+        title: 'D: Iter Score'
+        desc: 'Per article: LLM rate relevance + recency'
+        type: iteration
+        error_handle_mode: continue-on-error
+        flatten_output: true
+        is_parallel: true
+        iterator_input_type: 'array[string]'
+        iterator_selector: ['1781245558324', deduped]
+        output_selector: ['1781245558331', scored]
+        output_type: 'array[string]'
+        parallel_nums: 3
+        start_node_id: 1781245558327start
+        width: 600
+        height: 240
+      position: { x: 3040, y: 300 }
+      positionAbsolute: { x: 3040, y: 300 }
+      width: 600
+      height: 240
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1
+
+    - id: 1781245558327start
+      type: custom-iteration-start
+      data: { title: '', desc: '', type: iteration-start, isInIteration: true }
+      parentId: '1781245558327'
+      position: { x: 24, y: 96 }
+      positionAbsolute: { x: 3064, y: 396 }
+      width: 44
+      height: 48
+      sourcePosition: right
+      targetPosition: left
+      draggable: false
+      selectable: false
+      zIndex: 1002
+
+    - id: '1781245558329'
+      type: custom
+      data:
+        title: 'D1: Score LLM'
+        desc: 'Rate article on relevance + recency (gpt-4o-mini)'
+        type: llm
+        isInIteration: true
+        iteration_id: '1781245558327'
+        model:
+          provider: langgenius/openai/openai
+          name: gpt-4o-mini
+          mode: chat
+          completion_params: { temperature: 0.1, max_tokens: 200, response_format: json_object }
+        prompt_template:
+        - id: score-system-001
+          role: system
+          text: |-
+            あなたはAI/DXニュース記事のスコアリングアシスタントです。
+            記事のJSONを読み、以下の2つの観点で0-100のスコアをつけてください：
+            - relevance: AI・DXトピックとの関連度（高いほど関連性が強い）
+            - recency: 記事の新しさ（公開日が新しいほど高スコア。日付不明なら50）
+            出力は必ず以下のJSON形式のみ（他の文章不要）:
+            {"relevance": <number>, "recency": <number>, "reason": "<短い説明>"}
+        - id: score-user-001
+          role: user
+          text: '記事情報: {{#1781245558327.item#}}'
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+        variables: []
+      parentId: '1781245558327'
+      extent: parent
+      position: { x: 100, y: 96 }
+      positionAbsolute: { x: 3140, y: 396 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1781245558331'
+      type: custom
+      data:
+        title: 'D2: Attach Score'
+        desc: 'Parse LLM output, compute composite, merge with article'
+        type: code
+        code_language: python3
+        isInIteration: true
+        iteration_id: '1781245558327'
+        code: |
+          import json
+          def main(article_json, score_json) -> dict:
+              try:
+                  article = json.loads(article_json) if article_json else {}
+              except json.JSONDecodeError:
+                  article = {}
+              relevance, recency, reason = 0, 0, ""
+              if score_json:
+                  try:
+                      s = json.loads(score_json)
+                      relevance = int(s.get("relevance", 0))
+                      recency = int(s.get("recency", 0))
+                      reason = str(s.get("reason", ""))[:100]
+                  except (json.JSONDecodeError, ValueError, TypeError):
+                      pass
+              composite = round(0.7 * relevance + 0.3 * recency, 2)
+              article["_score_relevance"] = relevance
+              article["_score_recency"] = recency
+              article["_score_composite"] = composite
+              article["_score_reason"] = reason
+              return {"scored": json.dumps(article, ensure_ascii=False)}
+        outputs:
+          scored: { type: string, children: null }
+        variables:
+        - value_selector: ['1781245558327', item]
+          value_type: string
+          variable: article_json
+        - value_selector: ['1781245558329', text]
+          value_type: string
+          variable: score_json
+      parentId: '1781245558327'
+      extent: parent
+      position: { x: 360, y: 96 }
+      positionAbsolute: { x: 3400, y: 396 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    # ============================================================
+    # SECTION C2: Sort + Top N
+    # ============================================================
+    - id: '1781245558333'
+      type: custom
+      data:
+        title: 'E: Sort + Top 2'
+        desc: 'Sort by composite score desc, take top 2'
+        type: code
+        code_language: python3
+        code: |
+          import json
+          TOP_N = 2
+          def main(scored_items) -> dict:
+              parsed = []
+              for s in scored_items or []:
+                  if not s:
+                      continue
+                  try:
+                      parsed.append(json.loads(s))
+                  except json.JSONDecodeError:
+                      continue
+              # Partition by source: chatwork content is user-curated → always prioritize
+              chatwork = [a for a in parsed if a.get("source") == "chatwork"]
+              rss = [a for a in parsed if a.get("source") != "chatwork"]
+              # Sort each group by composite score desc
+              chatwork.sort(key=lambda x: x.get("_score_composite", 0), reverse=True)
+              rss.sort(key=lambda x: x.get("_score_composite", 0), reverse=True)
+              # Take all chatwork first (up to TOP_N), then fill remaining slots with best RSS
+              top = chatwork[:TOP_N]
+              if len(top) < TOP_N:
+                  top.extend(rss[:TOP_N - len(top)])
+              return {
+                  "top_articles": [json.dumps(x, ensure_ascii=False) for x in top],
+                  "top_count": len(top),
+                  "total_scored": len(parsed),
+                  "chatwork_in_pool": len(chatwork),
+                  "rss_in_pool": len(rss),
+              }
+        outputs:
+          top_articles: { type: 'array[string]', children: null }
+          top_count: { type: number, children: null }
+          total_scored: { type: number, children: null }
+          chatwork_in_pool: { type: number, children: null }
+          rss_in_pool: { type: number, children: null }
+        variables:
+        - value_selector: ['1781245558327', output]
+          value_type: 'array[string]'
+          variable: scored_items
+      position: { x: 3700, y: 400 }
+      positionAbsolute: { x: 3700, y: 400 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    # ============================================================
+    # SECTION D: Draft (polish title + description)
+    # ============================================================
+    - id: '1781245558335'
+      type: custom
+      data:
+        title: 'F: Iter Draft'
+        desc: 'Per top article: LLM polish title + description'
+        type: iteration
+        error_handle_mode: continue-on-error
+        flatten_output: true
+        is_parallel: false
+        iterator_input_type: 'array[string]'
+        iterator_selector: ['1781245558333', top_articles]
+        output_selector: ['1781245558340', row]
+        output_type: 'array[string]'
+        parallel_nums: 1
+        start_node_id: 1781245558335start
+        width: 600
+        height: 240
+      position: { x: 4000, y: 300 }
+      positionAbsolute: { x: 4000, y: 300 }
+      width: 600
+      height: 240
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1
+
+    - id: 1781245558335start
+      type: custom-iteration-start
+      data: { title: '', desc: '', type: iteration-start, isInIteration: true }
+      parentId: '1781245558335'
+      position: { x: 24, y: 96 }
+      positionAbsolute: { x: 4024, y: 396 }
+      width: 44
+      height: 48
+      sourcePosition: right
+      targetPosition: left
+      draggable: false
+      selectable: false
+      zIndex: 1002
+
+    - id: '1781245558338'
+      type: custom
+      data:
+        title: 'F1: Draft LLM'
+        desc: 'Polish title + description for Sheet posting (gpt-4o-mini)'
+        type: llm
+        isInIteration: true
+        iteration_id: '1781245558335'
+        model:
+          provider: langgenius/openai/openai
+          name: gpt-4o-mini
+          mode: chat
+          completion_params: { temperature: 0.3, max_tokens: 500, response_format: json_object }
+        prompt_template:
+        - id: draft-system-001
+          role: system
+          text: |-
+            あなたはニュース記事をGoogle Sheets投稿用に整形する編集アシスタントです。
+            入力された記事のJSONをもとに、以下の形式で出力してください：
+            {"polished_title": "<簡潔な見出し50字以内>", "polished_description": "<整理された説明100-150字、日本語>"}
+
+            ルール:
+            - polished_title: 元のタイトルから不要な装飾・サイト名・カテゴリ表記を除去し、本質だけ残す
+            - polished_description: 元の説明を読みやすい1パラグラフに整形（事実のみ、推測禁止）
+            - 元情報にない事実は追加しない
+            - JSONのみ出力、他の文章不要
+        - id: draft-user-001
+          role: user
+          text: '記事JSON: {{#1781245558335.item#}}'
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+        variables: []
+      parentId: '1781245558335'
+      extent: parent
+      position: { x: 100, y: 96 }
+      positionAbsolute: { x: 4100, y: 396 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1781245558340'
+      type: custom
+      data:
+        title: 'F2: Build Row'
+        desc: 'Combine original + polished into Sheet row JSON'
+        type: code
+        code_language: python3
+        isInIteration: true
+        iteration_id: '1781245558335'
+        code: |
+          import json
+
+          def _esc(s: str) -> str:
+              # Minimal HTML escape: avoid breaking tags. Order matters (& first).
+              return (str(s or "")
+                  .replace("&", "&amp;")
+                  .replace("<", "&lt;")
+                  .replace(">", "&gt;")
+                  .replace('"', "&quot;"))
+
+          def main(article_json, draft_json) -> dict:
+              try:
+                  art = json.loads(article_json) if article_json else {}
+              except json.JSONDecodeError:
+                  art = {}
+              polished_title = art.get("title", "")
+              polished_desc = art.get("description", "")
+              if draft_json:
+                  try:
+                      d = json.loads(draft_json)
+                      polished_title = d.get("polished_title") or polished_title
+                      polished_desc = d.get("polished_description") or polished_desc
+                  except json.JSONDecodeError:
+                      pass
+              url = art.get("source_url", "")
+              source = art.get("source", "")
+              # WordPress-ready HTML snippet (h2 + p + cite + source link)
+              parts = [f"<h2>{_esc(polished_title)}</h2>", f"<p>{_esc(polished_desc)}</p>"]
+              if url:
+                  parts.append(f'<p>Source: <a href="{_esc(url)}" rel="nofollow noopener" target="_blank">{_esc(source) or _esc(url)}</a></p>')
+              elif source:
+                  parts.append(f'<p>Source: {_esc(source)}</p>')
+              html = "\n".join(parts)
+              row = {
+                  "title": polished_title,
+                  "url": url,
+                  "source": source,
+                  "description": polished_desc,
+                  "html": html,
+                  "_score": art.get("_score_composite", 0),
+              }
+              return {"row": json.dumps(row, ensure_ascii=False)}
+        outputs:
+          row: { type: string, children: null }
+        variables:
+        - value_selector: ['1781245558335', item]
+          value_type: string
+          variable: article_json
+        - value_selector: ['1781245558338', text]
+          value_type: string
+          variable: draft_json
+      parentId: '1781245558335'
+      extent: parent
+      position: { x: 360, y: 96 }
+      positionAbsolute: { x: 4360, y: 396 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    # ============================================================
+    # SECTION E: Write to Sheet
+    # ============================================================
+    - id: '1781245558342'
+      type: custom
+      data:
+        title: 'G: Build Sheet Payload'
+        desc: 'Wrap rows array into Apps Script webhook body'
+        type: code
+        code_language: python3
+        code: |
+          import json
+          from datetime import datetime, timezone
+          def main(rows_in) -> dict:
+              rows = []
+              for s in rows_in or []:
+                  if not s:
+                      continue
+                  try:
+                      r = json.loads(s)
+                  except json.JSONDecodeError:
+                      continue
+                  rows.append({
+                      "date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+                      "title": r.get("title", ""),
+                      "url": r.get("url", ""),
+                      "source": r.get("source", ""),
+                      "description": r.get("description", ""),
+                      "html": r.get("html", ""),
+                  })
+              return {
+                  "payload_json": json.dumps({"rows": rows}, ensure_ascii=False),
+                  "row_count": len(rows),
+              }
+        outputs:
+          payload_json: { type: string, children: null }
+          row_count: { type: number, children: null }
+        variables:
+        - value_selector: ['1781245558335', output]
+          value_type: 'array[string]'
+          variable: rows_in
+      position: { x: 4700, y: 400 }
+      positionAbsolute: { x: 4700, y: 400 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1781245558344'
+      type: custom
+      data:
+        title: 'H: POST to Sheet'
+        desc: 'POST rows to Google Apps Script webhook'
+        type: http-request
+        method: post
+        url: 'https://script.google.com/macros/s/AKfycbygc5lhj0G4IrBKxkEmc1sLayf7F3beFVlOHiuZy_FD64p5cC4fmzW34gm_CrnL-gl8/exec'
+        authorization: { type: no-auth, config: null }
+        headers: 'Content-Type: application/json'
+        params: ''
+        body:
+          type: json
+          data:
+          - id: sheet-body-001
+            key: ''
+            type: text
+            file: []
+            value: '{{#1781245558342.payload_json#}}'
+        timeout: { max_connect_timeout: 30, max_read_timeout: 60, max_write_timeout: 30 }
+        ssl_verify: true
+        retry_config: { retry_enabled: true, max_retries: 2, retry_interval: 1000 }
+        variables: []
+        error_strategy: default-value
+        default_value:
+        - { key: body, type: string, value: '{"success":false,"error":"http_failed_or_timeout"}' }
+        - { key: status_code, type: number, value: 0 }
+      position: { x: 5000, y: 400 }
+      positionAbsolute: { x: 5000, y: 400 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+
+    # ============================================================
+    # PARSE SHEET RESPONSE — extract clean fields
+    # ============================================================
+    - id: '1781248954086'
+      type: custom
+      data:
+        title: 'I: Parse Sheet Response'
+        desc: 'Extract clean sheet_url + success from Apps Script JSON'
+        type: code
+        code_language: python3
+        code: |
+          import json
+          def main(http_body) -> dict:
+              success = False
+              sheet_url = ""
+              written = 0
+              error_msg = ""
+              if http_body:
+                  try:
+                      data = json.loads(http_body)
+                      success = bool(data.get("success", False))
+                      sheet_url = str(data.get("sheet_url") or "").strip()
+                      written = int(data.get("written", 0)) if isinstance(data.get("written"), (int, float)) else 0
+                      error_msg = str(data.get("error") or "")
+                  except (json.JSONDecodeError, ValueError, TypeError):
+                      error_msg = "non-JSON response: " + str(http_body)[:200]
+              return {
+                  "success": success,
+                  "sheet_url": sheet_url,
+                  "written": written,
+                  "error_msg": error_msg,
+              }
+        outputs:
+          success: { type: boolean, children: null }
+          sheet_url: { type: string, children: null }
+          written: { type: number, children: null }
+          error_msg: { type: string, children: null }
+        variables:
+        - value_selector: ['1781245558344', body]
+          value_type: string
+          variable: http_body
+      position: { x: 5320, y: 400 }
+      positionAbsolute: { x: 5320, y: 400 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    # ============================================================
+    # END
+    # ============================================================
+    - id: '1781245558347'
+      type: custom
+      data:
+        title: 'Output'
+        desc: 'Final result + debug counters'
+        type: end
+        outputs:
+        - value_selector: ['1781248954086', sheet_url]
+          value_type: string
+          variable: sheet_url
+        - value_selector: ['1781248954086', success]
+          value_type: boolean
+          variable: sheet_success
+        - value_selector: ['1781248954086', written]
+          value_type: number
+          variable: rows_written
+        - value_selector: ['1781248954086', error_msg]
+          value_type: string
+          variable: sheet_error
+        - value_selector: ['1781245558344', status_code]
+          value_type: number
+          variable: sheet_status
+        - value_selector: ['1781245558333', top_count]
+          value_type: number
+          variable: drafts_count
+        - value_selector: ['1781245558324', total_in]
+          value_type: number
+          variable: debug_total_collected
+        - value_selector: ['1781245558324', total_out]
+          value_type: number
+          variable: debug_after_dedup
+        - value_selector: ['1781245558324', dropped_dup]
+          value_type: number
+          variable: debug_dropped_dup
+        - value_selector: ['1781245558311', count]
+          value_type: number
+          variable: debug_chatwork_count
+        - value_selector: ['1781160126476', status_code]
+          value_type: number
+          variable: debug_chatwork_auth_status
+      position: { x: 5640, y: 400 }
+      positionAbsolute: { x: 5640, y: 400 }
+      width: 242
+      height: 380
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.25 }

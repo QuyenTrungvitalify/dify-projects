@@ -13,6 +13,11 @@
 #
 # Default --dify-tag is read from .dify-tag at repo root (fallback "main").
 # Idempotent — re-runs are safe (skips already-cloned repos and existing venv).
+#
+# Tip: if you already have a Dify source clone elsewhere (e.g. a sibling
+# dify-workspace/), symlink vendor/dify-src to it before running setup —
+# setup.sh detects symlinks and won't overwrite them:
+#     ln -s ../dify-workspace vendor/dify-src
 
 set -euo pipefail
 
@@ -53,7 +58,28 @@ if [ "$SKIP_CLONES" = false ]; then
     bold "[1/5] Vendoring Dify source (tag: $DIFY_TAG)"
 
     VENDOR_DIR="$ROOT/vendor/dify-src"
-    if [ -d "$VENDOR_DIR/.git" ]; then
+    if [ -L "$VENDOR_DIR" ]; then
+        # vendor/dify-src is a symlink to an external Dify source clone (e.g. a
+        # sibling dify-workspace/). Honor it — never overwrite. Verify the target
+        # is a valid Dify git clone at the expected tag.
+        TARGET=$(readlink "$VENDOR_DIR")
+        if [ -d "$VENDOR_DIR/.git" ]; then
+            EXACT_TAG=$(cd "$VENDOR_DIR" && git describe --tags --exact-match 2>/dev/null || true)
+            NEAREST_TAG=$(cd "$VENDOR_DIR" && git describe --tags --abbrev=0 2>/dev/null || true)
+            CURRENT_REF=$(cd "$VENDOR_DIR" && git rev-parse --short HEAD)
+            if [ "$EXACT_TAG" = "$DIFY_TAG" ]; then
+                ok "vendor/dify-src/ → $TARGET (symlink, exact tag $DIFY_TAG)"
+            elif [ "$NEAREST_TAG" = "$DIFY_TAG" ]; then
+                ok "vendor/dify-src/ → $TARGET (symlink, on $DIFY_TAG @ $CURRENT_REF — ahead of tag, compatible)"
+            else
+                warn "vendor/dify-src/ → $TARGET (symlink, nearest tag '$NEAREST_TAG' @ $CURRENT_REF — expected '$DIFY_TAG')"
+                warn "to switch: cd \"$VENDOR_DIR\" && git fetch --tags && git checkout $DIFY_TAG"
+            fi
+        else
+            warn "vendor/dify-src/ → $TARGET is a broken or non-git symlink"
+            warn "fix or remove: rm vendor/dify-src && rerun setup.sh"
+        fi
+    elif [ -d "$VENDOR_DIR/.git" ]; then
         CURRENT_TAG=$(cd "$VENDOR_DIR" && git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD)
         if [ "$CURRENT_TAG" = "$DIFY_TAG" ]; then
             ok "vendor/dify-src/ already at $DIFY_TAG"

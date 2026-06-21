@@ -1,0 +1,93 @@
+#,Item ID,Grade,Category 1,Target,Stem,Answer Choice 1,Answer Choice 2,Answer Choice 3,Answer Choice 4,Correct Answer Number
+1,E2-001,2,Vocabulary,Grammar,She (          ) to school every day.,goes,go,went,going,1
+2,E2-002,2,Vocabulary,Grammar,They (          ) dinner when I called.,are eating,ate,were eating,eat,3
+3,E2-003,2,Vocabulary,Grammar,I (          ) my homework before lunch.,finish,finished,finishing,finishes,2
+4,E2-004,2,Vocabulary,Grammar,He (          ) to Paris next month.,goes,went,is going,go,3
+5,E2-005,2,Vocabulary,Grammar,We (          ) here since 2020.,live,lived,have lived,are living,3
+6,E2-006,2,Vocabulary,Grammar,The train (          ) at 9 PM yesterday.,leaves,left,is leaving,has left,2
+7,E2-007,2,Vocabulary,Grammar,"By next year, she (          ) graduated.",will have,has,is,had,1
+8,E2-008,2,Vocabulary,Grammar,"If it (          ) tomorrow, we will stay home.",rains,rained,will rain,raining,1
+9,E2-009,2,Vocabulary,Grammar,He (          ) TV when his phone rang.,watches,watched,was watching,watching,3
+10,E2-010,2,Vocabulary,Grammar,I (          ) him at the party last night.,meet,met,have met,meeting,2
+11,E2-011,2,Vocabulary,Grammar,"By the time you arrive, I (          ) cooking.",finish,finished,will have finished,am finishing,3
+12,E2-012,2,Vocabulary,Grammar,She (          ) in this office for ten years.,works,worked,has worked,is working,3
+13,E2-013,2,Vocabulary,Grammar,They (          ) the project last week.,complete,completed,have completed,completing,2
+14,E2-014,2,Vocabulary,Grammar,He (          ) the news when I told him.,already knows,already knew,had already known,is knowing,3
+15,E2-015,2,Vocabulary,Grammar,We (          ) dinner at 7 PM tonight.,have,had,will have,having,3
+16,E2-016,2,Vocabulary,Grammar,She is (          ) excellent student.,a,an,the,some,2
+17,E2-017,2,Vocabulary,Grammar,I bought (          ) apple from the store.,a,an,the,any,2
+18,E2-018,2,Vocabulary,Grammar,He plays (          ) guitar very well.,a,an,the,—,3
+19,E2-019,2,Vocabulary,Grammar,(          ) sun rises in the east.,A,An,The,—,3
+20,E2-020,2,Vocabulary,Grammar,"Can you pass me (          ) salt, please?",a,an,the,some,3
+21,E2-021,2,Vocabulary,Grammar,She has (          ) hour to finish the test.,a,an,the,some,2
+22,E2-022,2,Vocabulary,Grammar,He wants to be (          ) doctor someday.,a,an,the,—,1
+23,E2-023,2,Vocabulary,Grammar,They live in (          ) United States.,a,an,the,—,3
+24,E2-024,2,Vocabulary,Grammar,I saw (          ) movie you recommended.,a,an,the,some,3
+25,E2-025,2,Vocabulary,Grammar,She is reading (          ) interesting book.,a,an,the,some,2
+26,E2-026,2,Vocabulary,Grammar,The meeting is (          ) 3 PM.,in,on,at,by,3
+27,E2-027,2,Vocabulary,Grammar,She was born (          ) July.,in,on,at,by,1
+28,E2-028,2,Vocabulary,Grammar,My birthday is (          ) Sunday.,in,on,at,by,2
+29,E2-029,2,Vocabulary,Grammar,He arrived (          ) the airport early.,in,on,at,to,3
+30,E2-030,2,Vocabulary,Grammar,The book is (          ) the table.,in,on,at,by,2
+31,E2-031,2,Vocabulary,Grammar,I'm going (          ) vacation next week.,in,on,at,to,2
+32,E2-032,2,Vocabulary,Grammar,She lives (          ) a small village.,in,on,at,by,1
+33,E2-033,2,Vocabulary,Grammar,He works (          ) a hospital.,in,on,at,by,3
+34,E2-034,2,Vocabulary,Grammar,The cat jumped (          ) the table.,in,on,onto,by,3
+35,E2-035,2,Vocabulary,Grammar,She walked (          ) the park.,in,on,through,by,3
+36,E2-036,2,Vocabulary,Grammar,"He was tired, (          ) he kept working.",and,but,because,so,2
+37,E2-037,2,Vocabulary,Grammar,"She studied hard, (          ) she passed the exam.",and,but,because,so,4
+38,E2-038,2,Vocabulary,Grammar,I stayed home (          ) it was raining.,and,but,because,so,3
+39,E2-039,2,Vocabulary,Grammar,"(          ) he was sick, he went to work.",Because,Although,Since,While,2
+40,E2-040,2,Vocabulary,Grammar,You can have tea (          ) coffee.,and,but,or,so,3
+41,E2-041,2,Vocabulary,Grammar,He will call you (          ) he arrives.,when,while,until,during,1
+42,E2-042,2,Vocabulary,Grammar,She sang (          ) she danced.,and,but,because,so,1
+43,E2-043,2,Vocabulary,Grammar,I'll wait here (          ) you come back.,when,while,until,during,3
+44,E2-044,2,Vocabulary,Grammar,Each of the students (          ) a book.,have,has,having,are having,2
+45,E2-045,2,Vocabulary,Grammar,Neither of them (          ) the answer.,know,knows,knowing,are knowing,2
+46,E2-046,2,Vocabulary,Grammar,The news (          ) surprising.,are,is,were,have been,2
+47,E2-047,2,Vocabulary,Grammar,Ten dollars (          ) a lot for a sandwich.,are,is,were,have been,2
+48,E2-048,2,Vocabulary,Grammar,My family (          ) going on vacation.,is,are,were,have,1
+49,E2-049,2,Vocabulary,Grammar,The teacher and the students (          ) talking.,is,are,was,has been,2
+50,E2-050,2,Vocabulary,Grammar,Everybody (          ) a chance to speak.,have,has,having,are having,2
+51,E2-051,2,Vocabulary,Grammar,There (          ) many books on the shelf.,is,are,was,has,2
+52,E2-052,2,Vocabulary,Grammar,Mathematics (          ) my favorite subject.,are,is,were,have been,2
+53,E2-053,2,Vocabulary,Grammar,The committee (          ) reached a decision.,have,has,having,are having,2
+54,E2-054,2,Vocabulary,Grammar,You (          ) finish your work before lunch.,can,should,must,may,3
+55,E2-055,2,Vocabulary,Grammar,It (          ) rain tomorrow.,can,should,must,might,4
+56,E2-056,2,Vocabulary,Grammar,He (          ) speak three languages.,can,should,must,may,1
+57,E2-057,2,Vocabulary,Grammar,You (          ) not enter without permission.,can,should,must,may,3
+58,E2-058,2,Vocabulary,Grammar,She (          ) be at home now; her car is here.,can,should,must,may,3
+59,E2-059,2,Vocabulary,Grammar,(          ) I borrow your pen?,Can,Should,Must,Will,1
+60,E2-060,2,Vocabulary,Grammar,You (          ) eat too much sugar.,shouldn't,couldn't,mustn't,wouldn't,1
+61,E2-061,2,Vocabulary,Grammar,He (          ) have forgotten the meeting.,can,should,must,may,4
+62,E2-062,2,Vocabulary,Grammar,There aren't (          ) apples in the basket.,some,any,much,a lot,2
+63,E2-063,2,Vocabulary,Grammar,How (          ) time do you need?,many,much,some,few,2
+64,E2-064,2,Vocabulary,Grammar,She has (          ) friends in the city.,many,much,any,a little,1
+65,E2-065,2,Vocabulary,Grammar,There is (          ) water in the bottle.,many,few,a little,a few,3
+66,E2-066,2,Vocabulary,Grammar,I have (          ) questions to ask.,a few,a little,much,any,1
+67,E2-067,2,Vocabulary,Grammar,This book is (          ) than that one.,interesting,more interesting,most interesting,interest,2
+68,E2-068,2,Vocabulary,Grammar,She is the (          ) student in her class.,smart,smarter,smartest,more smart,3
+69,E2-069,2,Vocabulary,Grammar,He runs (          ) than his brother.,fast,faster,fastest,more fast,2
+70,E2-070,2,Vocabulary,Grammar,This is the (          ) day of my life.,good,better,best,well,3
+71,E2-071,2,Vocabulary,Idiom,"A: How are you going to prepare for your history presentation?
+B: I'm going to learn the speech (          ). I don't want to read from a paper.",on duty,in return,by heart,for sure,3
+72,E2-072,2,Vocabulary,Past Tense,"A: What did you do last weekend?
+B: I (          ) my grandparents in the countryside.",visit,visited,visiting,have visited,2
+73,E2-073,2,Vocabulary,Preposition,"A: Where is the meeting going to be held?
+B: It will be (          ) the main conference room.",in,on,at,by,1
+74,E2-074,2,Vocabulary,Future Tense,"A: Have you finished the report?
+B: Not yet, but I (          ) it by Friday.",finish,finished,will finish,have finished,3
+75,E2-075,2,Vocabulary,Modal Verb,"A: Do you know who broke the window?
+B: I think it (          ) have been the children.",can,should,must,may,3
+76,E2-076,2,Vocabulary,Conjunction,"A: Why didn't you come to the party?
+B: I would have come, (          ) I had to work late.",and,but,because,so,2
+77,E2-077,2,Vocabulary,Present Perfect,"A: How long have you been studying English?
+B: I (          ) English for five years.",study,studied,have studied,am studying,3
+78,E2-078,2,Vocabulary,Article,"A: Is there anything I can help you with?
+B: Yes, could you please pass me (          ) salt?",a,an,the,some,3
+79,E2-079,2,Vocabulary,[TEST] Stem grammar error,She have (          ) apple every morning.,a,an,the,some,2
+80,E2-080,2,Vocabulary,[TEST] Spelling 'dont',He dont (          ) to read from a paper.,want,wants,wanted,wanting,1
+81,E2-081,2,Vocabulary,[TEST] 'alot' typo as correct choice,There is (          ) of people waiting outside the store.,alot,a lot,lots,many,1
+82,E2-082,2,Vocabulary,[TEST] Missing placeholder,She goes to school every day.,walks,runs,drives,rides,1
+83,E2-083,2,Vocabulary,[TEST] Missing placeholder,The weather is very nice today.,sunny,rainy,cloudy,snowy,1
+84,E2-084,2,Vocabulary,[TEST] Missing placeholder,He bought a new car last week.,red,blue,green,white,1

@@ -1,0 +1,289 @@
+# Test workflow — verify Markdown → XLSX highlight rendering
+#
+# Mục đích: kiểm tra plugin bowenliang123/md_exporter `md_to_xlsx` có preserve
+# bold + strikethrough trong Excel cell rich text không.
+#
+# Cách chạy:
+#   1. Import file này vào Dify Studio
+#   2. Run workflow (không cần input)
+#   3. Tải file `xlsx_highlight_test.xlsx` về, mở Excel
+#   4. Check 2 sheets/sections:
+#      - Section J: 5-column table với inline bold + strikethrough
+#      - Section X: 1-cell test cho từng format đơn lẻ
+#
+# Decision matrix:
+#   - Bold work + Strike work → ✅ XLSX feasible, apply giống DOCX
+#   - Chỉ Bold work → 🟡 Adapt format, dùng Bold cho cả wrong + suggestion với separator
+#   - Cả 2 fail (plain text only) → ❌ Fallback CSV multi-column
+
+app:
+  description: 'Test XLSX rendering capability for md_to_xlsx plugin — verify bold/strikethrough in cells'
+  icon: "\U0001F4CA"
+  icon_background: '#D1FAE5'
+  icon_type: emoji
+  mode: workflow
+  name: 'Test XLSX Highlight Rendering'
+  use_icon_as_answer_icon: false
+
+dependencies:
+- current_identifier: null
+  type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: bowenliang123/md_exporter:2.1.1@63ea80ece23673b1579c0ff64e6dc731e1b4baebca1fcce4d45fda17d962bfc8
+    version: null
+
+kind: app
+version: 0.6.0
+
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions: []
+      allowed_file_types: []
+      allowed_file_upload_methods: []
+      enabled: false
+      fileUploadConfig:
+        batch_count_limit: 5
+        file_size_limit: 15
+        file_upload_limit: 20
+        workflow_file_upload_limit: 10
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource: { enabled: true }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+
+  graph:
+    edges:
+    - id: edge1
+      source: '1779100000001'
+      target: '1779100000002'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: code }
+      zIndex: 0
+    - id: edge2
+      source: '1779100000002'
+      target: '1779100000003'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: tool }
+      zIndex: 0
+    - id: edge3
+      source: '1779100000003'
+      target: '1779100000004'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: tool, targetType: end }
+      zIndex: 0
+
+    nodes:
+    - id: '1779100000001'
+      type: custom
+      data:
+        title: 'Start (no input)'
+        type: start
+        variables: []
+      position: { x: 0, y: 280 }
+      positionAbsolute: { x: 0, y: 280 }
+      width: 242
+      height: 54
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1779100000002'
+      type: custom
+      data:
+        title: 'Build test markdown'
+        type: code
+        code_language: python3
+        code: |
+          def main() -> dict:
+              """Generate markdown for XLSX rendering test."""
+              lines = []
+              lines.append("# XLSX Highlight Rendering Test")
+              lines.append("")
+              lines.append("Test whether md_to_xlsx preserves inline bold + strikethrough in cells.")
+              lines.append("")
+              lines.append("---")
+              lines.append("")
+              lines.append("## Section X - Single-cell inline format test")
+              lines.append("Each row tests 1 format in isolation.")
+              lines.append("")
+              lines.append("| Test | Markdown source | Cell content |")
+              lines.append("|------|-----------------|--------------|")
+              lines.append("| Plain text baseline | dont | dont |")
+              lines.append("| Bold only | **dont** | **dont** |")
+              lines.append("| Strikethrough only | ~~dont~~ | ~~dont~~ |")
+              lines.append("| Italic only | *dont* | *dont* |")
+              lines.append("| Bold + Strike combined | ~~dont~~ **don't** | ~~dont~~ **don't** |")
+              lines.append("| Mixed in sentence | I ~~dont~~ **don't** to read | I ~~dont~~ **don't** to read |")
+              lines.append("")
+              lines.append("---")
+              lines.append("")
+              lines.append("## Section J - Realistic 5-column design (same as DOCX test)")
+              lines.append("This is what Eiken main workflow will produce.")
+              lines.append("")
+              lines.append("| # | Item ID | Original | Fixed (markers) | Errors |")
+              lines.append("|---|---------|----------|----------------|--------|")
+              lines.append("| 1 | E2-001 | I dont to read from a paper. | I ~~dont~~ **don't** to read from a paper. | dont -> don't (grammar) |")
+              lines.append("| 2 | E2-002 | She have a apple yesterday. | She ~~have~~ **has** ~~a~~ **an** apple yesterday. | have -> has; a -> an |")
+              lines.append("| 3 | E2-003 | He are very happy. | He ~~are~~ **is** very happy. | are -> is (subject-verb) |")
+              lines.append("")
+              lines.append("---")
+              lines.append("")
+              lines.append("## Section M - Multi-line stem (K2 separator strategy)")
+              lines.append("")
+              lines.append("| # | Item ID | Original | Fixed (markers) |")
+              lines.append("|---|---------|----------|----------------|")
+              lines.append("| 1 | E2-004 | A: How are you going? / B: I'm going to learn by heart. I dont to read. | A: How are you going? / B: I'm going to learn by heart. I ~~dont~~ **don't** to read. |")
+              lines.append("")
+              lines.append("---")
+              lines.append("")
+              lines.append("## Decision matrix (manual check in Excel)")
+              lines.append("")
+              lines.append("Open xlsx_highlight_test.xlsx and verify:")
+              lines.append("")
+              lines.append("Section X:")
+              lines.append("- [ ] Plain text: shows 'dont' as plain")
+              lines.append("- [ ] Bold: shows 'dont' in BOLD (not literal ** chars)")
+              lines.append("- [ ] Strikethrough: shows 'dont' STRUCK (not literal ~~ chars)")
+              lines.append("- [ ] Italic: shows 'dont' in ITALIC")
+              lines.append("- [ ] Combined: shows ~~dont~~ struck + **don't** bold in same cell")
+              lines.append("- [ ] Mixed: shows formatting applied only to specific words inside sentence")
+              lines.append("")
+              lines.append("Section J:")
+              lines.append("- [ ] Table renders with 5 columns")
+              lines.append("- [ ] 'Fixed' column shows strikethrough + bold visible")
+              lines.append("- [ ] Multi-error row 2 shows both 'have' and 'a' marked correctly")
+              lines.append("")
+              lines.append("Section M:")
+              lines.append("- [ ] Multi-line cell with / separator readable")
+              lines.append("")
+              lines.append("RESULT INTERPRETATION:")
+              lines.append("  All work -> ✅ XLSX feasible, apply Section J design")
+              lines.append("  Only bold works -> 🟡 Adapt: use bold for both wrong/suggestion separated by arrow")
+              lines.append("  Nothing works (literal ** ~~ visible) -> ❌ XLSX = plain text, use multi-column instead")
+
+              md = "\n".join(lines)
+              return {
+                  "md_text": md,
+                  "char_count": len(md),
+              }
+        outputs:
+          md_text: { type: string, children: null }
+          char_count: { type: number, children: null }
+        variables: []
+      position: { x: 342, y: 280 }
+      positionAbsolute: { x: 342, y: 280 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1779100000003'
+      type: custom
+      data:
+        is_team_authorization: true
+        title: 'XLSX変換 (Markdown to xlsx)'
+        type: tool
+        plugin_id: bowenliang123/md_exporter
+        plugin_unique_identifier: bowenliang123/md_exporter:2.1.1@63ea80ece23673b1579c0ff64e6dc731e1b4baebca1fcce4d45fda17d962bfc8
+        provider_id: bowenliang123/md_exporter/md_exporter
+        provider_name: bowenliang123/md_exporter/md_exporter
+        provider_type: builtin
+        tool_name: md_to_xlsx
+        tool_label: Markdown to XLSX file
+        tool_description: Generate XLSX file from Markdown text
+        tool_node_version: '2'
+        tool_configurations: {}
+        tool_parameters:
+          md_text:
+            type: mixed
+            value: '{{#1779100000002.md_text#}}'
+          output_filename:
+            type: mixed
+            value: xlsx_highlight_test
+        params:
+          md_text: ''
+          output_filename: ''
+        paramSchemas:
+        - auto_generate: null
+          default: null
+          form: llm
+          human_description:
+            en_US: Input text of Markdown
+            ja_JP: Markdown 形式のテキスト
+            zh_Hans: Markdown 文本
+          label:
+            en_US: Markdown text
+            ja_JP: Markdown text
+            zh_Hans: Markdown 文本
+          llm_description: ''
+          max: null
+          min: null
+          name: md_text
+          options: []
+          placeholder: null
+          precision: null
+          required: true
+          scope: null
+          template: null
+          type: string
+        - auto_generate: null
+          default: null
+          form: llm
+          human_description:
+            en_US: Optional custom output file name, suffix not required.
+            ja_JP: ファイル名（拡張子不要）
+            zh_Hans: 输出文件名
+          label:
+            en_US: Output Filename
+            ja_JP: Output Filename
+            zh_Hans: 输出文件名
+          llm_description: ''
+          max: null
+          min: null
+          name: output_filename
+          options: []
+          placeholder: null
+          precision: null
+          required: false
+          scope: null
+          template: null
+          type: string
+      position: { x: 684, y: 280 }
+      positionAbsolute: { x: 684, y: 280 }
+      width: 241
+      height: 50
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1779100000004'
+      type: custom
+      data:
+        title: 'Output XLSX'
+        type: end
+        outputs:
+        - value_selector: ['1779100000003', files]
+          value_type: array[file]
+          variable: xlsx_file
+        - value_selector: ['1779100000002', char_count]
+          value_type: number
+          variable: input_char_count
+      position: { x: 1026, y: 280 }
+      positionAbsolute: { x: 1026, y: 280 }
+      width: 241
+      height: 110
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.8 }

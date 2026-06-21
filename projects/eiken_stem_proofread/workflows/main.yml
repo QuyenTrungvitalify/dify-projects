@@ -1,0 +1,935 @@
+# Eiken Stem Proofread — 84問校閲ワークフロー (v5 — 2-branch: MOCK / DeepL)
+#
+# Task: Excel 84問 → Stem に Answer Choice 1〜4 を入力 → 校閲 → CSV file download。
+#
+# Design: 1 workflow, 2 internal branches selected by `mode` input at Start.
+#
+#   mode=mock  → run [MOCK] prefix passthrough (no API, $0, fast — for testing/demo)
+#   mode=deepl → call DeepL Write API via HTTP node (SKELETON — fill API spec first)
+#
+# Flow:
+#   Start (xlsx + mode select)
+#     → Document Extractor (xlsx → Markdown table)
+#     → Code: Parse + split into batches (10 questions/batch)
+#     → Iteration (parallel_nums=2)
+#         ├─ Code: Expand (1 item → 4 fulltext rows, no proofread yet)
+#         ├─ IF/ELSE: branch on `mode`
+#         │     ├─[mode=deepl] → Code: Build payload → HTTP DeepL → Code: Merge response
+#         │     └─[mode=mock]  → Code: Mock proofread ([MOCK] prefix)
+#         └─ Variable Aggregator: merge batch_results from either branch
+#     → Code: Aggregator (flatten + gen CSV text + Markdown)
+#     → Tool: md_exporter (Markdown → CSV file)
+#     → End
+#
+# Output:
+#   - csv_file (array[file]) — clickable download
+#   - row_count, total_items, skipped_items, api_errors — metadata
+#
+# ⚠️ DeepL branch is SKELETON — needs filling before mode=deepl works:
+#   1. HTTP node URL — search `<<< FILL` in this file
+#   2. Request body shape — Code "DeepL リクエスト構築" — verify against DeepL spec
+#   3. Response shape — Code "レスポンス統合" — verify `improvements[i].text` field
+#   4. Add env var DEEPL_API_KEY via Dify Studio (type: Secret)
+#
+# Migration path:
+#   Phase 1 (NOW): mode=mock default. Demo to khách, no API needed.
+#   Phase 2 (when DeepL spec arrives): fill 3 spots above, change Start `mode` default to deepl.
+#   Phase 3 (after DeepL confirmed working): remove MOCK branch + if-else + aggregator → graph becomes linear.
+
+app:
+  description: 'Excel 84問→ Stem に Answer Choice 1〜4 を入力した文章を作成、mock または DeepL Write で校閲後 CSV 出力。Default mode=mock (Phase 1 demo)、API 準備後 mode=deepl に切替'
+  icon: "\U0001F4DD"
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: 'Eiken Stem Proofread 84問'
+  use_icon_as_answer_icon: false
+dependencies:
+- current_identifier: null
+  type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: bowenliang123/md_exporter:2.1.1@63ea80ece23673b1579c0ff64e6dc731e1b4baebca1fcce4d45fda17d962bfc8
+    version: null
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  # After import: add DEEPL_API_KEY via Studio UI → Environment Variables (type: Secret).
+  # Referenced by HTTP node as {{#env.DEEPL_API_KEY#}}.
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions: []
+      allowed_file_types:
+      - document
+      allowed_file_upload_methods:
+      - local_file
+      enabled: false
+      fileUploadConfig:
+        batch_count_limit: 5
+        file_size_limit: 15
+        file_upload_limit: 20
+        workflow_file_upload_limit: 10
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource: { enabled: true }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: 1778752604226-source-1778752604228-target
+      source: '1778752604226'
+      target: '1778752604228'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: document-extractor }
+      zIndex: 0
+    - id: 1778752604228-source-1778752604230-target
+      source: '1778752604228'
+      target: '1778752604230'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: document-extractor, targetType: code }
+      zIndex: 0
+    - id: 1778752604230-source-1778752604233-target
+      source: '1778752604230'
+      target: '1778752604233'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: iteration }
+      zIndex: 0
+    - id: 1778752604233start-source-1778752604235-target
+      source: 1778752604233start
+      target: '1778752604235'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1778752604233', sourceType: iteration-start, targetType: code }
+      zIndex: 1002
+    - id: 1778752604235-source-1778836651671-target
+      source: '1778752604235'
+      target: '1778836651671'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1778752604233', sourceType: code, targetType: if-else }
+      zIndex: 1002
+    - id: 1778836651671-true-1778836651676-target
+      source: '1778836651671'
+      target: '1778836651676'
+      sourceHandle: 'true'
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1778752604233', sourceType: if-else, targetType: code }
+      zIndex: 1002
+    - id: 1778836651671-false-1778836651673-target
+      source: '1778836651671'
+      target: '1778836651673'
+      sourceHandle: 'false'
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1778752604233', sourceType: if-else, targetType: code }
+      zIndex: 1002
+    - id: 1778836651676-source-1778836651678-target
+      source: '1778836651676'
+      target: '1778836651678'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1778752604233', sourceType: code, targetType: http-request }
+      zIndex: 1002
+    - id: 1778836651678-source-1778836651680-target
+      source: '1778836651678'
+      target: '1778836651680'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1778752604233', sourceType: http-request, targetType: code }
+      zIndex: 1002
+    - id: 1778836651680-source-1778836651682-target
+      source: '1778836651680'
+      target: '1778836651682'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1778752604233', sourceType: code, targetType: variable-aggregator }
+      zIndex: 1002
+    - id: 1778836651673-source-1778836651682-target
+      source: '1778836651673'
+      target: '1778836651682'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1778752604233', sourceType: code, targetType: variable-aggregator }
+      zIndex: 1002
+    - id: 1778752604233-source-1778752604237-target
+      source: '1778752604233'
+      target: '1778752604237'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: iteration, targetType: code }
+      zIndex: 0
+    - id: 1778752604237-source-1778823779289-target
+      source: '1778752604237'
+      target: '1778823779289'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: tool }
+      zIndex: 0
+    - id: 1778823779289-source-1778752604239-target
+      source: '1778823779289'
+      target: '1778752604239'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: tool, targetType: end }
+      zIndex: 0
+    nodes:
+    - id: '1778752604226'
+      type: custom
+      data:
+        title: 'Excelファイル + 校閲モード'
+        type: start
+        variables:
+        - allowed_file_extensions:
+          - .xlsx
+          - .xls
+          - .csv
+          allowed_file_types:
+          - document
+          allowed_file_upload_methods:
+          - local_file
+          hint: 'Upload the Excel (.xlsx/.xls) or CSV file with up to 100 questions.'
+          label: input_file
+          max_length: 1
+          options: []
+          placeholder: ''
+          required: true
+          type: file-list
+          variable: input_file
+        - label: '校閲モード (Proofread mode)'
+          hint: 'mock = passthrough with [MOCK] prefix (no API). deepl = call DeepL Write API.'
+          variable: mode
+          type: select
+          required: true
+          options:
+          - mock
+          - deepl
+          default: mock
+          max_length: 48
+      position: { x: 0, y: 280 }
+      positionAbsolute: { x: 0, y: 280 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1778752604228'
+      type: custom
+      data:
+        title: 'テキスト抽出'
+        type: document-extractor
+        is_array_file: true
+        variable_selector:
+        - '1778752604226'
+        - input_file
+      position: { x: 342, y: 280 }
+      positionAbsolute: { x: 342, y: 280 }
+      width: 241
+      height: 103
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1778752604230'
+      type: custom
+      data:
+        title: '10問づつバッチ分割'
+        type: code
+        code_language: python3
+        code: |
+          import csv
+          import io
+          import json
+
+          PLACEHOLDER = "(          )"
+          BATCH_SIZE = 10
+
+          def clean(value):
+              if value is None:
+                  return ""
+              s = str(value).replace("　", " ")
+              s = s.replace("<br/>", "\n").replace("<br />", "\n").replace("<br>", "\n")
+              s = (s.replace("&amp;", "&")
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&quot;", '"')
+                    .replace("&#39;", "'")
+                    .replace("&#x27;", "'")
+                    .replace("&apos;", "'"))
+              return s.strip()
+
+          def split_md_cells(line):
+              s = line.strip()
+              if s.startswith("|"):
+                  s = s[1:]
+              if s.endswith("|"):
+                  s = s[:-1]
+              return [c.strip() for c in s.split("|")]
+
+          def parse_table_text(text):
+              lines = [l for l in text.splitlines() if l.strip()]
+              if not lines:
+                  return [], "empty"
+              if lines[0].lstrip().startswith("|"):
+                  if len(lines) < 3:
+                      return [], "markdown_too_short"
+                  header = split_md_cells(lines[0])
+                  rows = []
+                  for line in lines[2:]:
+                      if not line.lstrip().startswith("|"):
+                          continue
+                      cells = split_md_cells(line)
+                      row = {header[i]: (cells[i] if i < len(cells) else "")
+                             for i in range(len(header))}
+                      rows.append(row)
+                  return rows, "markdown"
+              return list(csv.DictReader(io.StringIO(text))), "csv"
+
+          def parse_row(row):
+              row_no = clean(row.get("#"))
+              item_id = clean(row.get("Item ID"))
+              grade = clean(row.get("Grade"))
+              category = clean(row.get("Category 1"))
+              target = clean(row.get("Target"))
+              stem = clean(row.get("Stem"))
+              choices = [
+                  clean(row.get("Answer Choice 1")),
+                  clean(row.get("Answer Choice 2")),
+                  clean(row.get("Answer Choice 3")),
+                  clean(row.get("Answer Choice 4")),
+              ]
+              correct_raw = clean(row.get("Correct Answer Number"))
+              correct = int(correct_raw) if correct_raw.isdigit() else 0
+              return {
+                  "row_no": row_no,
+                  "item_id": item_id,
+                  "grade": grade,
+                  "category": category,
+                  "target": target,
+                  "stem": stem,
+                  "choices": choices,
+                  "correct": correct,
+                  "has_placeholder": PLACEHOLDER in stem,
+              }
+
+          def main(text_list: list, mode: str) -> dict:
+              text = text_list[0] if isinstance(text_list, list) else str(text_list)
+              rows_raw, fmt = parse_table_text(text)
+              items = []
+              skipped = []
+              for row in rows_raw:
+                  item = parse_row(row)
+                  items.append(item)
+                  if not item["has_placeholder"]:
+                      skipped.append({
+                          "row_no": item["row_no"],
+                          "item_id": item["item_id"],
+                          "stem": item["stem"],
+                      })
+              # Pack mode into each batch so iteration sub-nodes can access it
+              batches = []
+              for i in range(0, len(items), BATCH_SIZE):
+                  chunk = items[i:i + BATCH_SIZE]
+                  batches.append(json.dumps({"items": chunk, "mode": mode}, ensure_ascii=False))
+              return {
+                  "batches": batches,
+                  "batch_count": len(batches),
+                  "item_count": len(items),
+                  "skipped": json.dumps(skipped, ensure_ascii=False),
+              }
+        outputs:
+          batches: { type: 'array[string]', children: null }
+          batch_count: { type: number, children: null }
+          item_count: { type: number, children: null }
+          skipped: { type: string, children: null }
+        variables:
+        - value_selector: ['1778752604228', text]
+          value_type: 'array[string]'
+          variable: text_list
+        - value_selector: ['1778752604226', mode]
+          value_type: string
+          variable: mode
+      position: { x: 684, y: 280 }
+      positionAbsolute: { x: 684, y: 280 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1778752604233'
+      type: custom
+      data:
+        title: 'バッチ校閲イテレーション'
+        type: iteration
+        error_handle_mode: continue-on-error
+        flatten_output: false
+        is_parallel: true
+        iterator_input_type: 'array[string]'
+        iterator_selector: ['1778752604230', batches]
+        output_selector: ['1778836651682', output]
+        output_type: 'array[string]'
+        parallel_nums: 2
+        start_node_id: 1778752604233start
+        width: 2000
+        height: 320
+      position: { x: 1026, y: 120 }
+      positionAbsolute: { x: 1026, y: 120 }
+      width: 2000
+      height: 320
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1
+
+    - id: 1778752604233start
+      type: custom-iteration-start
+      data:
+        title: ''
+        type: iteration-start
+        desc: ''
+        isInIteration: true
+      parentId: '1778752604233'
+      position: { x: 24, y: 130 }
+      positionAbsolute: { x: 1050, y: 250 }
+      width: 44
+      height: 48
+      sourcePosition: right
+      targetPosition: left
+      draggable: false
+      selectable: false
+      zIndex: 1002
+
+    - id: '1778752604235'
+      type: custom
+      data:
+        title: 'バッチ展開 (10問→40文)'
+        type: code
+        code_language: python3
+        isInIteration: true
+        iteration_id: '1778752604233'
+        code: |
+          import json
+
+          PLACEHOLDER = "(          )"
+
+          def expand_choices(item):
+              """1 question → 4 fulltext rows (1 per choice). No proofread yet —
+              filled by either MOCK branch or DeepL branch downstream."""
+              results = []
+              stem = item["stem"]
+              has_ph = item["has_placeholder"]
+              for idx, choice in enumerate(item["choices"], 1):
+                  if has_ph:
+                      fulltext = stem.replace(PLACEHOLDER, choice)
+                  else:
+                      fulltext = stem
+                  results.append({
+                      "row_no": item["row_no"],
+                      "item_id": item["item_id"],
+                      "grade": item["grade"],
+                      "category": item["category"],
+                      "target": item["target"],
+                      "stem": stem,
+                      "choice_idx": idx,
+                      "choice_text": choice,
+                      "fulltext": fulltext,
+                      "is_correct": (idx == item["correct"]),
+                      "has_placeholder": has_ph,
+                  })
+              return results
+
+          def main(batch_json: str) -> dict:
+              data = json.loads(batch_json)
+              items = data.get("items", [])
+              mode = data.get("mode", "mock")
+              all_results = []
+              for item in items:
+                  all_results.extend(expand_choices(item))
+              return {
+                  "expanded_json": json.dumps(all_results, ensure_ascii=False),
+                  "fulltext_list_json": json.dumps(
+                      [r["fulltext"] for r in all_results], ensure_ascii=False
+                  ),
+                  "mode": mode,
+                  "expanded_count": len(all_results),
+              }
+        outputs:
+          expanded_json: { type: string, children: null }
+          fulltext_list_json: { type: string, children: null }
+          mode: { type: string, children: null }
+          expanded_count: { type: number, children: null }
+        variables:
+        - value_selector: ['1778752604233', item]
+          value_type: string
+          variable: batch_json
+      parentId: '1778752604233'
+      extent: parent
+      position: { x: 84, y: 130 }
+      positionAbsolute: { x: 1110, y: 250 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1778836651671'
+      type: custom
+      data:
+        title: 'モード分岐'
+        type: if-else
+        isInIteration: true
+        iteration_id: '1778752604233'
+        logical_operator: and
+        conditions:
+        - id: cond-mode-deepl
+          comparison_operator: is
+          value: deepl
+          varType: string
+          variable_selector: ['1778752604235', mode]
+        cases:
+        - case_id: 'true'
+          id: 'true'
+          logical_operator: and
+          conditions:
+          - id: cond-mode-deepl
+            comparison_operator: is
+            value: deepl
+            varType: string
+            variable_selector: ['1778752604235', mode]
+      parentId: '1778752604233'
+      extent: parent
+      position: { x: 350, y: 130 }
+      positionAbsolute: { x: 1376, y: 250 }
+      width: 241
+      height: 110
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1778836651673'
+      type: custom
+      data:
+        title: 'MOCK 校閲 (passthrough)'
+        type: code
+        code_language: python3
+        isInIteration: true
+        iteration_id: '1778752604233'
+        code: |
+          import json
+
+          def main(expanded_json: str) -> dict:
+              """MOCK branch: prepend [MOCK] to fulltext as proofread placeholder.
+              No API call. Phase 1 default behavior."""
+              items = json.loads(expanded_json)
+              for it in items:
+                  it["proofread"] = f"[MOCK] {it['fulltext']}"
+                  it["api_ok"] = True
+              return {
+                  "batch_results": json.dumps(items, ensure_ascii=False),
+                  "batch_size": len(items),
+              }
+        outputs:
+          batch_results: { type: string, children: null }
+          batch_size: { type: number, children: null }
+        variables:
+        - value_selector: ['1778752604235', expanded_json]
+          value_type: string
+          variable: expanded_json
+      parentId: '1778752604233'
+      extent: parent
+      position: { x: 650, y: 220 }
+      positionAbsolute: { x: 1676, y: 340 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1778836651676'
+      type: custom
+      data:
+        title: 'DeepL リクエスト構築'
+        type: code
+        code_language: python3
+        isInIteration: true
+        iteration_id: '1778752604233'
+        code: |
+          import json
+
+          def main(fulltext_list_json: str) -> dict:
+              """<<< VERIFY against actual DeepL Write API spec >>>
+              Assumed request: { "text": [...], "target_lang": "EN-US" }
+              Optional fields: tone, writing_style, etc."""
+              texts = json.loads(fulltext_list_json)
+              payload = {
+                  "text": texts,
+                  "target_lang": "EN-US",
+              }
+              return {
+                  "deepl_body": json.dumps(payload, ensure_ascii=False),
+                  "request_size": len(texts),
+              }
+        outputs:
+          deepl_body: { type: string, children: null }
+          request_size: { type: number, children: null }
+        variables:
+        - value_selector: ['1778752604235', fulltext_list_json]
+          value_type: string
+          variable: fulltext_list_json
+      parentId: '1778752604233'
+      extent: parent
+      position: { x: 650, y: 40 }
+      positionAbsolute: { x: 1676, y: 160 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1778836651678'
+      type: custom
+      data:
+        title: 'DeepL Write API'
+        type: http-request
+        isInIteration: true
+        iteration_id: '1778752604233'
+        method: post
+        url: '<<< FILL: e.g. https://api.deepl.com/v2/write >>>'
+        authorization:
+          type: no-auth
+          config: null
+        headers: |-
+          Authorization: DeepL-Auth-Key {{#env.DEEPL_API_KEY#}}
+          Content-Type: application/json
+        params: ''
+        body:
+          type: json
+          data:
+          - id: '1'
+            key: ''
+            type: text
+            file: []
+            value: '{{#1778836651676.deepl_body#}}'
+        timeout:
+          max_connect_timeout: 10
+          max_read_timeout: 60
+          max_write_timeout: 20
+        ssl_verify: true
+        retry_config:
+          retry_enabled: true
+          max_retries: 2
+          retry_interval: 2000
+      parentId: '1778752604233'
+      extent: parent
+      position: { x: 920, y: 40 }
+      positionAbsolute: { x: 1946, y: 160 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1778836651680'
+      type: custom
+      data:
+        title: 'DeepL レスポンス統合'
+        type: code
+        code_language: python3
+        isInIteration: true
+        iteration_id: '1778752604233'
+        code: |
+          import json
+
+          def main(expanded_json: str, response_body: str, status_code: int) -> dict:
+              """<<< VERIFY response shape against actual DeepL Write API >>>
+              Assumed: { "improvements": [{"text": "..."}, ...] }"""
+              items = json.loads(expanded_json)
+
+              if status_code != 200:
+                  marker = f"[API_ERROR_{status_code}]"
+                  for it in items:
+                      it["proofread"] = f"{marker} {it['fulltext']}"
+                      it["api_ok"] = False
+                  return {
+                      "batch_results": json.dumps(items, ensure_ascii=False),
+                      "batch_size": len(items),
+                  }
+
+              try:
+                  data = json.loads(response_body)
+                  improvements = data.get("improvements", [])
+              except Exception:
+                  improvements = []
+
+              for idx, it in enumerate(items):
+                  if idx < len(improvements) and isinstance(improvements[idx], dict):
+                      it["proofread"] = improvements[idx].get("text", it["fulltext"])
+                      it["api_ok"] = True
+                  else:
+                      it["proofread"] = it["fulltext"]
+                      it["api_ok"] = False
+
+              return {
+                  "batch_results": json.dumps(items, ensure_ascii=False),
+                  "batch_size": len(items),
+              }
+        outputs:
+          batch_results: { type: string, children: null }
+          batch_size: { type: number, children: null }
+        variables:
+        - value_selector: ['1778752604235', expanded_json]
+          value_type: string
+          variable: expanded_json
+        - value_selector: ['1778836651678', body]
+          value_type: string
+          variable: response_body
+        - value_selector: ['1778836651678', status_code]
+          value_type: number
+          variable: status_code
+      parentId: '1778752604233'
+      extent: parent
+      position: { x: 1190, y: 40 }
+      positionAbsolute: { x: 2216, y: 160 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1778836651682'
+      type: custom
+      data:
+        title: 'ブランチ統合'
+        type: variable-aggregator
+        isInIteration: true
+        iteration_id: '1778752604233'
+        output_type: string
+        variables:
+        - ['1778836651680', batch_results]
+        - ['1778836651673', batch_results]
+      parentId: '1778752604233'
+      extent: parent
+      position: { x: 1500, y: 130 }
+      positionAbsolute: { x: 2526, y: 250 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1778752604237'
+      type: custom
+      data:
+        title: 'LONG CSV出力生成'
+        type: code
+        code_language: python3
+        code: |
+          import csv
+          import io
+          import json
+
+          HEADER = [
+              "#", "Item ID", "Grade", "Category", "Target",
+              "Stem (template)",
+              "Choice #", "Choice Text",
+              "Full Text", "Proofread",
+              "Is Correct", "Has Placeholder",
+              "API OK",
+          ]
+
+          def md_escape(value):
+              s = "" if value is None else str(value)
+              return s.replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+
+          def build_row_values(d):
+              return [
+                  d.get("row_no", ""),
+                  d.get("item_id", ""),
+                  d.get("grade", ""),
+                  d.get("category", ""),
+                  d.get("target", ""),
+                  d.get("stem", ""),
+                  d.get("choice_idx", ""),
+                  d.get("choice_text", ""),
+                  d.get("fulltext", ""),
+                  d.get("proofread", ""),
+                  "Y" if d.get("is_correct") else "",
+                  "Y" if d.get("has_placeholder") else "",
+                  "Y" if d.get("api_ok", True) else "N",
+              ]
+
+          def main(batch_results_list: list) -> dict:
+              flat = []
+              for r in batch_results_list:
+                  if not r:
+                      continue
+                  try:
+                      batch = json.loads(r)
+                      flat.extend(batch)
+                  except Exception:
+                      continue
+
+              buf = io.StringIO()
+              writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
+              writer.writerow(HEADER)
+              for d in flat:
+                  writer.writerow(build_row_values(d))
+              csv_text = "﻿" + buf.getvalue()
+
+              md_lines = [
+                  "| " + " | ".join(HEADER) + " |",
+                  "|" + "|".join(["---"] * len(HEADER)) + "|",
+              ]
+              for d in flat:
+                  cells = [md_escape(c) for c in build_row_values(d)]
+                  md_lines.append("| " + " | ".join(cells) + " |")
+              csv_markdown = "\n".join(md_lines)
+
+              api_error_count = sum(1 for d in flat if not d.get("api_ok", True))
+
+              return {
+                  "csv_text": csv_text,
+                  "csv_markdown": csv_markdown,
+                  "row_count": len(flat),
+                  "api_error_count": api_error_count,
+              }
+        outputs:
+          csv_text: { type: string, children: null }
+          csv_markdown: { type: string, children: null }
+          row_count: { type: number, children: null }
+          api_error_count: { type: number, children: null }
+        variables:
+        - value_selector: ['1778752604233', output]
+          value_type: 'array[string]'
+          variable: batch_results_list
+      position: { x: 3150, y: 280 }
+      positionAbsolute: { x: 3150, y: 280 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1778823779289'
+      type: custom
+      data:
+        is_team_authorization: true
+        title: 'CSV変換 (Markdown → file)'
+        type: tool
+        plugin_id: bowenliang123/md_exporter
+        plugin_unique_identifier: bowenliang123/md_exporter:2.1.1@63ea80ece23673b1579c0ff64e6dc731e1b4baebca1fcce4d45fda17d962bfc8
+        provider_id: bowenliang123/md_exporter/md_exporter
+        provider_name: bowenliang123/md_exporter/md_exporter
+        provider_type: builtin
+        tool_name: md_to_csv
+        tool_label: Markdown to CSV file
+        tool_description: Generate CSV file from Markdown tables
+        tool_node_version: '2'
+        tool_configurations: {}
+        tool_parameters:
+          md_text:
+            type: mixed
+            value: '{{#1778752604237.csv_markdown#}}'
+          output_filename:
+            type: mixed
+            value: eiken_proofread
+        params:
+          md_text: ''
+          output_filename: ''
+        paramSchemas:
+        - auto_generate: null
+          default: null
+          form: llm
+          human_description:
+            en_US: Input text of single Markdown table
+            ja_JP: Markdown 形式のテーブルテキスト
+            zh_Hans: 单个Markdown格式文本
+          label:
+            en_US: Markdown table text
+            ja_JP: Markdown table text
+            zh_Hans: Markdown 表格文本
+          llm_description: ''
+          max: null
+          min: null
+          name: md_text
+          options: []
+          placeholder: null
+          precision: null
+          required: true
+          scope: null
+          template: null
+          type: string
+        - auto_generate: null
+          default: null
+          form: llm
+          human_description:
+            en_US: Optional custom output file name, suffix not required.
+            ja_JP: ファイル名（拡張子不要）
+            zh_Hans: 输出文件名
+          label:
+            en_US: Output Filename
+            ja_JP: Output Filename
+            zh_Hans: 输出文件名
+          llm_description: ''
+          max: null
+          min: null
+          name: output_filename
+          options: []
+          placeholder: null
+          precision: null
+          required: false
+          scope: null
+          template: null
+          type: string
+      position: { x: 3450, y: 280 }
+      positionAbsolute: { x: 3450, y: 280 }
+      width: 241
+      height: 50
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1778752604239'
+      type: custom
+      data:
+        title: '出力'
+        type: end
+        outputs:
+        - value_selector: ['1778823779289', files]
+          value_type: array[file]
+          variable: csv_file
+        - value_selector: ['1778752604237', row_count]
+          value_type: number
+          variable: row_count
+        - value_selector: ['1778752604230', item_count]
+          value_type: number
+          variable: total_items
+        - value_selector: ['1778752604230', skipped]
+          value_type: string
+          variable: skipped_items
+        - value_selector: ['1778752604237', api_error_count]
+          value_type: number
+          variable: api_errors
+      position: { x: 3750, y: 280 }
+      positionAbsolute: { x: 3750, y: 280 }
+      width: 241
+      height: 165
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.35 }
