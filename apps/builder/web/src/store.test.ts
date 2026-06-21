@@ -5,7 +5,7 @@
  * carries a monotonic `rev`; a strictly-older snapshot for the same task is dropped.
  */
 import { describe, it, expect } from 'vitest';
-import { applyTask, applyOutput, flushPendingOutput, isFreshSnapshot, task, thread } from './store';
+import { applyTask, applyOutput, flushPendingOutput, isFreshSnapshot, resetToNew, task, thread } from './store';
 import type { LiveThreadItem } from './store';
 import type { WireTask, WirePhase } from './types';
 
@@ -127,5 +127,33 @@ describe('applyOutput coalescing (017 D6)', () => {
     const run = thread.value.find((i) => i.kind === 'run') as LiveThreadItem & { kind: 'run' };
     expect(run.output).toBe('streamed before the gate');
     expect(run.running).toBe(false);
+  });
+});
+
+// ── spec 019 C2: resetToNew must clear the reconnect rev-guard ───────────────────────────────────
+// The guard (_appliedTaskId/_appliedRev) drops any same-task snapshot strictly older than the last
+// applied (014 D5). resetToNew used to leave it set, so re-opening a build whose persisted rev is ≤ the
+// stale leftover was dropped in applyTask → task.value stayed null + the thread held only the user line
+// (a reproducible "blank thread on re-open after reset"). This pins the fix: reset clears the guard.
+describe('resetToNew clears the reconnect rev-guard (019 C2)', () => {
+  it('after reset, re-opening a build with an older-or-equal rev is NOT dropped (no blank thread)', () => {
+    // 1. A build ran and reached a high rev — the guard now holds (taskId 'RX', rev 5).
+    applyTask(mk('RX', 5, 'spec'));
+    expect(task.value?.taskId).toBe('RX');
+
+    // 2. User resets to the new-task surface.
+    resetToNew();
+    expect(task.value).toBe(null);
+
+    // 3. Re-open the SAME build: openTask seeds the thread with the user line, nulls task.value, then
+    //    applyTask()s the fetched snapshot — whose persisted rev (2) is LOWER than the _appliedRev (5)
+    //    that a direct-broadcast route (cancel/restore/PATCH) had bumped before the reset.
+    thread.value = [{ id: 'u', kind: 'user', text: 'r' }];
+    applyTask(mk('RX', 2, 'spec'));
+
+    // WITHOUT C2 the stale guard drops this older-rev same-task snapshot → task stays null + the thread
+    // shows only the user line (blank). WITH C2, resetToNew cleared the guard so it applies.
+    expect(task.value?.taskId).toBe('RX');
+    expect(thread.value.length).toBeGreaterThan(1); // a run item was appended → not blank
   });
 });

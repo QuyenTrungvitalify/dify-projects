@@ -466,7 +466,14 @@ export async function patchConfirmMode(taskId: string, uiLabel: string): Promise
 export async function saveSpec(content: string): Promise<void> {
   const t = task.value;
   if (!t) return;
-  await api.putSpec(t.taskId, content);
+  // C3 (spec 019): saveSpec was the one action with no error feedback — a failed PUT died in the console
+  // with the user thinking the edit saved. Surface it like openTask/patchConfirmMode (additive; the
+  // happy path and the void return type are unchanged).
+  try {
+    await api.putSpec(t.taskId, content);
+  } catch (e) {
+    surfaceError(e);
+  }
 }
 
 /** Open an existing task from the sidebar: load state + stream it (history isn't persisted, so the
@@ -490,6 +497,12 @@ export function resetToNew(): void {
   teardown = null;
   task.value = null;
   thread.value = [];
+  // C2 (spec 019): also clear the reconnect rev-guard. Without this, `_appliedTaskId`/`_appliedRev`
+  // survive the reset, so re-opening a build whose persisted `rev` is ≤ the last-applied rev is dropped
+  // by `isFreshSnapshot` in `applyTask` → `task.value` stays null and the thread shows only the user
+  // line (a blank thread). Resetting to the initial sentinels makes the next `applyTask` always apply.
+  _appliedTaskId = null;
+  _appliedRev = -1;
   clearErrors();
   connected.value = false;
 }
