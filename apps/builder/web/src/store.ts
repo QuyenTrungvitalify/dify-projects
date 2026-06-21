@@ -236,22 +236,40 @@ function optimisticAdvance(t: WireTask, resolvedLabel: string): void {
 let _pendingOutput = new Map<string, string>();
 let _outputRaf: number | null = null;
 
-/** Apply (and clear) any buffered fragments onto the trailing running run item. Idempotent. */
+/** Apply (and clear) any buffered fragments onto their phase's run item. Idempotent. */
 export function flushPendingOutput(): void {
   if (_outputRaf != null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(_outputRaf);
   _outputRaf = null;
   if (_pendingOutput.size === 0) return;
   const items = thread.value.slice();
-  const last = items[items.length - 1];
   let changed = false;
-  if (last && last.kind === 'run' && last.running) {
-    const add = _pendingOutput.get(last.phase);
-    if (add) {
-      items[items.length - 1] = { ...last, output: last.output + add };
-      changed = true;
+  // C1 (spec 019): land each buffered phase's text on the MOST RECENT run item of THAT phase — even one
+  // already finalized (running:false) once a gate sits after it. The old code only appended to the
+  // trailing item when it was a *running* run, then `clear()`-ed ALL buffers — so a `phase:output`
+  // straggler arriving after the run→gate boundary (trailing item now the gate) was dropped silently.
+  // We instead find the run item by phase, and clear ONLY a key once it lands (no double-append); a
+  // phase with no run item yet keeps its buffer (no live target), so an early fragment isn't dropped
+  // before its run item exists either.
+  for (const phase of [..._pendingOutput.keys()]) {
+    const add = _pendingOutput.get(phase);
+    if (!add) {
+      _pendingOutput.delete(phase);
+      continue;
     }
+    let idx = -1;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind === 'run' && it.phase === phase) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx === -1) continue; // no live target for this phase yet → keep buffered (don't drop)
+    const run = items[idx] as LiveThreadItem & { kind: 'run' };
+    items[idx] = { ...run, output: run.output + add };
+    _pendingOutput.delete(phase);
+    changed = true;
   }
-  _pendingOutput.clear();
   if (changed) thread.value = items;
 }
 
