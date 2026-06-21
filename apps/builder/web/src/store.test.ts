@@ -129,3 +129,45 @@ describe('applyOutput coalescing (017 D6)', () => {
     expect(run.running).toBe(false);
   });
 });
+
+// ── spec 019 C1: a phase:output straggler after the run→gate boundary must not be dropped ──────────
+// The run is already finalized and a gate sits after it (the post-transition thread shape). A late
+// fragment for that phase must land on its (finalized) run item, not vanish. The old flush only
+// appended to a *running* trailing item and then clear()-ed everything → silent data loss.
+const irun = (
+  phase: WirePhase,
+  running: boolean,
+  output: string
+): LiveThreadItem => ({ id: 'run-' + phase, kind: 'run', phase, running, output });
+
+describe('flushPendingOutput straggler safety (019 C1)', () => {
+  it('a straggler after the run→gate transition lands on its run item (not dropped, not doubled)', () => {
+    thread.value = [
+      irun('implement', false, 'before'), // run finalized at the boundary
+      { id: 'g', kind: 'gate', phase: 'implement', snapshot: mk('S', 1, 'implement') },
+    ];
+    applyOutput('implement', '-straggler'); // arrives AFTER the gate (trailing item is the gate)
+    flushPendingOutput();
+
+    const run = thread.value.find((i) => i.kind === 'run') as LiveThreadItem & { kind: 'run' };
+    expect(run.output).toBe('before-straggler'); // không mất — landed on its phase's run item
+
+    flushPendingOutput(); // re-drain
+    const run2 = thread.value.find((i) => i.kind === 'run') as LiveThreadItem & { kind: 'run' };
+    expect(run2.output).toBe('before-straggler'); // không double-append — the key was cleared on landing
+  });
+
+  it('a fragment for a phase with NO run item yet is kept buffered (not dropped) until its run exists', () => {
+    thread.value = [irun('analyze', true, 'a')];
+    applyOutput('test', 'early'); // 'test' has no run item yet
+    flushPendingOutput();
+    // the analyze item is untouched and 'early' was not lost — it lands once a 'test' run appears.
+    expect((thread.value[0] as LiveThreadItem & { kind: 'run' }).output).toBe('a');
+    thread.value = [irun('analyze', false, 'a'), irun('test', true, '')];
+    flushPendingOutput();
+    const testRun = thread.value.find(
+      (i) => i.kind === 'run' && i.phase === 'test'
+    ) as LiveThreadItem & { kind: 'run' };
+    expect(testRun.output).toBe('early'); // the buffered fragment finally landed
+  });
+});

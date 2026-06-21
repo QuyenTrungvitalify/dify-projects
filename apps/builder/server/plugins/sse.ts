@@ -74,6 +74,9 @@ export interface SSEState {
   eventBuffer: RingBuffer;
   /** Fan out an event to every client subscribed to `taskId`; buffer lightweight events for replay. */
   broadcast: (taskId: string, event: string, data: unknown) => void;
+  /** Allocate the next monotonic event id WITHOUT broadcasting/buffering — for a transient out-of-band
+   *  event (the `init` frame) that must still be strictly newer than every replayable event (C4). */
+  nextEventId: () => number;
 }
 
 export function createSSEState(): SSEState {
@@ -104,7 +107,22 @@ export function createSSEState(): SSEState {
     },
     eventBuffer,
     broadcast,
+    nextEventId() {
+      return ++eventCounter;
+    },
   };
+}
+
+/**
+ * The id + payload of the `init` frame a (re)connecting client receives. C4 (spec 019): it takes a
+ * FRESH id from the counter rather than re-reading `eventCounter` (the last *broadcast* id), so `init`
+ * is strictly newer than every replayable buffered event. Reusing the last id made `init` tie an
+ * already-issued event id; a client adopting that as its `Last-Event-ID` then under/over-replays by one
+ * on the next reconnect — the exact off-by-one AC #22 leans on. `init` is never buffered, so spending an
+ * id is free.
+ */
+export function initEvent(sse: SSEState, reconnected: boolean): { id: number; event: 'init'; data: { reconnected: boolean } } {
+  return { id: sse.nextEventId(), event: 'init', data: { reconnected } };
 }
 
 /** Enqueue an event for a client (drops past MAX_QUEUE_SIZE) and kick the drain. */
@@ -223,8 +241,10 @@ const ssePlugin = async (app: FastifyInstance, opts: SSEPluginOptions): Promise<
       }
     }
 
-    // Minimal init — the store re-fetches GET /api/tasks/:id to restore the gate (AC #22).
-    writeToClient(client, sse.eventCounter, 'init', { reconnected });
+    // Minimal init — the store re-fetches GET /api/tasks/:id to restore the gate (AC #22). C4: a FRESH
+    // id (strictly newer than any replayed event), not the stale last-broadcast counter.
+    const ie = initEvent(sse, reconnected);
+    writeToClient(client, ie.id, ie.event, ie.data);
 
     request.raw.on('close', cleanup);
     request.raw.on('error', cleanup);

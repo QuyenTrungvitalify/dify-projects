@@ -13,8 +13,7 @@
  * (so `GET /api/tasks/:id` reads it without re-spawning python). Backend-only; no Dify, no token.
  */
 import { existsSync } from 'node:fs';
-import { copyFile, mkdir, writeFile, readFile } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
+import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { runPython } from './shell.js';
 import type { Task } from '../state/task.js';
@@ -100,33 +99,14 @@ export async function produceDiff(projectsDir: string, task: Task): Promise<Diff
 
 /** Compute + persist the diff to `.runs/<taskId>/diff.json` (read back by GET /api/tasks).
  *
- * D7 (017): short-circuit the python `difflib` spawn when the produced workflow is byte-unchanged
- * since the last write. The diff base (seed / pre-edit snapshot / empty) is FIXED for a given task,
- * so the produced file's content hash alone determines whether the diff changed — a no-op /reply
- * re-Implement that didn't touch `main.yml` reuses the existing `diff.json`. The hash lives in a
- * sidecar (`diff.hash`) so `diff.json`'s `{path,diff}` wire shape is untouched. */
+ * L5b (019): the 017-D7 content-hash short-circuit (+ its sidecar hash file) was removed — it was a
+ * premature optimization that saved one sub-100ms `difflib` spawn on a single-user box at the cost of an
+ * extra artifact file + branchy hash bookkeeping. We now always recompute: slower by one fast spawn,
+ * never stale. The `{path,diff}` wire shape is unchanged. */
 export async function writeDiffArtifact(projectsDir: string, task: Task): Promise<string> {
   const rel = `apps/builder/.runs/${task.taskId}/diff.json`;
-  const hashRel = `apps/builder/.runs/${task.taskId}/diff.hash`;
   const abs = join(projectsDir, rel);
-  const hashAbs = join(projectsDir, hashRel);
-
-  let hash: string | null = null;
-  try {
-    hash = createHash('sha256').update(await readFile(join(projectsDir, newWorkflowRel(task)))).digest('hex');
-  } catch {
-    hash = null; // unreadable produced file → fall through to a fresh compute (it surfaces the error)
-  }
-  if (hash && existsSync(abs) && existsSync(hashAbs)) {
-    try {
-      if ((await readFile(hashAbs, 'utf8')).trim() === hash) return rel; // unchanged → keep diff.json
-    } catch {
-      /* corrupt/missing sidecar → recompute */
-    }
-  }
-
   const payload = await produceDiff(projectsDir, task);
   await writeFile(abs, JSON.stringify(payload, null, 2));
-  if (hash) await writeFile(hashAbs, hash);
   return rel;
 }
