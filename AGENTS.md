@@ -65,7 +65,7 @@ cp templates/patterns/multi-step-llm.yml projects/<slug>/workflows/main.yml
 ### 4.2 Variable references
 - Syntax: `{{#<node_id>.<field>#}}`. The `<field>` MUST exist in the source node's declared `outputs`.
 - The source `<node_id>` MUST be reachable upstream in the graph (no forward references).
-- Typos here are the **#1 cause of silent import success + runtime failure**. Pre-commit lints this; do not ignore failures.
+- Typos here are the **#1 cause of silent import success + runtime failure**. `lint_refs.py` (pre-commit) checks that the referenced `<node_id>` exists and that `<field>` is a declared output of that node — it does **not** (yet) verify graph reachability / upstream ordering, so keeping refs upstream is on you. Do not ignore its failures.
 
 ### 4.3 Plugin marketplace hashes
 - Format: `<provider>/<plugin>:<version>@<sha256>` in `dependencies[].value.marketplace_plugin_unique_identifier`.
@@ -149,6 +149,10 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 
 # Regenerate JSON Schema from vendored Dify source (when bumping .dify-tag).
 .venv/bin/python schemas/gen_schema.py
+
+# Builder app (apps/builder) — separate TS/Node toolchain; pre-commit/pytest skip apps/ (see §10).
+(cd apps/builder && npm run typecheck && npm test)   # server: tsc --noEmit + node:test via tsx
+(cd apps/builder/web && npm run build && npm test)   # web: tsc --noEmit + vite build + vitest
 ```
 
 ## 8. Where to find what
@@ -186,3 +190,24 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 - 2026-05-19: Discovered the bowenliang123 md_exporter plugin collapses consecutive whitespace in Markdown table cells → 10-space placeholder became 1-space in output CSV. Functionally OK for human reviewers, but breaks byte-exact downstream parsers. → When CSV output requires exact whitespace, don't pipe through md_exporter — see [constraints.md §5](skills/mango-svip/references/constraints.md) for workarounds.
 - 2026-05-21: Used string node IDs (`node-code-1`) in a workflow → downstream `{{#node-code-1.text#}}` rendered as literal template string in output, no error, no warning. → Dify template engine only resolves numeric-timestamp IDs. Always generate via `skills/mango-svip/scripts/generate_id.py` per §4.1.
 - 2026-05-22: Proposed LanguageTool free tier for production proofread → ToS prohibits automated/non-interactive use. → For any tiered third-party API, read ToS for "automated requests" clause before designing free-tier production path. Tracker: [eiken/spec_todo/api_alternatives.md](projects/eiken_stem_proofread/spec_todo/api_alternatives.md).
+
+## 10. The builder app (apps/builder)
+
+`apps/builder` is a **separate tool**, not part of the DSL-authoring flow above: a local web app
+(Fastify backend + Preact SPA) that drives the gated 4-phase build (Analyze → Spec → Implement →
+Test) conversationally. It has its **own** TypeScript/Node toolchain — pre-commit and `pytest`
+deliberately skip `apps/` ([.pre-commit-config.yaml](.pre-commit-config.yaml)); its regression net is
+the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
+
+- **Run it**: `cd apps/builder && npm install && npm run dev` (binds 127.0.0.1:4123); web dev server
+  `cd apps/builder/web && npm run dev`.
+- **Tests**: server `npm test` (node:test via tsx, in `apps/builder/test/`), web `npm test` (vitest,
+  `apps/builder/web/src/**/*.test.ts`). The pure safety logic (gate / run-lock / Origin-CSRF / slug /
+  auto-advance) is unit-tested; browser end-to-end is the **manual** QA suite at
+  [docs/specs/prompts/009/qa/](docs/specs/prompts/009/qa/).
+- **Specs**: [009](docs/specs/009-browser-workflow-builder.md) (the app),
+  [010](docs/specs/010-builder-ux-hardening.md) (UX hardening),
+  [011](docs/specs/011-builder-test-coverage-and-remediation.md) (tests + review remediation).
+- **Builder QA writes scratch projects** to `projects/<slug>/` — gitignored regenerable throwaways
+  (spec 011 R2; `build_index.py` skips gitignored YAMLs). Don't commit them. The hand-made projects
+  `news_automation/` and `eiken_stem_proofread/` are kept and indexed.

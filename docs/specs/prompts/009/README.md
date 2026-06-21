@@ -19,6 +19,14 @@ Copy-paste-ready prompts cho fresh AI agent session để implement từng **lá
 | [lat4-design.md](lat4-design.md) | 4 · design | **Visual layer** from [docs/design/](../../../design/) — vendor `surface-blocks.css` + port the 7 prototype components → Preact shell (sidebar, gate cards, phase track, artifact panel) | ✅ **authored** | Lát 0 |
 | [lat4-ui.md](lat4-ui.md) | 4 · wire | SSE + 3 regions **wired** to the backend; nexus = **logic only** (the look comes from lat4-design) | ✅ **done** (`apps/builder/web` live: SSE relay + 3 regions + SPEC editor; routes go SSE-live/async) | Lát 3, 4·design |
 | [lat5-shell.md](lat5-shell.md) | 5 | selfhost push/app_url, seed picker, diff, recovery, security, cloud, docs | ✅ **authored** | Lát 4 |
+| [lat6-turn-level-lock.md](lat6-turn-level-lock.md) | 6 · Phase 3 | **Turn-level lock** (gates don't hold the lock → multiple workflows can sit in-progress; turns still 1-at-a-time) + multi-build/load-recovery UI | ✅ **done** | Lát 5 |
+
+**QA prompts** (not slices — for testing the finished app):
+
+| File | Purpose |
+|---|---|
+| [ui-test-plan.md](ui-test-plan.md) | First-pass manual browser walkthrough (A–J cases) for a Chrome agent |
+| [qa-suite-generator.md](qa-suite-generator.md) | **Meta-prompt**: review the whole project, then generate a professional, AC-traceable browser test suite under `qa/` (for the Claude Chrome extension) |
 
 > **All step prompts are authored (Lát 0–5).** Each is written to **read the current
 > `009-implementation-plan.md` slice + spec + prior-slice artifacts at runtime**, so it stays
