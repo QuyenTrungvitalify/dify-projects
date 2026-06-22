@@ -62,11 +62,13 @@ dify-projects/
 │   ├── Tomatio13/             # DSL generator + checker (Japanese context)
 │   └── lazeyliu/              # Validation-tier skills (structure idea)
 │
-├── corpus/                    # Reference YAML examples (read-only clone)
-│   └── awesome-dify-workflow/ # svcvit/Awesome-Dify-Workflow (46 examples)
+├── corpus/                    # Reference YAML (gitignored clones; registry-driven)
+│   ├── sources.yml            # Source registry (spec 022) — add/refresh corpora here
+│   └── awesome-dify-workflow-en/ # Formyselfonly/Awesome-Dify-Workflow-EN (English examples)
 │
-├── templates/                 # Project starter + workflow patterns
+├── templates/                 # Project starter, patterns + promoted library/ (spec 022)
 │   ├── _base/project/         # Scaffolded by init_project.py
+│   ├── library/               # Promoted, provenance-stamped templates (spec 022; English, v0.6.0)
 │   └── patterns/              # 6 reusable workflow skeletons
 │       ├── file-to-llm.yml      # File upload → 1 LLM call → output (simplest)
 │       ├── file-iteration.yml   # File upload → split → iterate → aggregate
@@ -226,5 +228,5 @@ Chi tiết design: xem [docs/architecture.md](docs/architecture.md) (planned).
 - [mango-svip/dify-workflow-skills](https://github.com/mango-svip/dify-workflow-skills) — base skill
 - [Tomatio13/DifyWorkFlowGenerator](https://github.com/Tomatio13/DifyWorkFlowGenerator) — JP-context DSL gen
 - [lazeyliu/dify-dsl-generator-skills](https://github.com/lazeyliu/dify-dsl-generator-skills) — multi-tier skills
-- [svcvit/Awesome-Dify-Workflow](https://github.com/svcvit/Awesome-Dify-Workflow) — corpus 46+ examples
+- [Formyselfonly/Awesome-Dify-Workflow-EN](https://github.com/Formyselfonly/Awesome-Dify-Workflow-EN) — English reference corpus (MIT)
 - [Dify Official Docs](https://docs.dify.ai/) · [Dify v1.14.0 release](https://github.com/langgenius/dify/releases/tag/1.14.0)
