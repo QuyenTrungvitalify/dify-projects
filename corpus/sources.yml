@@ -1,0 +1,30 @@
+# corpus/sources.yml — single source of truth for vendored reference corpora (spec 022 D1).
+#
+# The clones described here live at corpus/<name>/ and stay gitignored (.gitignore: corpus/*/);
+# THIS file is tracked. Adding a source = one entry below; setup.sh, build_index.py, and
+# update_corpus.sh all read it. No hard-coded corpus path lives anywhere else.
+#
+# Schema is a deliberately FLAT, grep/awk-parseable subset of YAML so scripts/lib/sources.sh can
+# read it at bootstrap WITHOUT a venv or `yq` (setup.sh clones before the venv exists). Keep each
+# value a single-line scalar and `sparse` a single-line list. Python uses tools/dify_base/sources.py.
+#
+# Fields:
+#   name      directory under corpus/ + the `corpus:<name>` index tag
+#   repo      clone URL
+#   ref       branch / tag / SHA (default-tracked; pin to a tag/SHA for reproducibility)
+#   sparse    subdirs to materialise (blobless + cone sparse-checkout)
+#   dsl_glob  how build_index.py finds workflows under this source
+#   license   SPDX id, copied from the source repo's LICENSE (must be permissive — see spec 022 D7)
+sources:
+  - name: awesome-dify-workflow
+    repo: https://github.com/svcvit/Awesome-Dify-Workflow.git
+    ref: main
+    sparse: [DSL]
+    dsl_glob: "DSL/**/*.yml"
+    license: MIT
+  - name: awesome-dify-workflow-en
+    repo: https://github.com/Formyselfonly/Awesome-Dify-Workflow-EN.git
+    ref: main
+    sparse: [Workflow-Store]
+    dsl_glob: "Workflow-Store/**/*.yml"
+    license: MIT

@@ -34,7 +34,9 @@ Common features (use with --has / --no):
   document-extractor, knowledge-retrieval, agent, file-input,
   template-transform, parameter-extractor
 
-Sources: patterns, starter, example, corpus, skill-assets, project
+Sources: patterns, library, starter, example, corpus:<name>, skill-assets, project
+  --source corpus      matches every corpus:* source (namespace prefix)
+  --source corpus:<n>  matches one vendored source exactly
 """
     )
     parser.add_argument("--has", action="append", default=[], metavar="FEATURE",
@@ -45,8 +47,10 @@ Sources: patterns, starter, example, corpus, skill-assets, project
                         help="Filter by complexity")
     parser.add_argument("--plugin", help="Must use this plugin (substring match)")
     parser.add_argument("--mode", help="Filter by mode (workflow / advanced-chat / agent-chat)")
-    parser.add_argument("--source", choices=["patterns", "starter", "example", "corpus", "skill-assets", "project"],
-                        help="Filter by source")
+    parser.add_argument("--source", metavar="SOURCE",
+                        help="Filter by source. Namespace prefix-match: 'corpus' matches every "
+                             "'corpus:<name>'; 'corpus:<name>' matches one. Plain tags "
+                             "(patterns, library, project, …) match exactly.")
     parser.add_argument("--name", help="Substring match in app name or description")
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--full", action="store_true", help="Show full info per match")
@@ -118,7 +122,10 @@ Sources: patterns, starter, example, corpus, skill-assets, project
     if args.mode:
         results = [e for e in results if e['mode'] == args.mode]
     if args.source:
-        results = [e for e in results if e['source'] == args.source]
+        s = args.source
+        # Namespace prefix-match: `--source corpus` matches every `corpus:<name>` tag, while
+        # `--source corpus:<name>` (or a plain tag like `patterns`) matches exactly.
+        results = [e for e in results if e['source'] == s or e['source'].startswith(s + ':')]
     if args.name:
         q = args.name.lower()
         results = [e for e in results
