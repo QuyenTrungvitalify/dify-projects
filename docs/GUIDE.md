@@ -22,7 +22,7 @@ Hướng dẫn vận hành base workspace cho việc build Dify workflow. Đọc
 | Không nhớ schema YAML | `skills/mango-svip/references/node_types.md` |
 | Không biết bắt đầu từ đâu | `skills/mango-svip/assets/` (3 skeleton) + `templates/` (project-specific) |
 | Lo schema sai dẫn đến import fail | `skills/mango-svip/scripts/validate_workflow.py` |
-| Không tìm được pattern tương tự | `corpus/awesome-dify-workflow/DSL/` (40+ examples) |
+| Không tìm được pattern tương tự | `corpus/awesome-dify-workflow-en/Workflow-Store/` (English examples) |
 | Tạo ID trùng / sai format | `skills/mango-svip/scripts/generate_id.py` |
 | Mỗi task build lại từ đầu | `templates/` (clone từ task trước, tinh chỉnh) |
 
@@ -142,13 +142,15 @@ python3 skills/mango-svip/scripts/generate_id.py 5   # → 5 IDs
 python3 skills/mango-svip/scripts/validate_workflow.py path/to/file.yml
 ```
 
-### 4.2 `corpus/awesome-dify-workflow/`
+### 4.2 `corpus/awesome-dify-workflow-en/`
 
-**Reference corpus** — 40+ working YAML. KHÔNG edit.
+**Reference corpus** — English working YAML (svcvit's English port). KHÔNG edit. (The Chinese
+`awesome-dify-workflow` was removed for an English-only workspace — re-add it in `corpus/sources.yml`
+with `indexed: false` if you ever need to harvest from the Chinese upstream.)
 
 Tìm pattern bằng grep:
 ```bash
-cd /Users/quyenbt/Desktop/MyProjects/dify-projects/corpus/awesome-dify-workflow/DSL
+cd /Users/quyenbt/Desktop/MyProjects/dify-projects/corpus/awesome-dify-workflow-en/Workflow-Store
 
 # Tìm file có document-extractor
 grep -l "document-extractor" *.yml

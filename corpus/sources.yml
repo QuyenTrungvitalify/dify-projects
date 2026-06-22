@@ -15,13 +15,14 @@
 #   sparse    subdirs to materialise (blobless + cone sparse-checkout)
 #   dsl_glob  how build_index.py finds workflows under this source
 #   license   SPDX id, copied from the source repo's LICENSE (must be permissive — see spec 022 D7)
+#   indexed   optional bool, default true (spec 023). false = vendored + refreshed + promotable as
+#             usual, but EXCLUDED from INDEX.md / index.json / find.py. Use for sources wanted as a
+#             /template-promote source but too noisy for the English-first browse index (e.g. a
+#             multilingual upstream). The bash shim ignores this field — clone/fetch is unconditional.
 sources:
-  - name: awesome-dify-workflow
-    repo: https://github.com/svcvit/Awesome-Dify-Workflow.git
-    ref: main
-    sparse: [DSL]
-    dsl_glob: "DSL/**/*.yml"
-    license: MIT
+  # To harvest from a multilingual upstream without cluttering the English index, add it here with
+  # `indexed: false` (spec 023): it is cloned + promotable but kept out of INDEX/find. (The Chinese
+  # svcvit/Awesome-Dify-Workflow was vendored this way, then fully removed once English-only was the goal.)
   - name: awesome-dify-workflow-en
     repo: https://github.com/Formyselfonly/Awesome-Dify-Workflow-EN.git
     ref: main

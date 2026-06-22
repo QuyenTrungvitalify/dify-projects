@@ -32,8 +32,9 @@ PERMISSIVE_LICENSES = {
 def load_sources(path=SOURCES_YML):
     """Return the list of source dicts from the registry (empty list if absent).
 
-    Each dict is normalised to: name, repo, ref, sparse (list), dsl_glob, license —
+    Each dict is normalised to: name, repo, ref, sparse (list), dsl_glob, license, indexed —
     optional keys filled with sensible defaults so consumers need not guard every access.
+    `indexed` defaults True (spec 023): false = vendored + promotable but hidden from INDEX/find.
     """
     path = Path(path)
     if not path.exists() or yaml is None:
@@ -53,6 +54,8 @@ def load_sources(path=SOURCES_YML):
             "sparse": list(sparse),
             "dsl_glob": s.get("dsl_glob", "**/*.yml") or "**/*.yml",
             "license": s.get("license", ""),
+            # spec 023: truthy default → existing registries index exactly as before.
+            "indexed": bool(s.get("indexed", True)),
         })
     return out
 

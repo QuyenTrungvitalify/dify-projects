@@ -52,9 +52,15 @@ def scan_targets():
     Static roots scan ``*.yml`` recursively; corpus roots come from the source registry
     (corpus/sources.yml) — each tagged ``corpus:<name>`` and scanned by its ``dsl_glob`` so
     INDEX/find.py show per-source provenance (spec 022 D3).
+
+    Sources flagged ``indexed: false`` (spec 023) are skipped here — still cloned/refreshed/
+    promotable, just absent from the browse index. This branch is the sole indexing consumer
+    of the flag (write_markdown only annotates the note).
     """
     targets = [(d, tag, "*.yml") for d, tag in STATIC_SCAN]
     for s in load_sources():
+        if not s["indexed"]:
+            continue
         targets.append((BASE / "corpus" / s["name"], f"corpus:{s['name']}", s["dsl_glob"]))
     return targets
 
@@ -136,9 +142,14 @@ def analyze(yaml_path):
 def write_markdown(entries, out_path):
     src_list = load_sources()
     if src_list:
-        srcs = "; ".join(f"`corpus:{s['name']}` ({s['license']})" for s in src_list)
+        # Hidden sources (spec 023) are still vendored, so they belong in this note — but mark them
+        # `intake-only` so a reader isn't left hunting for table rows that were deliberately excluded.
+        srcs = "; ".join(
+            f"`corpus:{s['name']}` ({s['license']}{'' if s['indexed'] else ', intake-only'})"
+            for s in src_list
+        )
         registry_note = (f"**Vendored sources** (registry [`corpus/sources.yml`](corpus/sources.yml)): {srcs}. "
-                         "Add a source = one registry entry.")
+                         "Add a source = one registry entry. `intake-only` = tracked + promotable but not indexed.")
     else:
         registry_note = "**Vendored sources**: none registered — see [`corpus/sources.yml`](corpus/sources.yml)."
     lines = [
