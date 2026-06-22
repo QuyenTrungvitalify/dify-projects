@@ -53,6 +53,11 @@ jobs:
         # tests/test_workflow_smoke.py skips gracefully without DIFY_API_KEY.
         run: pytest tests/ -v --tb=short
 
+      - name: Provenance check (warn-only, spec 022 D6)
+        # Reports stale/orphan promoted templates; warn-only (no --strict) until the curated tier
+        # is measured clean, per spec 022 Q6 warn->measure->gate discipline.
+        run: python tools/dify_base/check_provenance.py
+
   # Spec 011: compile + type-check + unit-test the builder app (server + web). Pre-commit excludes
   # apps/ (own TS/Node toolchain), so this is the ONLY regression net for the gate/lock/CSRF logic.
   builder:

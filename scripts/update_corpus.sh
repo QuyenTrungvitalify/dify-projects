@@ -115,4 +115,11 @@ if [ "${#lint_targets[@]}" -gt 0 ]; then
     fi
 fi
 
+# Provenance/staleness of promoted templates (spec 022 D6), warn-only: a refreshed source may have
+# moved past a curated template's recorded orig_sha256 → re-promote via /template-promote.
+if [ -d "$ROOT/templates/library" ]; then
+    bold "Checking promoted-template provenance (warn-only)…"
+    "$PY" "$ROOT/tools/dify_base/check_provenance.py" || true
+fi
+
 bold "Done."

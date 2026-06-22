@@ -1,6 +1,6 @@
 # Spec 022 — Multi-source curated template library (vendored intake + standardized curated tier)
 
-**Status**: In progress — **022a (D1–D3) implemented 2026-06-22**; 022b (D4–D7) pending
+**Status**: Done — **022a (D1–D3) + 022b (D4–D7) implemented 2026-06-22**; all AC met
 (Q1–Q6 resolved 2026-06-21 — defaults below)
 **Effort**: L
 **Depends on**: [003](003-variable-ref-linter.md) (`lint_refs.py` — the baseline that must stay green across all
@@ -220,27 +220,28 @@ All six were locked to the recommended defaults so implementation can proceed; t
 
 ## Acceptance criteria
 
-- **AC1** — `corpus/sources.yml` exists and is the only place a source is declared; `setup.sh`, `build_index.py`,
+- **AC1** ✅ — `corpus/sources.yml` exists and is the only place a source is declared; `setup.sh`, `build_index.py`,
   and `update_corpus.sh` read it; **no hard-coded corpus path remains** in any of the three.
 - **AC2** ✅ — Adding a source = one registry entry; `setup.sh` (or `update_corpus.sh --all`) materialises it, and
   INDEX gains `corpus:<name>` rows. **Demonstrated** with a real second source:
   `awesome-dify-workflow-en` (Formyselfonly/Awesome-Dify-Workflow-EN, MIT, 26 English workflows under
   `Workflow-Store/`) — a *different* `sparse`/`dsl_glob` than source #1, proving per-source config works.
-- **AC3** — `update_corpus.sh --check` reports per-source fresh/stale with zero downloads.
-- **AC4** — At least one curated template carries an `x-provenance` header (incl. `orig_sha256`);
+- **AC3** ✅ — `update_corpus.sh --check` reports per-source fresh/stale with zero downloads.
+- **AC4** ✅ — `templates/library/seo-slug-generator.yml` carries an `x-provenance` header (incl. `orig_sha256`);
   `check_provenance.py` classifies it `current`, and flips to `stale` when the upstream file's content diverges
-  from the recorded `orig_sha256`.
-- **AC5** — Lint policy is **tier-split**: `lint_refs.py` **gates** the curated tier (`templates/library/`,
+  from the recorded `orig_sha256` (verified in `tests/test_provenance.py`).
+- **AC5** ✅ — Lint policy is **tier-split**: `lint_refs.py` **gates** the curated tier (`templates/library/`,
   tracked → pre-commit), and runs **warn-only** over intake (`corpus/*`, gitignored, reference-only —
   multilingual + older DSL, so it cannot be required green). This matches today's `update_corpus.sh` warn-only
   corpus lint; the 003 baseline applies to the curated tier.
-- **AC6** — Every promoted template names a license + registered source; `THIRD_PARTY.md` lists attributions.
-- **AC7** — Docs updated: AGENTS.md gains a "sources" subsection, GUIDE/INDEX reflect the registry. Precedence is
+- **AC6** ✅ — Every promoted template names a license + registered source (enforced by `check_provenance.py`
+  `--strict`); `THIRD_PARTY.md` aggregates attributions (auto-generated via `--write-third-party`).
+- **AC7** ✅ — Docs updated: AGENTS.md gains registry + `templates/library/` rows, INDEX reflects the registry. Precedence is
   **extended, not reordered** — the new curated tier sits beside `patterns`:
   `patterns > library > project > corpus:* > skill-assets`.
-- **AC8** — `tools/dify_base/sources.py` (registry parse) and `check_provenance.py` (header parse + classify) have
-  unit tests under `tests/`; a warn-only CI step runs `check_provenance.py` (matches the repo's test culture —
-  specs 011/020).
+- **AC8** ✅ — `sources.py` (`tests/test_sources_registry.py`) and `provenance.py`/`check_provenance.py`
+  (`tests/test_provenance.py`) have unit tests; a warn-only CI step runs `check_provenance.py`
+  ([ci.yml](../../.github/workflows/ci.yml), per specs 011/020 discipline).
 
 ## Revisiting these decisions after implementation
 
@@ -303,3 +304,10 @@ change one, update this spec's *Resolved decisions* note rather than letting rea
   `corpus/`+`skills/` clones (non-ASCII names survived only because `git check-ignore` octal-quotes them). Fix:
   scope the filter to `projects/` (its real spec-011-R2 purpose) + `core.quotePath=false`. Index 36 → 91 entries
   (recovered 24 awesome + 5 skill-assets workflows). The EN source's noisy lint validates AC5's intake-warn tier.
+- 2026-06-22 — **022b (D4–D7) implemented; spec Done.** New: `tools/dify_base/provenance.py` (header
+  parse/format), `tools/dify_base/check_provenance.py` (current/stale/orphan + license gating + THIRD_PARTY.md),
+  `THIRD_PARTY.md`, `.claude/skills/template-promote/SKILL.md` (D5), `tests/test_provenance.py`, and the **first
+  real promotion** `templates/library/seo-slug-generator.yml` (migrated 0.1.0→0.6.0 from the EN source, model
+  blanked to house style, passes validate + lint + version gate). Staleness compares `orig_sha256` to the local
+  clone (no history/network); wired warn-only into `update_corpus.sh` tail + a CI step. AC4/AC6/AC8 met. Full
+  suite 76 passed, 2 skipped.
