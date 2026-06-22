@@ -51,6 +51,9 @@ ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m⚠\033[0m %s\n' "$*"; }
 info() { printf '  • %s\n' "$*"; }
 
+# Source registry reader (spec 022 D1) — pure bash/awk, works before the venv exists.
+. "$ROOT/scripts/lib/sources.sh"
+
 # ---------------------------------------------------------------------------
 # 1. Vendor Dify source (pinned by --dify-tag / .dify-tag)
 # ---------------------------------------------------------------------------
@@ -108,23 +111,53 @@ fi
 if [ "$SKIP_CLONES" = false ]; then
     bold "[2/5] Cloning skills + corpus"
 
-    # Format: "<dir>|<url>" (one per line, bash 3.2 compatible — no assoc arrays)
+    # Skills are hard-coded here (spec 022 Q1 defers folding skills into the registry).
+    # Format: "<dir>|<url>[|<sparse-subdir>]" (one per line, bash 3.2 compatible — no assoc arrays)
     REPOS="
 skills/mango-svip|https://github.com/mango-svip/dify-workflow-skills.git
 skills/Tomatio13|https://github.com/Tomatio13/DifyWorkFlowGenerator.git
 skills/lazeyliu|https://github.com/lazeyliu/dify-dsl-generator-skills.git
-corpus/awesome-dify-workflow|https://github.com/svcvit/Awesome-Dify-Workflow.git
 "
 
-    while IFS='|' read -r dir url; do
+    while IFS='|' read -r dir url sparse; do
         [ -z "$dir" ] && continue
         if [ -d "$dir/.git" ]; then
             ok "$dir already present (skipping)"
+        elif [ -n "$sparse" ]; then
+            info "cloning $url → $dir/ (sparse: $sparse/)"
+            if git clone --depth=1 --filter=blob:none --sparse "$url" "$dir" >/dev/null 2>&1; then
+                git -C "$dir" sparse-checkout set --cone "$sparse" >/dev/null 2>&1 && ok "$dir (sparse $sparse/)"
+            fi
         else
             info "cloning $url → $dir/"
             git clone --depth=1 "$url" "$dir" >/dev/null 2>&1 && ok "$dir"
         fi
     done <<< "$REPOS"
+
+    # Corpus sources are registry-driven (spec 022 D2): one blobless + sparse clone per entry in
+    # corpus/sources.yml. Sparse keeps each clone slim (corpus only needs DSL/ ~1M; a full clone
+    # drags in ~46M of images the tooling never reads). Adding a source = one registry entry.
+    SOURCES_YML="$ROOT/corpus/sources.yml"
+    if [ -f "$SOURCES_YML" ]; then
+        while IFS='|' read -r name repo ref sparse glob license; do
+            [ -z "$name" ] && continue
+            dir="corpus/$name"
+            if [ -d "$dir/.git" ]; then
+                ok "$dir already present (skipping)"
+                continue
+            fi
+            info "cloning $repo → $dir/ (sparse: $sparse/, ref: ${ref:-main})"
+            if git clone --depth=1 ${ref:+--branch "$ref"} --filter=blob:none --sparse "$repo" "$dir" >/dev/null 2>&1; then
+                # sparse may be comma-joined (e.g. "DSL,assets") — cone takes space-separated dirs.
+                git -C "$dir" sparse-checkout set --cone $(printf '%s' "$sparse" | tr ',' ' ') >/dev/null 2>&1 \
+                    && ok "$dir (sparse $sparse/)"
+            else
+                warn "failed to clone $repo (offline, or ref '${ref:-main}' missing / is a bare SHA)"
+            fi
+        done < <(sources_list "$SOURCES_YML")
+    else
+        warn "no corpus/sources.yml registry — skipping corpus clones"
+    fi
 else
     bold "[2/5] Skipping skills/corpus clones (--skip-clones)"
 fi

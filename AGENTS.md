@@ -125,9 +125,9 @@ cat projects/<slug>/.dify-workspace.yaml
 # Diff local vs remote Dify workspace (requires DIFY_CONSOLE_TOKEN in envs/dev.env).
 .venv/bin/python tools/dify_base/sync.py diff --project <slug>
 
-# Examples in the corpus (40+ working DSLs).
-grep -l "type: iteration"          corpus/awesome-dify-workflow/DSL/*.yml
-grep -l "type: document-extractor" corpus/awesome-dify-workflow/DSL/*.yml
+# Examples in the corpus (English reference DSLs).
+grep -l "type: iteration"          corpus/awesome-dify-workflow-en/Workflow-Store/*.yml
+grep -l "type: document-extractor" corpus/awesome-dify-workflow-en/Workflow-Store/*.yml
 ```
 
 ## 7. Test commands
@@ -168,7 +168,9 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 | Project-discovered runtime findings (supplements skills clone — committable) | [docs/runtime-supplement.md](docs/runtime-supplement.md) |
 | Plugin per-tool behavior matrix (md_exporter formats etc.) | [docs/plugin-capabilities.md](docs/plugin-capabilities.md) |
 | Code-node sandbox stdlib probe (run in your workspace to verify modules) | [templates/probes/stdlib_check.yml](templates/probes/stdlib_check.yml) |
-| 40+ community workflow examples | [corpus/awesome-dify-workflow/DSL/](corpus/awesome-dify-workflow/) |
+| English workflow examples (reference) | [corpus/awesome-dify-workflow-en/Workflow-Store/](corpus/awesome-dify-workflow-en/) |
+| Vendored-source registry (one entry per corpus; add/refresh sources here) | [corpus/sources.yml](corpus/sources.yml) — read by `setup.sh`, `build_index.py`, `update_corpus.sh` (spec 022). Tagged `corpus:<name>` in INDEX. |
+| Promoted curated templates (standardized from a corpus example) | [templates/library/](templates/library/) — each carries an `x-provenance` header; promote via `/template-promote` (spec 022 D5). Staleness: `tools/dify_base/check_provenance.py`. Attributions: [THIRD_PARTY.md](THIRD_PARTY.md). |
 | 4 vetted starting patterns | [templates/patterns/](templates/patterns/) |
 | Project scaffold skeleton | [templates/_base/project/](templates/_base/project/) |
 | JSON Schema (DSL v0.6.0) | [schemas/dify-dsl-0.6.0.json](schemas/dify-dsl-0.6.0.json) |
