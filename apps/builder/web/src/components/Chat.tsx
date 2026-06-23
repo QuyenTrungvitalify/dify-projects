@@ -15,7 +15,12 @@ import { Twist } from './Sidebar';
 import { renderMarkdownHtml } from '../lib/markdown';
 import { PHASE_LABELS, phaseIndex, phaseLabelAt } from '../lib/phase';
 import { t as tr, tf, phaseLabel, tAction } from '../lib/i18n';
-import type { ComposerImage } from '../lib/attachments';
+import {
+  type ComposerAttachment,
+  ACCEPTED_IMAGE_MIME,
+  ACCEPTED_EXT,
+  isImageMime,
+} from '../lib/attachments';
 import type {
   PhaseStates,
   PhaseKey,
@@ -327,7 +332,11 @@ function SettingSelect({ icon, label, value, options, onChange, mono, disabled, 
 }
 
 /* ---- composer (shared empty + dock); 3 settings BELOW the input (AC #14) ---- */
-export function Composer({ value, onChange, onSend, settings, onSettings, workflows, placeholder, disabled, lockStartBound, lockConfirm, images, onAddFiles, onRemoveImage }: {
+/** The composer's `<input accept>` allowlist — image MIME + the non-image extensions (spec 025 D1),
+ *  built from the shared constants so it can't drift from the validator. */
+const ACCEPT_ATTR = [...ACCEPTED_IMAGE_MIME, ...[...ACCEPTED_EXT].map((e) => `.${e}`)].join(',');
+
+export function Composer({ value, onChange, onSend, settings, onSettings, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile }: {
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
@@ -343,32 +352,37 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
   /** F2 (spec 010): also freeze the Confirm chip while the live build's turn is RUNNING — a patch then
    *  would 409 (the backend rejects it; the in-memory orchestrator can't honor it). Editable once parked. */
   lockConfirm?: boolean;
-  /** spec 012: image attachments held by the parent (App). Absent → the attach affordance is hidden. */
-  images?: ComposerImage[];
+  /** spec 012/025: file attachments held by the parent (App). Absent → the attach affordance is hidden. */
+  files?: ComposerAttachment[];
   onAddFiles?: (files: File[]) => void;
-  onRemoveImage?: (id: string) => void;
+  onRemoveFile?: (id: string) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  // Auto-grow the textarea to fit its content. Recompute on value changes AND on window
+  // resize, since soft-wrapping (hence the line count, hence the height) depends on width.
   useEffect(() => {
     const el = ref.current; if (!el) return;
-    el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+    const autosize = () => { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 180) + 'px'; };
+    autosize();
+    window.addEventListener('resize', autosize);
+    return () => window.removeEventListener('resize', autosize);
   }, [value]);
   const ready = value.trim().length > 0 && !disabled;
   const onKeyDown: JSX.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (ready) onSend(); }
   };
 
-  // spec 012: the attach affordance is active only when the parent wired a handler and input is enabled.
+  // spec 012/025: the attach affordance is active only when the parent wired a handler and input is enabled.
   const canAttach = !!onAddFiles && !disabled;
   const takeFiles = (list: FileList | null | undefined): void => {
-    const files = Array.from(list ?? []);
-    if (files.length && onAddFiles) onAddFiles(files);
+    const dropped = Array.from(list ?? []); // local name avoids shadowing the `files` prop (the chips)
+    if (dropped.length && onAddFiles) onAddFiles(dropped);
   };
   const onPaste: JSX.ClipboardEventHandler<HTMLTextAreaElement> = (e) => {
-    const files = Array.from(e.clipboardData?.files ?? []);
-    if (canAttach && files.length) { e.preventDefault(); takeFiles(e.clipboardData?.files); }
+    const pasted = e.clipboardData?.files;
+    if (canAttach && pasted && pasted.length) { e.preventDefault(); takeFiles(pasted); }
   };
   const onDrop: JSX.DragEventHandler<HTMLDivElement> = (e) => {
     if (!canAttach) return;
@@ -381,22 +395,27 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
   };
 
   const workflowOpts = [{ v: 'none', l: tr('noneNew') }, ...(workflows ?? []).map((w) => ({ v: w, l: w }))];
-  const imgs = images ?? [];
+  const atts = files ?? [];
 
   return (
     <div className={'composer' + (dragOver ? ' drag-over' : '')}
       onDrop={onDrop} onDragOver={onDragOver} onDragLeave={() => setDragOver(false)}>
       {dragOver && (
-        <div className="composer-drop-hint"><I.image />{tr('dropImages')}</div>
+        <div className="composer-drop-hint"><I.image />{tr('dropFiles')}</div>
       )}
-      {imgs.length > 0 && (
+      {atts.length > 0 && (
         <div className="composer-attachments">
-          {imgs.map((img) => (
-            <div key={img.id} className="img-chip" title={img.name}>
-              <img src={img.dataUrl} alt={img.name} />
-              <span className="ic-name">{img.name}</span>
-              <button className="ic-rm" type="button" aria-label={tr('removeImage')} title={tr('removeImage')}
-                onClick={() => onRemoveImage?.(img.id)}>
+          {atts.map((att) => (
+            <div key={att.id} className="img-chip" title={att.name}>
+              {/* spec 025: an image shows its thumbnail; a PDF/text file shows a generic doc icon. */}
+              {isImageMime(att.mime) ? (
+                <img src={att.dataUrl} alt={att.name} />
+              ) : (
+                <span className="ic-file"><I.doc /></span>
+              )}
+              <span className="ic-name">{att.name}</span>
+              <button className="ic-rm" type="button" aria-label={tr('removeFile')} title={tr('removeFile')}
+                onClick={() => onRemoveFile?.(att.id)}>
                 <I.close />
               </button>
             </div>
@@ -423,11 +442,11 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
         <span className="spacer" />
         {onAddFiles && (
           <>
-            <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple
+            <input ref={fileRef} type="file" accept={ACCEPT_ATTR} multiple
               style={{ display: 'none' }}
               onChange={(e) => { takeFiles(e.currentTarget.files); e.currentTarget.value = ''; }} />
             <button className="composer-attach" type="button" disabled={!canAttach}
-              aria-label={tr('attachImage')} title={tr('attachImage')}
+              aria-label={tr('attachFile')} title={tr('attachFile')}
               onClick={() => fileRef.current?.click()}>
               <I.image />
             </button>

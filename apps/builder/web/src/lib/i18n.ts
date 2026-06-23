@@ -164,10 +164,10 @@ const EN: Dict = {
   selfhost: 'selfhost',
   cloud: 'cloud',
 
-  /* composer image attachments (spec 012) */
-  attachImage: 'Attach image',
-  removeImage: 'Remove image',
-  dropImages: 'Drop images to attach',
+  /* composer file attachments (spec 012 → 025) */
+  attachFile: 'Attach file',
+  removeFile: 'Remove file',
+  dropFiles: 'Drop files to attach',
 
   /* sidebar */
   projects: 'Projects',
@@ -375,10 +375,10 @@ const JA: Dict = {
   selfhost: 'セルフホスト',
   cloud: 'クラウド',
 
-  /* composer image attachments (spec 012) */
-  attachImage: '画像を添付',
-  removeImage: '画像を削除',
-  dropImages: '画像をドロップして添付',
+  /* composer file attachments (spec 012 → 025) */
+  attachFile: 'ファイルを添付',
+  removeFile: 'ファイルを削除',
+  dropFiles: 'ファイルをドロップして添付',
 
   /* sidebar */
   projects: 'プロジェクト',

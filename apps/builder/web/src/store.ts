@@ -8,7 +8,7 @@
    saveSpec/openTask). All gate/verify/phase logic stays backend-side.
    ============================================================ */
 import { signal, computed } from '@preact/signals';
-import { api, confirmModeWire, ApiError, type ImageAttachment } from './api';
+import { api, confirmModeWire, ApiError, type Attachment } from './api';
 import { connectSSE } from './sse-client';
 import type {
   WireTask,
@@ -348,7 +348,7 @@ export async function loadSeeds(): Promise<void> {
 
 /** Start a new build from the composer (AC #14 settings feed the body; turn-collision 409 → startError
  *  + busyHolder, AC #21). A parked build no longer blocks — only a running turn does. */
-export async function start(requirement: string, images?: ImageAttachment[]): Promise<void> {
+export async function start(requirement: string, files?: Attachment[]): Promise<void> {
   clearErrors();
   const s = settings.value;
   thread.value = [{ id: uid(), kind: 'user', text: requirement }];
@@ -360,7 +360,7 @@ export async function start(requirement: string, images?: ImageAttachment[]): Pr
       confirm_mode: confirmModeWire(s.confirm),
       deploy: s.deploy,
       seed: s.seed,
-      ...(images && images.length ? { images } : {}),
+      ...(files && files.length ? { files } : {}),
     });
     applyTask(t);
     openStream(t.taskId);
@@ -387,7 +387,7 @@ export async function confirm(action: WireGateAction, extra?: { slug?: string; n
 /** Within-phase change request (kind:'reply') or Retry-out-of-error (+ optional images, AC3). `label`
  *  is the chosen reply action's English label (spec 016 D4) so the resolved gate reads true (Edit spec /
  *  Keep trying); the free-form dock reply has no specific action → the generic 'Requested changes'. */
-export async function reply(text: string, label?: string, images?: ImageAttachment[]): Promise<void> {
+export async function reply(text: string, label?: string, files?: Attachment[]): Promise<void> {
   const t = task.value;
   if (!t || !text.trim()) return;
   const items = thread.value.slice();
@@ -395,7 +395,7 @@ export async function reply(text: string, label?: string, images?: ImageAttachme
   thread.value = items;
   try {
     // Optimistic: close the gate; SSE re-opens the current phase as a fresh run (no duplicate).
-    optimisticAdvance(await api.reply(t.taskId, text.trim(), images), label ?? 'Requested changes');
+    optimisticAdvance(await api.reply(t.taskId, text.trim(), files), label ?? 'Requested changes');
     void loadActive();
   } catch (e) {
     surfaceError(e);

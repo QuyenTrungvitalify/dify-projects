@@ -84,9 +84,9 @@ const DIFY_PROJECTS_DIR = process.env.DIFY_PROJECTS_DIR
   : REPO_ROOT;
 const SETTINGS_PATH = join(DIFY_PROJECTS_DIR, 'apps/builder/headless-settings.json');
 
-// bodyLimit (BODY_LIMIT_BYTES, attachments.ts) is sized to clear a max multi-image turn — MAX_IMAGES(3)
-// × 10 MB decoded, base64-inflated ~33% (≈40 MB) plus JSON overhead — so an over-limit image turn yields
-// validateImages' friendly 400, never a raw Fastify 413 (spec 012 D1 / 014 D7; invariant unit-pinned).
+// bodyLimit (BODY_LIMIT_BYTES, attachments.ts) is sized to clear a max multi-file turn — MAX_ATTACHMENTS(3)
+// × 10 MB decoded, base64-inflated ~33% (≈40 MB) plus JSON overhead — so an over-limit turn yields
+// validateAttachments' friendly 400, never a raw Fastify 413 (spec 012 D1 / 014 D7 / 025; unit-pinned).
 // Localhost-only bind + Origin-CSRF check (below) bound the DoS surface this opens.
 const app = Fastify({ logger: true, bodyLimit: BODY_LIMIT_BYTES });
 

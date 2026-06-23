@@ -36,7 +36,7 @@ import {
 } from '../lib/orchestrator.js';
 import { acquireTurn, evictCancelled, isCancelled, liveSession, markCancelled, releaseTurn, turnBusy, turnHolderId, unmarkCancelled } from '../lib/lock.js';
 import { readArtifactContents } from '../lib/artifacts.js';
-import { saveAttachments, validateImages } from '../lib/attachments.js';
+import { saveAttachments, validateAttachments } from '../lib/attachments.js';
 
 export interface TasksRoutesOptions {
   projectsDir: string;
@@ -132,10 +132,10 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       return reply.code(400).send({ error: 'workflowFile must be a plain *.yml/*.yaml basename (no path separators or "..")' });
     }
 
-    // Spec 012: validate any attached images (type/size/count → 400) BEFORE minting a task or touching
-    // the lock — images augment, never replace, the requirement (Q2: text stays required above).
-    const imgCheck = validateImages(body.images);
-    if (!imgCheck.ok) return reply.code(400).send({ error: imgCheck.error });
+    // Spec 012 / 025: validate any attached files (type/size/count → 400) BEFORE minting a task or
+    // touching the lock — files augment, never replace, the requirement (Q2: text stays required above).
+    const attCheck = validateAttachments(body.files);
+    if (!attCheck.ok) return reply.code(400).send({ error: attCheck.error });
 
     // Fast path: a turn is already running → 409 without minting a task. A build PARKED at a gate does
     // NOT block this (turn-level lock) — that is the whole point of Lát 6.
@@ -155,17 +155,17 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       workflowFile: (body.workflowFile as string | undefined) ?? undefined,
     });
 
-    // Persist the images to `.runs/<taskId>/uploads/` + record the paths on the task, BEFORE acquiring
+    // Persist the files to `.runs/<taskId>/uploads/` + record the paths on the task, BEFORE acquiring
     // the turn (a disk failure → 500 with NO lock held, NO turn started — spec §Validation/failure modes).
-    if (imgCheck.images.length) {
+    if (attCheck.attachments.length) {
       try {
-        task.attachments = await saveAttachments(projectsDir, task.taskId, imgCheck.images, 0);
+        task.attachments = await saveAttachments(projectsDir, task.taskId, attCheck.attachments, 0);
         await saveTask(projectsDir, task);
       } catch (e) {
         task.status = 'error';
-        task.error = `image write failed: ${errMsg(e)}`;
+        task.error = `file write failed: ${errMsg(e)}`;
         await saveTask(projectsDir, task);
-        return reply.code(500).send({ error: `failed to save images: ${errMsg(e)}` });
+        return reply.code(500).send({ error: `failed to save files: ${errMsg(e)}` });
       }
     }
 
@@ -290,9 +290,9 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     const text = String(body.text ?? '').trim();
     if (!text) return reply.code(400).send({ error: 'text is required' });
 
-    // Spec 012: validate reply-turn images (type/size/count → 400) before loading/locking.
-    const imgCheck = validateImages(body.images);
-    if (!imgCheck.ok) return reply.code(400).send({ error: imgCheck.error });
+    // Spec 012 / 025: validate reply-turn files (type/size/count → 400) before loading/locking.
+    const attCheck = validateAttachments(body.files);
+    if (!attCheck.ok) return reply.code(400).send({ error: attCheck.error });
 
     let task;
     try {
@@ -306,17 +306,17 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
         .send({ error: `task is ${task.status}; /reply needs awaiting_confirm or error` });
     }
 
-    // Save the reply-turn images APPENDED after any earlier ones (D5: never overwrite), BEFORE
+    // Save the reply-turn files APPENDED after any earlier ones (D6: never overwrite), BEFORE
     // acquireTurn (a disk failure → 500 with no lock held). `replyWithin` reads `task.attachments`
     // from this in-memory object, so the just-saved paths reach the resumed turn's prompt.
-    if (imgCheck.images.length) {
+    if (attCheck.attachments.length) {
       try {
         const start = task.attachments?.length ?? 0;
-        const rels = await saveAttachments(projectsDir, id, imgCheck.images, start);
+        const rels = await saveAttachments(projectsDir, id, attCheck.attachments, start);
         task.attachments = [...(task.attachments ?? []), ...rels];
         await saveTask(projectsDir, task);
       } catch (e) {
-        return reply.code(500).send({ error: `failed to save images: ${errMsg(e)}` });
+        return reply.code(500).send({ error: `failed to save files: ${errMsg(e)}` });
       }
     }
 
@@ -334,9 +334,8 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
   // ── POST /api/tasks/:id/cancel — kill the live turn if one is running, else just flip the parked gate ──
   app.post('/api/tasks/:id/cancel', async (req, reply) => {
     const id = idOf(req);
-    let task;
     try {
-      task = await loadTask(projectsDir, id);
+      await loadTask(projectsDir, id); // existence check — 404 if missing (re-loaded as `fresh` below)
     } catch {
       return reply.code(404).send({ error: `no such task: ${id}` });
     }

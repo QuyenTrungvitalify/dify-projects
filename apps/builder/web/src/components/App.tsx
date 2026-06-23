@@ -15,11 +15,11 @@ import { I } from './Icon';
 import { suggestions } from '../data';
 import { t as tr, tf, lang, toggleLang } from '../lib/i18n';
 import * as store from '../store';
-import { type ComposerImage, MAX_IMAGES, isAcceptedImage, fileToDataUrl, toWire } from '../lib/attachments';
+import { type ComposerAttachment, MAX_ATTACHMENTS, isAcceptedFile, fileToDataUrl, toWire } from '../lib/attachments';
 import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed } from '../types';
 
-let _imgUid = 0;
-const imgUid = (): string => 'img' + ++_imgUid;
+let _attUid = 0;
+const attUid = (): string => 'att' + ++_attUid;
 
 /** Which artifact tabs are available for a task (contents-driven, with a phase fallback). */
 function availableTabs(task: WireTask): ArtifactTab[] {
@@ -46,8 +46,8 @@ export function App() {
   }, [theme]);
   const toggleTheme = (): void => setTheme((t) => (t === 'light' ? 'dark' : 'light'));
   const [draft, setDraft] = useState('');
-  // spec 012: images attached in the composer (shared empty + dock — the two views are exclusive).
-  const [images, setImages] = useState<ComposerImage[]>([]);
+  // spec 012/025: files attached in the composer (shared empty + dock — the two views are exclusive).
+  const [files, setFiles] = useState<ComposerAttachment[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [artifactOpen, setArtifactOpen] = useState(false);
   const [artifactTab, setArtifactTab] = useState<ArtifactTab>('spec');
@@ -93,38 +93,38 @@ export function App() {
     .filter((s, i, arr) => arr.indexOf(s) === i);
 
   /* ---------- actions ---------- */
-  // spec 012: read dropped/pasted/picked files → base64 chips, honoring the 3-image cap + type/size
+  // spec 012/025: read dropped/pasted/picked files → base64 chips, honoring the 3-file cap + type/size
   // guard (the backend re-validates and is authoritative — a bad request still 400s).
-  async function addFiles(files: File[]): Promise<void> {
-    const accepted = files.filter(isAcceptedImage);
+  async function addFiles(dropped: File[]): Promise<void> {
+    const accepted = dropped.filter(isAcceptedFile);
     if (!accepted.length) return;
-    const room = MAX_IMAGES - images.length;
+    const room = MAX_ATTACHMENTS - files.length;
     if (room <= 0) return;
     const loaded = await Promise.all(
       accepted.slice(0, room).map(async (f) => ({
-        id: imgUid(), name: f.name, mime: f.type, dataUrl: await fileToDataUrl(f),
+        id: attUid(), name: f.name, mime: f.type, dataUrl: await fileToDataUrl(f),
       })),
     );
-    setImages((prev) => [...prev, ...loaded].slice(0, MAX_IMAGES));
+    setFiles((prev) => [...prev, ...loaded].slice(0, MAX_ATTACHMENTS));
   }
-  function removeImage(id: string): void {
-    setImages((prev) => prev.filter((i) => i.id !== id));
+  function removeFile(id: string): void {
+    setFiles((prev) => prev.filter((f) => f.id !== id));
   }
 
   function send(text?: string): void {
     const msg = (text ?? draft).trim();
-    if (!msg) return; // images augment, never replace, the text (spec 012 Q2)
-    const imgs = images.length ? toWire(images) : undefined;
+    if (!msg) return; // files augment, never replace, the text (spec 012 Q2)
+    const atts = files.length ? toWire(files) : undefined;
     setDraft('');
-    setImages([]);
+    setFiles([]);
     // A finished/cancelled build can't be replied to (/reply only applies while awaiting_confirm or
     // in error→Retry). So at a terminal status, "describe another change" starts a NEW build instead
     // of erroring — matching the composer's intent. awaiting_confirm/error still route to reply.
     const st = store.task.value?.status;
     if (view === 'empty' || st === 'done' || st === 'cancelled') {
-      void store.start(msg, imgs);
+      void store.start(msg, atts);
     } else {
-      void store.reply(msg, undefined, imgs); // free-form dock reply → generic resolved-label
+      void store.reply(msg, undefined, atts); // free-form dock reply → generic resolved-label
     }
   }
   function openArtifact(tab: ArtifactTab): void {
@@ -252,7 +252,7 @@ export function App() {
               seeds={seeds} selectedSeed={settings.seed}
               onSeed={(id) => { store.settings.value = { ...store.settings.value, seed: id }; }}
               startError={startError} busyHolder={busyHolder}
-              images={images} onAddFiles={(f) => void addFiles(f)} onRemoveImage={removeImage}
+              files={files} onAddFiles={(f) => void addFiles(f)} onRemoveFile={removeFile}
             />
           ) : (
             <>
@@ -293,13 +293,13 @@ export function App() {
                       onSettings={(patch) => { if (patch.confirm) void store.patchConfirmMode(task.taskId, patch.confirm); }}
                       workflows={workflows} lockStartBound lockConfirm={busy}
                       placeholder={tr('phReplyOrDescribe')}
-                      images={images} onAddFiles={(f) => void addFiles(f)} onRemoveImage={removeImage}
+                      files={files} onAddFiles={(f) => void addFiles(f)} onRemoveFile={removeFile}
                     />
                   ) : (
                     <Composer value={draft} onChange={setDraft} onSend={() => send()}
                       settings={settingsSubset} onSettings={onSettings} workflows={workflows}
                       placeholder={tr('phDescribeAnother')}
-                      images={images} onAddFiles={(f) => void addFiles(f)} onRemoveImage={removeImage}
+                      files={files} onAddFiles={(f) => void addFiles(f)} onRemoveFile={removeFile}
                     />
                   )}
                 </div>
@@ -363,7 +363,7 @@ function StartErrorBanner({ startError, busyHolder }: { startError: string | nul
 }
 
 /* ---------- empty / new-task surface ---------- */
-function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, seeds, selectedSeed, onSeed, startError, busyHolder, images, onAddFiles, onRemoveImage }: {
+function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile }: {
   draft: string;
   setDraft: (s: string) => void;
   send: (text?: string) => void;
@@ -375,9 +375,9 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, se
   onSeed: (id: string | null) => void;
   startError: string | null;
   busyHolder: string | null;
-  images: ComposerImage[];
+  files: ComposerAttachment[];
   onAddFiles: (files: File[]) => void;
-  onRemoveImage: (id: string) => void;
+  onRemoveFile: (id: string) => void;
 }) {
   return (
     <div className="empty">
@@ -390,7 +390,7 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, se
         <Composer value={draft} onChange={setDraft} onSend={() => send()}
           settings={settings} onSettings={onSettings} workflows={workflows}
           placeholder={tr('phDescribeWorkflow')}
-          images={images} onAddFiles={onAddFiles} onRemoveImage={onRemoveImage}
+          files={files} onAddFiles={onAddFiles} onRemoveFile={onRemoveFile}
         />
 
         <StartErrorBanner startError={startError} busyHolder={busyHolder} />
