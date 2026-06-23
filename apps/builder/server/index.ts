@@ -3,10 +3,9 @@
  *
  * The real gated surface lives in `routes/tasks.ts` (`/api/tasks` + `/confirm` `/reply` `/cancel`):
  * a human-gated 4-phase build with a single-build run-lock, cancel, and boot reconcile. This file
- * wires that plugin, runs `reconcileOnBoot` at startup (any `running`/`scaffolding` task → `error`; a
- * paused `awaiting_confirm` build survives untouched — turn-level lock, gates hold nothing — and stays
- * reachable), and keeps the Lát-1 `/api/dev/run-implement` smoke endpoint (a single Implement turn +
- * post-turn verify).
+ * wires that plugin, and runs `reconcileOnBoot` at startup (any `running`/`scaffolding` task → `error`;
+ * a paused `awaiting_confirm` build survives untouched — turn-level lock, gates hold nothing — and stays
+ * reachable).
  *
  * Binds 127.0.0.1 (HOST hardcoded — never 0.0.0.0, spec §J). The port is BUILDER_PORT (default
  * 4123, spec §F — the vite dev proxy targets the same var); the projects dir is DIFY_PROJECTS_DIR.
@@ -17,18 +16,12 @@
  * of the built SPA (`web/dist`) at `/`.
  */
 import Fastify from 'fastify';
-import { randomUUID } from 'node:crypto';
 import { existsSync, createReadStream, statSync, readFileSync } from 'node:fs';
-import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { dirname, join, resolve, normalize, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ClaudeSession } from './lib/claude-session.js';
-import { runTurn } from './lib/turn-runner.js';
-import { postTurnCheck, gitDirtyPaths } from './lib/post-turn.js';
-import { reconcileOnBoot, acquireTurn, releaseTurn, turnHolderId } from './lib/lock.js';
+import { reconcileOnBoot } from './lib/lock.js';
 import { smokePermissionHook, gateBootOnHook } from './lib/hook-check.js';
 import { reconcilePushIntents } from './lib/recovery.js';
-import { isValidWorkflowFile } from './state/task.js';
 import tasksRoutes from './routes/tasks.js';
 import uiRoutes from './routes/ui.js';
 import { BODY_LIMIT_BYTES } from './lib/attachments.js';
@@ -91,29 +84,6 @@ const DIFY_PROJECTS_DIR = process.env.DIFY_PROJECTS_DIR
   : REPO_ROOT;
 const SETTINGS_PATH = join(DIFY_PROJECTS_DIR, 'apps/builder/headless-settings.json');
 
-interface RunImplementBody {
-  slug: string;
-  workflowFile?: string;
-  requirement: string;
-  seedPath?: string;
-}
-
-/** Materialize the requirement as a mini-SPEC.md — implement.md reads {{PRIOR_ARTIFACT}} AS SPEC.md. */
-function miniSpec(req: string, slug: string, workflowFile: string, seedPath: string): string {
-  return `# SPEC — ${slug}/${workflowFile}
-
-## Requirement
-${req}
-
-## Build notes
-- Seed / pattern: ${seedPath || '(none — choose a templates/patterns/*.yml)'}
-- Target artifact: \`projects/${slug}/workflows/${workflowFile}\`, top-level \`version: 0.6.0\`.
-- Mint every node id with \`generate_id.py\` (13-digit). Leave \`dependencies: []\` + a # TODO if a plugin hash is needed.
-
-This SPEC.md is the source of truth for what to build.
-`;
-}
-
 // bodyLimit (BODY_LIMIT_BYTES, attachments.ts) is sized to clear a max multi-image turn — MAX_IMAGES(3)
 // × 10 MB decoded, base64-inflated ~33% (≈40 MB) plus JSON overhead — so an over-limit image turn yields
 // validateImages' friendly 400, never a raw Fastify 413 (spec 012 D1 / 014 D7; invariant unit-pinned).
@@ -139,99 +109,6 @@ app.get('/health', async (_req, reply) => {
     });
   }
   return { ok: true, projectsDir: DIFY_PROJECTS_DIR, settingsPath: SETTINGS_PATH };
-});
-
-app.post('/api/dev/run-implement', async (req, reply) => {
-  const body = (req.body ?? {}) as Partial<RunImplementBody>;
-  const slug = (body.slug ?? '').trim();
-  const workflowFile = (body.workflowFile ?? 'main.yml').trim();
-  const requirement = (body.requirement ?? '').trim();
-  const seedPath = (body.seedPath ?? '').trim();
-
-  if (!slug || !requirement) {
-    return reply.code(400).send({ error: 'slug and requirement are required' });
-  }
-  // Defensive slug guard — keep it inside projects/<slug>/, no traversal.
-  if (!/^[a-zA-Z0-9_]+$/.test(slug)) {
-    return reply.code(400).send({ error: 'slug must match ^[a-zA-Z0-9_]+$' });
-  }
-  // Spec 015 D5 (S4): the workflowFile flows into projects/<slug>/workflows/<file> + sync.py push —
-  // reject any non-`*.yml`/`*.yaml` basename or `..` traversal (same guard as POST /api/tasks).
-  if (!isValidWorkflowFile(workflowFile)) {
-    return reply.code(400).send({ error: 'workflowFile must be a plain *.yml/*.yaml basename (no path separators or "..")' });
-  }
-
-  const taskId = randomUUID();
-
-  // L1 (spec 019): this dev smoke endpoint historically spawned a turn WITHOUT taking the turn-lock — an
-  // un-gated 2nd-writer path that can violate the single-writer invariant the #3b post-turn confinement
-  // check rests on (a curl here while a gated build's turn runs = two builds writing the tree at once, so
-  // the baseline-delta is no longer attributable). Hard-gate it on the SAME turn-lock the gated surface
-  // uses: 409 if any turn is running, and release in `finally` so the smoke path stays usable. The 409
-  // body mirrors routes/tasks.ts `turnBusyError()` ({ error, holder }).
-  if (!acquireTurn(taskId)) {
-    return reply.code(409).send({ error: 'a turn is already running — try again in a moment', holder: turnHolderId() });
-  }
-  try {
-    // 1. Confinement BASELINE — capture before any write/spawn. Only turn-introduced changes
-    //    (delta vs this set) are evaluated against the whitelist; pre-existing work is preserved.
-    const baseline = await gitDirtyPaths(DIFY_PROJECTS_DIR);
-
-    // 2. Materialize the requirement as SPEC.md and point {{PRIOR_ARTIFACT}} at it.
-    const runDir = join(DIFY_PROJECTS_DIR, 'apps/builder/.runs', taskId);
-    await mkdir(runDir, { recursive: true });
-    const specRel = `apps/builder/.runs/${taskId}/SPEC.md`;
-    await writeFile(join(runDir, 'SPEC.md'), miniSpec(requirement, slug, workflowFile, seedPath));
-
-    // 3. Ensure projects/<slug>/workflows/ exists (whitelisted; this slice runs no scaffold/init_project).
-    await mkdir(join(DIFY_PROJECTS_DIR, 'projects', slug, 'workflows'), { recursive: true });
-
-    // 4. Render the Implement (③) prompt. implement.md has {{SLUG}} {{WORKFLOW_FILE}}
-    //    {{PRIOR_ARTIFACT}} {{SEED_PATH}} only — NO {{REQUIREMENT}} slot (it reads PRIOR_ARTIFACT as SPEC.md).
-    const tmpl = await readFile(
-      join(DIFY_PROJECTS_DIR, '.claude/skills/dify-build/implement.md'),
-      'utf8'
-    );
-    const prompt = tmpl
-      .replaceAll('{{SLUG}}', slug)
-      .replaceAll('{{WORKFLOW_FILE}}', workflowFile)
-      .replaceAll('{{PRIOR_ARTIFACT}}', specRel)
-      .replaceAll('{{SEED_PATH}}', seedPath);
-
-    // 5. Spawn ONE Implement turn (model C), capture session_id + terminal result.
-    const session = new ClaudeSession(taskId, {
-      taskId,
-      workingDir: DIFY_PROJECTS_DIR,
-      settingsPath: SETTINGS_PATH,
-      log: app.log,
-    });
-    app.log.info({ taskId, slug, workflowFile, seedPath }, 'spawning Implement turn');
-    const turn = await runTurn(session, prompt);
-
-    // 6. Post-turn verify (authoritative — never trust turn.isError alone).
-    const check = await postTurnCheck({
-      projectsDir: DIFY_PROJECTS_DIR,
-      slug,
-      workflowFile,
-      taskId,
-      baseline,
-      log: app.log,
-    });
-
-    const reasons = [...check.reasons];
-    if (turn.note) reasons.push(turn.note);
-
-    return {
-      taskId,
-      sessionId: turn.sessionId,
-      turnIsError: turn.isError,
-      status: check.status,
-      reasons,
-      workflowPath: `projects/${slug}/workflows/${workflowFile}`,
-    };
-  } finally {
-    releaseTurn(taskId);
-  }
 });
 
 // ── Origin / same-origin check on mutating requests (spec §J + 015 D6, local-CSRF defense) ──

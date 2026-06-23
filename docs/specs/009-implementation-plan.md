@@ -243,7 +243,7 @@ env-clean loop :128-133 and stdin-prompt :91/:215), `server/lib/turn-runner.ts`
 - spawn (cwd=`DIFY_PROJECTS_DIR`, prompt via stdin): `claude --output-format stream-json --verbose --permission-mode <Lát-0 decided> --settings apps/builder/headless-settings.json [--setting-sources …]`
 - correctness: `yaml.safe_load` (truncation) → the 3 linters → regex `^\d{13}$` on node ids → artifact exists/non-empty.
 - confinement: `git -C $DIFY_PROJECTS_DIR status --porcelain` + mtime scan of untracked; **reject** (→ `status:error`) if any path ∉ whitelist `{projects/<slug>/, apps/builder/.runs/<taskId>/, .vscode/settings.json, projects/<slug>/.dify-workspace.yaml}`.
-- `curl -XPOST localhost:4123/api/dev/run-implement -d '{"slug":"…","workflowFile":"main.yml","requirement":"…","seedPath":"…"}'`
+- `curl -XPOST localhost:4123/api/dev/run-implement -d '{"slug":"…","workflowFile":"main.yml","requirement":"…","seedPath":"…"}'` _(endpoint removed in spec 024 L1 — historical)_
 
 **(e)** curl → `main.yml` appears; linters exit 0; IDs 13-digit; a **deliberately seeded
 out-of-confinement write** (e.g. touch `tools/x`) is caught → `status:error`. Also

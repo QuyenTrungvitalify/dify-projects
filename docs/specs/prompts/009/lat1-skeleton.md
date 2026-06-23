@@ -1,6 +1,10 @@
 # Implementation Prompt — Spec 009, Lát 1: SKELETON — spawn 1 phase + post-turn verify
 
 > Copy-paste vào fresh session.
+>
+> **Historical (spec 024 L1):** the `POST /api/dev/run-implement` endpoint this skeleton wires was
+> later removed — it was a duplicate, un-gated turn-spawn path with no code callers. This remains a
+> point-in-time build prompt; the body below is unchanged, kept as a record, not a current API.
 
 ---
 
