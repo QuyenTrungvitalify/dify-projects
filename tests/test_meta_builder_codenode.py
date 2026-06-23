@@ -4,7 +4,7 @@ Simulates the full generator pipeline WITHOUT running Dify:
 1. Load templates/patterns/meta-workflow-builder.yml
 2. Extract the YAML Mutator code-node's Python
 3. exec() it with a mock LLM Planner output
-4. Write the generated YAML to /tmp and re-validate it through the same
+4. Write the generated YAML to a tmp dir and re-validate it through the same
    pipeline (skill validator + JSON schema) used for hand-authored patterns.
 
 This proves the generator logic emits a valid Dify workflow. The remaining
@@ -21,7 +21,6 @@ import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 BUILDER = REPO / "templates" / "patterns" / "meta-workflow-builder.yml"
-OUTPUT = Path("/tmp/generated_workflow.yml")
 
 MOCK_PLAN = json.dumps({
     "pattern": "file-to-llm",
@@ -52,51 +51,34 @@ def run_main(code: str, plan_text: str, app_name: str) -> dict:
 
 
 def validate_generated(yaml_path: Path) -> None:
-    """Run the skill validator + pre-commit on the generated file."""
+    """Run the skill validator on the generated file; assert it passes."""
     validator = REPO / "skills" / "mango-svip" / "scripts" / "validate_workflow.py"
-    venv_py = REPO / ".venv" / "bin" / "python"
+    # Use the interpreter running pytest, not a hardcoded virtualenv path.
+    # Locally that resolves to the project venv (we invoke its pytest); in CI
+    # it is the system Python that setup.sh --skip-venv provisioned with deps.
+    # A hardcoded path under the project venv dir would break CI, which has
+    # none. See spec 024 T1.
     r = subprocess.run(
-        [str(venv_py), str(validator), str(yaml_path)],
+        [sys.executable, str(validator), str(yaml_path)],
         capture_output=True, text=True,
     )
-    print("=== skill validate_workflow.py ===")
-    print(r.stdout)
-    if r.returncode != 0:
-        print(r.stderr, file=sys.stderr)
-        raise SystemExit(f"Validator failed (exit {r.returncode})")
+    assert r.returncode == 0, (
+        f"Validator failed (exit {r.returncode})\n{r.stdout}\n{r.stderr}"
+    )
 
 
-def main() -> int:
-    print(f"Loading builder: {BUILDER.relative_to(REPO)}")
+def test_meta_builder_generates_importable_yaml(tmp_path):
+    """The generator code node emits a schema-valid, importable Dify workflow."""
     code = extract_code_node_python(BUILDER)
-    print(f"Extracted code node ({len(code)} chars)")
-    print(f"Mock plan: {MOCK_PLAN[:80]}...")
-
     result = run_main(code, MOCK_PLAN, "PDF -> VN Summary Demo")
-    print("\n=== Code node returned ===")
-    print(f"  yaml_content: {len(result['yaml_content'])} chars")
-    print(f"  import_body : {len(result['import_body'])} chars")
-    print(f"  generated_ids: {result['generated_ids']}")
 
-    # Sanity-check import_body is valid JSON
+    # import_body is the payload POSTed to Dify's import endpoint.
     body = json.loads(result["import_body"])
     assert body["mode"] == "yaml-content"
     assert body["name"] == "PDF -> VN Summary Demo"
     assert len(body["yaml_content"]) > 1000, "yaml_content suspiciously short"
-    print("  import_body  : valid JSON, has mode/name/yaml_content")
 
-    # Write + validate
-    OUTPUT.write_text(result["yaml_content"])
-    print(f"\nWrote generated workflow → {OUTPUT}")
-    validate_generated(OUTPUT)
-
-    # Show a preview of the generated YAML
-    print("\n=== Generated YAML (first 40 lines) ===")
-    for line in result["yaml_content"].splitlines()[:40]:
-        print(f"  {line}")
-    print("  ...")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    # Write + re-validate through the same pipeline as hand-authored patterns.
+    out = tmp_path / "generated_workflow.yml"
+    out.write_text(result["yaml_content"])
+    validate_generated(out)
