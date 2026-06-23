@@ -26,14 +26,9 @@ jobs:
         run: pip install uv
 
       - name: Install Python deps
-        # Must come before setup.sh: with --skip-venv, the index rebuild step
-        # uses system Python and needs pyyaml available.
-        run: |
-          uv pip install --system \
-              pre-commit pytest pyyaml jsonschema python-dotenv \
-              requests syrupy check-jsonschema yamllint pydantic \
-              pydantic-settings pycryptodome httpx sqlalchemy \
-              charset-normalizer pytz flask redis yarl flask-login cachetools
+        # Single pinned source of truth (requirements.txt, locked from requirements.in, spec 024 Q1b).
+        # Must come before setup.sh --skip-venv: the index rebuild uses system Python.
+        run: uv pip install --system -r requirements.txt
 
       - name: Bootstrap workspace
         # Clones vendor/dify-src/ at .dify-tag plus skills/corpus.

@@ -1,0 +1,25 @@
+# Direct Python deps for the dify-projects workspace (spec 024 Q1b).
+# SINGLE SOURCE OF TRUTH — consumed by scripts/setup.sh, .github/workflows/ci.yml,
+# tests/requirements.txt. Edit here, then re-lock:
+#   uv pip compile requirements.in -o requirements.txt
+pydantic
+pydantic-settings
+pyyaml
+jsonschema
+python-dotenv
+requests
+pytest
+syrupy
+check-jsonschema
+pre-commit
+yamllint
+pycryptodome
+httpx
+sqlalchemy
+charset-normalizer
+pytz
+flask
+redis
+yarl
+flask-login
+cachetools

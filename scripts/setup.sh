@@ -187,20 +187,14 @@ if [ "$SKIP_VENV" = false ]; then
         ok "created .venv (system python)"
     fi
 
-    info "installing deps for gen_schema + sync + tests..."
-    DEPS=(
-        # Core for schema gen + sync + tests
-        pydantic pydantic-settings pyyaml jsonschema python-dotenv requests pytest syrupy
-        # Stubbed-at-import-time deps that gen_schema needs to traverse pydantic models
-        pycryptodome httpx sqlalchemy charset-normalizer pytz flask redis yarl flask-login cachetools
-    )
-
+    info "installing deps from requirements.txt (locked)..."
+    # Single pinned source of truth (requirements.txt, locked from requirements.in, spec 024 Q1b).
     if [ "$USE_UV" = true ]; then
-        uv pip install --python .venv/bin/python --quiet "${DEPS[@]}"
+        uv pip install --python .venv/bin/python --quiet -r "$ROOT/requirements.txt"
     else
-        .venv/bin/pip install --quiet "${DEPS[@]}"
+        .venv/bin/pip install --quiet -r "$ROOT/requirements.txt"
     fi
-    ok "installed $(printf '%s, ' "${DEPS[@]}" | sed 's/, $//' | tr ' ' '\n' | wc -l | tr -d ' ') deps"
+    ok "installed deps from requirements.txt"
 else
     bold "[3/5] Skipping venv setup (--skip-venv)"
 fi
