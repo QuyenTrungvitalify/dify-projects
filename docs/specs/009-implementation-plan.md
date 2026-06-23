@@ -28,7 +28,7 @@ All brief "VERIFIED CONTRACTS" hold. Confirmations (file:line):
   `--force` = `shutil.rmtree(projects/<slug>/)` (:142-143); the workspace file is
   **`.dify-workspace.yaml`** (no `project.yaml` anywhere).
 - linters: `validate_workflow.py` 0/1 only (no exit 2; folds parse errors into 1, prints
-  `YAML parsing error:`); `lint_refs.py` exit 2 = parse/IO/usage (:176-177); 
+  `YAML parsing error:`); `lint_refs.py` exit 2 = parse/IO/usage (:176-177);
   `lint_plugin_hashes.py` exit 2 = **no-files only**, parse error → exit **1** (prints
   `parse error:`); `generate_id.py` mints 13-digit ms timestamp (:14); `find.py --json`
   exists (:53/:129); `check_dsl_version.sh` + `regen_vscode_settings.py` read

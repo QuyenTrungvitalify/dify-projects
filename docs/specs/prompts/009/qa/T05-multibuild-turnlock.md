@@ -48,7 +48,7 @@ Each step is **observe → act → wait(≤timeout) → assert**.
 > Cost note: this step spends one ADDITIONAL Analyze turn. If you are minimizing cost, you MAY substitute a no-spend proof: from the empty surface, click Send on a short requirement and assert merely that the POST is **accepted** (a user bubble + a `Running` disclosure appear and NO start-error banner shows), then immediately Discard it in Cleanup. The binding assertion is "a parked build never blocks a new start", not "the 3rd build reaches a gate".
 4.1 **Observe:** with BUILD‑C and BUILD‑D both parked (hint `gate`), click **`New task`** → empty surface.
 4.2 **Act:** type a third short requirement, e.g. `A workflow that takes a product name and returns a one-line marketing tagline.` Click Send.
-4.3 **Wait ≤10s:** poll until the conversation shows the user requirement bubble AND a `Running` disclosure (the run started). 
+4.3 **Wait ≤10s:** poll until the conversation shows the user requirement bubble AND a `Running` disclosure (the run started).
 4.4 **Assert:** the start **succeeded** — there is NO start-error banner; specifically the string `a turn is already running — try again in a moment` is **absent** and no `Open it` button is shown. (A build parked at a gate never blocks a fresh start; only a build with a LIVE turn does — proven in Step 5.) Optionally wait ≤300s for BUILD‑3's own Analyze gate to confirm it parks too.
 
 ### 5. TURN COLLISION — a live turn 409s a second confirm, with "Open it"

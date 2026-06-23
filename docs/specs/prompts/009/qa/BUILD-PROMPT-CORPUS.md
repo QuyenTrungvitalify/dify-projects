@@ -21,7 +21,7 @@ For each entry: set the three composer chips (**Workflow** / **Confirm** / **Dep
 
 ## Coverage matrix (what the old prompts missed)
 
-| Capability / node type | Old corpus | New entry | 
+| Capability / node type | Old corpus | New entry |
 |---|---|---|
 | Single LLM, linear | ✅ (covered) | G0-1 |
 | Multi-step LLM chain | ❌ | G1-CHAIN |
@@ -332,7 +332,7 @@ Tests AC#7: a reply revises the **current** phase without advancing. Start any b
 ### G6-WS — Whitespace-only → 400
 - **Prompt:**
   ```
-     
+
   ```
   *(only spaces / a tab / newlines)*
 - **Expect:** Same **400** `requirement is required` (trimmed to empty). Confirms the trim guard.

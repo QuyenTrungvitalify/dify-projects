@@ -90,7 +90,7 @@ Canonical run guide + String Dictionary: [00-README](00-README.md). Every quoted
     - title `Still failing after the cap-5 attempts`
     - summary lines `The agent self-corrected as far as it could in one turn.` and `Your call: accept anyway, keep trying, or abandon.`
     - action buttons `Accept anyway` · `Keep trying` · `Abandon` (note: **no** auto-confirm fired — the build is parked awaiting a human decision).
-3. **Assert** the build did **not** silently advance to ④/`Done` despite `Confirm: auto` (backend: `maybeAutoAdvance` returns early when `task.gate?.flag === 'still_failing'`, orchestrator.ts:272). 
+3. **Assert** the build did **not** silently advance to ④/`Done` despite `Confirm: auto` (backend: `maybeAutoAdvance` returns early when `task.gate?.flag === 'still_failing'`, orchestrator.ts:272).
 4. **If it does NOT occur** (the happy R-fresh-2 lints green), mark this sub-test **"obs — not triggered in browser; covered by Impl‑CLI‑1"** and pass it to the CLI check. Do **not** invent a failure.
 
 ---
