@@ -26,7 +26,7 @@ import { ClaudeSession } from './lib/claude-session.js';
 import { runTurn } from './lib/turn-runner.js';
 import { postTurnCheck, gitDirtyPaths } from './lib/post-turn.js';
 import { reconcileOnBoot, acquireTurn, releaseTurn, turnHolderId } from './lib/lock.js';
-import { smokePermissionHook } from './lib/hook-check.js';
+import { smokePermissionHook, gateBootOnHook } from './lib/hook-check.js';
 import { reconcilePushIntents } from './lib/recovery.js';
 import { isValidWorkflowFile } from './state/task.js';
 import tasksRoutes from './routes/tasks.js';
@@ -300,10 +300,19 @@ app.get('/*', async (req, reply) => {
 });
 
 async function start(): Promise<void> {
-  // L4 (spec 019): smoke that the PreToolUse permission hook actually LOADS under this host's node. If
-  // it can't (e.g. Node < 22.6 — no native `.ts`), the turn sandbox fails OPEN and nothing else detects
-  // it; warn loudly (warn-not-fail for v1). Mirrors the real invocation, so a healthy host never trips.
-  await smokePermissionHook(DIFY_PROJECTS_DIR, SETTINGS_PATH, app.log);
+  // L4 (spec 019) → SEC1 (spec 024): smoke that the PreToolUse permission hook LOADS under this host's
+  // node. If not (e.g. Node < 22.6 — no native `.ts`), the turn sandbox fails OPEN. SEC1 flips v1's
+  // warn-not-fail to fail-CLOSED: refuse to boot unless the operator opts out with
+  // BUILDER_ALLOW_UNGUARDED=1. The smoke mirrors the real invocation, so a healthy host never refuses.
+  const hookSmoke = await smokePermissionHook(DIFY_PROJECTS_DIR, SETTINGS_PATH, app.log);
+  const gate = gateBootOnHook(hookSmoke, process.env.BUILDER_ALLOW_UNGUARDED === '1');
+  if (gate.refuse) throw new Error(gate.reason);
+  if (!hookSmoke.ok) {
+    app.log.warn(
+      { detail: hookSmoke.detail },
+      'SEC1: PreToolUse hook unloadable but BUILDER_ALLOW_UNGUARDED=1 — starting UNGUARDED by operator override.'
+    );
+  }
   // Boot reconcile BEFORE listening: a crash/restart left no live process, so any `running`/
   // `scaffolding` task → `error`; a paused `awaiting_confirm` build survives untouched (turn-level
   // lock — it holds nothing) and stays reachable. `turnHolder` starts null (in-memory) (AC #19/#24).

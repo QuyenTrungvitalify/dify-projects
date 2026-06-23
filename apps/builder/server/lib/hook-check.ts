@@ -126,3 +126,23 @@ export async function smokePermissionHook(
   }
   return r;
 }
+
+/**
+ * SEC1 (spec 024): decide whether boot must refuse based on the hook smoke result.
+ * Refuse when the hook is not loadable/configured (fail-open condition) UNLESS the operator
+ * explicitly opts out via BUILDER_ALLOW_UNGUARDED=1. A healthy host (r.ok) never refuses.
+ */
+export function gateBootOnHook(
+  result: HookCheckResult,
+  allowUnguarded: boolean
+): { refuse: boolean; reason?: string } {
+  if (result.ok) return { refuse: false };
+  if (allowUnguarded) return { refuse: false };
+  return {
+    refuse: true,
+    reason:
+      `SEC1: refusing to start — the PreToolUse permission hook did not load (${result.detail}). ` +
+      `The turn sandbox would fail OPEN. Fix the host runtime (needs Node ≥22.6 to run the .ts hook), ` +
+      `or set BUILDER_ALLOW_UNGUARDED=1 to start unguarded at your own risk.`,
+  };
+}

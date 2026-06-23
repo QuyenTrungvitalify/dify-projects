@@ -8,7 +8,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { checkHookLoadable, readPreToolUseCommand } from '../server/lib/hook-check.js';
+import { checkHookLoadable, readPreToolUseCommand, gateBootOnHook } from '../server/lib/hook-check.js';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const SETTINGS = join(REPO_ROOT, 'apps/builder/headless-settings.json');
@@ -49,5 +49,25 @@ describe('checkHookLoadable (019 L4)', () => {
   test('an empty command → not ok (no throw)', async () => {
     const r = await checkHookLoadable(REPO_ROOT, '   ');
     assert.equal(r.ok, false);
+  });
+});
+
+describe('gateBootOnHook (024 SEC1)', () => {
+  test('a healthy host (ok) never refuses → boot proceeds', () => {
+    assert.equal(gateBootOnHook({ ok: true, detail: 'loaded' }, false).refuse, false);
+  });
+
+  test('the fail-open condition (not ok) → REFUSE to start', () => {
+    assert.equal(gateBootOnHook({ ok: false, detail: 'exit 1' }, false).refuse, true);
+  });
+
+  test('operator override BUILDER_ALLOW_UNGUARDED=1 → start unguarded even when not ok', () => {
+    assert.equal(gateBootOnHook({ ok: false, detail: 'exit 1' }, true).refuse, false);
+  });
+
+  test('the refuse reason names the escape-hatch env var', () => {
+    const g = gateBootOnHook({ ok: false, detail: 'exit 1' }, false);
+    assert.equal(g.refuse, true);
+    assert.match(g.reason!, /BUILDER_ALLOW_UNGUARDED/);
   });
 });

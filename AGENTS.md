@@ -202,7 +202,10 @@ deliberately skip `apps/` ([.pre-commit-config.yaml](.pre-commit-config.yaml)); 
 the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
 - **Run it**: `cd apps/builder && npm install && npm run dev` (binds 127.0.0.1:4123); web dev server
-  `cd apps/builder/web && npm run dev`.
+  `cd apps/builder/web && npm run dev`. Boot smokes the PreToolUse permission hook and **refuses to
+  start** (SEC1) if it can't load (the turn sandbox would fail OPEN — usually a host Node < 22.6 that
+  can't run the `.ts` hook); fix the runtime, or set `BUILDER_ALLOW_UNGUARDED=1` to start unguarded at
+  your own risk.
 - **Tests**: server `npm test` (node:test via tsx, in `apps/builder/test/`), web `npm test` (vitest,
   `apps/builder/web/src/**/*.test.ts`). The pure safety logic (gate / run-lock / Origin-CSRF / slug /
   auto-advance) is unit-tested; browser end-to-end is the **manual** QA suite at
