@@ -22,7 +22,7 @@ Hướng dẫn vận hành base workspace cho việc build Dify workflow. Đọc
 | Không nhớ schema YAML | `skills/mango-svip/references/node_types.md` |
 | Không biết bắt đầu từ đâu | `skills/mango-svip/assets/` (3 skeleton) + `templates/` (project-specific) |
 | Lo schema sai dẫn đến import fail | `skills/mango-svip/scripts/validate_workflow.py` |
-| Không tìm được pattern tương tự | `corpus/awesome-dify-workflow-en/Workflow-Store/` (English examples) |
+| Không tìm được pattern tương tự | `corpus/awesome-dify-workflow-en/Workflow-Store/` (reference examples — bodies mostly Chinese) |
 | Tạo ID trùng / sai format | `skills/mango-svip/scripts/generate_id.py` |
 | Mỗi task build lại từ đầu | `templates/` (clone từ task trước, tinh chỉnh) |
 
@@ -144,9 +144,11 @@ python3 skills/mango-svip/scripts/validate_workflow.py path/to/file.yml
 
 ### 4.2 `corpus/awesome-dify-workflow-en/`
 
-**Reference corpus** — English working YAML (svcvit's English port). KHÔNG edit. (The Chinese
-`awesome-dify-workflow` was removed for an English-only workspace — re-add it in `corpus/sources.yml`
-with `indexed: false` if you ever need to harvest from the Chinese upstream.)
+**Reference corpus** — vendored working YAML from `Formyselfonly/Awesome-Dify-Workflow-EN` (an
+MIT-relicensed fork; the prompt bodies were **not** translated, so most descriptions are still
+Chinese). KHÔNG edit. (A separate Chinese `awesome-dify-workflow` source was vendored then fully
+removed (spec 023) — re-add any multilingual upstream in `corpus/sources.yml` with `indexed: false`
+to harvest it without cluttering the index.)
 
 Tìm pattern bằng grep:
 ```bash
@@ -535,7 +537,7 @@ DIFY_PROJECT=<your> .venv/bin/pytest tests/ -v
 - [Dify Official Docs](https://docs.dify.ai/)
 - [Dify GitHub](https://github.com/langgenius/dify)
 - [mango-svip/dify-workflow-skills](https://github.com/mango-svip/dify-workflow-skills) — source của external skill
-- [svcvit/Awesome-Dify-Workflow](https://github.com/svcvit/Awesome-Dify-Workflow) — source của corpus
+- [Formyselfonly/Awesome-Dify-Workflow-EN](https://github.com/Formyselfonly/Awesome-Dify-Workflow-EN) — source của corpus (MIT)
 
 ### Internal references
 - [README.md](../README.md) — overview

@@ -1,6 +1,6 @@
 ---
 name: corpus-update
-description: Check for and apply updates to the gitignored corpus clone (svcvit/Awesome-Dify-Workflow), then rebuild INDEX and lint. Use when the user wants to refresh the corpus, see if upstream has new workflows, or fix a stale INDEX after a corpus change.
+description: Check for and apply updates to the gitignored corpus clone (Formyselfonly/Awesome-Dify-Workflow-EN), then rebuild INDEX and lint. Use when the user wants to refresh the corpus, see if upstream has new workflows, or fix a stale INDEX after a corpus change.
 ---
 
 # corpus-update — refresh the awesome-dify-workflow corpus
@@ -30,7 +30,7 @@ and `--check` reports per-source fresh/stale. INDEX is rebuilt once at the end; 
    scripts/update_corpus.sh
    ```
 
-   This does, in order: `fetch --depth=1` → `reset --hard FETCH_HEAD` (sparse `DSL/` preserved)
+   This does, in order: `fetch --depth=1` → `reset --hard FETCH_HEAD` (sparse `Workflow-Store/` preserved)
    → rebuild `INDEX.md` + `index.json` via `build_index.py` → lint all corpus refs.
 
 3. **Report** the result: the new short SHA, any DSL files added/removed (the script prints a

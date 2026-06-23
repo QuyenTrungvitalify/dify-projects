@@ -1,7 +1,9 @@
 # Spec 023 — Intake-only sources (`indexed: false` registry flag)
 
 **Status**: Implemented (2026-06-23) — `indexed` flag live (AC1–AC5 verified); AC6 superseded — the Chinese
-demo source was then **fully removed**, so the workspace is English-only and no source uses `indexed: false`.
+demo source was then **fully removed**, so no registry source uses `indexed: false` today. (Note: the
+surviving `-en` source is a *multilingual* reference — its bodies were not translated, ~17/26 INDEX
+descriptions are still Chinese; the earlier "English-only" framing was corrected per spec 024 R8 — see revision log.)
 **Effort**: XS
 **Depends on**: [022](022-multi-source-template-library.md) (the source registry this extends —
 `corpus/sources.yml`, `tools/dify_base/sources.py`, `build_index.py` `scan_targets()`).
@@ -13,8 +15,9 @@ Spec 022 made every registered corpus do **two** jobs at once: it is (a) **vendo
 into the committed `INDEX.md` / `index.json` and surfaced by `find.py`.
 
 For a multilingual source those two jobs conflict. The Chinese `awesome-dify-workflow` contributes ~46
-Chinese-named rows to the committed `INDEX.md` — the human-browsable resource — which is noise for an
-English-first workspace, even though the source is still wanted as a **promotion source** (harvest a good
+Chinese-named rows to the committed `INDEX.md` — the human-browsable resource — which is noise for the
+English-first browse index this workspace is aiming for, even though the source is still wanted as a
+**promotion source** (harvest a good
 upstream workflow → standardize to English under `templates/library/`).
 
 The two reasonable wants pull apart:
@@ -54,7 +57,7 @@ cloned, refreshed, staleness-checked, and promotable **as today**, but is **excl
 - **D4 — `find.py`**: **unchanged** — it reads `index.json`, which already omits hidden sources, so
   `--source corpus:<hidden>` simply returns nothing.
 - **Data**: set `awesome-dify-workflow` (Chinese) `indexed: false`; leave `awesome-dify-workflow-en` indexed.
-  Rebuild INDEX → English-only browse-resource, Chinese source still tracked + promotable.
+  Rebuild INDEX → the Chinese-source rows leave the browse-resource (the source stays tracked + promotable).
 
 ## Resolved decisions (defaults)
 
@@ -76,7 +79,7 @@ cloned, refreshed, staleness-checked, and promotable **as today**, but is **excl
   unchanged for `awesome-dify-workflow-en` + others.
 - **AC5** — `tests/` covers: hidden source absent from `scan_targets()`/index, present-but-default still indexed.
 - **AC6** — *(Superseded 2026-06-23.)* The original demo set the Chinese source `indexed: false` (INDEX
-  English-only while `update_corpus.sh --check` still tracked it). The workspace then chose to **fully remove**
+  reduced to the `-en` source while `update_corpus.sh --check` still tracked it). The workspace then chose to **fully remove**
   the Chinese source (registry + clone) rather than merely hide it, so no registry source uses `indexed: false`
   today. The flag remains a verified general capability — exercised by the synthetic
   `test_indexed_defaults_true_and_flag_is_parsed` / `test_hidden_source_excluded_from_scan_targets` /
@@ -94,11 +97,11 @@ cloned, refreshed, staleness-checked, and promotable **as today**, but is **excl
 - 2026-06-23 — implemented. `sources.py` normalises `indexed` (D1); `scan_targets()` skips hidden
   sources (D2); `write_markdown` marks them `intake-only` in the registry note (small extension of D2
   — the note lists vendored sources, so a hidden one is annotated rather than dropped). Data: Chinese
-  `awesome-dify-workflow` set `indexed: false`; INDEX 92→46 rows, English-only. Tests added
+  `awesome-dify-workflow` set `indexed: false`; INDEX 92→46 rows (only the `-en` source left indexed). Tests added
   (`tests/test_sources_registry.py`). All ACs verified: AC1 (0 rows, still cloned/checked), AC2 (clone
   on disk for promote), AC3 (provenance classifies via on-disk clone, not orphan), AC4 (`-en` unchanged),
   AC6 (`update_corpus.sh --check` still reports the Chinese source fresh). Bash shim unchanged (D3).
-- 2026-06-23 — **Chinese source fully removed.** The workspace went English-only, so rather than keep the
+- 2026-06-23 — **Chinese source fully removed.** The workspace went English-first, so rather than keep the
   Chinese `awesome-dify-workflow` as a hidden intake source it was dropped entirely (registry entry + local
   clone). Repointed AGENTS.md §6/§8 + GUIDE.md §4.2 corpus references to `awesome-dify-workflow-en`; updated
   the two real-registry tests (`test_registry_has_en_source`, `test_real_registry_yields_en_scan_target`) and
@@ -106,3 +109,9 @@ cloned, refreshed, staleness-checked, and promotable **as today**, but is **excl
   synthetic-test-covered capability — re-add a multilingual upstream with `indexed: false` to harvest without
   cluttering the English index. Historical specs (002/003/020/022 Context) keep their original corpus
   references as point-in-time records.
+- 2026-06-23 — **Relabel (spec 024 R8).** Verified the `-en` upstream did **not** translate bodies — 17/26
+  corpus descriptions in `INDEX.md` are Chinese (21 of all 46 indexed rows carry CJK). Corrected the false
+  "English-only" claim → "multilingual reference (mostly Chinese-described)" in this spec's status line /
+  design / revision notes and in the current cross-cutting docs (README, AGENTS, GUIDE); `INDEX.md`'s own
+  source-note was already honest. The corpus is a multilingual *reference*; genuinely-English curation stays
+  per-file via `/template-promote` (spec 024 Q-B).

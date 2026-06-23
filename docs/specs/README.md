@@ -8,6 +8,7 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 - `Approved` — open questions resolved, ready to implement
 - `In progress` — implementation underway
 - `Done` — merged + acceptance criteria verified
+- `Implemented` — delivered: code merged + tests green (used by 013–018, 020, 023; equivalent to `Done` for shipped specs)
 - `Superseded` — replaced by another spec (links forward)
 
 ## Index
@@ -32,6 +33,12 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 | [016](016-builder-gate-ux-hardening.md) | Builder gate & 4-phase UX hardening (the always-reached deploy gate card, R7 crash-guard, Copy-YAML, safe/distinct affordances; frontend-only) | Implemented | S |
 | [017](017-builder-prompt-linter-and-perf.md) | Builder skill-prompt + linter hardening & 4-phase performance (if-else cases check, plugin-TODO note, custom path, prose; parallel linters, memoized streaming) | Implemented | M |
 | [018](018-builder-turn-write-allowlist.md) | Turn write-confinement allowlist (015 follow-up — a turn can no longer overwrite its own hook/orchestrator/settings to neuter the gate) | Implemented | S |
+| [019](019-builder-output-quality-and-lean-roadmap.md) | Output-quality & lean roadmap (post-018 umbrella): reachability linter + pattern verification (better YAML), lean cleanup (delete accreted weight), no-disruption rollout discipline | Draft | — (meta) |
+| [020](020-builder-graph-reachability-linter.md) | Graph-reachability linter (019 O1): BFS that every `{{#id.field#}}`/`value_selector` source is upstream-reachable — warn-only → measured → **promoted to hard gate** | Implemented | M |
+| [021](021-builder-e2e-live-run-verification.md) | Builder E2E live-run verification (automated, creds-gated): Slice A output canary (import→run→assert), Slice B builder-driven ①→④ live (AC #15/#25) — discharges 011 R10 + 005 Tier 3 | Draft | L |
+| [022](022-multi-source-template-library.md) | Multi-source curated template library: source registry (`corpus/sources.yml`) feeding N vendored corpora + a standardized curated tier joined by provenance + staleness detection (two-tier — auto-update the raw intake, assisted-promote the curated set) | Done | L |
+| [023](023-intake-only-sources.md) | Intake-only sources (`indexed: false` registry flag): vendor + track + promote a corpus without indexing it (vendoring ≠ indexing) — used to keep a multilingual source promotable-but-unindexed; that Chinese source was later removed entirely | Implemented | XS |
+| [024](024-reality-reconciliation-and-cross-cutting-gaps.md) | Reality reconciliation & cross-cutting gaps (post-022/023 umbrella): make docs match code/data (R0–R8), close the two green-but-broken cracks (CI-red, false "English-only"), shut the cheap real gaps (schema-honesty, gate the generator E2E, pin deps, hook fail-closed) — triaged hard, lean by construction | Draft | — (meta) |
 
 \* Spec 001 + 006 have 2 minor Q awaiting confirm; can proceed with defaults.
 

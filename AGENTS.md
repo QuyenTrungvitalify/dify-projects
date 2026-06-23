@@ -11,8 +11,8 @@
 ## 1. What this repo is — and is NOT
 
 This is a **base workspace** for authoring Dify workflow YAML across multiple projects. It
-provides: a JSON Schema for Dify DSL, scaffolding tools, 4 vetted workflow patterns, a
-51+ example corpus, pytest harness, and pre-commit hooks.
+provides: a JSON Schema for Dify DSL, scaffolding tools, 6 vetted workflow patterns, a
+~46-example corpus, pytest harness, and pre-commit hooks.
 
 **It is NOT** a fork of Dify, a Dify plugin, or a runtime. We only produce DSL YAML that gets
 imported into a Dify workspace. Source pin: `.dify-tag` = `1.13.0`. DSL pin: `.dify-dsl-version` = `0.6.0`.
@@ -65,7 +65,7 @@ cp templates/patterns/multi-step-llm.yml projects/<slug>/workflows/main.yml
 ### 4.2 Variable references
 - Syntax: `{{#<node_id>.<field>#}}`. The `<field>` MUST exist in the source node's declared `outputs`.
 - The source `<node_id>` MUST be reachable upstream in the graph (no forward references).
-- Typos here are the **#1 cause of silent import success + runtime failure**. `lint_refs.py` (pre-commit) checks that the referenced `<node_id>` exists and that `<field>` is a declared output of that node — it does **not** (yet) verify graph reachability / upstream ordering, so keeping refs upstream is on you. Do not ignore its failures.
+- Typos here are the **#1 cause of silent import success + runtime failure**. `lint_refs.py` (pre-commit) checks that the referenced `<node_id>` exists and that `<field>` is a declared output of that node, **and** — since [spec 020](docs/specs/020-builder-graph-reachability-linter.md) promoted it — verifies **graph reachability**: a forward/dangling ref whose source node is not upstream-reachable over the edge DAG makes the linter **exit 1** and gates the commit (it no longer just warns). One documented exception: consumers **inside a container** (iteration/loop body) are skipped (`lint_refs` E3 — their refs resolve in container scope, not the main DAG), and a rare legitimate shape the BFS can't model can be waived via the reachability allowlist. Do not ignore its failures.
 
 ### 4.3 Plugin marketplace hashes
 - Format: `<provider>/<plugin>:<version>@<sha256>` in `dependencies[].value.marketplace_plugin_unique_identifier`.
@@ -125,7 +125,7 @@ cat projects/<slug>/.dify-workspace.yaml
 # Diff local vs remote Dify workspace (requires DIFY_CONSOLE_TOKEN in envs/dev.env).
 .venv/bin/python tools/dify_base/sync.py diff --project <slug>
 
-# Examples in the corpus (English reference DSLs).
+# Examples in the corpus (multilingual reference DSLs — bodies mostly Chinese).
 grep -l "type: iteration"          corpus/awesome-dify-workflow-en/Workflow-Store/*.yml
 grep -l "type: document-extractor" corpus/awesome-dify-workflow-en/Workflow-Store/*.yml
 ```
@@ -168,10 +168,10 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 | Project-discovered runtime findings (supplements skills clone — committable) | [docs/runtime-supplement.md](docs/runtime-supplement.md) |
 | Plugin per-tool behavior matrix (md_exporter formats etc.) | [docs/plugin-capabilities.md](docs/plugin-capabilities.md) |
 | Code-node sandbox stdlib probe (run in your workspace to verify modules) | [templates/probes/stdlib_check.yml](templates/probes/stdlib_check.yml) |
-| English workflow examples (reference) | [corpus/awesome-dify-workflow-en/Workflow-Store/](corpus/awesome-dify-workflow-en/) |
+| Workflow examples (multilingual reference, bodies mostly Chinese) | [corpus/awesome-dify-workflow-en/Workflow-Store/](corpus/awesome-dify-workflow-en/) |
 | Vendored-source registry (one entry per corpus; add/refresh sources here) | [corpus/sources.yml](corpus/sources.yml) — read by `setup.sh`, `build_index.py`, `update_corpus.sh` (spec 022). Tagged `corpus:<name>` in INDEX. |
 | Promoted curated templates (standardized from a corpus example) | [templates/library/](templates/library/) — each carries an `x-provenance` header; promote via `/template-promote` (spec 022 D5). Staleness: `tools/dify_base/check_provenance.py`. Attributions: [THIRD_PARTY.md](THIRD_PARTY.md). |
-| 4 vetted starting patterns | [templates/patterns/](templates/patterns/) |
+| 6 vetted starting patterns | [templates/patterns/](templates/patterns/) |
 | Project scaffold skeleton | [templates/_base/project/](templates/_base/project/) |
 | JSON Schema (DSL v0.6.0) | [schemas/dify-dsl-0.6.0.json](schemas/dify-dsl-0.6.0.json) |
 | Schema generator (regen on Dify upgrade) | [schemas/gen_schema.py](schemas/gen_schema.py) |

@@ -5,7 +5,7 @@
 Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 
 - Reference skills + corpus + node-type schema để build YAML workflow nhanh
-- CLI search 51+ template theo feature/complexity/plugin
+- CLI search ~46 template theo feature/complexity/plugin
 - Cấu trúc folder thống nhất cho từng project con (`projects/<name>/`)
 - GitOps sync (pull/push/diff giữa Dify workspace ↔ git)
 - pytest harness + pre-commit hooks
@@ -64,11 +64,11 @@ dify-projects/
 │
 ├── corpus/                    # Reference YAML (gitignored clones; registry-driven)
 │   ├── sources.yml            # Source registry (spec 022) — add/refresh corpora here
-│   └── awesome-dify-workflow-en/ # Formyselfonly/Awesome-Dify-Workflow-EN (English examples)
+│   └── awesome-dify-workflow-en/ # Formyselfonly/Awesome-Dify-Workflow-EN (reference corpus — bodies mostly Chinese)
 │
 ├── templates/                 # Project starter, patterns + promoted library/ (spec 022)
 │   ├── _base/project/         # Scaffolded by init_project.py
-│   ├── library/               # Promoted, provenance-stamped templates (spec 022; English, v0.6.0)
+│   ├── library/               # Promoted, provenance-stamped templates (spec 022; curated English, v0.6.0)
 │   └── patterns/              # 6 reusable workflow skeletons
 │       ├── file-to-llm.yml      # File upload → 1 LLM call → output (simplest)
 │       ├── file-iteration.yml   # File upload → split → iterate → aggregate
@@ -198,7 +198,7 @@ uv pip install --python .venv/bin/python pydantic pydantic-settings pyyaml jsons
 # Output: schemas/dify-dsl-<version>.json (DSL version đọc từ Dify source)
 ```
 
-Strategy: auto-stub heavy deps (flask, redis, models, controllers...) bằng permissive pydantic-friendly classes → import pydantic NodeData từ `api/core/workflow/nodes/<type>/entities.py` → dump `model_json_schema()`. Hiện **24/25 node types** thành công (**29 NodeData schemas**). Còn 1 fail: `agent` (chain dependent vào `core.mcp.types.Implementation` strict-validate `version: str` — pre-stub `core.mcp` shadow real `core.workflow.X` imports). Documented as known limitation.
+Strategy: auto-stub heavy deps (flask, redis, models, controllers...) bằng permissive pydantic-friendly classes → import pydantic NodeData từ `api/core/workflow/nodes/<type>/entities.py` → dump `model_json_schema()`. Cả **25/25 node modules** import OK và sinh **29 NodeData schemas**; trong đó đúng **1 schema-dump fail**: `http_request` (pydantic `SchemaSerializer` trên `dify_config.HTTP_REQUEST_MAX_*` defaults) — node này ship kèm marker `_error`. `agent` dump sạch. Tracked làm spec 024 **S1** (làm schema-dump-fail thành fatal + fix stub); chưa fixed.
 
 VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML files trong `projects/*/workflows/*.yml` và `templates/patterns/*.yml` tự động hover/autocomplete/validate theo schema.
 
@@ -207,18 +207,18 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **Phase 0** — base setup (cấu trúc + tooling cũ)
 - ✅ **Phase 1.A** — JSON Schema generator
 - ✅ **Phase 1.B** — `tools/dify_base/init_project.py` interactive scaffolder + `templates/_base/project/` skeleton
-- ✅ **Phase 1.C** — 4 reusable patterns in `templates/patterns/`: file-iteration, multi-step-llm, rag-qa, agent-with-tools (all validate against schema + skill validator)
+- ✅ **Phase 1.C** — 6 reusable patterns in `templates/patterns/`: file-to-llm, file-iteration, multi-step-llm, rag-qa, agent-with-tools, meta-workflow-builder (all validate against schema + skill validator)
 - ✅ **Phase 1.D** — pytest harness ([tests/](tests/)) — minimal `DifyWorkflowClient` + env-loading fixtures + syrupy snapshot example. Skips cleanly without creds.
 - ✅ **Phase 2.A** — GitOps sync ([tools/dify_base/sync.py](tools/dify_base/sync.py)) — `list/pull/diff/push` workflow apps via Console API. 8 tests passing (mocked HTTP, no real Dify needed). Polish: clean error messages for connection/timeout/HTTP failures.
 - ✅ **Phase 2.B** — pre-commit hooks ([.pre-commit-config.yaml](.pre-commit-config.yaml), 9 hooks: yamllint + check-jsonschema + skill validator + DSL version guard + 5 built-in) + bootstrap script ([scripts/setup.sh](scripts/setup.sh))
-- ✅ **Polish 1.A** — fixed `http_request` schema gen (smart `_SmartConfigStub` for `dify_config.HTTP_REQUEST_MAX_*_TIMEOUT` int defaults). Coverage: 23/25 → 24/25.
+- ⏳ **Polish 1.A** — `http_request` schema-dump currently **fails** (`_error: SchemaSerializer` on `dify_config.HTTP_REQUEST_MAX_*` defaults); 25/25 node modules import and 29 schemas generate, but this one ships with an `_error` marker rather than a clean dump. Tracked as spec 024 **S1** (make a dump-fail fatal in `gen_schema.py`, then fix the stub).
 - ⏳ **Phase 2.C** — `.devcontainer/` for VS Code
 
 Chi tiết design: xem [docs/architecture.md](docs/architecture.md) (planned).
 
 ## Limitations
 
-- **DSL version**: schema reference từ mango-svip viết cho **v0.1.4**; Dify mainline đã ở **v1.14.x (5/2026)**. Khi build cho workspace target version mới, verify field naming → schema generation (Phase 1) sẽ fix triệt để.
+- **DSL version**: repo tự sinh JSON Schema cho DSL **v0.6.0**, reverse-engineer từ Dify **1.13.0** (pin ở `.dify-tag` / `.dify-dsl-version`, khớp với phần "JSON Schema" ở trên). Skill `mango-svip` bundled tham chiếu DSL cũ hơn; khi build cho workspace target version mới, verify field naming và regen schema (`schemas/gen_schema.py`) với `.dify-tag` tương ứng.
 - **Validator chỉ check structure** (unique IDs, edge references, required fields). Không guarantee import success.
 - **Plugin versions**: marketplace identifier hash đổi theo time. Khi import fail vì plugin, check version trong target workspace.
 
@@ -228,5 +228,5 @@ Chi tiết design: xem [docs/architecture.md](docs/architecture.md) (planned).
 - [mango-svip/dify-workflow-skills](https://github.com/mango-svip/dify-workflow-skills) — base skill
 - [Tomatio13/DifyWorkFlowGenerator](https://github.com/Tomatio13/DifyWorkFlowGenerator) — JP-context DSL gen
 - [lazeyliu/dify-dsl-generator-skills](https://github.com/lazeyliu/dify-dsl-generator-skills) — multi-tier skills
-- [Formyselfonly/Awesome-Dify-Workflow-EN](https://github.com/Formyselfonly/Awesome-Dify-Workflow-EN) — English reference corpus (MIT)
+- [Formyselfonly/Awesome-Dify-Workflow-EN](https://github.com/Formyselfonly/Awesome-Dify-Workflow-EN) — reference corpus, bodies mostly Chinese (MIT)
 - [Dify Official Docs](https://docs.dify.ai/) · [Dify v1.14.0 release](https://github.com/langgenius/dify/releases/tag/1.14.0)

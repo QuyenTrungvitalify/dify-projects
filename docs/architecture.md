@@ -41,7 +41,7 @@ Knowledge base read-only. 3 Claude skills + 1 community corpus.
 ### Trụ 2 — Build (`templates/`, `tools/dify_base/init_project.py`)
 Scaffolder + reusable patterns.
 - `_base/project/` → cookiecutter target cho mỗi project mới.
-- `patterns/` → 4 workflow skeletons phổ biến (file-iteration, multi-step-llm, rag-qa, agent-with-tools).
+- `patterns/` → 6 workflow skeletons phổ biến (file-to-llm, file-iteration, multi-step-llm, rag-qa, agent-with-tools, meta-workflow-builder).
 - `init_project.py` → CLI interactive prompt 6 câu, copy + substitute.
 
 ### Trụ 3 — Verify (`schemas/`, `tests/`)
@@ -98,14 +98,14 @@ projects/<slug>/
 | Phase | Status | Output |
 |---|---|---|
 | 0 | ✅ | Base structure, git init, skills cloned |
-| 1.A | ✅ | `schemas/gen_schema.py` + JSON Schema 28 NodeData |
+| 1.A | ✅ | `schemas/gen_schema.py` + JSON Schema 29 NodeData |
 | 1.B | ✅ | `init_project.py` + `_base/project/` skeleton |
-| 1.C | ✅ | 4 patterns trong `templates/patterns/` |
+| 1.C | ✅ | 6 patterns trong `templates/patterns/` |
 | 1.D | ✅ | pytest harness via custom DifyWorkflowClient |
-| 2.A | ⏳ | GitOps sync: `sync.py pull/push/diff` workspace ↔ git |
-| 2.B | ⏳ | pre-commit hook (yamllint + schema check) |
+| 2.A | ✅ | GitOps sync: `sync.py pull/push/diff` workspace ↔ git |
+| 2.B | ✅ | pre-commit hook (yamllint + schema check) |
 | 2.C | ⏳ | `.devcontainer/` cho VS Code |
-| Polish | ⏳ | Fix 2 nodes fail trong gen_schema (agent, http_request) → 25/25 |
+| Polish | ⏳ | Fix `http_request` schema-dump (`_error: SchemaSerializer`, tracked spec 024 S1); `agent` already dumps clean — 25/25 node modules import |
 | Future | ⏳ | Prompt flatten/unflatten (split `.prompt.md` from YAML) |
 
 ## Tradeoffs đã chọn
