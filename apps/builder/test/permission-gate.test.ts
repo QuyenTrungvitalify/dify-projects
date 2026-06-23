@@ -29,7 +29,7 @@ describe('analyzeBashCommand — allow the fixed phase command set', () => {
     assert.equal(analyzeBashCommand('.venv/bin/python skills/mango-svip/scripts/generate_id.py 5').decision, 'allow');
     assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/find.py --json --has llm --has if_else').decision, 'allow');
     assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/find.py --list-features').decision, 'allow');
-    assert.equal(analyzeBashCommand('.venv/bin/python skills/mango-svip/scripts/validate_workflow.py projects/wf_x/workflows/main.yml').decision, 'allow');
+    assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/validate_workflow.py projects/wf_x/workflows/main.yml').decision, 'allow');
     assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/lint_refs.py projects/wf_x/workflows/main.yml').decision, 'allow');
     assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/lint_plugin_hashes.py projects/wf_x/workflows/main.yaml').decision, 'allow');
   });

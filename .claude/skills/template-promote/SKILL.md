@@ -46,7 +46,7 @@ it does not fork them.
    ```
 5. **Validate + lint + version-check** (the curated tier is a hard gate, unlike warn-only intake):
    ```bash
-   .venv/bin/python skills/mango-svip/scripts/validate_workflow.py templates/library/<slug>.yml
+   .venv/bin/python tools/dify_base/validate_workflow.py templates/library/<slug>.yml
    .venv/bin/python tools/dify_base/lint_refs.py templates/library/<slug>.yml
    bash scripts/check_dsl_version.sh templates/library/<slug>.yml
    ```

@@ -43,7 +43,7 @@ describe('LINTERS contract', () => {
     assert.deepEqual(
       LINTERS.map((l) => [l.key, l.script]),
       [
-        ['validate', 'skills/mango-svip/scripts/validate_workflow.py'],
+        ['validate', 'tools/dify_base/validate_workflow.py'],
         ['lint_refs', 'tools/dify_base/lint_refs.py'],
         ['lint_plugin_hashes', 'tools/dify_base/lint_plugin_hashes.py'],
       ]

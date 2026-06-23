@@ -13,7 +13,7 @@
  *     (spec §Data model + §Revision Frontend model).
  */
 import { existsSync } from 'node:fs';
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { runsRoot, type Task } from '../state/task.js';
 

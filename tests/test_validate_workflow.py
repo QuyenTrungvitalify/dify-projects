@@ -1,8 +1,15 @@
-"""Tests for skills/mango-svip/scripts/validate_workflow.py — focus: spec 017 D1 if-else `cases[]`.
+"""Tests for tools/dify_base/validate_workflow.py (vendored canonical validator, spec 026).
 
-The validator gained a modern-`cases` coherence check (Dify 0.6.0 branches off `cases`, not legacy
-`conditions`). Severity is split so a legacy-only-but-valid corpus file is never regressed (Q1):
-a MISSING `cases` is a WARNING; a PRESENT-but-incoherent `cases` is an ERROR.
+Spec 017 D1 — if-else `cases[]` coherence: the validator gained a modern-`cases` check (Dify 0.6.0
+branches off `cases`, not legacy `conditions`). Severity is split so a legacy-only-but-valid corpus
+file is never regressed (Q1): a MISSING `cases` is a WARNING; a PRESENT-but-incoherent one is an ERROR.
+
+Spec 026 N1 — node-id format: a non-numeric id (e.g. `node-code-1`) makes refs render as literal
+strings at runtime with no error (the repo's #1 silent-failure class). The gate rejects non-numeric
+ids; numeric ids and the `<id>start` container-start child pass.
+
+Spec 026 V1 — a hard gate must DIAGNOSE malformed input, not stack-trace: non-dict node/edge entries
+(and non-list `nodes`/`edges`) yield structured errors, never an AttributeError traceback.
 """
 from __future__ import annotations
 
@@ -12,7 +19,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-SCRIPT = Path(__file__).parent.parent / "skills" / "mango-svip" / "scripts" / "validate_workflow.py"
+SCRIPT = Path(__file__).parent.parent / "tools" / "dify_base" / "validate_workflow.py"
 
 
 def _load_validator():
@@ -126,6 +133,82 @@ def test_case_with_no_matching_edge_warns_but_passes(tmp_path: Path) -> None:
     is_valid, errors, warnings = _validate(tmp_path, wf)
     assert is_valid, errors
     assert _has(warnings, "routes to no outgoing edge"), warnings
+
+
+# ── spec 026 N1: node-id format gate ──────────────────────────────────────────────────────────────
+
+START_ID = "1000000000001"
+
+
+def _two_node_wf(nodes: list, edges: list | None = None) -> dict:
+    return {
+        "kind": "app",
+        "version": "0.6.0",
+        "app": {"name": "t", "mode": "workflow"},
+        "workflow": {"graph": {"nodes": nodes, "edges": edges or []}},
+    }
+
+
+def test_string_node_id_errors(tmp_path: Path) -> None:
+    """A non-numeric node id (the #1 silent-failure class) is a hard error (spec 026 N1)."""
+    wf = _two_node_wf([
+        {"id": "node-start-1", "data": {"type": "start", "variables": []}},
+        {"id": END_ID, "data": {"type": "end", "outputs": []}},
+    ])
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert not is_valid
+    assert _has(errors, "non-numeric id"), errors
+
+
+def test_numeric_and_container_start_ids_pass(tmp_path: Path) -> None:
+    """Numeric-timestamp ids and the `<id>start` container-start child both pass N1."""
+    wf = _two_node_wf([
+        {"id": START_ID, "data": {"type": "start", "variables": []}},
+        {"id": "1000000000002start", "data": {"type": "iteration-start"}},
+        {"id": END_ID, "data": {"type": "end", "outputs": []}},
+    ])
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert is_valid, errors
+    assert not _has(errors, "non-numeric id"), errors
+
+
+# ── spec 026 V1: gate diagnoses malformed input instead of crashing ────────────────────────────────
+
+
+def test_non_dict_node_entry_errors_not_crash(tmp_path: Path) -> None:
+    wf = _two_node_wf([
+        {"id": START_ID, "data": {"type": "start", "variables": []}},
+        "i-am-a-string-not-a-dict",
+        {"id": END_ID, "data": {"type": "end", "outputs": []}},
+    ])
+    is_valid, errors, _ = _validate(tmp_path, wf)  # must not raise
+    assert not is_valid
+    assert _has(errors, "is not a mapping"), errors
+
+
+def test_non_dict_edge_entry_errors_not_crash(tmp_path: Path) -> None:
+    wf = _two_node_wf(
+        [
+            {"id": START_ID, "data": {"type": "start", "variables": []}},
+            {"id": END_ID, "data": {"type": "end", "outputs": []}},
+        ],
+        edges=["i-am-a-string-not-a-dict"],
+    )
+    is_valid, errors, _ = _validate(tmp_path, wf)  # must not raise
+    assert not is_valid
+    assert _has(errors, "Edge at index 0 is not a mapping"), errors
+
+
+def test_non_list_nodes_errors_not_crash(tmp_path: Path) -> None:
+    wf = {
+        "kind": "app",
+        "version": "0.6.0",
+        "app": {"name": "t", "mode": "workflow"},
+        "workflow": {"graph": {"nodes": {"oops": "a-mapping-not-a-list"}, "edges": []}},
+    }
+    is_valid, errors, _ = _validate(tmp_path, wf)  # must not raise
+    assert not is_valid
+    assert _has(errors, "'nodes' must be a list"), errors
 
 
 if __name__ == "__main__":

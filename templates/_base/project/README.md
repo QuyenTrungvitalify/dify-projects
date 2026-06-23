@@ -34,7 +34,7 @@ Created: {{date}}
 3. **Validate**:
    ```bash
    cd /Users/quyenbt/Desktop/MyProjects/dify-projects
-   python3 skills/mango-svip/scripts/validate_workflow.py projects/{{project_slug}}/workflows/<name>.yml
+   python3 tools/dify_base/validate_workflow.py projects/{{project_slug}}/workflows/<name>.yml
    ```
 
 4. **Import vào Dify workspace**: Studio → Import DSL → chọn file.

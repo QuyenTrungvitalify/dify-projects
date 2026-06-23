@@ -14,7 +14,7 @@ importing into Dify. Read [SKILL.md](SKILL.md) ground rules first.
 ## Do
 1. **Validate** (must all exit 0 before any import):
    ```
-   .venv/bin/python skills/mango-svip/scripts/validate_workflow.py projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
+   .venv/bin/python tools/dify_base/validate_workflow.py projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
    .venv/bin/python tools/dify_base/lint_refs.py            projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
    .venv/bin/python tools/dify_base/lint_plugin_hashes.py  projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
    ```

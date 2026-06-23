@@ -35,7 +35,7 @@ examples/<slug>/
 ```
 
 The `workflows/main.yml` in each example:
-- Passes `skills/mango-svip/scripts/validate_workflow.py`
+- Passes `tools/dify_base/validate_workflow.py`
 - Passes JSON Schema (`schemas/dify-dsl-0.6.0.json`)
 - Passes `tools/dify_base/lint_refs.py`
 - Pre-commit hooks green

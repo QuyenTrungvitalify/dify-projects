@@ -10,7 +10,7 @@
 # Hooks run only on relevant files (filtered via `files:` regex):
 #   1. YAML lint (light)               — all *.yml
 #   2. Pattern + project schema check  — templates/{patterns,probes,library}/*.yml + projects/*/workflows/*.yml
-#   3. Skill validate_workflow.py      — same files (deeper structural check)
+#   3. validate_workflow.py            — same files (deeper structural check)
 #   4. Python compile                  — all .py committed
 #
 # To skip in an emergency: git commit --no-verify (but please don't)
@@ -64,8 +64,10 @@ repos:
   - repo: local
     hooks:
       - id: dify-skill-validate
-        name: skill validate_workflow.py
-        entry: scripts/py.sh skills/mango-svip/scripts/validate_workflow.py
+        name: validate_workflow.py (structural)
+        # Vendored canonical validator (spec 026) — tracked in-repo so the gate is durable across a
+        # fresh setup.sh clone (the skill clone is gitignored & not guaranteed to carry our checks).
+        entry: scripts/py.sh tools/dify_base/validate_workflow.py
         language: system
         files: ^(templates/(patterns|probes|library)/.*\.yml|projects/.*/workflows/.*\.yml)$
         require_serial: false

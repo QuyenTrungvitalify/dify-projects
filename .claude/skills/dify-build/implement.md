@@ -55,7 +55,7 @@ ground rules first — every non-negotiable below comes from [AGENTS.md](../../.
      validator now flags an incoherent `cases` (017 D1).
 5. **Validate → fix loop (cap 5 passes):**
    ```
-   .venv/bin/python skills/mango-svip/scripts/validate_workflow.py projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
+   .venv/bin/python tools/dify_base/validate_workflow.py projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
    .venv/bin/python tools/dify_base/lint_refs.py            projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
    .venv/bin/python tools/dify_base/lint_plugin_hashes.py  projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
    ```

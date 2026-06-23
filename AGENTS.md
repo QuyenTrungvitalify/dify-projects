@@ -50,7 +50,7 @@ cp templates/patterns/multi-step-llm.yml projects/<slug>/workflows/main.yml
 #    variable references {{#<node_id>.<field>#}}, plugin dependencies.
 
 # 5. Validate (structure + schema). Pre-commit will re-run these on git commit.
-.venv/bin/python skills/mango-svip/scripts/validate_workflow.py projects/<slug>/workflows/main.yml
+.venv/bin/python tools/dify_base/validate_workflow.py projects/<slug>/workflows/main.yml
 .venv/bin/pre-commit run --files projects/<slug>/workflows/main.yml
 ```
 
@@ -145,7 +145,7 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 .venv/bin/pre-commit run --all-files
 
 # Validate one workflow YAML directly.
-.venv/bin/python skills/mango-svip/scripts/validate_workflow.py <file>.yml
+.venv/bin/python tools/dify_base/validate_workflow.py <file>.yml
 
 # Regenerate JSON Schema from vendored Dify source (when bumping .dify-tag).
 .venv/bin/python schemas/gen_schema.py

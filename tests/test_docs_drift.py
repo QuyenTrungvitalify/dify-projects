@@ -3,6 +3,8 @@ import json
 import re
 from pathlib import Path
 
+import yaml
+
 BASE = Path(__file__).parent.parent
 README = (BASE / "README.md").read_text()
 AGENTS = (BASE / "AGENTS.md").read_text()
@@ -51,6 +53,16 @@ def test_readme_schema_nodedata_count():
         f"README mentions schema NodeData count but doesn't match "
         f"{n} in {schemas[-1].name}"
     )
+    # D1 (spec 026): the schema is ENVELOPE-only — Node.data validates `{type}` and nothing else; 0
+    # `$ref`s point at the 29 NodeData_* defs. Docs must not imply node-body validation. Pin the HONEST
+    # phrasing (not merely the count) so the "guarantee dressed as a guarantee" can't silently return.
+    for label, doc in (("README.md", README), ("docs/architecture.md", ARCHITECTURE)):
+        assert re.search(r"envelope", doc, re.I), (
+            f"{label} must state the schema is envelope-validated (spec 026 D1)"
+        )
+        assert re.search(r"not [\w\s-]{0,25}enforced", doc, re.I), (
+            f"{label} must state node bodies are NOT schema-enforced (spec 026 D1)"
+        )
 
 
 def test_index_file_count_matches():
@@ -74,6 +86,23 @@ def test_readme_corpus_count_matches_index():
     assert claimed == indexed, (
         f"README claims ~{claimed} templates but INDEX has {indexed} files "
         f"indexed — reconcile the README headline with INDEX."
+    )
+
+
+def test_readme_hook_count_matches_precommit():
+    """Every 'N hooks' mention in README must equal the real hook count (spec 026 D2).
+
+    README said '12 hooks' in one place and '9 hooks … + 5 built-in' in another; the list predated
+    agents-md-refs/dify-lint-refs/dify-lint-plugin-hashes. R0's drift suite didn't cover the hook
+    count, so it could silently re-rot. Pin it to the actual `hooks[]` in .pre-commit-config.yaml.
+    """
+    cfg = yaml.safe_load((BASE / ".pre-commit-config.yaml").read_text())
+    n = sum(len(repo.get("hooks", []) or []) for repo in cfg.get("repos", []))
+    counts = [int(c) for c in re.findall(r"(\d+) hooks\b", README)]
+    assert counts, "README missing any 'N hooks' mention"
+    assert all(c == n for c in counts), (
+        f"README hook counts {counts} disagree with .pre-commit-config.yaml ({n} hooks). "
+        f"Reconcile every 'N hooks' mention in README with the actual hook list."
     )
 
 

@@ -14,8 +14,7 @@
  * artifact-exists/non-empty + confinement-with-revert. The scaffold (`init_project.py` + SPEC.md
  * move) is re-homed from Lát 2's raw advance to the ②→③ `/confirm` (AC #18).
  */
-import { existsSync } from 'node:fs';
-import { copyFile, mkdir, readdir, readFile, rename, rm, rmdir, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ClaudeSession } from './claude-session.js';
 import { confinementCheck, gitDirtyPaths } from './post-turn.js';
@@ -31,7 +30,7 @@ import { deriveSlugName, firstFreeSlug } from './slug.js';
 import { difySeedScaffoldAndPull, localEditSeed, scaffoldAtSpecGate, relocateRunArtifacts } from './scaffold.js';
 import { runImportAndFinish, finishWithoutImport } from './import.js';
 import { applyAnalysisToTask } from './analysis.js';
-import { sanitizeSlug, saveTask, type Task } from '../state/task.js';
+import { saveTask, type Task } from '../state/task.js';
 
 // L2 (spec 019): the runner seams, ctx types, ConfirmPayload, and emit/errMsg/httpError moved to
 // orchestrator-shared.ts (a leaf the extracted scaffold/import modules can import without a cycle); the

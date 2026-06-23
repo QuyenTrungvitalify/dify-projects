@@ -54,7 +54,7 @@ export interface DecisionResult {
 export const ALLOWED_PYTHON_SCRIPTS = new Set<string>([
   'tools/dify_base/find.py',
   'skills/mango-svip/scripts/generate_id.py',
-  'skills/mango-svip/scripts/validate_workflow.py',
+  'tools/dify_base/validate_workflow.py',
   'tools/dify_base/lint_refs.py',
   'tools/dify_base/lint_plugin_hashes.py',
 ]);

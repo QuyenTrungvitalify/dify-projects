@@ -81,7 +81,7 @@ projects/<slug>/
       # Configure model provider+name
 
 4. Validate:
-      python3 skills/mango-svip/scripts/validate_workflow.py projects/my_app/workflows/main.yml
+      python3 tools/dify_base/validate_workflow.py projects/my_app/workflows/main.yml
 
 5. Import vào Dify workspace → copy app API key.
 
@@ -98,7 +98,7 @@ projects/<slug>/
 | Phase | Status | Output |
 |---|---|---|
 | 0 | ✅ | Base structure, git init, skills cloned |
-| 1.A | ✅ | `schemas/gen_schema.py` + JSON Schema 29 NodeData |
+| 1.A | ✅ | `schemas/gen_schema.py` + JSON Schema envelope (29 NodeData reference defs; node bodies not schema-enforced) |
 | 1.B | ✅ | `init_project.py` + `_base/project/` skeleton |
 | 1.C | ✅ | 6 patterns trong `templates/patterns/` |
 | 1.D | ✅ | pytest harness via custom DifyWorkflowClient |

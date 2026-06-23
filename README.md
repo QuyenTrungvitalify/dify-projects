@@ -9,7 +9,7 @@ Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 - Cấu trúc folder thống nhất cho từng project con (`projects/<name>/`)
 - GitOps sync (pull/push/diff giữa Dify workspace ↔ git)
 - pytest harness + pre-commit hooks
-- Auto-generated JSON Schema cho Dify DSL (29 NodeData types)
+- Auto-generated JSON Schema cho Dify DSL (envelope-validated; 29 NodeData reference defs — node bodies not schema-enforced)
 
 > 📖 **Quick start**: [docs/GUIDE.md](docs/GUIDE.md) — operations guide (quy trình build YAML, decision tree, troubleshooting).
 > 🏛️ **Architecture**: [docs/architecture.md](docs/architecture.md) — 4 trụ cột, workflow end-to-end, tradeoffs.
@@ -83,7 +83,7 @@ dify-projects/
 
 ├── schemas/                   # Auto-generated JSON Schema for Dify DSL (Phase 1.A done)
 │   ├── gen_schema.py          # Reverse-engineer schema from dify pydantic models
-│   └── dify-dsl-0.6.0.json    # Generated schema (DSL v0.6.0, 29 NodeData types)
+│   └── dify-dsl-0.6.0.json    # Generated schema (DSL v0.6.0; envelope-validated, 29 NodeData reference defs — node bodies not enforced)
 │
 ├── tools/                     # Python tooling
 │   └── dify_base/             # build_index, find, init_project, sync (Phase 2.A)
@@ -133,7 +133,7 @@ python3 tools/dify_base/sync.py push --project my_app --file workflows/main.yml
 
 # === Helpers from skills/ ===
 python3 skills/mango-svip/scripts/generate_id.py 5              # unique node IDs
-python3 skills/mango-svip/scripts/validate_workflow.py <file>   # validate
+python3 tools/dify_base/validate_workflow.py <file>   # validate
 ```
 
 ## Bắt đầu một dự án mới
@@ -178,7 +178,7 @@ cp templates/patterns/file-iteration.yml projects/<your_project>/workflows/main.
 2. **Tìm pattern** tương tự bằng `find.py` → ưu tiên `patterns/` > `corpus/` > `skill-assets/`
 3. **Generate IDs**: `python3 skills/mango-svip/scripts/generate_id.py <N>`
 4. **Build YAML**: copy skeleton, customize. Schema reference: [skills/mango-svip/references/node_types.md](skills/mango-svip/references/node_types.md)
-5. **Validate**: `python3 skills/mango-svip/scripts/validate_workflow.py <file>`
+5. **Validate**: `python3 tools/dify_base/validate_workflow.py <file>`
 
 Chi tiết: xem [docs/GUIDE.md](docs/GUIDE.md).
 
@@ -210,7 +210,7 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **Phase 1.C** — 6 reusable patterns in `templates/patterns/`: file-to-llm, file-iteration, multi-step-llm, rag-qa, agent-with-tools, meta-workflow-builder (all validate against schema + skill validator)
 - ✅ **Phase 1.D** — pytest harness ([tests/](tests/)) — minimal `DifyWorkflowClient` + env-loading fixtures + syrupy snapshot example. Skips cleanly without creds.
 - ✅ **Phase 2.A** — GitOps sync ([tools/dify_base/sync.py](tools/dify_base/sync.py)) — `list/pull/diff/push` workflow apps via Console API. 8 tests passing (mocked HTTP, no real Dify needed). Polish: clean error messages for connection/timeout/HTTP failures.
-- ✅ **Phase 2.B** — pre-commit hooks ([.pre-commit-config.yaml](.pre-commit-config.yaml), 9 hooks: yamllint + check-jsonschema + skill validator + DSL version guard + 5 built-in) + bootstrap script ([scripts/setup.sh](scripts/setup.sh))
+- ✅ **Phase 2.B** — pre-commit hooks ([.pre-commit-config.yaml](.pre-commit-config.yaml), 12 hooks: yamllint + check-jsonschema + skill validator + DSL version guard + agents-md-refs + dify-lint-refs + dify-lint-plugin-hashes + 5 built-in) + bootstrap script ([scripts/setup.sh](scripts/setup.sh))
 - ⏳ **Polish 1.A** — `http_request` schema-dump currently **fails** (`_error: SchemaSerializer` on `dify_config.HTTP_REQUEST_MAX_*` defaults); 25/25 node modules import and 29 schemas generate, but this one ships with an `_error` marker rather than a clean dump. Tracked as spec 024 **S1** (make a dump-fail fatal in `gen_schema.py`, then fix the stub).
 - ⏳ **Phase 2.C** — `.devcontainer/` for VS Code
 

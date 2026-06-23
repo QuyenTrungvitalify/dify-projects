@@ -21,7 +21,7 @@ Hướng dẫn vận hành base workspace cho việc build Dify workflow. Đọc
 |---|---|
 | Không nhớ schema YAML | `skills/mango-svip/references/node_types.md` |
 | Không biết bắt đầu từ đâu | `skills/mango-svip/assets/` (3 skeleton) + `templates/` (project-specific) |
-| Lo schema sai dẫn đến import fail | `skills/mango-svip/scripts/validate_workflow.py` |
+| Lo schema sai dẫn đến import fail | `tools/dify_base/validate_workflow.py` |
 | Không tìm được pattern tương tự | `corpus/awesome-dify-workflow-en/Workflow-Store/` (reference examples — bodies mostly Chinese) |
 | Tạo ID trùng / sai format | `skills/mango-svip/scripts/generate_id.py` |
 | Mỗi task build lại từ đầu | `templates/` (clone từ task trước, tinh chỉnh) |
@@ -35,7 +35,7 @@ Nếu chỉ muốn **import template hiện có** vào Dify khách:
 ```bash
 # 1. Validate template trước
 cd /Users/quyenbt/Desktop/MyProjects/dify-projects/skills/mango-svip
-python3 skills/mango-svip/scripts/validate_workflow.py ../../templates/patterns/file-iteration.yml
+python3 tools/dify_base/validate_workflow.py ../../templates/patterns/file-iteration.yml
 # → ✅ Workflow validation passed!
 
 # 2. Import file vào Dify
@@ -139,7 +139,7 @@ VD: `{{#1778674652466.csv_markdown#}}` = field `csv_markdown` output của node 
 python3 skills/mango-svip/scripts/generate_id.py 5   # → 5 IDs
 
 # Validate YAML
-python3 skills/mango-svip/scripts/validate_workflow.py path/to/file.yml
+python3 tools/dify_base/validate_workflow.py path/to/file.yml
 ```
 
 ### 4.2 `corpus/awesome-dify-workflow-en/`
@@ -274,7 +274,7 @@ Edit:
 
 ```bash
 # Validate structure
-python3 skills/mango-svip/scripts/validate_workflow.py templates/<new_task>.yml
+python3 tools/dify_base/validate_workflow.py templates/<new_task>.yml
 
 # Nếu PASS → import vào Dify khách → test với data thật
 # Nếu FAIL → đọc error, fix
@@ -415,7 +415,7 @@ Khi API/LLM ngoài chưa sẵn sàng:
 ### Validation script báo lỗi
 
 ```bash
-python3 skills/mango-svip/scripts/validate_workflow.py templates/<file>.yml
+python3 tools/dify_base/validate_workflow.py templates/<file>.yml
 ```
 
 | Output | Nghĩa |
@@ -523,7 +523,7 @@ Nếu có plugin đã cài (vd `langgenius/deepl` cho Translate API), dùng Tool
 
 ```bash
 python3 tools/dify_base/build_index.py
-python3 skills/mango-svip/scripts/validate_workflow.py projects/<your>/workflows/main.yml
+python3 tools/dify_base/validate_workflow.py projects/<your>/workflows/main.yml
 
 # Test với 1-2 items trước khi run full để tránh tốn API quota
 DIFY_PROJECT=<your> .venv/bin/pytest tests/ -v
@@ -550,7 +550,7 @@ DIFY_PROJECT=<your> .venv/bin/pytest tests/ -v
 python3 skills/mango-svip/scripts/generate_id.py 5
 
 # Validate YAML
-python3 skills/mango-svip/scripts/validate_workflow.py <file>.yml
+python3 tools/dify_base/validate_workflow.py <file>.yml
 
 # Build/refresh index (sau khi thêm template mới)
 python3 tools/dify_base/build_index.py

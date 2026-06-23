@@ -51,8 +51,8 @@ def run_main(code: str, plan_text: str, app_name: str) -> dict:
 
 
 def validate_generated(yaml_path: Path) -> None:
-    """Run the skill validator on the generated file; assert it passes."""
-    validator = REPO / "skills" / "mango-svip" / "scripts" / "validate_workflow.py"
+    """Run the vendored canonical validator (spec 026) on the generated file; assert it passes."""
+    validator = REPO / "tools" / "dify_base" / "validate_workflow.py"
     # Use the interpreter running pytest, not a hardcoded virtualenv path.
     # Locally that resolves to the project venv (we invoke its pytest); in CI
     # it is the system Python that setup.sh --skip-venv provisioned with deps.

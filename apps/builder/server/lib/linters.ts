@@ -24,7 +24,7 @@ export interface LinterDef {
 
 /** The 3 linters, in run order. The ONLY place this list is written. */
 export const LINTERS: LinterDef[] = [
-  { name: 'validate_workflow.py', key: 'validate', script: 'skills/mango-svip/scripts/validate_workflow.py' },
+  { name: 'validate_workflow.py', key: 'validate', script: 'tools/dify_base/validate_workflow.py' },
   { name: 'lint_refs.py', key: 'lint_refs', script: 'tools/dify_base/lint_refs.py' },
   { name: 'lint_plugin_hashes.py', key: 'lint_plugin_hashes', script: 'tools/dify_base/lint_plugin_hashes.py' },
 ];
