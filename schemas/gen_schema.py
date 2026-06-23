@@ -260,6 +260,19 @@ DEFAULT_DIFY_SRC = VENDOR_DIFY_SRC
 NODES_SUBPATH = "api/core/workflow/nodes"
 DSL_SERVICE_SUBPATH = "api/services/app_dsl_service.py"
 
+# spec 024 S1: nodes whose model_json_schema() dump is known to fail under our stub harness.
+# Tracked: HttpRequestNodeData — pydantic SchemaSerializer on dify_config.HTTP_REQUEST_MAX_* stub
+# defaults. Keep in sync with tests/test_docs_drift.py::test_schema_error_nodes_are_known_set
+# and the README/architecture schema-coverage text. If a node here starts dumping clean, REMOVE it.
+KNOWN_BROKEN_DUMPS = {"HttpRequestNodeData"}   # key as it appears in all_node_schemas (un-prefixed)
+
+
+def dump_exit_code(errored: set[str], known_broken: set[str]) -> int:
+    """0 only when the dump-failure set EXACTLY equals the known-broken allowlist.
+    errored - known = new/regressed failure; known - errored = a node got fixed (clean the allowlist).
+    Either divergence ⇒ non-zero so a human reconciles allowlist + R0 test + README together."""
+    return 0 if errored == known_broken else 1
+
 
 @dataclass
 class NodeResult:
@@ -583,6 +596,28 @@ def main() -> int:
         for r in fail:
             print(f"  - {r.node_dir}: {r.error}")
 
+    # Dump-honesty (spec 024 S1): report schemas that DUMPED CLEAN separately from
+    # ones that carry an `_error` marker. A node with `_error` still has a (dict)
+    # schema, so the import-summary above counts it as "ok" — that masked broken
+    # dumps behind a clean-looking "Imported N/N". Surface the real number here.
+    errored = {
+        name for name, sch in all_node_schemas.items()
+        if isinstance(sch, dict) and "_error" in sch
+    }
+    clean = len(all_node_schemas) - len(errored)
+    print(f"Schema dumps: {clean}/{len(all_node_schemas)} clean")
+    if errored:
+        for name in sorted(errored):
+            tag = "known, tracked spec 024 S1" if name in KNOWN_BROKEN_DUMPS else "UNEXPECTED"
+            print(f"  ⚠ _error [{tag}]: {name} → {all_node_schemas[name].get('_error')}")
+    unexpected = errored - KNOWN_BROKEN_DUMPS
+    fixed = KNOWN_BROKEN_DUMPS - errored
+    if unexpected:
+        print(f"❌ NEW schema-dump failure(s) not in KNOWN_BROKEN_DUMPS: {', '.join(sorted(unexpected))}", file=sys.stderr)
+    if fixed:
+        print(f"❌ KNOWN_BROKEN_DUMPS no longer fails — remove + update R0 test/README: {', '.join(sorted(fixed))}", file=sys.stderr)
+    _dump_rc = dump_exit_code(errored, KNOWN_BROKEN_DUMPS)
+
     if not all_node_schemas:
         print("❌ No node schemas generated", file=sys.stderr)
         return 1
@@ -599,7 +634,7 @@ def main() -> int:
         if old_text == new_text:
             print(f"✓ {out_file.relative_to(REPO_ROOT)} unchanged ({len(all_node_schemas)} node data schemas), skipping")
             _update_latest_symlink(args.out, out_file)
-            return 0
+            return _dump_rc
         print(f"⚠ {out_file.relative_to(REPO_ROOT)} differs from generated output:")
         diff = _diff_summary(old_text, new_text)
         if diff:
@@ -617,7 +652,7 @@ def main() -> int:
     out_file.write_text(new_text, encoding="utf-8")
     print(f"✓ Wrote {out_file.relative_to(REPO_ROOT)} ({len(all_node_schemas)} node data schemas)")
     _update_latest_symlink(args.out, out_file)
-    return 0
+    return _dump_rc
 
 
 def _update_latest_symlink(out_dir: Path, target: Path) -> None:
