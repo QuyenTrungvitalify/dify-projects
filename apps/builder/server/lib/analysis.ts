@@ -93,6 +93,10 @@ export function applyAnalysisToTask(task: Task, analyzeJsonText: string, project
   if (Array.isArray(parsed.features)) {
     task.analysisFeatures = parsed.features.filter((f): f is string => typeof f === 'string' && !!f.trim());
   }
+  // find_query is PROVENANCE, not an instruction: persisted for human-audit of the seed-present path
+  // and as the anchor for the deferred pattern-delta diff (diff.ts Phase-3+). The advisory NEVER
+  // executes it — so it reads as unused, but don't delete it as "dead data" (019 keeps it on purpose).
+  // (spec 027 A3)
   if (typeof parsed.find_query === 'string' && parsed.find_query.trim()) {
     task.analysisFindQuery = parsed.find_query.trim();
   }

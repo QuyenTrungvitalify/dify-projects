@@ -49,12 +49,12 @@ describe('applyAnalysisToTask (019 O2)', () => {
     const task = {} as Task;
     applyAnalysisToTask(
       task,
-      JSON.stringify({ pattern: 'agent-with-tools', features: ['iteration'], find_query: 'find.py --has iteration' }),
+      JSON.stringify({ pattern: 'agent-with-tools', features: ['iteration'], find_query: '.venv/bin/python tools/dify_base/find.py --has iteration' }),
       REPO
     );
     assert.equal(task.analysisPattern, 'agent-with-tools');
     assert.deepEqual(task.analysisFeatures, ['iteration']);
-    assert.equal(task.analysisFindQuery, 'find.py --has iteration');
+    assert.equal(task.analysisFindQuery, '.venv/bin/python tools/dify_base/find.py --has iteration');
     assert.ok(task.patternAdvisory && /iteration/.test(task.patternAdvisory));
   });
 
