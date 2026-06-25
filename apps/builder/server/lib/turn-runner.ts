@@ -52,13 +52,16 @@ export async function runTurn(
 
     if (opts?.timeoutMs && opts.timeoutMs > 0) {
       timer = setTimeout(() => {
-        session.forceKill();
+        // Resolve FIRST (settled wins), THEN kill. forceKill now fires onExit(null) to unblock a turn
+        // killed from outside runTurn (the /cancel route); doing it before this finish would clobber the
+        // timeout note with the synthetic-exit note. This order preserves the note while still killing.
         finish({
           sessionId: capturedSessionId,
           result: null,
           isError: true,
           note: `phase timed out after ${Math.round(opts.timeoutMs! / 1000)}s — retry or simplify`,
         });
+        session.forceKill();
       }, opts.timeoutMs);
     }
 

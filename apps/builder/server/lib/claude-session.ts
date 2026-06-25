@@ -215,6 +215,21 @@ export class ClaudeSession {
     return this.process?.pid ?? null;
   }
 
+  /**
+   * Resolve a pending turn after an explicit kill. `detachListeners` (called by kill/forceKill) removes
+   * the process `exit` listener, so the real exit can no longer reach `onExit`. Without this, a turn
+   * killed from OUTSIDE runTurn (the `/cancel` route) never settles → the dispatch `finally` never runs
+   * → the turn-lock leaks (turnHolder stays pinned to the cancelled build, so every new task 409s with
+   * "a turn is already running"). Fire `onExit` once with a null code so runTurn settles; null it so a
+   * 2nd kill is a harmless no-op. The internal timeout path resolves the turn ITSELF before calling
+   * forceKill, so this no-ops there (its `finish` already set `settled`).
+   */
+  private fireExit(): void {
+    const cb = this.onExit;
+    this.onExit = null;
+    cb?.(null);
+  }
+
   kill(): void {
     if (this.process) {
       try {
@@ -225,6 +240,7 @@ export class ClaudeSession {
     }
     this.detachListeners(); // leave nothing attached on the killed child (011 R14)
     this.alive = false;
+    this.fireExit(); // resolve a pending turn — the real `exit` was just detached (cancel lock-leak fix)
   }
 
   /** Force kill (SIGKILL). */
@@ -238,5 +254,6 @@ export class ClaudeSession {
     }
     this.detachListeners(); // leave nothing attached on the killed child (011 R14)
     this.alive = false;
+    this.fireExit(); // resolve a pending turn — the real `exit` was just detached (cancel lock-leak fix)
   }
 }

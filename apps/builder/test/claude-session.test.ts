@@ -57,3 +57,43 @@ describe('ClaudeSession listener cleanup on kill (011 R14 / 014 D7)', () => {
     child.kill('SIGKILL');
   });
 });
+
+/**
+ * Cancel turn-lock leak: a turn killed from OUTSIDE runTurn (the `/cancel` route) must still settle the
+ * runTurn promise, else the dispatch `finally` never releases the turn lock and `turnHolder` stays pinned
+ * to the cancelled build (every subsequent task 409s "a turn is already running"). `forceKill` detaches
+ * the real `exit` bridge, so it must fire `onExit` itself.
+ */
+describe('ClaudeSession resolves a pending turn on kill (cancel lock-leak fix)', () => {
+  test('forceKill fires onExit once so an externally-killed turn settles', () => {
+    const child = longLivedChild();
+    const sess = session();
+    sess.attachTo(child);
+
+    let exits = 0;
+    sess.onExit = () => {
+      exits += 1;
+    };
+
+    sess.forceKill();
+    assert.equal(exits, 1, 'onExit fired → runTurn settles → dispatch finally releases the turn lock');
+
+    sess.forceKill(); // idempotent: a 2nd kill must NOT re-fire onExit
+    assert.equal(exits, 1, 'onExit not re-fired on a second kill');
+
+    child.kill('SIGKILL');
+  });
+
+  test('kill (SIGTERM) likewise fires onExit once', () => {
+    const child = longLivedChild();
+    const sess = session();
+    sess.attachTo(child);
+    let exits = 0;
+    sess.onExit = () => {
+      exits += 1;
+    };
+    sess.kill();
+    assert.equal(exits, 1);
+    child.kill('SIGKILL');
+  });
+});
