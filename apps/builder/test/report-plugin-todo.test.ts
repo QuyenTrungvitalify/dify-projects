@@ -24,6 +24,12 @@ describe('hasUnresolvedPluginTodo (pure)', () => {
       true
     );
   });
+  test('empty dependencies with an INLINE TODO plugin-hash comment → true (regression: inline form)', () => {
+    assert.equal(
+      hasUnresolvedPluginTodo('dependencies: []  # TODO: add plugin hash from target workspace\n'),
+      true
+    );
+  });
   test('no TODO marker → false (a real, clean workflow)', () => {
     assert.equal(hasUnresolvedPluginTodo('dependencies: []\nworkflow: {}\n'), false);
   });

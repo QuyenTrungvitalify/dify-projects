@@ -63,15 +63,19 @@ export function editExistingDuplicateWarning(task: Task): string | null {
  * caller records it as a NOTE and never lets it flip `lintClean` or block a build.
  *
  * Detection (conservative, no YAML dep): a comment line carrying TODO + "plugin" + "hash" AND an
- * empty inline `dependencies: []` (a populated block-style `dependencies:` means the hash was
- * filled in, so the marker is stale text, not a live gap → not flagged).
+ * empty inline `dependencies: []` (optionally with a trailing inline `# comment`; a populated
+ * block-style `dependencies:` means the hash was filled in, so the marker is stale text, not a
+ * live gap → not flagged).
  */
 export function hasUnresolvedPluginTodo(yamlText: string): boolean {
   const todoMarker = yamlText
     .split('\n')
     .some((line) => /#\s*todo\b/i.test(line) && /plugin/i.test(line) && /hash/i.test(line));
   if (!todoMarker) return false;
-  return /^[ \t]*dependencies:[ \t]*\[[ \t]*\][ \t]*$/m.test(yamlText);
+  // `(#.*)?` tolerates a trailing inline comment, e.g. `dependencies: []  # TODO add plugin hash`
+  // — the form an authoring turn often emits. Without it the `$` anchored right after `]`, so the
+  // inline-comment form slipped past the check (false negative). (spec 017 D2 hardening)
+  return /^[ \t]*dependencies:[ \t]*\[[ \t]*\][ \t]*(#.*)?$/m.test(yamlText);
 }
 
 /** The Dify Studio manual-import steps for the cloud path (AC #9) — copyable YAML lives in main.yml. */
