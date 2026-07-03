@@ -87,6 +87,12 @@ describe('extractJson / parseJudgeVerdict (T3)', () => {
     assert.equal(extractJson('no json here'), null);
   });
 
+  test('extracts a NON-fenced NESTED object via the widest brace span (review #3)', () => {
+    assert.deepEqual(extractJson('result: {"criteria":[{"criterion":"A","pass":true}]} done'), {
+      criteria: [{ criterion: 'A', pass: true }],
+    });
+  });
+
   test('parseJudgeVerdict maps criteria, filters empty, reads summary', () => {
     const v = parseJudgeVerdict(
       '```json\n{"criteria":[{"criterion":"A","pass":true,"evidence":"e"},{"criterion":"","pass":false}],"summary":"1/1"}\n```'
@@ -236,5 +242,7 @@ describe('cleanupTestApps (S6)', () => {
     await runLiveTest(task, ctx);
     await cleanupTestApps(task, ctx);
     assert.deepEqual(task.testApps, ['app-123']); // delete failed → left in the list
+    assert.equal(task.appId, 'app-123'); // review #1: current app NOT deleted → pointer kept (no dead link)
+    assert.ok(task.appUrl?.includes('app-123'));
   }));
 });

@@ -35,17 +35,20 @@ async function readCriteria(projectsDir: string, taskId: string): Promise<string
   }
 }
 
-/** Extract the last parseable JSON object from an LLM message (tolerates a ```json fence + prose). */
+/** Extract a JSON object from an LLM message. Prefers ```json fenced blocks (LAST first — the final
+ *  answer is usually last), then falls back to the WIDEST `{ … }` span (first `{` to last `}`), which
+ *  recovers a non-fenced object including nested ones (review #3). Never throws; null if none parse. */
 export function extractJson(text: string): Record<string, unknown> | null {
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/gi);
-  const candidates = fence ? fence.map((f) => f.replace(/```(?:json)?/i, '').replace(/```$/, '').trim()) : [];
-  // also try the raw text (last {...} span) as a fallback
-  const brace = text.lastIndexOf('{');
-  if (brace >= 0) candidates.push(text.slice(brace));
-  for (const c of candidates.reverse()) {
+  const candidates: string[] = [];
+  const fences = text.match(/```(?:json)?\s*[\s\S]*?```/gi) ?? [];
+  for (const f of fences.reverse()) candidates.push(f.replace(/```(?:json)?/i, '').replace(/```\s*$/, '').trim());
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first >= 0 && last > first) candidates.push(text.slice(first, last + 1));
+  for (const c of candidates) {
     try {
       const obj = JSON.parse(c);
-      if (obj && typeof obj === 'object') return obj as Record<string, unknown>;
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) return obj as Record<string, unknown>;
     } catch {
       /* try the next candidate */
     }
@@ -315,13 +318,16 @@ export async function cleanupTestApps(task: Task, ctx: OrchestratorCtx): Promise
     if (!ok) remaining.push(id); // couldn't delete → keep it in the list
   }
   task.testApps = remaining;
-  if (!remaining.length) {
+  const deleted = ids.length - remaining.length;
+  // Null the current-app pointers ONLY if that app is actually gone (a partial multi-app cleanup can
+  // delete some ids and keep others) — otherwise the gate would show a dead link (review #1).
+  if (task.appId && !remaining.includes(task.appId)) {
     task.appId = null;
     task.appUrl = null;
-    if (task.liveTest) {
-      task.liveTest.appUrl = null;
-      task.liveTest.reason = `${task.liveTest.reason ?? ''} (test app(s) deleted)`.trim();
-    }
+    if (task.liveTest) task.liveTest.appUrl = null;
+  }
+  if (deleted > 0 && task.liveTest) {
+    task.liveTest.reason = `${task.liveTest.reason ?? ''} (${deleted} test app(s) deleted)`.trim();
   }
   // re-park the SAME gate (outcome unchanged — the result still stands; only the apps are gone).
   const outcome = task.gate?.flag === 'infra_degraded' ? 'infra_degraded' : 'test_result';
