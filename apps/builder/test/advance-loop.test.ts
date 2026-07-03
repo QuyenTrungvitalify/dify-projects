@@ -23,6 +23,7 @@ import { startTask, confirmAdvance, replyWithin, type OrchestratorCtx } from '..
 import { acquireTurn, releaseTurn, markCancelled, unmarkCancelled } from '../server/lib/lock.js';
 import { createTask, type Task } from '../server/state/task.js';
 import { PHASES } from '../server/lib/phases.js';
+import { applyInitFake } from './helpers/scaffold-fake.js';
 import type { ClaudeSession, SessionLogger } from '../server/lib/claude-session.js';
 import type { TurnResult } from '../server/lib/turn-runner.js';
 import type { PostTurnParams, PostTurnResult } from '../server/lib/post-turn.js';
@@ -80,12 +81,9 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
 
   const runPython = async (_projectsDir: string, args: string[]): Promise<ShellResult> => {
     calls.runPython++;
-    // Emulate init_project.py's effect: create projects/<slug>/workflows so the SPEC.md move + the
-    // Implement artifact path resolve. (The orchestrator's only runPython call is the scaffold.)
-    const i = args.indexOf('--slug');
-    if (args.some((a) => a.includes('init_project.py')) && i !== -1) {
-      mkdirSync(join(dir, 'projects', args[i + 1], 'workflows'), { recursive: true });
-    }
+    // Emulate init_project.py's effect (both tiers): create projects/<project>/<workflowSlug>/workflows
+    // so the SPEC.md move + the Implement artifact path resolve. (spec 030 two-tier scaffold.)
+    applyInitFake(dir, args);
     return { code: 0, stdout: '', stderr: '' };
   };
 
@@ -178,8 +176,9 @@ describe('advance-loop integration (013 D3)', () => {
     // the ladder visited every phase
     const phasesSeen = new Set(h.events.map((e) => e.phase));
     assert.deepEqual([...phasesSeen].sort(), ['analyze', 'implement', 'spec', 'test']);
-    // a project was scaffolded for the derived slug
-    assert.ok(task.slug, 'slug derived at the spec gate');
+    // a workflow was scaffolded for the derived slug
+    assert.ok(task.workflowSlug, 'workflowSlug derived at the spec gate');
+    assert.ok(task.project, 'project resolved at the spec gate (_drafts by default)');
   });
 
   test('AC #25 — a still_failing Implement HARD-STOPS auto (parks at the gate, never reaches ④)', async () => {
@@ -278,15 +277,15 @@ describe('advance-loop integration (013 D3)', () => {
   test('D4 — a /reply that TIMES OUT does not re-run a second full turn (spec 014)', async () => {
     const dir = fixtureDir();
     const task = await createTask(dir, { requirement: 'slow build', confirmMode: 'each_step', deploy: 'none' });
-    // place it mid-build at Implement with a resumable session + a scaffolded project.
+    // place it mid-build at Implement with a resumable session + a scaffolded workflow (spec 030 nested).
     task.phase = 'implement';
-    task.slug = 'slow_proj';
     task.project = 'slow_proj';
+    task.workflowSlug = 'sum';
     task.workflowFile = 'main.yml';
     task.sessionIds.implement = 'sess-impl';
     task.status = 'awaiting_confirm';
-    mkdirSync(join(dir, 'projects', 'slow_proj', 'workflows'), { recursive: true });
-    writeFileSync(join(dir, 'projects', 'slow_proj', 'SPEC.md'), '# spec\nbuild it.\n');
+    mkdirSync(join(dir, 'projects', 'slow_proj', 'sum', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects', 'slow_proj', 'sum', 'SPEC.md'), '# spec\nbuild it.\n');
 
     let turns = 0;
     const ctx: OrchestratorCtx = {

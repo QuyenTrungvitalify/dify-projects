@@ -11,7 +11,7 @@ import type { VNode } from 'preact';
 import { I } from './Icon';
 import { SplitDiffView } from './SplitDiffView';
 import { renderMarkdownHtml } from '../lib/markdown';
-import { t as tr, tf } from '../lib/i18n';
+import { t as tr, tf, localizeNotes } from '../lib/i18n';
 import type { ArtifactTab, WireTask, WireArtifacts, FileChange } from '../types';
 
 type SpecMode = 'edit' | 'preview' | 'split';
@@ -165,7 +165,7 @@ function SpecTab({ task, content, onSave }: { task: WireTask; content: string; o
   );
 }
 
-function YamlTab({ yaml, report }: { yaml: string | null; report: ReportShape | null }) {
+function YamlTab({ yaml, report, onReveal }: { yaml: string | null; report: ReportShape | null; onReveal: () => void }) {
   const lint = report?.lint;
   const linters = lint
     ? [
@@ -195,6 +195,10 @@ function YamlTab({ yaml, report }: { yaml: string | null; report: ReportShape | 
           <div className="cb-head"><I.yaml style={{ width: 13, height: 13 }} />
             <span className="cb-name">main.yml</span>
             <span className="cb-lang">{tf('yamlLines', { n: yaml.split('\n').length })}</span>
+            <button className="cb-reveal" onClick={onReveal}
+              title={tr('revealInFinder')} aria-label={tr('revealInFinder')}>
+              <I.folder style={{ width: 12, height: 12 }} />{tr('revealInFinder')}
+            </button>
             <button className={'cb-copy' + (copied ? ' copied' : '')} onClick={() => void copyYaml()}
               title={tr('copyYaml')} aria-label={tr('copyYaml')}>
               {copied
@@ -247,7 +251,7 @@ function DiffTab({ diff }: { diff: string | null }) {
   );
 }
 
-function ReportTab({ report }: { report: ReportShape | null }) {
+function ReportTab({ report, onReveal }: { report: ReportShape | null; onReveal: () => void }) {
   if (!report) {
     return (
       <div>
@@ -258,8 +262,8 @@ function ReportTab({ report }: { report: ReportShape | null }) {
   }
   const lint = report.lint ?? {};
   const lintPass = lint.validate === 0 && lint.lint_refs === 0 && lint.lint_plugin_hashes === 0;
-  const rows: { k: string; v: string; ok: boolean }[] = [
-    { k: tr('rWorkflowFile'), v: report.workflow_file ?? '—', ok: false },
+  const rows: { k: string; v: string; ok: boolean; reveal?: boolean }[] = [
+    { k: tr('rWorkflowFile'), v: report.workflow_file ?? '—', ok: false, reveal: !!report.workflow_file },
     { k: tr('rLint'), v: lintPass ? tr('rLintAllPassed') : tr('rLintFailures'), ok: lintPass },
     { k: tr('rDeploy'), v: report.deploy === 'none' ? tr('rNotDeployed') : report.deploy ?? '—', ok: false },
   ];
@@ -272,6 +276,12 @@ function ReportTab({ report }: { report: ReportShape | null }) {
           <div key={r.k} className="report-row">
             <span className="rr-key">{r.k}</span>
             <span className={'rr-val' + (r.ok ? ' ok' : '')}>{r.v}</span>
+            {r.reveal && (
+              <button className="rr-reveal" onClick={onReveal}
+                title={tr('revealInFinder')} aria-label={tr('revealInFinder')}>
+                <I.folder />
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -296,18 +306,20 @@ function ReportTab({ report }: { report: ReportShape | null }) {
           <I.lock />{tr('noteDeployOff')}
         </div>
       )}
-      {report.notes && <div className="secret-note" style={{ marginTop: 10 }}>{report.notes}</div>}
+      {report.notes && <div className="secret-note" style={{ marginTop: 10 }}>{localizeNotes(report.notes)}</div>}
     </div>
   );
 }
 
-export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpec }: {
+export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpec, onReveal }: {
   task: WireTask;
   tab: ArtifactTab;
   setTab: (tab: ArtifactTab) => void;
   available: ArtifactTab[];
   onClose: () => void;
   onSaveSpec: (content: string) => Promise<void>;
+  /** Reveal the task's workflow YAML in the OS file manager (Finder). */
+  onReveal: () => void;
 }) {
   const art: WireArtifacts = task.artifactContents ?? { spec: null, yaml: null, report: null, diff: null };
   const report = (art.report as ReportShape | null) ?? null;
@@ -328,7 +340,7 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
         <I.panel style={{ width: 15, height: 15, color: 'var(--tx-muted)' }} />
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
           <span className="ah-title">{tr('artifact')}</span>
-          <span className="ah-sub">{task.slug ?? task.name ?? tr('newWorkflow')}</span>
+          <span className="ah-sub">{task.workflowSlug ?? task.name ?? tr('newWorkflow')}</span>
         </div>
         <button className="icon-btn artifact-close" style={{ marginLeft: 'auto' }} onClick={onClose} title={tr('hidePanel')}><I.close /></button>
       </div>
@@ -344,9 +356,9 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
 
       <div className="artifact-body">
         {activeTab === 'spec' && <SpecTab task={task} content={art.spec ?? ''} onSave={onSaveSpec} />}
-        {activeTab === 'yaml' && <YamlTab yaml={art.yaml} report={report} />}
+        {activeTab === 'yaml' && <YamlTab yaml={art.yaml} report={report} onReveal={onReveal} />}
         {activeTab === 'diff' && <DiffTab diff={art.diff} />}
-        {activeTab === 'report' && <ReportTab report={report} />}
+        {activeTab === 'report' && <ReportTab report={report} onReveal={onReveal} />}
       </div>
     </aside>
   );

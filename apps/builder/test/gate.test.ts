@@ -56,6 +56,37 @@ describe('computeGate', () => {
     assert.equal(g.flag, 'awaiting_import');
   });
 
+  // ── spec 032 live-test gate additions ──
+  test('implement success + liveAvailable → adds a test_live confirm after Continue (continue stays first)', () => {
+    const g = computeGate('implement', { outcome: 'success' }, 'selfhost', true);
+    assert.deepEqual(g.actions.map((a) => a.id), ['continue', 'test_live', 'changes', 'discard']);
+    assert.deepEqual(g.actions.map((a) => a.kind), ['confirm', 'confirm', 'reply', 'cancel']);
+    assert.equal(g.actions[0].id, 'continue', 'continue is the safe static primary');
+  });
+
+  test('implement success WITHOUT liveAvailable (default) is byte-identical to before', () => {
+    assert.deepEqual(ids('implement', 'success'), ['continue', 'changes', 'discard']);
+    assert.deepEqual(computeGate('implement', { outcome: 'success' }, 'selfhost', false).actions.map((a) => a.id), [
+      'continue',
+      'changes',
+      'discard',
+    ]);
+  });
+
+  test('test test_result → Accept / Request changes / Re-test / Discard, flagged (auto hard-stops)', () => {
+    const g = computeGate('test', { outcome: 'test_result' }, 'selfhost');
+    assert.deepEqual(g.actions.map((a) => a.id), ['accept', 'changes', 'test_live', 'discard']);
+    assert.deepEqual(g.actions.map((a) => a.kind), ['confirm', 'reply', 'confirm', 'cancel']);
+    assert.equal(g.flag, 'test_result');
+  });
+
+  test('test infra_degraded → Retry live / Accept static / Discard, flagged', () => {
+    const g = computeGate('test', { outcome: 'infra_degraded' }, 'selfhost');
+    assert.deepEqual(g.actions.map((a) => a.id), ['retry_live', 'accept_static', 'discard']);
+    assert.deepEqual(g.actions.map((a) => a.kind), ['confirm', 'confirm', 'cancel']);
+    assert.equal(g.flag, 'infra_degraded');
+  });
+
   test('test success is terminal (no actions) regardless of deploy target', () => {
     for (const deploy of ['none', 'cloud', 'selfhost'] as Deploy[]) {
       assert.deepEqual(computeGate('test', { outcome: 'success' }, deploy).actions, []);

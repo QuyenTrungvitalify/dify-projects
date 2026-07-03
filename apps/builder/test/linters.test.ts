@@ -53,6 +53,7 @@ describe('LINTERS contract', () => {
 
 // ── cross-consumer identity, via a recording python shim ───────────────────────────────────────
 
+const PROJECT = 'proj_linter_fixture';
 const SLUG = 'wf_linter_fixture';
 let dir: string;
 let recordFile: string;
@@ -79,7 +80,7 @@ beforeEach(() => {
   const bin = join(dir, '.venv', 'bin');
   mkdirSync(bin, { recursive: true });
   writeFileSync(join(bin, 'python'), SHIM, { mode: 0o755 });
-  const wf = join(dir, 'projects', SLUG, 'workflows');
+  const wf = join(dir, 'projects', PROJECT, SLUG, 'workflows');
   mkdirSync(wf, { recursive: true });
   writeFileSync(join(wf, 'main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
   recordFile = join(dir, 'record.txt');
@@ -111,7 +112,8 @@ describe('cross-consumer identity (③ post-turn vs ④ report)', () => {
     process.env.LINT_RECORD = recordFile;
     await postTurnCheck({
       projectsDir: dir,
-      slug: SLUG,
+      project: PROJECT,
+      workflowSlug: SLUG,
       workflowFile: 'main.yml',
       taskId: '1000000000001',
       baseline: new Set(),
@@ -121,7 +123,7 @@ describe('cross-consumer identity (③ post-turn vs ④ report)', () => {
 
     // ④ report
     writeFileSync(recordFile, '');
-    const task = await createTask(dir, { requirement: 'x', slug: SLUG, deploy: 'none' });
+    const task = await createTask(dir, { requirement: 'x', project: PROJECT, slug: SLUG, deploy: 'none' });
     await runReport(dir, task, log);
     const reportScripts = sorted(recorded());
 
@@ -132,9 +134,9 @@ describe('cross-consumer identity (③ post-turn vs ④ report)', () => {
 
   test('both agree on the verdict — clean when all pass, dirty when the SAME linter fails', async () => {
     // all pass
-    let task = await createTask(dir, { requirement: 'x', slug: SLUG, deploy: 'none' });
+    let task = await createTask(dir, { requirement: 'x', project: PROJECT, slug: SLUG, deploy: 'none' });
     let clean = await postTurnCheck({
-      projectsDir: dir, slug: SLUG, workflowFile: 'main.yml', taskId: task.taskId, baseline: new Set(), log,
+      projectsDir: dir, project: PROJECT, workflowSlug: SLUG, workflowFile: 'main.yml', taskId: task.taskId, baseline: new Set(), log,
     });
     let rep = await runReport(dir, task, log);
     assert.equal(lintClean(clean.detail.lintCodes), true);
@@ -142,9 +144,9 @@ describe('cross-consumer identity (③ post-turn vs ④ report)', () => {
 
     // fail lint_refs in BOTH consumers via the shim
     process.env.LINT_FAIL = 'tools/dify_base/lint_refs.py';
-    task = await createTask(dir, { requirement: 'y', slug: SLUG, deploy: 'none' });
+    task = await createTask(dir, { requirement: 'y', project: PROJECT, slug: SLUG, deploy: 'none' });
     const dirty = await postTurnCheck({
-      projectsDir: dir, slug: SLUG, workflowFile: 'main.yml', taskId: task.taskId, baseline: new Set(), log,
+      projectsDir: dir, project: PROJECT, workflowSlug: SLUG, workflowFile: 'main.yml', taskId: task.taskId, baseline: new Set(), log,
     });
     rep = await runReport(dir, task, log);
     assert.equal(dirty.detail.lintCodes?.lint_refs, 1, '③ saw lint_refs exit 1');
@@ -158,9 +160,9 @@ describe('cross-consumer identity (③ post-turn vs ④ report)', () => {
 describe('D5 — parallel linters: behavior-equivalent codes + reason order', () => {
   test('③ post-turn: every failing linter reasons in LINTERS order (codes intact)', async () => {
     process.env.LINT_FAIL = LINTERS.map((l) => l.script).join(','); // fail all three
-    const task = await createTask(dir, { requirement: 'a', slug: SLUG, deploy: 'none' });
+    const task = await createTask(dir, { requirement: 'a', project: PROJECT, slug: SLUG, deploy: 'none' });
     const res = await postTurnCheck({
-      projectsDir: dir, slug: SLUG, workflowFile: 'main.yml', taskId: task.taskId, baseline: new Set(), log,
+      projectsDir: dir, project: PROJECT, workflowSlug: SLUG, workflowFile: 'main.yml', taskId: task.taskId, baseline: new Set(), log,
     });
     const idxs = LINTERS.map((l) => res.reasons.findIndex((r) => r.startsWith(`${l.name} exit`)));
     assert.ok(idxs.every((i) => i >= 0), `all 3 linter reasons present: ${res.reasons.join(' | ')}`);
@@ -170,7 +172,7 @@ describe('D5 — parallel linters: behavior-equivalent codes + reason order', ()
 
   test('④ report: notes list the failing linters in LINTERS key order (codes intact)', async () => {
     process.env.LINT_FAIL = LINTERS.map((l) => l.script).join(',');
-    const task = await createTask(dir, { requirement: 'b', slug: SLUG, deploy: 'none' });
+    const task = await createTask(dir, { requirement: 'b', project: PROJECT, slug: SLUG, deploy: 'none' });
     const rep = await runReport(dir, task, log);
     assert.equal(rep.lintClean, false);
     const report = JSON.parse(readFileSync(join(dir, rep.reportRel), 'utf8'));
@@ -184,7 +186,7 @@ describe('D5 — parallel linters: behavior-equivalent codes + reason order', ()
 describe('report.ts notes provenance (013 D1 / Q2)', () => {
   test('a failing linter keeps at most LINT_DETAIL_LINES detail lines (unified slice depth)', async () => {
     process.env.LINT_FAIL = 'tools/dify_base/lint_refs.py'; // shim writes 1 stderr line → ≤ N anyway
-    const task = await createTask(dir, { requirement: 'z', slug: SLUG, deploy: 'none' });
+    const task = await createTask(dir, { requirement: 'z', project: PROJECT, slug: SLUG, deploy: 'none' });
     const rep = await runReport(dir, task, log);
     assert.equal(rep.lintClean, false);
     const report = JSON.parse(readFileSync(join(dir, rep.reportRel), 'utf8'));
@@ -195,7 +197,7 @@ describe('report.ts notes provenance (013 D1 / Q2)', () => {
   });
 
   test('duplicateWarning leads the notes (⚠) and deploy=none is recorded', async () => {
-    const task = await createTask(dir, { requirement: 'q', slug: SLUG, deploy: 'none' });
+    const task = await createTask(dir, { requirement: 'q', project: PROJECT, slug: SLUG, deploy: 'none' });
     await runReport(dir, task, log, { duplicateWarning: 'created a NEW app (duplicate)' });
     const report = JSON.parse(readFileSync(join(dir, `apps/builder/.runs/${task.taskId}/report.json`), 'utf8'));
     assert.match(report.notes, /^⚠ created a NEW app \(duplicate\)/);

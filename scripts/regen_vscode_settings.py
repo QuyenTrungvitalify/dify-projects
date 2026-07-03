@@ -92,9 +92,10 @@ def build_yaml_schemas(schemas: dict[str, str], projects: dict[str, str],
             if default_schema_path is None:
                 continue
             path = default_schema_path
+        # spec 030: workflows live one level deeper — projects/<project>/<workflow>/workflows/*.
         mapping[path].extend([
-            f"projects/{slug}/workflows/*.yml",
-            f"projects/{slug}/workflows/*.yaml",
+            f"projects/{slug}/*/workflows/*.yml",
+            f"projects/{slug}/*/workflows/*.yaml",
         ])
 
     # Drop any schema entries with no globs (no project / template uses them)

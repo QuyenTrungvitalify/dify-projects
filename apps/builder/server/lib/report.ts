@@ -93,8 +93,7 @@ export async function runReport(
   log: SessionLogger,
   opts?: ReportOpts
 ): Promise<ReportResult> {
-  const slug = task.slug!;
-  const wfRel = `projects/${slug}/workflows/${task.workflowFile}`;
+  const wfRel = `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`;
 
   // 1. Re-run the 3 linters (relative .venv/bin/python, cwd = projectsDir); capture exit codes.
   //    The list + clean-test come from the shared linter contract (013 D1) — the ③ gate and this ④

@@ -12,6 +12,7 @@ import { api, confirmModeWire, ApiError, type Attachment } from './api';
 import { connectSSE } from './sse-client';
 import type {
   WireTask,
+  WireArtifacts,
   WireTreeProject,
   WireTreeTask,
   WirePhase,
@@ -37,6 +38,9 @@ export interface RunSettings {
   confirm: string; // 'each step' | 'spec only' | 'auto'
   deploy: string; // 'none' | 'selfhost' | 'cloud'
   seed: string | null; // selected seed id (degrades to none until Lát 5)
+  fast: boolean; // spec 028: ⚡ Fast build (merge Analyze+Spec); backend force-offs it on seed/workflow/slug
+  test: string; // spec 032: Phase ④ test mode 'static' | 'live'; only meaningful when deploy=selfhost
+  targetProject: string | null; // spec 030: the target PROJECT folder — the sidebar project-"+" folder, OR the parent project of a workflow-"+" edit. The build lands in projects/<targetProject>/.
 }
 
 // ───────────────────────────── signals ─────────────────────────────
@@ -52,7 +56,7 @@ export const active = signal<WireTreeTask[]>([]);
 export const startError = signal<string | null>(null);
 /** The taskId whose turn is running, parsed from a 409 — lets the UI offer "open it" (Lát 6). */
 export const busyHolder = signal<string | null>(null);
-export const settings = signal<RunSettings>({ workflow: 'none', confirm: 'each step', deploy: 'none', seed: null });
+export const settings = signal<RunSettings>({ workflow: 'none', confirm: 'each step', deploy: 'none', seed: null, fast: false, test: 'static', targetProject: null });
 
 // ───────────────────────────── confirm dialog (common) ─────────────────────────────
 /** Options for the site-styled confirm dialog (replaces window.confirm()). */
@@ -152,16 +156,64 @@ export function isFreshSnapshot(t: WireTask, lastTaskId: string | null, lastRev:
   return (t.rev ?? 0) >= lastRev;
 }
 
+/**
+ * Assign the authoritative task signal, carrying the last-known `artifactContents` forward when the
+ * incoming snapshot omits them. ONLY a GET `/api/tasks/:id` carries artifact contents; SSE
+ * `task:update` AND the optimistic /confirm-/reply snapshots do NOT. A naive `task.value = t` would
+ * blank the artifact panel (the spec/yaml/diff/report panes read `task.artifactContents`) for the whole
+ * running phase — a running phase never hits the gate-branch re-fetch. Preserving them keeps the panel
+ * showing what the last gate fetched; a fresh GET (gate re-fetch / reconnect) overrides with new
+ * contents. Used by BOTH applyTask and optimisticAdvance so neither path can re-introduce the blank.
+ */
+function setTaskValue(t: WireTask): void {
+  const prev = task.value;
+  task.value = t.artifactContents
+    ? t
+    : { ...t, artifactContents: prev && prev.taskId === t.taskId ? prev.artifactContents : undefined };
+}
+
+/**
+ * Recover artifactContents from a STALE-rev (same-task) GET that the freshness guard is about to drop.
+ * The `auto` confirm-mode race: the Spec-gate enrichment GET fires at the gate, but auto-advance moves
+ * on to a NEWER rev (Implement running) before that GET resolves — so `isFreshSnapshot` drops it and the
+ * spec/yaml pane stays blank for the ENTIRE running phase (a running phase never re-fetches). Symptom:
+ * opening SPEC during an auto Implement shows "SPEC.md はまだありません". artifactContents are ADDITIVE,
+ * so we graft only the fields the live state is MISSING and NEVER touch phase/status/gate/rev — so a
+ * cancelled/superseded gate can't be resurrected (the 014 D5 invariant the drop protects). No-op when
+ * the GET has no contents, adds nothing new, or is a different task.
+ */
+function graftStaleArtifacts(t: WireTask): void {
+  const cur = task.value;
+  if (!t.artifactContents || !cur || cur.taskId !== t.taskId) return;
+  const a = cur.artifactContents;
+  const g = t.artifactContents;
+  const merged: WireArtifacts = {
+    spec: a?.spec ?? g.spec ?? null,
+    yaml: a?.yaml ?? g.yaml ?? null,
+    report: a?.report ?? g.report ?? null,
+    diff: a?.diff ?? g.diff ?? null,
+  };
+  if (a && merged.spec === a.spec && merged.yaml === a.yaml && merged.report === a.report && merged.diff === a.diff) {
+    return; // the live state already has everything this GET could add — no signal churn
+  }
+  task.value = { ...cur, artifactContents: merged };
+}
+
 /** Apply an authoritative task snapshot: set the signal, then extend the chat thread on transition. */
 export function applyTask(t: WireTask): void {
   // 017 D6: drain any buffered streaming fragments onto the still-running run item BEFORE this
   // snapshot mutates the thread (a gate transition finalizes the run → unflushed text would be lost).
   flushPendingOutput();
-  // 014 D5 / R8: never let a late (older-rev) reconnect GET revert a newer applied state.
-  if (!isFreshSnapshot(t, _appliedTaskId, _appliedRev)) return;
+  // 014 D5 / R8: never let a late (older-rev) reconnect GET revert a newer applied state — but a stale
+  // same-task GET can still carry artifactContents the live state lacks (the auto-mode Spec-gate race),
+  // so graft those (contents only, never phase/gate) before dropping the snapshot.
+  if (!isFreshSnapshot(t, _appliedTaskId, _appliedRev)) {
+    graftStaleArtifacts(t);
+    return;
+  }
   _appliedTaskId = t.taskId;
   _appliedRev = t.rev ?? 0;
-  task.value = t;
+  setTaskValue(t);
   const items = thread.value.slice();
   const last = items[items.length - 1];
 
@@ -198,6 +250,15 @@ export function applyTask(t: WireTask): void {
       void api.getTask(t.taskId).then(applyTask).catch(() => {});
     }
   }
+  // Invariant: the builder runs one phase at a time (turn-locked), so only the TRAILING run item may be
+  // active. An out-of-order / auto-advance / reconnect snapshot can leave an EARLIER run still `running`
+  // (e.g. a duplicate "Running ②" after the spec gate); the gate/cancel branch only finalizes the trailing
+  // item, so that orphan spins forever (visible after /cancel in auto mode). Close any non-trailing running
+  // run — its phase already completed, so mark it done (running:false), NOT stopped.
+  for (let i = 0; i < items.length - 1; i++) {
+    const it = items[i];
+    if (it.kind === 'run' && it.running) items[i] = { ...it, running: false };
+  }
   thread.value = items;
 }
 
@@ -209,7 +270,7 @@ export function applyTask(t: WireTask): void {
  * authoritative SSE task:update opens the correct (next-phase / re-run) run item instead.
  */
 function optimisticAdvance(t: WireTask, resolvedLabel: string): void {
-  task.value = t;
+  setTaskValue(t); // keep the gate-fetched artifactContents — /confirm's snapshot omits them (panel-blank fix)
   // Track the optimistic snapshot's rev too (014 D5), so a late older-rev GET issued before this action
   // can't revert the optimistic state; the authoritative SSE `task:update` carries a newer rev and wins.
   _appliedTaskId = t.taskId;
@@ -329,6 +390,31 @@ export async function loadTree(): Promise<void> {
   }
 }
 
+/** Map a createProject failure to the modal's inline-error shape (spec 031 D3/D4). A 409 carries the
+ *  existing slug so the modal can offer an [Open] jump; any other error is a plain message. */
+export function mapCreateError(e: unknown): { error: string; existing?: string } {
+  if (e instanceof ApiError) {
+    return { error: e.message, ...(e.status === 409 && e.existing ? { existing: e.existing } : {}) };
+  }
+  return { error: String(e) };
+}
+
+/** spec 031 D5: create an empty project by name, refresh the tree (it now shows), and pre-target it so
+ *  the next from-scratch build lands inside `projects/<slug>/`. Reuses 029's `targetProject`. On failure
+ *  the settings are left untouched and the error shape is returned for the modal to render inline. */
+export async function createProject(
+  name: string
+): Promise<{ project: string } | { error: string; existing?: string }> {
+  try {
+    const r = await api.createProject(name);
+    await loadTree(); // the empty project is now visible in the sidebar (buildTree emits it)
+    settings.value = { ...settings.value, targetProject: r.project, workflow: 'none', seed: null };
+    return { project: r.project };
+  } catch (e) {
+    return mapCreateError(e);
+  }
+}
+
 /** Fetch the in-progress builds for the sidebar (load-recovery + post-action refresh, Lát 6). */
 export async function loadActive(): Promise<void> {
   try {
@@ -346,6 +432,16 @@ export async function loadSeeds(): Promise<void> {
   }
 }
 
+/** spec 030: parse the Workflow run-setting into an edit-existing target. 'none'/'' → null (from-scratch);
+ *  a compound `project/workflow` → `{ project, workflow }`; a bare legacy value → workflow-only (project
+ *  falls back to the sidebar target / `_drafts`). Exported for the store unit tests. */
+export function splitWorkflowSetting(workflow: string | null | undefined): { project?: string; workflow: string } | null {
+  if (!workflow || workflow === 'none') return null;
+  const slash = workflow.indexOf('/');
+  if (slash === -1) return { workflow };
+  return { project: workflow.slice(0, slash), workflow: workflow.slice(slash + 1) };
+}
+
 /** Start a new build from the composer (AC #14 settings feed the body; turn-collision 409 → startError
  *  + busyHolder, AC #21). A parked build no longer blocks — only a running turn does. */
 export async function start(requirement: string, files?: Attachment[]): Promise<void> {
@@ -353,13 +449,26 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
   const s = settings.value;
   thread.value = [{ id: uid(), kind: 'user', text: requirement }];
   task.value = null;
+  // spec 030: the Workflow setting is either 'none' or a COMPOUND `project/workflow` (the composer
+  // dropdown / sidebar workflow-"+" both use it). Split it into the bare workflow + its parent project.
+  const editing = splitWorkflowSetting(s.workflow);
+  // The target PROJECT folder: an edit-existing build uses the edited workflow's project; a from-scratch
+  // build uses the sidebar project-"+" target (`targetProject`). null ⇒ the backend resolves `_drafts` (D5).
+  const project = editing?.project ?? s.targetProject ?? null;
   try {
     const t = await api.createTask({
       requirement,
-      workflow: s.workflow && s.workflow !== 'none' ? s.workflow : null,
+      workflow: editing?.workflow ?? null,
       confirm_mode: confirmModeWire(s.confirm),
       deploy: s.deploy,
       seed: s.seed,
+      // spec 028: fast build is from-scratch single-LLM only — send it only when no seed/workflow is
+      // chosen (the backend force-offs it regardless; this keeps the wire honest). Slug is proposed by
+      // the build, not set here, so no slug guard is needed at this seam.
+      ...(s.fast && !s.seed && !editing ? { fast_mode: true } : {}),
+      // spec 032: send `live` only for a selfhost build (backend force-offs it otherwise; keep the wire honest).
+      ...(s.test === 'live' && s.deploy === 'selfhost' ? { test_mode: 'live' } : {}),
+      ...(project ? { project } : {}),
       ...(files && files.length ? { files } : {}),
     });
     applyTask(t);
@@ -494,6 +603,16 @@ export async function saveSpec(content: string): Promise<void> {
   }
 }
 
+/** Open the OS file manager (Finder) at the task's workflow YAML file. Fire-and-forget; a failure
+ *  (file not scaffolded yet, launcher error) surfaces via the shared error banner. */
+export async function revealWorkflow(taskId: string): Promise<void> {
+  try {
+    await api.reveal(taskId);
+  } catch (e) {
+    surfaceError(e);
+  }
+}
+
 /** Open an existing task from the sidebar: load state + stream it (history isn't persisted, so the
  *  thread starts from the requirement + current gate/run). */
 export async function openTask(taskId: string): Promise<void> {
@@ -521,6 +640,14 @@ export function resetToNew(): void {
   // line (a blank thread). Resetting to the initial sentinels makes the next `applyTask` always apply.
   _appliedTaskId = null;
   _appliedRev = -1;
+  // A new task starts from scratch: clear the "base on existing workflow / seed app" selectors so the
+  // prior build's choice doesn't silently carry over (it's start-bound, and the dropdown's `none` reset
+  // can be hard to reach). Fast build (spec 028) is likewise a per-build shape assertion — reset it so a
+  // trivial build's `⚡` doesn't silently carry into a possibly non-trivial next one. targetProject (spec
+  // 030) is a per-build target project folder — reset it too so a stale one can't survive "New task". The
+  // "+"-launched non-clobber is achieved by App.newTask re-applying opts AFTER this reset, not by making
+  // this conditional. Confirm-mode/deploy are general preferences and intentionally persist.
+  settings.value = { ...settings.value, workflow: 'none', seed: null, fast: false, targetProject: null };
   clearErrors();
   connected.value = false;
 }

@@ -228,7 +228,8 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .sb-head {
   display: flex; align-items: center; gap: 8px;
-  padding: 18px 16px 10px 18px;
+  /* right inset = 12px so the New-project button's right edge lines up with the New-task button below. */
+  padding: 18px 12px 10px 18px;
 }
 .sb-title {
   font-size: 12px; font-weight: 500; letter-spacing: 0.06em;
@@ -246,12 +247,15 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* New-project (header action): give it the same bordered, elevated affordance as the New-task
    button below — without a border the bare icon floats with no edge (most visible in light mode). */
 .sb-head-actions .icon-btn {
+  /* Sized up (was 26²) to sit in balance with the taller New-task button below, not float tiny. */
+  width: 32px; height: 32px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--r-btn);
   transition: background 0.14s, color 0.14s, border-color 0.14s;
 }
 .sb-head-actions .icon-btn:hover { background: var(--bg-elevated-2); border-color: var(--border-strong); color: var(--tx-1); }
+.sb-head-actions .icon-btn svg { width: 16px; height: 16px; }
 
 .sb-newtask {
   margin: 4px 12px 6px;
@@ -265,7 +269,9 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .sb-newtask:hover { background: var(--bg-elevated-2); border-color: var(--border-strong); }
 .sb-newtask svg { width: 15px; height: 15px; color: var(--tx-2); }
 
-.sb-scroll { flex: 1; overflow-y: auto; padding: 6px 8px 10px; min-height: 0; }
+/* Left/right inset = 12px so every tree-row's hover box lines up with the New-task button
+   (which sits at margin 12px) instead of protruding 4px past it. */
+.sb-scroll { flex: 1; overflow-y: auto; padding: 6px 12px 10px; min-height: 0; }
 
 /* tree rows */
 .tree-row {
@@ -277,6 +283,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   transition: background 0.12s, color 0.12s;
 }
 .tree-row:hover { background: var(--bg-elevated); }
+
+/* section label ("In progress" etc.) — base .tree-row has no padding, so without this the text
+   hugs the edge of its hover highlight. Symmetric padding gives the highlight breathing room. */
+.tree-section { padding: 7px 10px; }
 
 /* level 1: project (group label) */
 .tree-project { padding: 7px 8px 7px 9px; margin-top: 6px; }
@@ -354,7 +364,19 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .sb-toggle { margin-right: 2px; }
 
-.phase-track { display: flex; align-items: center; gap: 4px; }
+/* spec 029: context breadcrumb in the conversation-view chat-top — which project/workflow the open
+   build belongs to. Sits left of the phase track; truncates gracefully on narrow widths. */
+.run-crumb {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-width: 0; max-width: 280px; flex-shrink: 1;
+  font-size: 12.5px; color: var(--tx-muted);
+}
+.run-crumb .crumb-ic { width: 13px; height: 13px; color: var(--tx-faint); flex-shrink: 0; }
+.run-crumb-seg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-crumb-leaf { color: var(--tx-2); }
+.run-crumb-sep { color: var(--tx-faint); opacity: 0.6; flex-shrink: 0; }
+
+.phase-track { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .phase-step {
   display: flex; align-items: center; gap: 7px;
   padding: 5px 11px; border-radius: var(--r-pill);
@@ -407,15 +429,18 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   align-items: center; justify-content: center;
   padding: 26px; gap: 0; min-height: 0;
 }
-.empty-wrap { width: 100%; max-width: 640px; display: flex; flex-direction: column; align-items: center; }
+.empty-wrap { width: 100%; max-width: 760px; display: flex; flex-direction: column; align-items: center; }
 .empty-crumb {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 7px 13px; border-radius: var(--r-pill);
   background: var(--bg-elevated); border: 1px solid var(--border);
   color: var(--tx-2); font-size: 13px; margin-bottom: 22px;
+  cursor: default; /* spec 029: the plain (inert) crumb is not interactive */
   transition: background 0.14s, border-color 0.14s;
 }
-.empty-crumb:hover { background: var(--bg-elevated-2); border-color: var(--border-strong); }
+/* spec 029: only a "+"-preselection crumb is clickable-to-clear — it alone reads as interactive. */
+.empty-crumb.clearable { cursor: pointer; }
+.empty-crumb.clearable:hover { background: var(--bg-elevated-2); border-color: var(--border-strong); }
 .empty-crumb .crumb-ic { width: 14px; height: 14px; color: var(--tx-muted); }
 .empty-crumb .tw-twist svg { width: 11px; height: 11px; }
 
@@ -441,9 +466,11 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   margin-top: 12px; flex-wrap: nowrap;
 }
 .composer-row .spacer { flex: 1; }
-/* Keep the settings + attach/send on a single row: let the chips shrink (and truncate their
-   value) instead of a long workflow slug pushing the buttons onto a second line. */
-.composer-row .setting-select { display: flex; min-width: 0; }
+/* Keep everything on ONE row: only the workflow chip (`.shrink` — a variable-length slug) may shrink
+   and truncate its value. The fixed-label JP chips (confirm/deploy/fast) hold their natural width so
+   they never clip, and a long slug can't push attach/send onto a second line. */
+.composer-row .setting-select { display: flex; flex: 0 0 auto; }
+.composer-row .setting-select.shrink { flex: 0 1 auto; min-width: 0; }
 
 .setting-chip {
   display: inline-flex; align-items: center; gap: 7px;
@@ -897,15 +924,18 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .codeblock .cb-head .cb-name { color: var(--tx-1); }
 .codeblock .cb-head .cb-lang { margin-left: auto; color: var(--tx-faint); }
-/* Copy-YAML button (spec 016 D3) — sits at the right of the code header after the line count. */
-.codeblock .cb-head .cb-copy {
+/* Copy-YAML + Reveal-in-Finder buttons — sit at the right of the code header after the line count. */
+.codeblock .cb-head .cb-copy,
+.codeblock .cb-head .cb-reveal {
   display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
   background: transparent; border: 1px solid var(--border); border-radius: 7px;
   padding: 3px 8px; color: var(--tx-2); font-family: var(--sans); font-size: 11px;
 }
-.codeblock .cb-head .cb-copy:hover { border-color: var(--border-strong); color: var(--tx-1); }
+.codeblock .cb-head .cb-copy:hover,
+.codeblock .cb-head .cb-reveal:hover { border-color: var(--border-strong); color: var(--tx-1); }
 .codeblock .cb-head .cb-copy.copied { border-color: var(--ok-dim); color: var(--ok); }
-.codeblock .cb-head .cb-copy svg { width: 12px; height: 12px; }
+.codeblock .cb-head .cb-copy svg,
+.codeblock .cb-head .cb-reveal svg { width: 12px; height: 12px; }
 .codeblock pre { margin: 0; padding: 12px 14px; overflow-x: auto; line-height: 1.65; color: var(--tx-2); }
 .codeblock .ln { color: var(--tx-faint); user-select: none; display: inline-block; width: 24px; }
 .tok-key { color: var(--accent-tx); }
@@ -961,8 +991,17 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .report-row:last-child { border-bottom: none; }
 .report-row .rr-key { color: var(--tx-muted); width: 110px; flex-shrink: 0; }
-.report-row .rr-val { color: var(--tx-1); font-family: var(--mono); font-size: 12px; }
+.report-row .rr-val { color: var(--tx-1); font-family: var(--mono); font-size: 12px; min-width: 0; word-break: break-all; }
 .report-row .rr-val.ok { color: var(--ok); }
+/* Reveal-in-Finder — icon-only, pushed to the row's right edge (only on the workflow-file row). */
+.report-row .rr-reveal {
+  margin-left: auto; flex-shrink: 0; cursor: pointer;
+  display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px;
+  background: transparent; border: 1px solid var(--border); color: var(--tx-muted);
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+}
+.report-row .rr-reveal:hover { background: var(--bg-elevated-2); border-color: var(--border-strong); color: var(--tx-1); }
+.report-row .rr-reveal svg { width: 14px; height: 14px; }
 .app-url-card {
   display: flex; align-items: center; gap: 12px;
   margin-top: 14px; padding: 14px 16px; border-radius: 12px;
@@ -1058,27 +1097,22 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .modal-input::placeholder { color: var(--tx-faint); }
 .modal-input:focus { outline: none; border-color: var(--border-strong); }
 
-.folder-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
-.folder-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px; border-radius: 10px;
-  background: var(--bg-canvas); border: 1px solid var(--border);
-}
-.folder-row .fr-ic { width: 15px; height: 15px; color: var(--tx-muted); flex-shrink: 0; }
-.folder-row .fr-path { font-family: var(--mono); font-size: 12.5px; color: var(--tx-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.folder-row .fr-x { margin-left: auto; }
-.folder-row .fr-x svg { width: 13px; height: 13px; }
+/* spec 031: live folder-slug preview (D2) — the folder the create will actually make. */
+.modal-slug { margin-top: 8px; font-family: var(--mono); font-size: 12.5px; color: var(--tx-muted); }
 
-.add-folder-btn {
-  width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
-  padding: 16px; border-radius: 12px;
-  border: 1px solid var(--border-strong);
-  background: linear-gradient(180deg, var(--tint-2), transparent);
-  color: var(--tx-2); font-size: 14px;
-  transition: background 0.14s, color 0.14s, border-color 0.14s;
+/* spec 031: inline red error (D3 charset / D4 duplicate). The [Open] jump appears only on a duplicate. */
+.modal-error {
+  display: flex; align-items: center; gap: 10px; margin-top: 10px;
+  font-size: 12.5px; color: var(--danger, #d9534f);
 }
-.add-folder-btn:hover { background: var(--bg-elevated); color: var(--tx-1); border-color: var(--border-strong); }
-.add-folder-btn svg { width: 16px; height: 16px; }
+.modal-error > span { flex: 1; }
+.modal-open-existing {
+  flex-shrink: 0; padding: 5px 12px; border-radius: 8px;
+  border: 1px solid var(--border-strong); background: var(--bg-elevated);
+  color: var(--tx-1); font-size: 12.5px;
+  transition: background 0.14s, color 0.14s;
+}
+.modal-open-existing:hover { background: var(--bg-modal-hover); }
 
 .modal-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .modal-hint { margin-right: auto; font-size: 11.5px; color: var(--tx-faint); }
@@ -1123,6 +1157,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   background: var(--mono-chip-bg); color: var(--mono-chip-tx);
   border: 1px solid var(--mono-chip-bd);
   padding: 1px 5px; border-radius: 5px;
+  /* Override the base .mchip nowrap: a long name (e.g. a full requirement) must wrap inside the
+     fixed-width dialog instead of overflowing it. clone keeps the border intact across line breaks. */
+  white-space: normal; overflow-wrap: anywhere;
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
 }
 .confirm-foot { grid-area: foot; display: flex; justify-content: flex-end; gap: 9px; }
 .confirm-foot .btn { padding: 8px 16px; }
@@ -1145,6 +1183,9 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   background: var(--bg-elevated-2); border: 1px solid var(--border-strong);
   border-radius: var(--r-card); box-shadow: var(--shadow-pop);
   display: flex; flex-direction: column; gap: 1px;
+  /* The menu opens upward; with many workflows it would otherwise grow past the top of the viewport
+     and clip the first option (`none` / new workflow). Cap the height and scroll instead. */
+  max-height: 280px; overflow-y: auto;
 }
 .setting-opt {
   text-align: left; padding: 6px 9px; border-radius: var(--r-chip);
@@ -1153,9 +1194,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .setting-opt:hover { background: var(--bg-chip); color: var(--tx-1); }
 .setting-opt.on { color: var(--accent-tx); background: var(--accent-dim); }
 
-/* seed picker (new-task surface, AC #2) */
-.seed-picker { margin-top: 18px; }
-.seed-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+/* seed picker (new-task surface, AC #2) — label inline with the chips to stay compact */
+.seed-picker { margin-top: 14px; display: flex; align-items: baseline; column-gap: 10px; row-gap: 6px; flex-wrap: wrap; }
+.seed-picker .suggest-label { margin-bottom: 0; flex: 0 0 auto; }
+.seed-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 0; flex: 1 1 auto; }
 .seed-chip {
   padding: 5px 11px; border-radius: var(--r-pill); font-size: 12.5px;
   background: var(--bg-chip); border: 1px solid var(--border-soft); color: var(--tx-2); cursor: pointer;

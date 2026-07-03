@@ -22,7 +22,7 @@ import {
   isValidWorkflowFile,
   loadTask,
   normalizeConfirmMode,
-  restoreTargetPhase,
+  restoreTargetPhaseFor,
   saveTask,
   type Task,
 } from '../state/task.js';
@@ -150,9 +150,18 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       deploy: (body.deploy as string | undefined) ?? process.env.DEFAULT_DEPLOY ?? undefined,
       // Chosen Dify seed app id from the seed picker (Lát 5); null/absent = no Dify seed.
       seed: (body.seed as string | null | undefined) ?? null,
-      slug: (body.slug as string | null | undefined) ?? null,
+      // Spec 030: the proposed WORKFLOW slug (public `workflow_slug`, legacy `slug`).
+      slug: (body.workflow_slug ?? body.slug) as string | null | undefined ?? null,
+      // Spec 030: the target PROJECT folder (sidebar project-"+" / workflow-"+" parent).
+      project: (body.project as string | null | undefined) ?? null,
       name: (body.name as string | null | undefined) ?? null,
       workflowFile: (body.workflowFile as string | undefined) ?? undefined,
+      // Spec 028: `⚡ Fast build` — accept `fast_mode` (public) or `fast`; createTask force-offs it
+      // when a seed/workflow/slug is present, so it is honored only on a from-scratch build.
+      fast: (body.fast_mode ?? body.fast) as boolean | string | null | undefined,
+      // Spec 032: Phase ④ test mode (`test_mode` public / `testMode`); createTask force-offs it to
+      // `static` unless deploy=selfhost, so it can never reach Dify on a non-selfhost build.
+      testMode: (body.test_mode ?? body.testMode) as string | undefined,
     });
 
     // Persist the files to `.runs/<taskId>/uploads/` + record the paths on the task, BEFORE acquiring
@@ -224,6 +233,8 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     const payload: ConfirmPayload = {};
     if (typeof body.slug === 'string') payload.slug = body.slug;
     if (typeof body.name === 'string') payload.name = body.name;
+    // Spec 032 Q3: the "🗑 delete old test app" checkbox on a live re-test confirm.
+    if (body.delete_old_app === true || body.deleteOldApp === true) payload.deleteOldApp = true;
 
     // Acquire the turn LAST, right before dispatch. Strict + synchronous, so it also closes the
     // double-dispatch race directly: a 2nd concurrent /confirm for THIS build → the loser 409s here
@@ -390,17 +401,24 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       return reply.code(409).send({ error: `task is ${task.status} — only a cancelled build can be restored` });
     }
     unmarkCancelled(id); // clear the in-flight flag so the next /confirm or /reply can actually run a turn
-    const target = restoreTargetPhase(task.phase);
+    // Spec 028: fast-aware rewind. A fast build cancelled AT the merged Spec turn (phase='spec', slug
+    // still null) has NO prior gate → target=null (reopen retryable; Retry re-runs the merged draft),
+    // NOT a phantom Analyze gate. A fast build cancelled at 'implement' (slug set by the scaffold)
+    // rewinds to the Spec gate normally, where "Edit spec" runs the slug-aware spec.md (not draft.md).
+    const target = restoreTargetPhaseFor(task);
     if (target) {
       task.phase = target;
       task.status = 'awaiting_confirm';
       task.gate = computeGate(target, { outcome: 'success' }, task.deploy);
       task.error = undefined;
     } else {
-      // cancelled during the first phase (analyze) — no prior gate; reopen as a retryable error.
+      // No prior gate: the standard first phase (analyze), OR the fast merged-draft first turn
+      // (phase stays 'spec'). Reopen as a retryable error targeting the current phase.
       task.status = 'error';
-      task.gate = computeGate('analyze', { outcome: 'error' }, task.deploy);
-      task.error = 'restored — Retry to re-run analyze';
+      task.gate = computeGate(task.phase, { outcome: 'error' }, task.deploy);
+      task.error = task.phase === 'spec'
+        ? 'restored — Retry to re-run the merged draft'
+        : 'restored — Retry to re-run analyze';
     }
     bumpRev(task); // D5: direct broadcast bypasses emit — bump so a stale GET can't clobber the restored gate
     await saveTask(projectsDir, task);

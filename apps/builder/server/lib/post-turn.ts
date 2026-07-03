@@ -29,7 +29,10 @@ import type { SessionLogger } from './claude-session.js';
 
 export interface PostTurnParams {
   projectsDir: string;
-  slug: string;
+  /** spec 030: the resolved project + workflow subfolder — the build lives at
+   *  `projects/<project>/<workflowSlug>/`. Non-null at Implement (③), where this runs. */
+  project: string;
+  workflowSlug: string;
   workflowFile: string;
   taskId: string;
   /** git-porcelain dirty paths captured BEFORE the turn (see gitDirtyPaths). */
@@ -46,7 +49,7 @@ export interface PostTurnDetail {
   yamlOk: boolean;
   /** the 3 linter exit codes (null when the artifact was missing/empty so they never ran). */
   lintCodes: LintCodes | null;
-  /** every node id matched `^\d{13}$`. */
+  /** every node id matched `^\d{13}(start)?$` (13-digit, or an iteration/loop-start child `<id>start`). */
   idsOk: boolean;
   /** reverted out-of-confinement paths (non-empty = a security breach → always hard error). */
   confinementBreaches: string[];
@@ -61,8 +64,10 @@ export interface PostTurnResult {
 
 export interface ConfinementParams {
   projectsDir: string;
-  /** active slug, or null pre-scaffold (①/②) — when null the `projects/<slug>/` rules can't match. */
-  slug: string | null;
+  /** spec 030: the resolved project + workflow subfolder, or null pre-scaffold (①/②) — when either is
+   *  null the `projects/<project>/<workflowSlug>/` rule can't match, so ANY `projects/` write is a breach. */
+  project: string | null;
+  workflowSlug: string | null;
   taskId: string;
   baseline: Set<string>;
   log: SessionLogger;
@@ -85,7 +90,7 @@ print(json.dumps({'node_ids': ids}))
 
 export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> {
   const reasons: string[] = [];
-  const rel = `projects/${p.slug}/workflows/${p.workflowFile}`;
+  const rel = `projects/${p.project}/${p.workflowSlug}/workflows/${p.workflowFile}`;
   const abs = join(p.projectsDir, rel);
 
   // ─── (a) CORRECTNESS ───────────────────────────────────────────
@@ -145,7 +150,10 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
     if (nodeIds.length === 0) {
       reasons.push('no node ids found in workflow.graph.nodes');
     }
-    const bad = nodeIds.filter((id) => !/^\d{13}$/.test(id));
+    // Iteration/loop-start child nodes are legitimately `<13-digit-id>start` (AGENTS.md §4.1) — accept
+    // that suffix, matching validate_workflow.py's NODE_ID_RE. Hand-written string ids (e.g. node-code-1)
+    // still fail. Without this, every iteration-based workflow false-parks at the still_failing gate.
+    const bad = nodeIds.filter((id) => !/^\d{13}(start)?$/.test(id));
     if (bad.length) reasons.push(`non-13-digit node id(s): ${bad.slice(0, 10).join(', ')}`);
     idsOk = nodeIds.length > 0 && bad.length === 0;
   }
@@ -166,24 +174,31 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
  * per reverted breach (empty = confinement clean). Shared by the ③ post-turn check (above) and
  * the ①/② turn verify (orchestrator), which have no YAML artifact to lint.
  *
- * When `slug` is null (pre-scaffold ①/②), the `projects/<slug>/` rules can't match, so any write
- * under `projects/` is correctly treated as a breach (nothing should land there before scaffold).
+ * When `project`/`workflowSlug` are null (pre-scaffold ①/②), the `projects/<project>/<workflowSlug>/`
+ * rule can't match, so any write under `projects/` is correctly treated as a breach (nothing should
+ * land there before scaffold).
+ *
+ * Spec 030: confinement is now to the WORKFLOW subtree — a turn for workflow X CANNOT resolve into a
+ * sibling workflow Y or a sibling project by construction. The trailing `/` anchors the prefix
+ * (`"projects/a/sum_2/x".startsWith("projects/a/sum/")` is false), so sibling workflows in disjoint
+ * subtrees are structurally rejected. The old per-project `.dify-workspace.yaml` special-case is DROPPED
+ * (D1): the manifest lives at the PROJECT level and a workflow build turn has no business writing it.
  */
 export async function confinementCheck(p: ConfinementParams): Promise<string[]> {
   const reasons: string[] = [];
   const after = await gitDirtyPaths(p.projectsDir);
   const turnTouched = [...after].filter((path) => !p.baseline.has(path));
 
+  const confined = p.project !== null && p.workflowSlug !== null;
   const isWhitelisted = (path: string): boolean =>
-    (p.slug !== null && path.startsWith(`projects/${p.slug}/`)) ||
+    (confined && path.startsWith(`projects/${p.project}/${p.workflowSlug}/`)) ||
     path.startsWith(`apps/builder/.runs/${p.taskId}/`) ||
     // The skill bodies tell a turn (cwd = repo root) to write its task artifacts to the
     // shorthand `.runs/<taskId>/`; that resolves to repo-root `.runs/<taskId>/`. It is
     // task-scoped (not a broad escape), so it is whitelisted; the orchestrator relocates these
     // into the canonical `apps/builder/.runs/<taskId>/` (spec §A :517) right after the turn.
     path.startsWith(`.runs/${p.taskId}/`) ||
-    path === '.vscode/settings.json' ||
-    (p.slug !== null && path === `projects/${p.slug}/.dify-workspace.yaml`);
+    path === '.vscode/settings.json';
 
   const breaches = turnTouched.filter((path) => !isWhitelisted(path));
   for (const breach of breaches) {

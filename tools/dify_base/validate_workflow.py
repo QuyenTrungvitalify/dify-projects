@@ -37,6 +37,7 @@ class WorkflowValidator:
     def __init__(self):
         self.errors = []
         self.warnings = []
+        self.app_mode = None  # set in _validate_app; drives end-vs-answer terminal-node rule
 
     def validate(self, file_path: str) -> Tuple[bool, List[str], List[str]]:
         """
@@ -89,8 +90,13 @@ class WorkflowValidator:
             if field not in app:
                 self.errors.append(f"Missing required app field: {field}")
 
-        if app.get('mode') != 'workflow':
-            self.errors.append(f"Invalid app mode: expected 'workflow', got '{app.get('mode')}'")
+        # Accept both Dify app modes that this validator covers: 'workflow' (terminates at an
+        # 'end' node) and 'advanced-chat'/chatflow (terminates at an 'answer' node). The
+        # terminal-node requirement is enforced per-mode in _validate_workflow.
+        self.app_mode = app.get('mode')
+        if self.app_mode not in ('workflow', 'advanced-chat'):
+            self.errors.append(
+                f"Invalid app mode: expected 'workflow' or 'advanced-chat', got '{self.app_mode}'")
 
     def _validate_workflow(self, workflow: Dict):
         """Validate workflow section."""
@@ -137,6 +143,7 @@ class WorkflowValidator:
         node_ids = set()
         has_start = False
         has_end = False
+        has_answer = False
 
         for i, node in enumerate(nodes):
             # V1 (spec 026): non-dict node entry → structured error, not an AttributeError traceback.
@@ -178,6 +185,8 @@ class WorkflowValidator:
             elif node_type == 'end':
                 has_end = True
                 self._validate_end_node(node_id, node['data'])
+            elif node_type == 'answer':
+                has_answer = True
             elif node_type == 'llm':
                 self._validate_llm_node(node_id, node['data'])
             elif node_type == 'code':
@@ -189,7 +198,12 @@ class WorkflowValidator:
 
         if not has_start:
             self.errors.append("Workflow must have at least one 'start' node")
-        if not has_end:
+        # Terminal node depends on app mode: chatflows (advanced-chat) end at an 'answer' node,
+        # workflows end at an 'end' node.
+        if self.app_mode == 'advanced-chat':
+            if not has_answer:
+                self.errors.append("Chatflow (advanced-chat) must have at least one 'answer' node")
+        elif not has_end:
             self.errors.append("Workflow must have at least one 'end' node")
 
         # Validate edges

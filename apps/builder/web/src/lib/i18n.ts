@@ -63,6 +63,11 @@ const EN: Dict = {
 
   /* empty / new-task surface */
   phDescribeWorkflow: 'Describe the workflow or change…',
+  /* spec 029: dynamic new-task crumb (pre-selection from the sidebar "+") */
+  editingWorkflow: 'Editing {name}',
+  newTaskInProjectName: 'New task in {name}',
+  clearPreselection: 'Clear — start a plain new task',
+  runContextHint: 'Where this build lands',
   seedFrom: 'SEED FROM',
   noSeedApps: 'No seed apps — connect Dify to seed from a workspace app. New workflows start from scratch.',
   none: 'none',
@@ -163,6 +168,27 @@ const EN: Dict = {
   auto: 'auto',
   selfhost: 'selfhost',
   cloud: 'cloud',
+  /* spec 028: fast-build toggle */
+  fast: 'Fast build',
+  fastHint: 'merge Analyze+Spec, skip pattern search — single-LLM, from-scratch only',
+  fastOn: 'on',
+  fastOff: 'off',
+  /* spec 032: Phase ④ test mode */
+  testMode: 'Test',
+  testStatic: 'static',
+  testLive: 'live',
+  testHint: 'live: import → auto-fix model → run → verify on Dify (selfhost only)',
+  gateLivePassBadge: 'LIVE ✓',
+  gateLiveFailBadge: 'LIVE ✗',
+  gateLivePassTitle: 'Workflow ran — review the output',
+  gateLiveFailTitle: 'Live test result needs review',
+  gateLiveModel: 'model: {model} (auto-filled {n} node(s))',
+  gateLiveOutput: 'output: {out}',
+  gateLiveApp: 'app: {url}',
+  gateLiveInfraBadge: 'LIVE ⚠',
+  gateLiveInfraTitle: "Live test couldn't run (infrastructure)",
+  gateLiveInfraSummary: 'the live run could not complete',
+  gateLiveStaticStands: 'The static lint result stands (PASS).',
 
   /* composer file attachments (spec 012 → 025) */
   attachFile: 'Attach file',
@@ -180,15 +206,15 @@ const EN: Dict = {
   hintGate: 'gate',
   hintRunning: 'running',
 
-  /* create-project modal */
+  /* create-project modal (spec 031) */
   createProject: 'Create Project',
   close: 'Close',
   projectName: 'Project name',
-  phProjectName: 'e.g. Eiken, TOEIC, Internal tools…',
-  selectFolders: 'Select folder(s)',
-  remove: 'Remove',
-  addFolder: 'Add Folder',
-  foldersLinked: '{n} folder{s} linked',
+  phProjectName: 'English only — e.g. eiken_grammar, toeic',
+  folderPreview: 'Folder: {slug}',
+  nameCharsetError: 'Use English letters and numbers only — e.g. eiken_grammar',
+  projectExists: '"{name}" already exists',
+  openExisting: 'Open',
   skip: 'Skip',
   createProjectBtn: 'Create project',
   ok: 'OK',
@@ -232,6 +258,7 @@ const EN: Dict = {
   lintOk: 'ok',
   copyYaml: 'Copy',
   copied: 'Copied',
+  revealInFinder: 'Reveal in Finder',
 
   /* diff tab */
   splitDiff: 'Split diff',
@@ -274,6 +301,11 @@ const JA: Dict = {
 
   /* empty / new-task surface */
   phDescribeWorkflow: 'ワークフローや変更内容を入力…',
+  /* spec 029: dynamic new-task crumb (pre-selection from the sidebar "+") */
+  editingWorkflow: '{name} を編集',
+  newTaskInProjectName: '{name} 内に新規タスク',
+  clearPreselection: '選択を解除して新規タスク',
+  runContextHint: 'このビルドの保存先',
   seedFrom: 'ベースにする',
   noSeedApps: 'シードアプリがありません — Dify を接続するとワークスペースのアプリをベースにできます。新規ワークフローはゼロから作成されます。',
   none: 'なし',
@@ -374,6 +406,27 @@ const JA: Dict = {
   auto: '自動',
   selfhost: 'セルフホスト',
   cloud: 'クラウド',
+  /* spec 028: fast-build toggle */
+  fast: '高速ビルド',
+  fastHint: 'Analyze+Specを統合しパターン検索を省略 — 単一LLM・新規作成のみ',
+  fastOn: 'オン',
+  fastOff: 'オフ',
+  /* spec 032: フェーズ④ テストモード */
+  testMode: 'テスト',
+  testStatic: '静的',
+  testLive: 'ライブ',
+  testHint: 'ライブ: インポート→モデル自動補完→実行→検証（セルフホストのみ）',
+  gateLivePassBadge: 'LIVE ✓',
+  gateLiveFailBadge: 'LIVE ✗',
+  gateLivePassTitle: 'ワークフローが実行されました — 出力を確認',
+  gateLiveFailTitle: 'ライブテスト結果の確認が必要',
+  gateLiveModel: 'モデル: {model}（{n}ノード自動補完）',
+  gateLiveOutput: '出力: {out}',
+  gateLiveApp: 'アプリ: {url}',
+  gateLiveInfraBadge: 'LIVE ⚠',
+  gateLiveInfraTitle: 'ライブテストを実行できません（インフラ）',
+  gateLiveInfraSummary: 'ライブ実行を完了できませんでした',
+  gateLiveStaticStands: '静的Lint結果は有効です（PASS）。',
 
   /* composer file attachments (spec 012 → 025) */
   attachFile: 'ファイルを添付',
@@ -391,15 +444,15 @@ const JA: Dict = {
   hintGate: 'ゲート',
   hintRunning: '実行中',
 
-  /* create-project modal */
+  /* create-project modal (spec 031) */
   createProject: 'プロジェクトを作成',
   close: '閉じる',
   projectName: 'プロジェクト名',
-  phProjectName: '例：英検、TOEIC、社内ツール…',
-  selectFolders: 'フォルダを選択',
-  remove: '削除',
-  addFolder: 'フォルダを追加',
-  foldersLinked: '{n} 個のフォルダをリンク済み',
+  phProjectName: '英字のみ（例: eiken_grammar, toeic）',
+  folderPreview: 'フォルダ: {slug}',
+  nameCharsetError: 'プロジェクト名は英数字のみ（例: eiken_grammar）',
+  projectExists: '「{name}」は既にあります',
+  openExisting: '開く',
   skip: 'スキップ',
   createProjectBtn: 'プロジェクトを作成',
   ok: 'OK',
@@ -443,6 +496,7 @@ const JA: Dict = {
   lintOk: 'ok',
   copyYaml: 'コピー',
   copied: 'コピーしました',
+  revealInFinder: 'Finderで開く',
 
   /* diff tab */
   splitDiff: '分割差分',
@@ -496,6 +550,60 @@ const ACTION_JA: Dict = {
 /** Localize a server-provided gate action / resolution label (keyed by its English text). */
 export function tAction(label: string): string {
   return lang.value === 'ja' ? ACTION_JA[label] ?? label : label;
+}
+
+/* Report `notes` (spec 030 P2) is assembled BACKEND-side (report.ts + slugNote/patternAdvisory/
+   duplicateWarning) from a FIXED set of English sentence frames, then joined into ONE string that
+   reaches this dumb renderer. Which frames appear — and their interpolated slugs/URLs/paths — vary per
+   build, so it is not a single fixed label mappable via tAction. To make it follow the toggle WITHOUT a
+   report.json shape change, translate each known frame in place; capture groups keep the interpolated
+   slug/URL/path literal, and any unknown text (e.g. raw validator stderr, or a future wording drift in
+   report.ts) passes through in English — graceful, never a crash. Same client-side-map spirit as
+   ACTION_JA: the toggle drives it, so notes stay consistent with the already-localized report labels. */
+const NOTE_JA: [RegExp, string][] = [
+  [/all linters passed/g, 'すべてのリンターが成功しました'],
+  [/lint failures recorded: /g, 'リンター失敗を記録: '],
+  [
+    /ACCEPTED with failing linters \(human "Accept anyway" override\)\./g,
+    'リンター失敗のまま承認（人間による「このまま承認」の上書き）。',
+  ],
+  [
+    /'([^']+)' already exists — using '([^']+)' to avoid overwriting it\./g,
+    "'$1' は既に存在するため、上書きを避けて '$2' を使用します。",
+  ],
+  [
+    /advisory: pattern '([^']+)' is missing feature\(s\) the analysis needs — (.+?)\. Verify the generated graph or pick a closer pattern \(this does not block the build\)\./g,
+    "アドバイザリ: パターン '$1' に分析が必要とする機能が不足しています — $2。生成されたグラフを確認するか、より近いパターンを選択してください（ビルドはブロックされません）。",
+  ],
+  [/deploy=none \(no Dify contact\)\./g, 'deploy=none（Dify への接続なし）。'],
+  [
+    /Cloud deploy: auto-import is blocked by CSRF, so import manually\. The copyable YAML is the produced workflow \((.+?), shown in the main\.yml tab\)\. Steps in Dify Studio: ① Studio → Create app → "Import DSL" → ② paste the YAML \(or upload the file\) → ③ Create\./g,
+    'クラウドデプロイ: 自動インポートは CSRF によりブロックされるため手動でインポートします。コピー可能な YAML は生成されたワークフロー（$1、main.yml タブに表示）です。Dify Studio の手順: ① Studio → アプリ作成 →「DSL をインポート」→ ② YAML を貼り付け（またはファイルをアップロード）→ ③ 作成。',
+  ],
+  [/imported to Dify: /g, 'Dify にインポート済み: '],
+  [
+    /unresolved_plugin_todo: dependencies are empty but a "# TODO add plugin hash" remains — /g,
+    'unresolved_plugin_todo: dependencies が空ですが "# TODO add plugin hash" が残っています — ',
+  ],
+  [
+    /add the plugin hash from the target workspace BEFORE import \(the import will fail otherwise\)\./g,
+    'インポート前に対象ワークスペースからプラグインハッシュを追加してください（さもないとインポートは失敗します）。',
+  ],
+  [/add the plugin hash before deploying\./g, 'デプロイ前にプラグインハッシュを追加してください。'],
+  [
+    /editing "([^"]+)": a Dify import always creates a NEW app \(a duplicate of "([^"]+)"\), never an in-place update — delete\/replace the old app in Dify after importing\./g,
+    '"$1" を編集中: Dify インポートは常に新規アプリ（"$2" の複製）を作成し、既存アプリをその場で更新しません — インポート後に Dify で旧アプリを削除/置換してください。',
+  ],
+];
+
+/** Localize a backend-built report `notes` string to the current language (spec 030 P2). EN passes
+ *  through unchanged; JA translates each known frame, keeping interpolated slugs/URLs/paths literal.
+ *  Reading lang.value subscribes the caller so a language toggle re-renders it. */
+export function localizeNotes(notes: string): string {
+  if (lang.value !== 'ja') return notes;
+  let out = notes;
+  for (const [re, ja] of NOTE_JA) out = out.replace(re, ja);
+  return out;
 }
 
 /** Translate a key for the current language (EN fallback, then the raw key). Reading lang.value here

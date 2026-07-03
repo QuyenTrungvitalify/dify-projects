@@ -7,32 +7,38 @@ Provides:
     sync.py diff        — show local vs remote differences
     sync.py push        — import a local YAML to the workspace as a NEW app
 
-Authentication: uses the Dify Console API which requires a bearer access token.
-There's no public API key path for export/import — you need a token from a
-logged-in browser session.
+Authentication: uses the Dify Console API with an `Authorization: Bearer <token>`
+header. TWO kinds of token work:
 
-How to get the token:
-  1. Open Dify in browser, log in.
-  2. DevTools → Network tab → click any console API call (any page reload).
-  3. Copy the `Authorization: Bearer <TOKEN>` header value.
-  4. Paste into projects/<your_project>/envs/dev.env as DIFY_CONSOLE_TOKEN.
+  A. Browser-session JWT (quick, but expires — ACCESS_TOKEN_EXPIRE_MINUTES, ~60m):
+     1. Open Dify in browser, log in.
+     2. DevTools → Network tab → click any /console/api call.
+     3. Copy the `Authorization: Bearer <TOKEN>` header value → DIFY_CONSOLE_TOKEN.
+
+  B. Admin API key (stable, does NOT expire — recommended for long-term/self-host):
+     In the Dify docker `.env`: ADMIN_API_KEY_ENABLE=true + ADMIN_API_KEY=<key>, then
+     restart the `api` container. Use that key as DIFY_CONSOLE_TOKEN AND also set
+     DIFY_WORKSPACE_ID=<tenant id> — the admin-key path REQUIRES an X-WORKSPACE-ID
+     header to resolve the workspace owner (dify api ext_login.load_user_from_request).
+     Get the tenant id from `GET /console/api/workspaces/current` (or run `sync.py list`
+     once with a JWT) → its `id`.
 
 Required env (loaded from envs/dev.env if DIFY_PROJECT is set):
     DIFY_CONSOLE_URL    — e.g. https://cloud.dify.ai/console/api
                            or https://your-host/console/api
-    DIFY_CONSOLE_TOKEN  — bearer access token
+    DIFY_CONSOLE_TOKEN  — bearer token: a session JWT (A) or an ADMIN_API_KEY (B)
+    DIFY_WORKSPACE_ID   — tenant/workspace id; REQUIRED only for the admin-key path (B)
 
 Usage:
     python3 tools/dify_base/sync.py list
     python3 tools/dify_base/sync.py list --mode workflow
-    python3 tools/dify_base/sync.py pull --project my_app
-    python3 tools/dify_base/sync.py pull --project my_app --app-id <uuid>
-    python3 tools/dify_base/sync.py pull --project my_app --name-contains "RAG"
-    python3 tools/dify_base/sync.py diff --project my_app
-    python3 tools/dify_base/sync.py push --project my_app --file workflows/main.yml
+    python3 tools/dify_base/sync.py pull --project my_app --workflow summarizer --app-id <uuid>
+    python3 tools/dify_base/sync.py pull --project my_app --workflow summarizer --name-contains "RAG"
+    python3 tools/dify_base/sync.py diff --project my_app --workflow summarizer
+    python3 tools/dify_base/sync.py push --project my_app --workflow summarizer --file workflows/main.yml
 
-Tokens are session-scoped — refresh by getting a fresh one from DevTools when
-console calls start returning 401.
+A session JWT (A) is short-lived — refresh from DevTools when console calls start
+returning 401. An ADMIN_API_KEY (B) does not expire.
 """
 from __future__ import annotations
 
@@ -64,11 +70,20 @@ BASE = Path(__file__).parent.parent.parent
 # ---------------------------------------------------------------------------
 
 def _load_project_env(project: str | None) -> None:
+    # Spec 030 (D2): envs are PER-PROJECT and shared by every workflow in the project.
     if load_dotenv is None or not project:
         return
     env_path = BASE / "projects" / project / "envs" / "dev.env"
     if env_path.exists():
         load_dotenv(env_path, override=False)
+
+
+def _workflow_base(args) -> Path:
+    """Spec 030: the on-disk base a pull/push/diff operates in. With `--workflow`, files live in the
+    nested `projects/<project>/<workflow>/`; without it (back-compat / bare project), `projects/<project>/`."""
+    base = BASE / "projects" / args.project
+    workflow = getattr(args, "workflow", None)
+    return base / workflow if workflow else base
 
 
 def _slugify(name: str) -> str:
@@ -84,17 +99,24 @@ def _slugify(name: str) -> str:
 class DifyConsoleClient:
     """Minimal client for Dify Console API (admin/import/export endpoints)."""
 
-    def __init__(self, base_url: str, token: str, timeout: int = 60):
+    def __init__(self, base_url: str, token: str, workspace_id: str | None = None, timeout: int = 60):
         self.base_url = base_url.rstrip("/")
         self.token = token
+        self.workspace_id = workspace_id
         self.timeout = timeout
 
     @property
     def _headers(self) -> dict[str, str]:
-        return {
+        headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         }
+        # When DIFY_CONSOLE_TOKEN is an ADMIN_API_KEY (Dify ADMIN_API_KEY_ENABLE=true) instead of a
+        # browser-session JWT, the console API also needs X-WORKSPACE-ID to resolve the workspace owner
+        # (dify api ext_login.load_user_from_request). Harmless for a JWT — that path ignores the header.
+        if self.workspace_id:
+            headers["X-WORKSPACE-ID"] = self.workspace_id
+        return headers
 
     def list_apps(self, page: int = 1, limit: int = 100, mode: str | None = None,
                   name: str | None = None) -> dict[str, Any]:
@@ -144,6 +166,109 @@ class DifyConsoleClient:
         r.raise_for_status()
         return r.json()
 
+    # -- spec 032 live-test additions (all Console API except run_workflow, which is the Service API) --
+
+    def list_llm_models(self) -> dict[str, Any]:
+        """Enabled LLM models grouped by provider (spec 032 §Verified)."""
+        r = requests.get(
+            f"{self.base_url}/workspaces/current/models/model-types/llm",
+            headers=self._headers, timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def default_model(self, model_type: str = "llm") -> dict[str, Any]:
+        """The workspace system-default for a model type (may be an invalid/unavailable model)."""
+        r = requests.get(
+            f"{self.base_url}/workspaces/current/default-model",
+            headers=self._headers, params={"model_type": model_type}, timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def create_api_key(self, app_id: str) -> dict[str, Any]:
+        """Mint an app-level API key (`app-…`) — 021 Q1(b), verified 201 (spec 032 §Verified)."""
+        r = requests.post(
+            f"{self.base_url}/apps/{app_id}/api-keys",
+            headers=self._headers, data=json.dumps({}), timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def publish_workflow(self, app_id: str) -> dict[str, Any]:
+        """Publish the app's workflow draft (import does NOT auto-publish, spec 032 §Verified)."""
+        r = requests.post(
+            f"{self.base_url}/apps/{app_id}/workflows/publish",
+            headers=self._headers, data=json.dumps({}), timeout=self.timeout,
+        )
+        r.raise_for_status()
+        try:
+            return r.json()
+        except ValueError:
+            return {"result": "success"}  # some Dify builds return an empty 200 body
+
+    def delete_app(self, app_id: str) -> None:
+        r = requests.delete(
+            f"{self.base_url}/apps/{app_id}",
+            headers=self._headers, timeout=self.timeout,
+        )
+        r.raise_for_status()
+
+    def _service_base(self) -> str:
+        """The Service API base (`…/v1`). Some Dify deployments expose the service API on a DIFFERENT
+        host/port than the console — set `DIFY_API_URL` (full base incl. `/v1`, e.g. http://localhost/v1)
+        to override. Default: the console base minus `/console/api`, plus `/v1`."""
+        override = os.environ.get("DIFY_API_URL")
+        if override:
+            return override.rstrip("/")
+        base = re.sub(r"/console/api/?$", "", self.base_url).rstrip("/")
+        return f"{base}/v1"
+
+    @staticmethod
+    def _run_timeout(read: int | None):
+        # (connect, read): fail FAST on an unreachable service API (~5s) instead of hanging the full
+        # read timeout; keep a long read window for a slow LLM response.
+        return (5, read or 60)
+
+    def _run_headers(self, app_key: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {app_key}", "Content-Type": "application/json"}
+
+    def run_workflow(self, app_key: str, inputs: dict[str, Any], timeout: int | None = None) -> dict[str, Any]:
+        """Run a `workflow`-mode app via the Service API with the APP KEY (NOT the admin token)."""
+        r = requests.post(
+            f"{self._service_base()}/workflows/run",
+            headers=self._run_headers(app_key),
+            data=json.dumps({"inputs": inputs, "response_mode": "blocking", "user": "builder-live-test"}),
+            timeout=self._run_timeout(timeout),
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def run_chat(self, app_key: str, inputs: dict[str, Any], query: str, timeout: int | None = None) -> dict[str, Any]:
+        """Run a chat-like app (advanced-chat / chat / agent-chat) via `/chat-messages` (needs a `query`)."""
+        r = requests.post(
+            f"{self._service_base()}/chat-messages",
+            headers=self._run_headers(app_key),
+            data=json.dumps({
+                "inputs": inputs, "query": query, "response_mode": "blocking",
+                "user": "builder-live-test", "conversation_id": "",
+            }),
+            timeout=self._run_timeout(timeout),
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def run_completion(self, app_key: str, inputs: dict[str, Any], timeout: int | None = None) -> dict[str, Any]:
+        """Run a `completion`-mode app via `/completion-messages` (the prompt rides `inputs`)."""
+        r = requests.post(
+            f"{self._service_base()}/completion-messages",
+            headers=self._run_headers(app_key),
+            data=json.dumps({"inputs": inputs, "response_mode": "blocking", "user": "builder-live-test"}),
+            timeout=self._run_timeout(timeout),
+        )
+        r.raise_for_status()
+        return r.json()
+
 
 # ---------------------------------------------------------------------------
 # Commands
@@ -152,11 +277,12 @@ class DifyConsoleClient:
 def _client_from_env() -> DifyConsoleClient:
     url = os.environ.get("DIFY_CONSOLE_URL")
     token = os.environ.get("DIFY_CONSOLE_TOKEN")
+    workspace_id = os.environ.get("DIFY_WORKSPACE_ID")
     if not url:
         sys.exit("❌ DIFY_CONSOLE_URL not set (e.g. https://cloud.dify.ai/console/api)")
     if not token:
         sys.exit("❌ DIFY_CONSOLE_TOKEN not set — see `python3 tools/dify_base/sync.py --help`")
-    return DifyConsoleClient(url, token)
+    return DifyConsoleClient(url, token, workspace_id=(workspace_id.strip() or None) if workspace_id else None)
 
 
 def _fmt_request_error(e: requests.RequestException) -> str:
@@ -193,8 +319,9 @@ def cmd_list(args) -> int:
 
 def cmd_pull(args) -> int:
     client = _client_from_env()
-    target_dir = BASE / "projects" / args.project / "workflows"
-    if not target_dir.parent.exists():
+    wf_base = _workflow_base(args)
+    target_dir = wf_base / "workflows"
+    if not (BASE / "projects" / args.project).exists():
         sys.exit(f"❌ Project not found: projects/{args.project}/ "
                  f"(use `init_project.py` first)")
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -242,9 +369,9 @@ def cmd_pull(args) -> int:
 
 def cmd_diff(args) -> int:
     client = _client_from_env()
-    workflows_dir = BASE / "projects" / args.project / "workflows"
+    workflows_dir = _workflow_base(args) / "workflows"
     if not workflows_dir.exists():
-        sys.exit(f"❌ No workflows in projects/{args.project}/workflows/")
+        sys.exit(f"❌ No workflows in {workflows_dir.relative_to(BASE)}/")
 
     try:
         res = client.list_apps(page=1, limit=200)
@@ -298,7 +425,15 @@ def cmd_diff(args) -> int:
 
 def cmd_push(args) -> int:
     client = _client_from_env()
-    src = BASE / "projects" / args.project / args.file
+    # Spec 032: `--src-file` (repo-root-relative) pushes an out-of-tree file, e.g. the temp
+    # `.runs/<id>/deploy.yml` the live-test writes (which is NOT under the workflow folder). It overrides
+    # the default workflow-relative `--file`. Exactly one must resolve to an existing file.
+    if getattr(args, "src_file", None):
+        src = BASE / args.src_file
+    elif args.file:
+        src = _workflow_base(args) / args.file
+    else:
+        sys.exit("❌ push needs --file (workflow-relative) or --src-file (repo-relative)")
     if not src.exists():
         sys.exit(f"❌ File not found: {src}")
     yaml_content = src.read_text(encoding="utf-8")
@@ -326,6 +461,144 @@ def cmd_push(args) -> int:
     return 0
 
 
+# -- spec 032 live-test commands (JSON-out on one line so a caller JSON.parses the last stdout line) --
+
+def cmd_models(args) -> int:
+    client = _client_from_env()
+    try:
+        enabled = client.list_llm_models()
+        default = client.default_model("llm")
+    except requests.RequestException as e:
+        sys.exit(f"❌ models failed: {_fmt_request_error(e)}")
+    # `enabled.data` = providers each with a `models` list; `default.data` = {model, provider} | null.
+    print(json.dumps({"enabled": enabled.get("data", []), "default": default.get("data")}))
+    return 0
+
+
+def cmd_api_key(args) -> int:
+    client = _client_from_env()
+    try:
+        res = client.create_api_key(args.app_id)
+    except requests.RequestException as e:
+        sys.exit(f"❌ api_key failed: {_fmt_request_error(e)}")
+    print(json.dumps(res))  # {token: "app-…", …} — caller reads `token`
+    return 0
+
+
+def cmd_publish(args) -> int:
+    client = _client_from_env()
+    try:
+        res = client.publish_workflow(args.app_id)
+    except requests.RequestException as e:
+        sys.exit(f"❌ publish failed: {_fmt_request_error(e)}")
+    print(json.dumps(res))
+    return 0
+
+
+def cmd_delete(args) -> int:
+    client = _client_from_env()
+    try:
+        client.delete_app(args.app_id)
+    except requests.RequestException as e:
+        sys.exit(f"❌ delete failed: {_fmt_request_error(e)}")
+    print(json.dumps({"deleted": args.app_id}))
+    return 0
+
+
+def cmd_inject_model(args) -> int:
+    # Spec 032 §2: write a TEMP copy of a workflow YAML with `model` filled into empty/invalid llm nodes,
+    # so the on-disk main.yml stays model-agnostic (portable) while the pushed copy is runnable. LOCAL
+    # file I/O only — no Dify creds. Reformatting/comment-loss on the throwaway copy is fine (Dify parses
+    # structure, not comments).
+    try:
+        import yaml  # PyYAML (in the venv; the linters use it)
+    except ImportError:
+        sys.exit("❌ PyYAML not installed in the venv (needed for inject-model)")
+    src = BASE / args.src
+    out = BASE / args.out
+    if not src.exists():
+        sys.exit(f"❌ File not found: {src}")
+    # Guard the portability invariant (spec 032 B5): NEVER write over the source — main.yml must stay
+    # model-agnostic. Also refuse an --out that escapes the repo (an absolute --out wins under pathlib).
+    if out.resolve() == src.resolve():
+        sys.exit("❌ --out must differ from --src (refusing to overwrite the source YAML)")
+    if not out.resolve().is_relative_to(BASE.resolve()):
+        sys.exit("❌ --out must stay within the repo")
+    try:
+        data = yaml.safe_load(src.read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        sys.exit(f"❌ source YAML parse failed: {e}")
+    valid = {v for v in (args.valid_names or "").split(",") if v} or None
+    patched: list[str] = []
+    nodes = (((data or {}).get("workflow") or {}).get("graph") or {}).get("nodes") or []
+    for n in nodes:
+        nd = n.get("data") or {}
+        if nd.get("type") != "llm":
+            continue
+        model = nd.get("model")
+        if not isinstance(model, dict):
+            model = {}
+            nd["model"] = model
+        cur = model.get("name") or ""
+        # patch an EMPTY name (the primary observed failure) OR one that isn't in the enabled set.
+        if (not cur) or (valid is not None and cur not in valid):
+            model["provider"] = args.provider
+            model["name"] = args.name
+            patched.append(str(n.get("id", "?")))
+    # Spec 032 D8: also surface the start-node input schema so the caller can build a sample run input.
+    inputs_schema = []
+    for n in nodes:
+        nd = n.get("data") or {}
+        if nd.get("type") == "start":
+            for v in (nd.get("variables") or []):
+                inputs_schema.append({
+                    "variable": v.get("variable"),
+                    "type": v.get("type"),
+                    "required": bool(v.get("required")),
+                    "label": v.get("label"),
+                    "options": v.get("options") or [],
+                })
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    # Spec 032: the app mode decides the run endpoint (workflow vs chat vs completion). Prefer app.mode;
+    # else infer from node types (an `answer` node ⇒ chat-like, else workflow).
+    mode = (data.get("app") or {}).get("mode") or ""
+    if not mode:
+        types = {(n.get("data") or {}).get("type") for n in nodes}
+        mode = "advanced-chat" if "answer" in types else "workflow"
+    print(json.dumps({
+        "node_count": len(patched), "patched": patched,
+        "out": str(out.relative_to(BASE)), "inputs": inputs_schema, "mode": mode,
+    }))
+    return 0
+
+
+def cmd_run(args) -> int:
+    # B3 (spec 032): the app key comes on the CHILD ENV (DIFY_APP_KEY), never argv — argv is visible via
+    # `ps`, so a key passed as --app-key would leak. The backend injects it on this subprocess's env.
+    app_key = os.environ.get("DIFY_APP_KEY")
+    if not app_key:
+        sys.exit("❌ DIFY_APP_KEY not set (the app-level key; injected on the child env, never argv)")
+    client = _client_from_env()
+    try:
+        inputs = json.loads(args.inputs) if args.inputs else {}
+    except json.JSONDecodeError as e:
+        sys.exit(f"❌ --inputs is not valid JSON: {e}")
+    mode = (args.mode or "workflow").lower()
+    timeout = args.timeout or None
+    try:
+        if mode in ("advanced-chat", "chat", "agent-chat"):
+            res = client.run_chat(app_key, inputs, args.query or "Hello", timeout=timeout)
+        elif mode == "completion":
+            res = client.run_completion(app_key, inputs, timeout=timeout)
+        else:
+            res = client.run_workflow(app_key, inputs, timeout=timeout)
+    except requests.RequestException as e:
+        sys.exit(f"❌ run failed: {_fmt_request_error(e)}")
+    print(json.dumps(res))
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -343,8 +616,9 @@ def main() -> int:
     p_list.add_argument("--name", help="Filter by name (substring)")
     p_list.set_defaults(func=cmd_list)
 
-    p_pull = sub.add_parser("pull", help="Fetch app DSL YAML(s) into projects/<name>/workflows/")
+    p_pull = sub.add_parser("pull", help="Fetch app DSL YAML(s) into projects/<project>/<workflow>/workflows/")
     p_pull.add_argument("--project", required=True, help="Target project name (folder under projects/)")
+    p_pull.add_argument("--workflow", help="Target workflow subfolder (spec 030); omit for a bare project")
     g = p_pull.add_mutually_exclusive_group()
     g.add_argument("--app-id", help="Pull a single app by UUID")
     g.add_argument("--name-contains", help="Pull all apps with name matching this substring")
@@ -355,20 +629,62 @@ def main() -> int:
 
     p_diff = sub.add_parser("diff", help="Compare local workflows/ vs remote workspace")
     p_diff.add_argument("--project", required=True)
+    p_diff.add_argument("--workflow", help="Target workflow subfolder (spec 030); omit for a bare project")
     p_diff.add_argument("--verbose", "-v", action="store_true",
                         help="Also show in-sync files")
     p_diff.set_defaults(func=cmd_diff)
 
     p_push = sub.add_parser("push", help="Import a local YAML into the workspace as a NEW app")
     p_push.add_argument("--project", required=True)
-    p_push.add_argument("--file", required=True,
-                        help="Path relative to projects/<project>/, e.g. workflows/main.yml")
+    p_push.add_argument("--workflow", help="Target workflow subfolder (spec 030); omit for a bare project")
+    p_push.add_argument("--file",
+                        help="Path relative to projects/<project>/<workflow>/, e.g. workflows/main.yml")
+    p_push.add_argument("--src-file",
+                        help="Repo-root-relative path (overrides --file), e.g. apps/builder/.runs/<id>/deploy.yml")
     p_push.add_argument("--name", help="Override app name from YAML")
     p_push.add_argument("--description", help="Override description")
     p_push.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
     p_push.add_argument("--json-out", action="store_true",
                         help="Print machine-readable JSON of the import result (raw r.json()) and nothing else")
     p_push.set_defaults(func=cmd_push)
+
+    # -- spec 032 live-test subcommands (JSON-out on the last stdout line) --
+    p_models = sub.add_parser("models", help="List enabled LLM models + the system default (JSON)")
+    p_models.add_argument("--project", help="Load envs/dev.env from this project")
+    p_models.set_defaults(func=cmd_models)
+
+    p_key = sub.add_parser("api-key", help="Mint an app-level API key for an app (JSON {token})")
+    p_key.add_argument("--app-id", required=True)
+    p_key.add_argument("--project", help="Load envs/dev.env from this project")
+    p_key.set_defaults(func=cmd_api_key)
+
+    p_pub = sub.add_parser("publish", help="Publish an app's workflow draft (JSON)")
+    p_pub.add_argument("--app-id", required=True)
+    p_pub.add_argument("--project", help="Load envs/dev.env from this project")
+    p_pub.set_defaults(func=cmd_publish)
+
+    p_del = sub.add_parser("delete", help="Delete an app by id (JSON)")
+    p_del.add_argument("--app-id", required=True)
+    p_del.add_argument("--project", help="Load envs/dev.env from this project")
+    p_del.set_defaults(func=cmd_delete)
+
+    p_inj = sub.add_parser("inject-model",
+                           help="Write a copy of a workflow YAML with a model filled into empty/invalid llm nodes")
+    p_inj.add_argument("--src", required=True, help="Source YAML path relative to repo root")
+    p_inj.add_argument("--out", required=True, help="Output YAML path relative to repo root")
+    p_inj.add_argument("--provider", required=True)
+    p_inj.add_argument("--name", required=True)
+    p_inj.add_argument("--valid-names",
+                       help="Comma-separated enabled model names; a node whose name is not among these is also patched")
+    p_inj.set_defaults(func=cmd_inject_model)
+
+    p_run = sub.add_parser("run", help="Run a published workflow via the Service API (app key from DIFY_APP_KEY env)")
+    p_run.add_argument("--inputs", help="JSON object of workflow inputs (non-secret; argv is fine)")
+    p_run.add_argument("--mode", help="App mode: workflow | advanced-chat | chat | agent-chat | completion")
+    p_run.add_argument("--query", help="The chat message for a chat-like app (advanced-chat/chat/agent-chat)")
+    p_run.add_argument("--timeout", type=int, help="Per-run HTTP timeout seconds")
+    p_run.add_argument("--project", help="Load envs/dev.env from this project")
+    p_run.set_defaults(func=cmd_run)
 
     args = p.parse_args()
     if hasattr(args, "project"):

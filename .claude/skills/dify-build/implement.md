@@ -8,7 +8,8 @@ ground rules first — every non-negotiable below comes from [AGENTS.md](../../.
 §3/§4/§9 and is enforced after this turn by the backend.
 
 ## Inputs
-- `{{SLUG}}` — the project (scaffolded by now). `{{WORKFLOW_FILE}}` — target file name
+- `{{PROJECT}}` / `{{WORKFLOW_SLUG}}` — the project folder + workflow subfolder (scaffolded by now):
+  the build lives at `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/`. `{{WORKFLOW_FILE}}` — target file name
   (`main.yml` for new; the selected `*.yml` for edit-existing).
 - `{{PRIOR_ARTIFACT}}` — path to `SPEC.md`. **Re-read it fresh at the start** — a human may
   have edited it at the gate; the file wins (last-writer).
@@ -21,7 +22,16 @@ ground rules first — every non-negotiable below comes from [AGENTS.md](../../.
 
 ## Do — follow AGENTS.md §3 exactly
 1. **Re-read `{{PRIOR_ARTIFACT}}` (`SPEC.md`)** — treat it as the source of truth for what to build.
-2. **Pick/confirm the pattern** (if not already chosen): `.venv/bin/python tools/dify_base/find.py --json --has <feature>`.
+2. **Pick/confirm the pattern:**
+   > **If `{{DEPTH}}` is `trivial` (spec 028 fast build):** the shape is a fixed single-LLM transform
+   > (`start → llm → end`, or `→ answer` for advanced-chat) with no plugins/branches/iteration — do
+   > **NOT** run `find.py` or read `templates/patterns/*`; build directly from `SPEC.md`'s node table.
+   > (No single-LLM skeleton ships in the skill, so assemble the mandatory structural elements below by
+   > hand — top-level `kind: app` · `version` · `app` · `workflow.graph` nodes+edges · `start`+`end`
+   > (or `answer`) · `dependencies: []`.)
+   >
+   > **Otherwise** (standard build): pick/confirm the closest vetted pattern with the real tool —
+   > `.venv/bin/python tools/dify_base/find.py --json --has <feature>`.
 3. **Mint node IDs — MANDATORY:**
    ```
    .venv/bin/python skills/mango-svip/scripts/generate_id.py <count>
@@ -29,7 +39,7 @@ ground rules first — every non-negotiable below comes from [AGENTS.md](../../.
    Use these 13-digit quoted-string IDs for **every** node. **Never** hand-write or copy an ID
    from another workflow — hand IDs render as literal text, pass the validators, and break the
    app silently (§4.1/§9). Iteration-start child node id = `<iteration_id>start` (no separator).
-4. **Instantiate** `projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}`:
+4. **Instantiate** `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}`:
    - new, a pattern fits → copy the chosen `templates/patterns/*.yml` then customize every `# TODO:` marker;
    - new, **no pattern fits** (`pattern: custom` from Analyze, the highest-risk path) → there is no
      `main.yml` skeleton in `templates/_base` (it scaffolds the *project*, not a workflow), so seed
@@ -44,7 +54,7 @@ ground rules first — every non-negotiable below comes from [AGENTS.md](../../.
    source MUST be upstream — §4.2), give every edge an id `<source_id>-source-<target_id>-target`
    (§4.1; on an if-else branch the case handle replaces `source`, e.g. `<id>-true-<id>-target`), and
    set the top-level `version` to the project's `dsl_version` (`0.6.0` today — read it from
-   `projects/{{SLUG}}/.dify-workspace.yaml`, never hardcode; §4.4).
+   `projects/{{PROJECT}}/.dify-workspace.yaml`, never hardcode; §4.4).
    - **Plugins:** leave `dependencies: []` + `# TODO: add plugin hash from target workspace`
      — NEVER fabricate a `@sha256` (§4.3). Phase ④ flags a left-over TODO as `unresolved_plugin_todo`
      so a `selfhost`/`cloud` deploy sees it before import (017 D2).
@@ -55,16 +65,16 @@ ground rules first — every non-negotiable below comes from [AGENTS.md](../../.
      validator now flags an incoherent `cases` (017 D1).
 5. **Validate → fix loop (cap 5 passes):**
    ```
-   .venv/bin/python tools/dify_base/validate_workflow.py projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
-   .venv/bin/python tools/dify_base/lint_refs.py            projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
-   .venv/bin/python tools/dify_base/lint_plugin_hashes.py  projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
+   .venv/bin/python tools/dify_base/validate_workflow.py projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
+   .venv/bin/python tools/dify_base/lint_refs.py            projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
+   .venv/bin/python tools/dify_base/lint_plugin_hashes.py  projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
    ```
    Fix and re-run until **all three exit 0**, or until 5 passes elapse. If a run reports a YAML
    parse error (truncated/corrupt file), **regenerate from the pattern + `SPEC.md`** rather than
    patching the broken file. Do not `git commit`, do not `--no-verify`.
 
 ## Output
-`projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}`, passing all three linters (or, if it cannot
+`projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}`, passing all three linters (or, if it cannot
 pass in 5 passes, the partial file + the last linter error verbatim). The backend computes the
 diff-vs-seed and re-runs the linters itself — you just produce the file.
 

@@ -26,7 +26,25 @@ export interface WireGateAction {
 }
 export interface WireGate {
   actions: WireGateAction[];
-  flag?: 'still_failing' | 'awaiting_import';
+  // spec 032: `test_result` = live-test verdict gate; `infra_degraded` = live couldn't run (degrade).
+  flag?: 'still_failing' | 'awaiting_import' | 'test_result' | 'infra_degraded';
+}
+
+/** spec 032 — the live workflow-test result surfaced at the Test-result gate (mirrors the server). */
+export interface WireLiveTest {
+  verdict: 'passed' | 'workflow_fail' | 'infra_fail' | 'need_input';
+  label: 'live-verified' | 'live-verified-fail' | 'static-only';
+  model?: { provider: string; name: string } | null;
+  modelAutofilled?: number;
+  appId?: string | null;
+  appUrl?: string | null;
+  input?: Record<string, unknown> | null;
+  output?: Record<string, unknown> | null;
+  runError?: string | null;
+  totalTokens?: number | null;
+  t1Pass?: boolean;
+  needInputVars?: string[];
+  reason?: string;
 }
 
 /** Artifact contents inlined on GET /api/tasks/:id (artifacts.ts). diff is Lát-5 (null here). */
@@ -49,9 +67,19 @@ export interface WireTask {
   appId?: string | null;
   appUrl?: string | null;
   confirmMode: WireConfirmMode;
+  /** spec 028: whether this build ran in ⚡ Fast mode (merged Analyze+Spec). Start-bound; the
+   *  conversation-view composer reflects it read-only. Absent on a pre-028 snapshot ⇒ off. */
+  fastMode?: boolean;
+  /** spec 032: Phase ④ test mode (start-bound). Absent ⇒ 'static'. */
+  testMode?: 'static' | 'live';
+  /** spec 032: the latest live-test result (Test-result gate render); test app ids (cleanup). */
+  liveTest?: WireLiveTest;
+  testApps?: string[];
   phase: WirePhase;
   status: WireStatus;
-  slug: string | null;
+  /** spec 030: the workflow subfolder — the build lives at `projects/<project>/<workflowSlug>/`. null
+   *  pre-scaffold. (`project` above is the project folder.) */
+  workflowSlug: string | null;
   name: string | null;
   sessionIds: Record<string, string | undefined>;
   artifacts: Record<string, string | undefined>;
@@ -71,6 +99,9 @@ export interface WireTask {
   analysisFeatures?: string[];
   analysisFindQuery?: string;
   patternAdvisory?: string;
+  /** spec 028 §5: set when an `auto`+fast build's merged draft found a non-single-LLM shape — the
+   *  auto-advance hard-stopped at the Spec gate; shown (leading) on the Spec gate card. */
+  fastReviewNote?: string;
   /** spec 012: repo-relative paths of images attached via the composer (persisted on the task). */
   attachments?: string[];
   /** present on GET /api/tasks/:id (not on SSE task:update). */
@@ -123,11 +154,18 @@ export interface Settings {
   workflow: string;
   confirm: string;
   deploy: string;
+  /** spec 028: `⚡ Fast build` toggle (merge Analyze+Spec). Optional so the conversation-view composer
+   *  (which builds a Settings without it) still type-checks; absent ⇒ off. */
+  fast?: boolean;
+  /** spec 032: Phase ④ test mode 'static' | 'live' (only meaningful when deploy=selfhost). Optional. */
+  test?: string;
 }
 
-/* ---- create-project modal ---- */
-export interface FolderEntry {
-  id: string;
-  name: string;
-  path: string;
+/** spec 030: the two sidebar "+" intents, carried from Sidebar → App.newTask. Workflow "+" pre-selects
+ *  a workflow to EDIT — a COMPOUND `{project, workflow}` key, because the same workflow NAME can now
+ *  exist in multiple projects (a bare name no longer identifies it). Project "+" TARGETS a project
+ *  folder for a from-scratch build (`targetProject`). Both optional — footer "New task" passes neither. */
+export interface NewTaskOpts {
+  baseWorkflow?: { project: string; workflow: string };
+  targetProject?: string;
 }

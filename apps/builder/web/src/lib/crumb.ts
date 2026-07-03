@@ -1,0 +1,82 @@
+/* ============================================================
+   crumb.ts (spec 029) — the new-task breadcrumb model. Pure
+   helpers (no DOM) so the label/icon/active logic is unit-
+   testable independently of App's render. The crumb reflects the
+   sidebar "+" pre-selection: editing a workflow (workflow "+"),
+   targeting a project group (project "+"), or a plain new task.
+   ============================================================ */
+import { t as tr, tf } from './i18n';
+import type { WireTreeProject, WireTask } from '../types';
+
+export interface NewTaskCrumb {
+  icon: 'message' | 'folder';
+  label: string;
+  /** true ⇒ a pre-selection is active, so the crumb is clickable-to-clear (it IS the "×"). */
+  active: boolean;
+}
+
+/** Look up a workflow's display name in the tree. Accepts a bare workflow slug (first match across
+ *  projects) OR the spec-030 compound `project/workflow` (scoped to that project); falls back to the
+ *  workflow part on no match. */
+export function wfDisplayName(tree: WireTreeProject[], slug: string): string {
+  const slash = slug.indexOf('/');
+  if (slash !== -1) {
+    const project = slug.slice(0, slash);
+    const wf = slug.slice(slash + 1);
+    const proj = tree.find((p) => p.id === project);
+    return proj?.workflows.find((w) => w.id === wf)?.name ?? wf;
+  }
+  for (const p of tree) for (const w of p.workflows) if (w.id === slug) return w.name;
+  return slug;
+}
+
+/** Look up a project's display name by folder in the tree; falls back to the raw folder on no match. */
+export function projectDisplayName(tree: WireTreeProject[], project: string): string {
+  return tree.find((p) => p.id === project)?.name ?? project;
+}
+
+/**
+ * Derive the new-task crumb from the current RunSettings pre-selection. Workflow-edit wins over a
+ * project target (AC5 precedence: if the user picks a workflow after a project "+", the edit label
+ * shows). `active` gates the clickable-to-clear affordance; a plain new task is inert (as before).
+ */
+export function newTaskCrumb(
+  workflow: string | null,
+  targetProject: string | null,
+  tree: WireTreeProject[],
+): NewTaskCrumb {
+  if (workflow && workflow !== 'none')
+    return { icon: 'message', label: tf('editingWorkflow', { name: wfDisplayName(tree, workflow) }), active: true };
+  if (targetProject)
+    return { icon: 'folder', label: tf('newTaskInProjectName', { name: projectDisplayName(tree, targetProject) }), active: true };
+  return { icon: 'folder', label: tr('newTask'), active: false };
+}
+
+/** spec 030: the context breadcrumb for an OPEN build (conversation view) — which project/workflow this
+ *  build belongs to, so a running/parked build isn't a context-less thread. `group` is the project
+ *  folder (`task.project`, known before the workflow slug is derived — from the sidebar "+" target);
+ *  `leaf` is the workflow display name (tree lookup of `task.project`/`task.workflowSlug`, after the
+ *  scaffold), else the workflow/derived name. Returns null when there is no project context to show —
+ *  the caller then shows the phase track alone. */
+export interface RunContextCrumb {
+  group: string | null;
+  leaf: string | null;
+}
+
+type RunCrumbTask = Pick<WireTask, 'project' | 'workflowSlug' | 'workflow' | 'name'>;
+
+export function runContextCrumb(task: RunCrumbTask, tree: WireTreeProject[]): RunContextCrumb | null {
+  let group: string | null = task.project ?? null;
+  let leaf: string | null = task.workflow ?? task.name ?? null;
+  if (task.project) {
+    const proj = tree.find((p) => p.id === task.project);
+    if (proj) {
+      group = proj.name;
+      if (task.workflowSlug) leaf = leaf ?? proj.workflows.find((w) => w.id === task.workflowSlug)?.name ?? null;
+    }
+    leaf = leaf ?? task.workflowSlug ?? null;
+  }
+  if (leaf && leaf === group) leaf = null; // avoid repeating the project name as the leaf
+  if (!group && !leaf) return null;
+  return { group, leaf };
+}

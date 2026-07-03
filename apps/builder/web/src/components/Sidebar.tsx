@@ -1,7 +1,7 @@
 /* ============================================================
    Sidebar.tsx — 3-level tree: Project ▸ Workflow ▸ Task (AC #13)
-   Live (lat4-ui): fed by GET /api/tree (project.group → projects/
-   <slug>/ → .runs task). Project hover shows ONLY "+" (no gear);
+   Live (lat4-ui): fed by GET /api/tree (projects/<project>/ →
+   <workflow>/ → .runs task). Project hover shows ONLY "+" (no gear);
    the active task gets the highlight pill. Breadcrumb is static
    (not auto-updated mid-run) — handled in App.
    ============================================================ */
@@ -10,7 +10,7 @@ import type { JSX } from 'preact';
 import { I } from './Icon';
 import { t as tr, tf } from '../lib/i18n';
 import { askConfirm } from '../store';
-import type { WireTreeProject, WireTreeWorkflow, WireTreeTask } from '../types';
+import type { WireTreeProject, WireTreeWorkflow, WireTreeTask, NewTaskOpts } from '../types';
 
 export function Twist({ open, onClick }: { open: boolean; onClick?: JSX.MouseEventHandler<HTMLSpanElement> }) {
   return (
@@ -34,12 +34,13 @@ function TaskRow({ task, activeTask, onOpen }: {
   );
 }
 
-function WorkflowRow({ wf, activeTask, defaultOpen, onOpen, onNewTask }: {
+function WorkflowRow({ wf, projectId, activeTask, defaultOpen, onOpen, onNewTask }: {
   wf: WireTreeWorkflow;
+  projectId: string;
   activeTask: string | null;
   defaultOpen: boolean;
   onOpen: (taskId: string) => void;
-  onNewTask: (slug: string) => void;
+  onNewTask: (opts?: NewTaskOpts) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
@@ -48,7 +49,10 @@ function WorkflowRow({ wf, activeTask, defaultOpen, onOpen, onNewTask }: {
         <Twist open={open} />
         <span className="tw-name">{wf.name}</span>
         <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-          <button className="icon-btn" title={tr('newTaskInWorkflow')} onClick={() => onNewTask(wf.id)}><I.plus /></button>
+          {/* spec 030: workflow "+" = new task that EDITS this workflow → pre-select the COMPOUND
+              {project, workflow} key (the same workflow name can exist in multiple projects). Distinct
+              glyph (I.message, a "new build/chat on this workflow") vs the project "+" (I.plus). */}
+          <button className="icon-btn" title={tr('newTaskInWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: wf.id } })}><I.message /></button>
         </span>
       </div>
       {open && (
@@ -66,7 +70,7 @@ function ProjectRow({ project, activeTask, defaultOpen, onOpen, onNewTask }: {
   activeTask: string | null;
   defaultOpen: boolean;
   onOpen: (taskId: string) => void;
-  onNewTask: (slug: string) => void;
+  onNewTask: (opts?: NewTaskOpts) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
@@ -75,15 +79,18 @@ function ProjectRow({ project, activeTask, defaultOpen, onOpen, onNewTask }: {
         <Twist open={open} />
         <span className="tw-ic"><I.folder /></span>
         <span className="tw-name">{project.name}</span>
-        {/* AC #13: project hover shows ONLY "+" (New task) — no gear */}
+        {/* AC #13: project hover shows ONLY "+" (New task) — no gear.
+            spec 030: project "+" = from-scratch build that lands in THIS project folder (project.id ===
+            the folder). The reserved `_drafts` project is not a real target → degrade to a plain new task. */}
         <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-          <button className="icon-btn" title={tr('newTask')} onClick={() => onNewTask(project.workflows[0]?.id ?? '')}><I.plus /></button>
+          <button className="icon-btn" title={tr('newTask')} onClick={() => onNewTask(project.id !== '_drafts' ? { targetProject: project.id } : undefined)}><I.plus /></button>
         </span>
       </div>
       {open && (
         <div className="tree-children">
+          {/* spec 031 S4: a freshly-created project with no workflows just shows an empty tree (no hint row). */}
           {project.workflows.map((wf) => (
-            <WorkflowRow key={wf.id} wf={wf} activeTask={activeTask} defaultOpen={defaultOpen}
+            <WorkflowRow key={wf.id} wf={wf} projectId={project.id} activeTask={activeTask} defaultOpen={defaultOpen}
               onOpen={onOpen} onNewTask={onNewTask} />
           ))}
         </div>
@@ -147,7 +154,7 @@ export function Sidebar({ collapsed, activeTask, tree, active, onOpen, onCancel,
   active: WireTreeTask[];
   onOpen: (taskId: string) => void;
   onCancel: (taskId: string) => void;
-  onNewTask: () => void;
+  onNewTask: (opts?: NewTaskOpts) => void;
   onNewProject: () => void;
   onToggle: () => void;
 }) {
@@ -165,7 +172,7 @@ export function Sidebar({ collapsed, activeTask, tree, active, onOpen, onCancel,
         </div>
       </div>
 
-      <button className="sb-newtask" onClick={onNewTask}>
+      <button className="sb-newtask" onClick={() => onNewTask()}>
         <I.plus /><span>{tr('newTask')}</span>
       </button>
 
@@ -174,7 +181,7 @@ export function Sidebar({ collapsed, activeTask, tree, active, onOpen, onCancel,
         {tree.length === 0 && <div className="tree-row"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noProjectsYet')}</span></div>}
         {tree.map((p) => (
           <ProjectRow key={p.id} project={p} activeTask={activeTask} defaultOpen={p.id === activeProjectId}
-            onOpen={onOpen} onNewTask={() => onNewTask()} />
+            onOpen={onOpen} onNewTask={onNewTask} />
         ))}
       </div>
     </aside>

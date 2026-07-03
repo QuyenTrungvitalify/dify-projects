@@ -34,25 +34,35 @@ describe('deriveSlugName', () => {
   });
 });
 
-describe('firstFreeSlug (F4 anti-clobber)', () => {
+describe('firstFreeSlug (F4 anti-clobber — spec 030 D3: PER-PROJECT)', () => {
+  const PROJ = 'my_app';
+
   test('free slug → returned unchanged', () => {
     const dir = mkdtempSync(join(tmpdir(), 'slug-'));
-    assert.equal(firstFreeSlug(dir, 'unused'), 'unused');
+    assert.equal(firstFreeSlug(dir, PROJ, 'unused'), 'unused');
   });
 
-  test('collision → walks _2, _3, …', () => {
+  test('collision within the project → walks _2, _3, …', () => {
     const dir = mkdtempSync(join(tmpdir(), 'slug-'));
-    mkdirSync(join(dir, 'projects', 'myflow'), { recursive: true });
-    assert.equal(firstFreeSlug(dir, 'myflow'), 'myflow_2');
-    mkdirSync(join(dir, 'projects', 'myflow_2'), { recursive: true });
-    assert.equal(firstFreeSlug(dir, 'myflow'), 'myflow_3');
+    mkdirSync(join(dir, 'projects', PROJ, 'myflow'), { recursive: true });
+    assert.equal(firstFreeSlug(dir, PROJ, 'myflow'), 'myflow_2');
+    mkdirSync(join(dir, 'projects', PROJ, 'myflow_2'), { recursive: true });
+    assert.equal(firstFreeSlug(dir, PROJ, 'myflow'), 'myflow_3');
+  });
+
+  test('collisions are scoped PER-PROJECT — the same slug is free in a different project', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'slug-'));
+    mkdirSync(join(dir, 'projects', 'client_a', 'summarizer'), { recursive: true });
+    // `summarizer` is taken in client_a but FREE in client_b (D3).
+    assert.equal(firstFreeSlug(dir, 'client_a', 'summarizer'), 'summarizer_2');
+    assert.equal(firstFreeSlug(dir, 'client_b', 'summarizer'), 'summarizer');
   });
 
   test('near-40-char slug reserves room for the suffix (never collapses back onto the collider)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'slug-'));
     const base = 'a234567890123456789012345678901234567890'; // exactly 40 chars
-    mkdirSync(join(dir, 'projects', base), { recursive: true });
-    const got = firstFreeSlug(dir, base);
+    mkdirSync(join(dir, 'projects', PROJ, base), { recursive: true });
+    const got = firstFreeSlug(dir, PROJ, base);
     assert.notEqual(got, base);
     assert.ok(got.length <= 40, `len ${got.length}`);
     assert.ok(got.endsWith('_2'));

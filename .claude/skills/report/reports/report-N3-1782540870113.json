@@ -1,0 +1,22 @@
+{
+  "taskId": "1782540870113",
+  "slug": "workflow_3",
+  "ground_truth": "TitleCreator.yml",
+  "status": "done",
+  "phases": {
+    "analyze": { "process_ok": true, "errors_real": false, "note": "4 calls; no workflow file touched; honest from-scratch (seed:null, find_query omitted); features:[llm]" },
+    "spec": { "process_ok": true, "errors_real": false, "errors_total": 4, "note": "15 calls; searched pattern library, chose Simple single-LLM, rejected multi-step-llm as overkill; no IDs/YAML; 4 benign errors = 1 shell-metachar pipe + 1 '--complexity simple' case-mismatch (enum Simple/Medium/Complex) + 2 parallel-call cancellations" },
+    "implement": { "process_ok": true, "errors_real": false, "note": "19 calls; minted IDs via generate_id.py; ran all 3 validators (lint_refs x3 = benign chained-cmd re-run); YAML matches spec table exactly; no real mid-run fix" },
+    "test": { "process_ok": true, "errors_real": false, "note": "backend-run; re-verified validators all exit 0, matches report.json" }
+  },
+  "must_do": [
+    { "item": "accept article content", "verdict": "met" },
+    { "item": "output MULTIPLE title candidates (not one)", "verdict": "met" },
+    { "item": "titles are catchy / click-oriented", "verdict": "met" }
+  ],
+  "lint": { "validate": 0, "lint_refs": 0, "lint_plugin_hashes": 0 },
+  "runnable": false,
+  "runtime": "NOT VERIFIED",
+  "genuine_misses": [],
+  "verdict": "PASS — clean lean build; all 3 must_do met, lint green, IDs minted/quoted, refs valid, honest model/plugin TODOs, procedure followed at every phase. Optional code node dropped per allow_diff. Result-quality unverified until manual run graded (fill model+plugin)."
+}

@@ -16,7 +16,8 @@ import { suggestions } from '../data';
 import { t as tr, tf, lang, toggleLang } from '../lib/i18n';
 import * as store from '../store';
 import { type ComposerAttachment, MAX_ATTACHMENTS, isAcceptedFile, fileToDataUrl, toWire } from '../lib/attachments';
-import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed } from '../types';
+import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed, NewTaskOpts } from '../types';
+import { newTaskCrumb, runContextCrumb, type NewTaskCrumb } from '../lib/crumb';
 
 let _attUid = 0;
 const attUid = (): string => 'att' + ++_attUid;
@@ -83,14 +84,24 @@ export function App() {
 
   const view: 'empty' | 'conversation' = task ? 'conversation' : 'empty';
   const activeTaskId = task?.taskId ?? null;
-  const settingsSubset: Settings = { workflow: settings.workflow, confirm: settings.confirm, deploy: settings.deploy };
+  const settingsSubset: Settings = { workflow: settings.workflow, confirm: settings.confirm, deploy: settings.deploy, fast: settings.fast, test: settings.test };
   const onSettings = (patch: Partial<Settings>): void => {
     store.settings.value = { ...store.settings.value, ...patch };
   };
+  // spec 029: the new-task crumb + its clear action (reads the FULL signal, incl. targetProject).
+  const crumb = newTaskCrumb(settings.workflow, settings.targetProject, tree);
+  const clearNewTaskCrumb = (): void => {
+    store.settings.value = { ...store.settings.value, workflow: 'none', targetProject: null };
+  };
+  // spec 029: context breadcrumb for the OPEN build — which project/workflow it belongs to (shown in
+  // the conversation-view chat-top, left of the phase track). null ⇒ no project context to show.
+  const runCtx = task ? runContextCrumb(task, tree) : null;
+  // spec 030: a workflow is identified by its {project, workflow} pair (the same name can exist in
+  // several projects), so the composer's Workflow dropdown carries a COMPOUND `project/workflow` value
+  // with a readable "Project / Workflow" label — `_drafts` scratch is excluded.
   const workflows = tree
-    .filter((p) => p.id !== '__drafts__')
-    .flatMap((p) => p.workflows.map((w) => w.id))
-    .filter((s, i, arr) => arr.indexOf(s) === i);
+    .filter((p) => p.id !== '_drafts')
+    .flatMap((p) => p.workflows.map((w) => ({ v: `${p.id}/${w.id}`, l: `${p.name} / ${w.name}` })));
 
   /* ---------- actions ---------- */
   // spec 012/025: read dropped/pasted/picked files → base64 chips, honoring the 3-file cap + type/size
@@ -161,8 +172,16 @@ export function App() {
     });
     if (ok) void store.cancel();
   }
-  function newTask(): void {
+  // spec 029: the two sidebar "+" intents flow in via opts. resetToNew() first (clears prior state incl.
+  // any stale pre-selection), THEN re-apply this launch's opts — that ordering IS the non-clobber (the
+  // footer/manual "New task" passes no opts → a clean from-scratch slate).
+  function newTask(opts?: NewTaskOpts): void {
     store.resetToNew();
+    // spec 030: workflow-"+" pre-selects the COMPOUND `project/workflow` value (the dropdown format), so
+    // edit-existing resolves the right pair; project-"+" sets just the target project folder (workflow
+    // stays 'none' from resetToNew → a from-scratch build).
+    if (opts?.baseWorkflow) store.settings.value = { ...store.settings.value, workflow: `${opts.baseWorkflow.project}/${opts.baseWorkflow.workflow}`, targetProject: null };
+    if (opts?.targetProject) store.settings.value = { ...store.settings.value, targetProject: opts.targetProject };
     setArtifactOpen(false);
   }
   // Stop pill (design handoff): the in-conversation way to cancel the OPEN build while its turn is
@@ -215,9 +234,19 @@ export function App() {
             <button className="icon-btn sb-toggle" onClick={() => setSb((c) => !c)} title={tr('toggleSidebar')}>
               <I.sidebar />
             </button>
-            {view === 'conversation'
-              ? <PhaseTrack phaseStates={phaseStates} current={current} />
-              : <span style={{ fontSize: 13, color: 'var(--tx-muted)' }}>{tr('newTask')}</span>}
+            {view === 'conversation' ? (
+              <>
+                {runCtx && (
+                  <span className="run-crumb" title={tr('runContextHint')}>
+                    <I.folder className="crumb-ic" />
+                    {runCtx.group && <span className="run-crumb-seg">{runCtx.group}</span>}
+                    {runCtx.group && runCtx.leaf && <span className="run-crumb-sep">›</span>}
+                    {runCtx.leaf && <span className="run-crumb-seg run-crumb-leaf">{runCtx.leaf}</span>}
+                  </span>
+                )}
+                <PhaseTrack phaseStates={phaseStates} current={current} />
+              </>
+            ) : <span style={{ fontSize: 13, color: 'var(--tx-muted)' }}>{crumb.label}</span>}
             <div className="chat-top-right">
               <button className="ghost-pill" onClick={toggleLang}
                 title={lang.value === 'ja' ? tr('switchToEnglish') : tr('switchToJapanese')}
@@ -249,6 +278,7 @@ export function App() {
           {view === 'empty' ? (
             <EmptyState draft={draft} setDraft={setDraft} send={send}
               settings={settingsSubset} onSettings={onSettings} workflows={workflows}
+              crumb={crumb} onClearCrumb={clearNewTaskCrumb}
               seeds={seeds} selectedSeed={settings.seed}
               onSeed={(id) => { store.settings.value = { ...store.settings.value, seed: id }; }}
               startError={startError} busyHolder={busyHolder}
@@ -289,7 +319,7 @@ export function App() {
                       done/cancelled → start), so the chips revert to editing the next-build settings. */}
                   {task && task.status !== 'done' && task.status !== 'cancelled' ? (
                     <Composer value={draft} onChange={setDraft} onSend={() => send()}
-                      settings={{ workflow: task.workflow ?? 'none', confirm: store.confirmModeLabel(task.confirmMode), deploy: task.deploy }}
+                      settings={{ workflow: task.workflow ?? 'none', confirm: store.confirmModeLabel(task.confirmMode), deploy: task.deploy, fast: task.fastMode ?? false, test: task.testMode ?? 'static' }}
                       onSettings={(patch) => { if (patch.confirm) void store.patchConfirmMode(task.taskId, patch.confirm); }}
                       workflows={workflows} lockStartBound lockConfirm={busy}
                       placeholder={tr('phReplyOrDescribe')}
@@ -316,6 +346,7 @@ export function App() {
               available={tabs}
               onClose={() => setArtifactOpen(false)}
               onSaveSpec={store.saveSpec}
+              onReveal={() => store.revealWorkflow(task.taskId)}
             />
           </>
         )}
@@ -324,7 +355,10 @@ export function App() {
       {createOpen && (
         <CreateProjectModal
           onClose={() => setCreateOpen(false)}
-          onCreate={() => { setCreateOpen(false); newTask(); }}
+          onSkip={() => { setCreateOpen(false); newTask(); }}
+          // spec 031 D5: create (or "open existing") → fresh composer pre-targeted at the project. newTask
+          // resets then re-applies targetProject, so the empty/new-task surface lands inside projects/<slug>/.
+          onOpenProject={(project) => { setCreateOpen(false); newTask({ targetProject: project }); }}
         />
       )}
 
@@ -363,13 +397,15 @@ function StartErrorBanner({ startError, busyHolder }: { startError: string | nul
 }
 
 /* ---------- empty / new-task surface ---------- */
-function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile }: {
+function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, crumb, onClearCrumb, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile }: {
   draft: string;
   setDraft: (s: string) => void;
   send: (text?: string) => void;
   settings: Settings;
   onSettings: (patch: Partial<Settings>) => void;
-  workflows: string[];
+  workflows: { v: string; l: string }[];
+  crumb: NewTaskCrumb;
+  onClearCrumb: () => void;
   seeds: Seed[];
   selectedSeed: string | null;
   onSeed: (id: string | null) => void;
@@ -382,9 +418,13 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, se
   return (
     <div className="empty">
       <div className="empty-wrap">
-        <button className="empty-crumb">
-          <I.folder className="crumb-ic" />
-          <span>{tr('newTask')}</span>
+        {/* spec 029: the crumb reflects the "+" pre-selection and, when one is active, clicking it clears
+            back to a plain new task (the crumb IS the "×"). Inert when nothing is pre-selected (as before). */}
+        <button className={'empty-crumb' + (crumb.active ? ' clearable' : '')}
+          onClick={crumb.active ? onClearCrumb : undefined}
+          title={crumb.active ? tr('clearPreselection') : undefined}>
+          {crumb.icon === 'message' ? <I.message className="crumb-ic" /> : <I.folder className="crumb-ic" />}
+          <span>{crumb.label}</span>
         </button>
 
         <Composer value={draft} onChange={setDraft} onSend={() => send()}

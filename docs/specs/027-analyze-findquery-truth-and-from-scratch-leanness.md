@@ -69,7 +69,7 @@ Same input, **materially different artifacts** — and Run A's value is **not ru
 ### Sequencing (Bước)
 
 ```
-Bước 1  P1 · 🟢 one PR : A1 (analyze.md → canonical command ×2 command sites; refresh only the find_query test fixture :52) · A2 (from-scratch branch: pattern=custom, omit find_query, no change_points)
+Bước 1  P1 · 🟢 one PR : A1 (analyze.md → canonical command ×2 command sites; refresh analysis.test.ts fixtures) · A2 (from-scratch branch: pattern=custom, omit find_query, no change_points)
 Bước 2  P2 · 🟢 if cheap: A3 (provenance comment in analysis.ts)
 ```
 

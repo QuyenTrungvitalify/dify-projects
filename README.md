@@ -143,15 +143,17 @@ python3 tools/dify_base/validate_workflow.py <file>   # validate
 python3 tools/dify_base/init_project.py
 
 # Non-interactive (cho script / CI):
+# Tầng project (manifest + envs dùng chung):
 python3 tools/dify_base/init_project.py \
-    --non-interactive \
-    --name "My RAG Bot" \
-    --slug my_rag_bot \
-    --app-type workflow \
-    --primary-lang en
+    --non-interactive --kind project \
+    --name "My RAG Bot" --slug my_rag_bot --primary-lang en
+# Tầng workflow (bên trong project):
+python3 tools/dify_base/init_project.py \
+    --non-interactive --kind workflow --project my_rag_bot \
+    --name "Summarizer" --slug summarizer --app-type workflow --primary-lang en
 ```
 
-Tạo `projects/<slug>/` với cấu trúc chuẩn (workflows/, prompts/, inputs/, tests/, envs/, .dify-workspace.yaml, README, .gitignore). Skeleton ở [templates/_base/project/](templates/_base/project/). DSL version auto-detect từ `schemas/dify-dsl-*.json`.
+Hệ thống 2 tầng (spec 030): `projects/<project>/` (manifest `.dify-workspace.yaml` + `envs/` dùng chung, skeleton ở [templates/_base/project/](templates/_base/project/)) chứa nhiều `projects/<project>/<workflow>/` (workflows/, SPEC.md, prompts/, inputs/, tests/ — skeleton ở [templates/_base/workflow/](templates/_base/workflow/)). DSL version auto-detect từ `schemas/dify-dsl-*.json`.
 
 ## Patterns sẵn có ([templates/patterns/](templates/patterns/))
 
@@ -200,7 +202,7 @@ uv pip install --python .venv/bin/python pydantic pydantic-settings pyyaml jsons
 
 Strategy: auto-stub heavy deps (flask, redis, models, controllers...) bằng permissive pydantic-friendly classes → import pydantic NodeData từ `api/core/workflow/nodes/<type>/entities.py` → dump `model_json_schema()`. Cả **25/25 node modules** import OK và sinh **29 NodeData schemas**; trong đó đúng **1 schema-dump fail**: `http_request` (pydantic `SchemaSerializer` trên `dify_config.HTTP_REQUEST_MAX_*` defaults) — node này ship kèm marker `_error`. `agent` dump sạch. Tracked làm spec 024 **S1** (làm schema-dump-fail thành fatal + fix stub); chưa fixed.
 
-VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML files trong `projects/*/workflows/*.yml` và `templates/patterns/*.yml` tự động hover/autocomplete/validate theo schema.
+VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML files trong `projects/*/*/workflows/*.yml` và `templates/patterns/*.yml` tự động hover/autocomplete/validate theo schema.
 
 ## Roadmap
 

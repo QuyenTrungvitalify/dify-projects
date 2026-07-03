@@ -22,23 +22,36 @@ export function deriveSlugName(requirement: string): { slug: string; name: strin
     .filter(Boolean);
   const content = words.filter((w) => !stop.has(w));
   const picked = (content.length ? content : words).slice(0, 4);
-  const slug = (picked.join('_') || 'workflow').slice(0, 40).replace(/_+$/, '') || 'workflow';
-  const name =
+  const slug = (picked.join('_') || GENERIC_SLUG).slice(0, 40).replace(/_+$/, '') || GENERIC_SLUG;
+  return { slug, name: titleCaseSlug(slug) };
+}
+
+/** The generic slug `deriveSlugName` falls back to when a requirement yields no usable ASCII content
+ *  (e.g. a purely-Japanese requirement, which `[^a-z0-9]` strips to nothing → words is empty). Callers
+ *  use this to detect "the derived name is meaningless" and substitute a better base (spec 029 naming:
+ *  the target project) instead of a generic `workflow_N`. */
+export const GENERIC_SLUG = 'workflow';
+
+/** Human-readable Title Case from a snake_case slug ("workflow_11" → "Workflow 11"). */
+export function titleCaseSlug(slug: string): string {
+  return (
     slug
       .split('_')
       .filter(Boolean)
       .map((w) => w[0].toUpperCase() + w.slice(1))
-      .join(' ') || 'Workflow';
-  return { slug, name };
+      .join(' ') || 'Workflow'
+  );
 }
 
 /**
- * F4 (spec 010): the first slug in `slug, slug_2, slug_3, …` whose `projects/<slug>/` does NOT exist.
- * Returns `slug` unchanged when it is already free (today's behavior). Synchronous `existsSync` is fine
- * here — this runs once per Spec-gate confirm, single-writer under the turn lock.
+ * F4 (spec 010) / spec 030 D3: the first workflow slug in `slug, slug_2, slug_3, …` whose
+ * `projects/<project>/<slug>/` does NOT exist. Collisions are resolved PER-PROJECT (a `summarizer` may
+ * coexist in two different projects), so the scan is scoped to the given project folder. Returns `slug`
+ * unchanged when it is already free. Synchronous `existsSync` is fine here — this runs once per Spec-gate
+ * confirm, single-writer under the turn lock.
  */
-export function firstFreeSlug(projectsDir: string, slug: string): string {
-  const exists = (s: string): boolean => existsSync(join(projectsDir, 'projects', s));
+export function firstFreeSlug(projectsDir: string, project: string, slug: string): string {
+  const exists = (s: string): boolean => existsSync(join(projectsDir, 'projects', project, s));
   if (!exists(slug)) return slug;
   for (let n = 2; n < 1000; n++) {
     const suffix = `_${n}`;

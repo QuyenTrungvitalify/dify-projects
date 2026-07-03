@@ -10,9 +10,9 @@ import type { Task, Deploy } from '../server/state/task.js';
 
 const mk = (over: Partial<Task>): Task =>
   ({
-    taskId: '1', project: null, workflow: null, workflowFile: 'main.yml', requirement: 'r',
+    taskId: '1', project: null, workflowSlug: null, workflow: null, workflowFile: 'main.yml', requirement: 'r',
     seedPath: null, seedAppId: null, deploy: 'none', confirmMode: 'each_step', phase: 'test',
-    status: 'running', slug: 's', name: 'n', sessionIds: {}, artifacts: {}, ...over,
+    status: 'running', name: 'n', sessionIds: {}, artifacts: {}, ...over,
   }) as Task;
 
 describe('editExistingDuplicateWarning (014 D7)', () => {

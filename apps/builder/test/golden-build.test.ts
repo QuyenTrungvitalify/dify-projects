@@ -15,6 +15,7 @@ import { startTask, confirmAdvance, type OrchestratorCtx } from '../server/lib/o
 import { acquireTurn, releaseTurn } from '../server/lib/lock.js';
 import { createTask, type Task } from '../server/state/task.js';
 import { PHASES } from '../server/lib/phases.js';
+import { applyInitFake } from './helpers/scaffold-fake.js';
 import type { ClaudeSession, SessionLogger } from '../server/lib/claude-session.js';
 import type { TurnResult } from '../server/lib/turn-runner.js';
 import type { PostTurnParams, PostTurnResult } from '../server/lib/post-turn.js';
@@ -53,10 +54,7 @@ function stubs(dir: string, task: Task): { ctx: OrchestratorCtx; events: typeof 
     return { sessionId: `s-${task.phase}`, result: { type: 'result', is_error: false }, isError: false };
   };
   const runPython = async (_d: string, args: string[]): Promise<ShellResult> => {
-    const i = args.indexOf('--slug');
-    if (args.some((a) => a.includes('init_project.py')) && i !== -1) {
-      mkdirSync(join(dir, 'projects', args[i + 1], 'workflows'), { recursive: true });
-    }
+    applyInitFake(dir, args);
     return { code: 0, stdout: '', stderr: '' };
   };
   const postTurnCheck = async (_p: PostTurnParams): Promise<PostTurnResult> => ({

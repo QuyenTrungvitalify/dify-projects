@@ -21,8 +21,10 @@ import type { SessionLogger } from './claude-session.js';
 
 /** The pre-push marker (§I). `appId: null` until the import is confirmed → the idempotency key. */
 export interface PushIntent {
-  slug: string;
-  /** the workflow file pushed (relative to projects/<slug>/workflows/). */
+  /** spec 030: the project + workflow subfolder pushed (`projects/<project>/<workflowSlug>/`). */
+  project: string;
+  workflowSlug: string;
+  /** the workflow file pushed (relative to projects/<project>/<workflowSlug>/workflows/). */
   file: string;
   /** the app name used for the `list`-reconcile slug match. */
   appName: string;

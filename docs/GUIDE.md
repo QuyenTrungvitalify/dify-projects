@@ -33,9 +33,8 @@ Hướng dẫn vận hành base workspace cho việc build Dify workflow. Đọc
 Nếu chỉ muốn **import template hiện có** vào Dify khách:
 
 ```bash
-# 1. Validate template trước
-cd /Users/quyenbt/Desktop/MyProjects/dify-projects/skills/mango-svip
-python3 tools/dify_base/validate_workflow.py ../../templates/patterns/file-iteration.yml
+# 1. Validate template trước (chạy từ repo root)
+python3 tools/dify_base/validate_workflow.py templates/patterns/file-iteration.yml
 # → ✅ Workflow validation passed!
 
 # 2. Import file vào Dify
@@ -152,7 +151,7 @@ to harvest it without cluttering the index.)
 
 Tìm pattern bằng grep:
 ```bash
-cd /Users/quyenbt/Desktop/MyProjects/dify-projects/corpus/awesome-dify-workflow-en/Workflow-Store
+cd corpus/awesome-dify-workflow-en/Workflow-Store   # từ repo root
 
 # Tìm file có document-extractor
 grep -l "document-extractor" *.yml
@@ -246,7 +245,7 @@ python3 tools/dify_base/build_index.py
 ### Bước 3: Generate IDs
 
 ```bash
-cd /Users/quyenbt/Desktop/MyProjects/dify-projects
+# Chạy từ repo root:
 python3 skills/mango-svip/scripts/generate_id.py <N>
 # N = số node cần
 ```

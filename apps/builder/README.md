@@ -39,6 +39,41 @@ npm start
 Open <http://127.0.0.1:4123>. For live development of the web SPA, run `npm run dev` in
 `apps/builder/web` (the vite dev server proxies the API to `BUILDER_PORT`).
 
+## Development (rebuild & restart)
+
+Neither `npm start` nor `npm run dev` hot-reloads the **backend**, and the backend serves the **built**
+SPA from `web/dist`. So what you rebuild depends on what you changed:
+
+- **Web change** (`web/src/**` — components, store, styles): rebuild the SPA and hard-refresh the
+  browser (`Cmd/Ctrl+Shift+R`). The running backend serves the fresh `web/dist` per request — **no
+  backend restart needed**. The content-hashed bundle name changes, so a refresh always picks it up.
+  ```bash
+  cd apps/builder/web && npm run build
+  ```
+- **Backend change** (`server/**` — orchestrator, routes, state): stop the process and start it again.
+  ```bash
+  lsof -ti:4123 | xargs kill                     # stop the running backend
+  cd apps/builder && npm run build && npm start   # rebuilt dist
+  # …or run the TS directly (no build step):      npm run dev
+  ```
+- **Fastest inner loop** (HMR, no manual rebuilds): run the backend and the vite dev server in two
+  terminals and open the **vite** URL (it proxies `/api` → `BUILDER_PORT`):
+  ```bash
+  cd apps/builder && npm run dev            # terminal A — backend API on :4123
+  cd apps/builder/web && npm run dev        # terminal B — SPA with HMR (usually :5173)
+  ```
+
+Rebuild + full test suite before committing (mirrors the CI `builder` job):
+```bash
+cd apps/builder && npm run typecheck && npm test     # backend: tsc --noEmit + node:test via tsx
+cd apps/builder/web && npm run build && npm test     # web: tsc --noEmit + vite build + vitest
+```
+
+Stop the backend:
+```bash
+lsof -ti:4123 | xargs kill
+```
+
 ## Configuration (`.env`)
 
 Copy [`.env.example`](.env.example) to `.env` (gitignored). Keys (spec §F):
@@ -65,6 +100,11 @@ The real `.env` is gitignored; only `.env.example` is committed.
    - **`cloud`** — skips auto-import (CSRF); reports the copyable YAML + Dify Studio steps.
 
 Each boundary pauses for confirmation per the **Confirm mode** (each step / spec only / auto).
+
+**⚡ Fast build** (spec 028) — a composer toggle for **from-scratch single-LLM** builds: it merges
+Analyze ①+② into one turn (skips the `find.py` pattern search) and still **stops at the Spec gate**.
+Off by default; auto-forced off for seed/edit/slug builds. Under `auto` confirm-mode a structural
+sanity-check hard-stops at the Spec gate if the merged draft turns out non-single-LLM.
 
 ## Notes
 

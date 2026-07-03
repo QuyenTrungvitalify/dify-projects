@@ -8,15 +8,15 @@ You are validating the produced workflow and reporting the result; if `{{DEPLOY}
 importing into Dify. Read [SKILL.md](SKILL.md) ground rules first.
 
 ## Inputs
-- `projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}` — the file Phase ③ produced.
+- `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}` — the file Phase ③ produced.
 - `{{DEPLOY}}` ∈ `none | selfhost | cloud`. `{{TASK_ID}}` — for the report path.
 
 ## Do
 1. **Validate** (must all exit 0 before any import):
    ```
-   .venv/bin/python tools/dify_base/validate_workflow.py projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
-   .venv/bin/python tools/dify_base/lint_refs.py            projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
-   .venv/bin/python tools/dify_base/lint_plugin_hashes.py  projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}
+   .venv/bin/python tools/dify_base/validate_workflow.py projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
+   .venv/bin/python tools/dify_base/lint_refs.py            projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
+   .venv/bin/python tools/dify_base/lint_plugin_hashes.py  projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
    ```
    **If any linter exits ≠ 0, the workflow did NOT pass.** Do **not** write a `done`-shaped
    `report.json` and do **not** import — surface the failing linter output and STOP, *unless* the user
@@ -33,9 +33,9 @@ importing into Dify. Read [SKILL.md](SKILL.md) ground rules first.
    - **`selfhost`**: requires `DIFY_CONSOLE_URL`/`DIFY_CONSOLE_TOKEN` in the environment. Import
      (always creates a **NEW** app — there is no in-place update):
      ```
-     .venv/bin/python tools/dify_base/sync.py push --project {{SLUG}} --file workflows/{{WORKFLOW_FILE}} --yes
+     .venv/bin/python tools/dify_base/sync.py push --project {{PROJECT}} --workflow {{WORKFLOW_SLUG}} --file workflows/{{WORKFLOW_FILE}} --yes
      ```
-     (`--file` is **relative to** `projects/{{SLUG}}/` — do not prefix `projects/{{SLUG}}/`.)
+     (`--file` is **relative to** `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/` — do not prefix it.)
      Capture the new app id from the import result; build `app_url` by stripping `/console/api`
      from `DIFY_CONSOLE_URL` and appending `/app/<app_id>/workflow`. ⚠ For an **edit-existing**
      workflow this still creates a *duplicate* app — say so prominently in the report.
@@ -45,7 +45,7 @@ importing into Dify. Read [SKILL.md](SKILL.md) ground rules first.
 ## Output (authoritative artifact)
 Write `.runs/{{TASK_ID}}/report.json`:
 ```json
-{ "workflow_file": "projects/{{SLUG}}/workflows/{{WORKFLOW_FILE}}",
+{ "workflow_file": "projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}",
   "lint": { "validate": 0, "lint_refs": 0, "lint_plugin_hashes": 0 },
   "deploy": "{{DEPLOY}}",
   "app_url": "<selfhost only, else null>",

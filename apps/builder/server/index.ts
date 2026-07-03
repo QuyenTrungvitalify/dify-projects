@@ -172,7 +172,17 @@ app.get('/*', async (req, reply) => {
   if (!existsSync(filePath)) {
     return reply.code(404).send({ error: 'SPA not built — run `npm --prefix apps/builder/web run build`' });
   }
-  reply.header('Content-Type', MIME[extname(filePath)] ?? 'application/octet-stream');
+  const ext = extname(filePath);
+  reply.header('Content-Type', MIME[ext] ?? 'application/octet-stream');
+  // The SPA shell (index.html, or any unknown route that falls back to it) points at hash-versioned
+  // assets that change on every `vite build`. With NO cache header the browser heuristically caches the
+  // shell and keeps loading the OLD bundle after a rebuild (the "rebuilt but the fix isn't live" trap).
+  // Force revalidation for the shell; the hashed assets under /assets/ are content-addressed → cache hard.
+  if (ext === '.html' || filePath === INDEX_HTML) {
+    reply.header('Cache-Control', 'no-cache');
+  } else if (clean.startsWith('assets/')) {
+    reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+  }
   return reply.send(createReadStream(filePath));
 });
 

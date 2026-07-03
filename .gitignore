@@ -41,10 +41,13 @@ apps/*/.env*
 # apps/builder/.runs/ — see orchestrator.relocateRunArtifacts — but the empty/leftover root one is junk).
 /.runs/
 
-# Builder QA scratch projects (spec 011 R2): the builder writes each QA run's output to
-# projects/<derived-slug>/. These are regenerable throwaways — gitignored so they don't pollute the
-# repo or the generated INDEX.md (build_index.py skips gitignored YAMLs). Real hand-made projects
-# (news_automation/, eiken_stem_proofread/) are NOT matched and stay tracked/indexable.
-projects/workflow_*/
-projects/start_1_llm_node/
-projects/test/
+# Builder QA scratch (spec 011 R2 / spec 030): a global "New task" QA build lands in the reserved
+# `_drafts` project (projects/_drafts/<workflow>/) — a regenerable throwaway. Ignore it WHOLESALE so
+# it never pollutes the repo or the generated INDEX.md (build_index.py's _filter_gitignored keys on
+# `git check-ignore`). Real projects (projects/<project>/<workflow>/) stay tracked/indexable.
+# NB: the old flat one-off patterns (projects/workflow_*/, projects/llm*/, …) were single-level and
+# do NOT match the depth-2 nested layout — they are removed (existing projects/ are disposable test
+# data). A per-project throwaway workflow can still be ignored via the depth-2 pattern below.
+projects/_drafts/
+# Optional: generic prompt-derived throwaway workflow folders inside ANY project (depth 2).
+projects/*/workflow_*/

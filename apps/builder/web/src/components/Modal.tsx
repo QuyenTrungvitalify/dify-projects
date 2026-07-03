@@ -8,36 +8,45 @@ import { useEffect, useState } from 'preact/hooks';
 import { I } from './Icon';
 import { richText } from './Chat';
 import { t as tr, tf } from '../lib/i18n';
-import type { FolderEntry } from '../types';
+import { createProject } from '../store';
+import { isValidProjectName, projectSlug } from '../lib/slug';
 
-const FOLDER_POOL = [
-  'grammar_check', 'jp_normalize', 'rubric_v2',
-  'export_csv', 'seed_loader', 'judge_prompts',
-];
-
-function slug(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'workspace';
-}
-
-export function CreateProjectModal({ onClose, onCreate }: {
+/**
+ * CreateProjectModal (spec 031) — type an English name → POST /api/projects makes a real, empty
+ * `projects/<slug>/` that shows in the sidebar. The old folder-linker mock (a hardcoded fake-folder pool
+ * + linker button) is GONE: a project is one repo folder, not a bag of linked OS dirs (030). D2: a folder-slug
+ * preview mirrors the server slug. D3: non-English input is refused with a red teaching error (client +
+ * server enforce the identical regex). D4: a duplicate name shows the same red error + an [Open] jump.
+ *
+ * `onOpenProject(slug)` lands the caller on a fresh composer pre-targeted at that project (used for both
+ * a successful create and the duplicate "open existing" jump). `onSkip` bails to a plain from-scratch task.
+ */
+export function CreateProjectModal({ onClose, onSkip, onOpenProject }: {
   onClose: () => void;
-  onCreate: (project: { name: string; folders: FolderEntry[] }) => void;
+  onSkip: () => void;
+  onOpenProject: (project: string) => void;
 }) {
   const [name, setName] = useState('');
-  const [folders, setFolders] = useState<FolderEntry[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [existing, setExisting] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  function addFolder() {
-    const next = FOLDER_POOL[folders.length % FOLDER_POOL.length];
-    const path = '~/code/' + (name.trim() ? slug(name) : 'workspace') + '/' + next;
-    setFolders((f) => [...f, { id: 'f' + Date.now() + f.length, name: next, path }]);
+  const trimmed = name.trim();
+  const valid = isValidProjectName(name);
+  const canCreate = valid && !submitting;
+
+  async function submit(): Promise<void> {
+    if (!valid) { setExisting(null); setError(tr('nameCharsetError')); return; } // D3 client guard
+    setSubmitting(true);
+    setError(null);
+    setExisting(null);
+    const r = await createProject(trimmed);
+    if ('project' in r) { onOpenProject(r.project); return; } // success → composer pre-targeted (D5)
+    // failure: 409 → "already exists" + [Open]; 400 name_charset → the teaching error (defensive)
+    setSubmitting(false);
+    if (r.existing) { setExisting(r.existing); setError(tf('projectExists', { name: trimmed })); }
+    else { setError(r.error === 'name_charset' ? tr('nameCharsetError') : r.error); }
   }
-  function removeFolder(id: string) { setFolders((f) => f.filter((x) => x.id !== id)); }
-
-  function submit() {
-    onCreate({ name: name.trim() || 'Untitled project', folders });
-  }
-
-  const canCreate = name.trim().length > 0 || folders.length > 0;
 
   return (
     <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -51,37 +60,25 @@ export function CreateProjectModal({ onClose, onCreate }: {
           <div className="modal-label">{tr('projectName')}</div>
           <input className="modal-input" autoFocus value={name}
             placeholder={tr('phProjectName')}
-            onChange={(e) => setName(e.currentTarget.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && canCreate) submit(); }}
+            onInput={(e) => { setName(e.currentTarget.value); if (error) { setError(null); setExisting(null); } }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && canCreate) void submit(); }}
           />
-        </div>
-
-        <div className="modal-field">
-          <div className="modal-label">{tr('selectFolders')}</div>
-          {folders.length > 0 && (
-            <div className="folder-list">
-              {folders.map((f) => (
-                <div key={f.id} className="folder-row">
-                  <span className="fr-ic"><I.folder /></span>
-                  <span className="fr-path">{f.path}</span>
-                  <button className="icon-btn fr-x" onClick={() => removeFolder(f.id)} aria-label={tr('remove')}><I.close /></button>
-                </div>
-              ))}
+          {/* D2: live folder-slug preview — always rendered (stable layout); slug fills only for valid input,
+              so the preview == the folder created and it never pops in/out while typing. */}
+          <div className="modal-hint modal-slug">{tf('folderPreview', { slug: valid ? projectSlug(trimmed) : '' })}</div>
+          {error && (
+            <div className="modal-error" role="alert">
+              <span>{error}</span>
+              {existing && (
+                <button className="modal-open-existing" onClick={() => onOpenProject(existing)}>{tr('openExisting')}</button>
+              )}
             </div>
           )}
-          <button className="add-folder-btn" onClick={addFolder}>
-            <I.plus />{tr('addFolder')}
-          </button>
         </div>
 
         <div className="modal-foot">
-          {folders.length > 0 && (
-            <span className="modal-hint">{tf('foldersLinked', { n: folders.length, s: folders.length > 1 ? 's' : '' })}</span>
-          )}
-          <button className="modal-skip" onClick={() => onCreate({ name: name.trim() || 'Untitled project', folders: [] })}>
-            {tr('skip')}
-          </button>
-          <button className="btn primary modal-create" disabled={!canCreate} onClick={submit}>
+          <button className="modal-skip" onClick={onSkip}>{tr('skip')}</button>
+          <button className="btn primary modal-create" disabled={!canCreate} onClick={() => void submit()}>
             <I.check />{tr('createProjectBtn')}
           </button>
         </div>

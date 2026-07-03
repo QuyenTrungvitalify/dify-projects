@@ -48,6 +48,14 @@ describe('redactSecrets (015 D7)', () => {
     });
   });
 
+  test('scrubs the bare origin so the derived Service-API host is redacted too (spec 032 F4)', () => {
+    withCreds('http://dify.internal/console/api', undefined, () => {
+      // an error tail that mentions the /v1 service base (no /console/api substring) must still lose the host
+      const out = redactSecrets('run failed: POST http://dify.internal/v1/workflows/run refused');
+      assert.equal(out.includes('dify.internal'), false, 'service-base host scrubbed via origin');
+    });
+  });
+
   test('scrubs a Bearer header value', () => {
     withCreds(undefined, undefined, () => {
       const out = redactSecrets('Authorization: Bearer eyJhbG.cd.ef');

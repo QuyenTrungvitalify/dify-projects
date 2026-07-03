@@ -14,7 +14,7 @@
  * Cleanups + §D) and stops — the next turn fires only on `/confirm`. `confirmMode` drives which
  * boundaries pause vs auto-advance (§D).
  */
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export type Phase = 'analyze' | 'spec' | 'implement' | 'test';
@@ -36,6 +36,32 @@ export type ConfirmMode = 'each_step' | 'spec_only' | 'auto';
  *  clickable `app_url`; `cloud` = skip import, emit copyable YAML + Studio steps (CSRF blocks auto). */
 export type Deploy = 'none' | 'selfhost' | 'cloud';
 
+/** Spec 032: Phase ④ test mode. `static` (default, always safe, never touches Dify — the pre-032
+ *  behavior) vs `live` (import → auto-fix model → run → verify). `live` is only meaningful for
+ *  `deploy=selfhost` with console creds; createTask force-downgrades it to `static` otherwise. */
+export type TestMode = 'static' | 'live';
+
+/** Spec 032 — the outcome of a live workflow test (S3-wiring-b), surfaced on the task for the gate/report
+ *  render. The minted app-key is NEVER stored here (redacted, backend-only). */
+export type LiveVerdict = 'passed' | 'workflow_fail' | 'infra_fail' | 'need_input';
+export interface LiveTestResult {
+  verdict: LiveVerdict;
+  /** `live-verified` = ran + T1 passed; `live-verified-fail` = ran but failed; `static-only` = couldn't
+   *  run for an infra reason (lint result stands). */
+  label: 'live-verified' | 'live-verified-fail' | 'static-only';
+  model?: { provider: string; name: string } | null;
+  modelAutofilled?: number; // # llm nodes whose model was auto-filled
+  appId?: string | null;
+  appUrl?: string | null;
+  input?: Record<string, unknown> | null;
+  output?: Record<string, unknown> | null;
+  runError?: string | null;
+  totalTokens?: number | null;
+  t1Pass?: boolean; // mechanical: run succeeded + output non-empty
+  needInputVars?: string[]; // set when verdict=need_input (couldn't derive a sample input)
+  reason?: string; // human-facing one-line summary / infra reason
+}
+
 /** A gate action button (spec §Revision Cleanups + §D): `kind` distinguishes a `/confirm` advance
  *  from a composer-focus `/reply` from a terminal `/cancel`. */
 export type GateActionKind = 'confirm' | 'reply' | 'cancel';
@@ -48,13 +74,17 @@ export interface GateAction {
 export interface Gate {
   actions: GateAction[];
   /** `still_failing` = the cap-5 lint≠0 Implement gate (`auto` HARD-STOPS, §D); `awaiting_import` =
-   *  the selfhost ④ Import gate (lint clean, import pending — `auto` auto-confirms it, AC #16). */
-  flag?: 'still_failing' | 'awaiting_import';
+   *  the selfhost ④ Import gate (lint clean, import pending — `auto` auto-confirms it, AC #16). Spec 032:
+   *  `test_result` = the live-test verdict gate (auto HARD-STOPS on a fail/subjective result, B4);
+   *  `infra_degraded` = live couldn't run for an infra reason → degrade-to-static confirm (D1c). */
+  flag?: 'still_failing' | 'awaiting_import' | 'test_result' | 'infra_degraded';
 }
 
 export interface Task {
   taskId: string; // 13-digit ms-timestamp string
-  project: string | null; // slug; null until Spec proposes/derives one
+  // Spec 030: the on-disk hierarchy is REAL — a build lives at `projects/<project>/<workflowSlug>/`.
+  project: string | null; // the PROJECT folder (projects/<project>/); null pre-scaffold
+  workflowSlug: string | null; // the WORKFLOW subfolder (…/<workflowSlug>/); null pre-scaffold
   workflow: string | null; // workflow name; null for new
   workflowFile: string; // "main.yml" for a new workflow
   requirement: string;
@@ -64,17 +94,24 @@ export interface Task {
   // The Dify workspace app id chosen in the seed picker (Lát 5). null = no Dify seed (local/no-seed).
   seedAppId: string | null;
   deploy: Deploy; // 'none' (Lát 3 default) | 'selfhost' | 'cloud' (Lát 5)
+  // Spec 032: Phase ④ test mode (start-bound like `deploy`). Absent on a pre-032 task.json ⇒ treated as
+  // `static` (back-compat: every `task.testMode === 'live'` guard reads it as off). Force `static` unless
+  // deploy=selfhost (createTask).
+  testMode: TestMode;
   // selfhost Phase ④ result (Lát 5 Task 6): the NEW Dify app id captured from the import + its url.
   appId?: string | null;
   appUrl?: string | null;
   confirmMode: ConfirmMode; // drives pause-vs-auto-advance at each boundary (§D)
+  // Spec 028: opt-in "fast build" — merges Analyze+Spec into ONE merged draft turn (from-scratch
+  // single-LLM only). Forced false when a seed/workflow/slug is set (§1). Absent on a pre-028
+  // task.json ⇒ falsy (back-compat: every `task.fastMode && …` guard reads it as off).
+  fastMode: boolean;
   phase: Phase;
   status: Status;
-  slug: string | null; // == project once Spec proposes/derives one
   name: string | null;
   // PERSIST per-phase session_id (Lát 3's /reply reads these back to --resume within a phase).
   sessionIds: { analyze?: string; spec?: string; implement?: string };
-  artifacts: { analyze?: string; spec?: string; implement?: string; report?: string; diff?: string };
+  artifacts: { analyze?: string; spec?: string; implement?: string; report?: string; diff?: string; criteria?: string };
   // the live gate (set at awaiting_confirm; cleared/ignored in terminal states).
   gate?: Gate;
   error?: string;
@@ -96,10 +133,17 @@ export interface Task {
   analysisFindQuery?: string;
   // O2 advisory (NOT a hard-fail): set when the chosen pattern lacks a feature the analysis needs.
   patternAdvisory?: string;
+  // Spec 028 §5: set when an `auto`+fast build's merged draft found a NON-single-LLM shape (features
+  // ⊄ {llm}, or absent) — the auto-advance hard-stops at the Spec gate and surfaces this note.
+  fastReviewNote?: string;
   // Spec 012: repo-relative paths of images attached via the composer (saved under
   // `.runs/<taskId>/uploads/`). The orchestrator injects these paths into the turn prompt so the turn
   // can `Read` them. Appended across turns (create + each reply); lives/dies with the task dir.
   attachments?: string[];
+  // Spec 032 (S3-wiring-b): the latest live-test result (surfaced at the Test-result gate) + the ids of
+  // every test app created for this build (cleanup, S6). Absent on non-live builds. app-key NEVER here.
+  liveTest?: LiveTestResult;
+  testApps?: string[];
 }
 
 export interface CreateTaskInput {
@@ -112,11 +156,21 @@ export interface CreateTaskInput {
   confirmMode?: string;
   /** deploy target — 'none' | 'selfhost' | 'cloud' (normalized via {@link normalizeDeploy}, Lát 5). */
   deploy?: string;
+  /** spec 032: Phase ④ test mode — 'static' | 'live' (public `test_mode`). Normalized via
+   *  {@link normalizeTestMode}; force-down to 'static' in {@link createTask} unless deploy=selfhost. */
+  testMode?: string;
   /** chosen Dify seed app id from the seed picker (null/empty = no Dify seed, Lát 5). */
   seed?: string | null;
-  /** user-supplied slug/name (else Spec proposes at the gate, AC #18). */
+  /** spec 030: the target PROJECT folder (sidebar project-"+" or the workflow-"+" parent, public
+   *  `project`). null ⇒ the from-scratch build resolves to the `_drafts` project at the Spec gate (D5). */
+  project?: string | null;
+  /** user-supplied WORKFLOW slug/name (else Spec proposes at the gate, AC #18; public `workflow_slug`
+   *  or legacy `slug`). Names the `projects/<project>/<workflowSlug>/` subfolder (D3). */
   slug?: string | null;
   name?: string | null;
+  /** spec 028: `⚡ Fast build` switch (public `fast_mode`). Normalized via {@link normalizeFastMode};
+   *  force-off in {@link createTask} when a seed/workflow/slug is set. */
+  fast?: boolean | string | null;
 }
 
 /**
@@ -133,6 +187,15 @@ export function normalizeConfirmMode(raw: unknown): ConfirmMode {
   return 'each_step';
 }
 
+/** Normalize the public `fast_mode`/`fast` field to a boolean (spec 028). Accepts a real boolean or
+ *  the string forms the wire/curl demos send. Unknown/missing → `false` (the safe default; fast is
+ *  strictly opt-in). NOTE: the seed/workflow/slug force-off is applied in {@link createTask}, not here. */
+export function normalizeFastMode(raw: unknown): boolean {
+  if (typeof raw === 'boolean') return raw;
+  const s = String(raw ?? '').trim().toLowerCase();
+  return s === 'true' || s === '1' || s === 'on' || s === 'yes';
+}
+
 /** Normalize the public `deploy` field to {@link Deploy}. Unknown/missing → 'none' (the safe local
  *  default; never silently selfhost/cloud — those reach Dify). */
 export function normalizeDeploy(raw: unknown): Deploy {
@@ -142,6 +205,13 @@ export function normalizeDeploy(raw: unknown): Deploy {
   return 'none';
 }
 
+/** Normalize the public `test_mode`/`testMode` field to {@link TestMode} (spec 032). Unknown/missing →
+ *  'static' (the safe default; live is strictly opt-in and reaches Dify). The deploy≠selfhost force-down
+ *  to static is applied in {@link createTask}, not here. */
+export function normalizeTestMode(raw: unknown): TestMode {
+  return String(raw ?? '').trim().toLowerCase() === 'live' ? 'live' : 'static';
+}
+
 /** The phase ordering of a build: analyze → spec → implement → test. */
 export const PHASE_ORDER: Phase[] = ['analyze', 'spec', 'implement', 'test'];
 
@@ -149,12 +219,25 @@ export const PHASE_ORDER: Phase[] = ['analyze', 'spec', 'implement', 'test'];
  * The phase a cancelled build rewinds to on /restore: the PREVIOUS boundary. A phase only ever starts
  * after the previous phase's gate was confirmed, so the previous phase definitely completed and was
  * gated — re-parking there (`awaiting_confirm`) is always a valid state, and its artifacts are on disk
- * (the spec was already moved to `projects/<slug>/` by the spec-gate scaffold). `analyze` is the first
+ * (the spec was already moved to `projects/<project>/<workflowSlug>/` by the spec-gate scaffold). `analyze` is the first
  * phase and has no prior gate → null (the caller reopens it as a retryable `error` instead).
  */
 export function restoreTargetPhase(phase: Phase): Phase | null {
   const i = PHASE_ORDER.indexOf(phase);
   return i > 0 ? PHASE_ORDER[i - 1] : null;
+}
+
+/**
+ * Spec 028 — the /restore rewind target for a build, fast-aware. A FAST build cancelled AT the merged
+ * Spec turn (phase='spec', workflowSlug still null → the scaffold has not run) has NO prior gate:
+ * rewinding to `analyze` (what `restoreTargetPhase('spec')` returns) would raise a phantom Analyze gate.
+ * So it rewinds to null — the caller reopens it as a retryable error (Retry re-runs the merged draft),
+ * exactly like the standard first phase (`analyze`). Every other case (standard build, OR a fast build
+ * cancelled at 'implement' where the scaffold already set the slug) falls through to `restoreTargetPhase`.
+ */
+export function restoreTargetPhaseFor(task: Pick<Task, 'fastMode' | 'phase' | 'workflowSlug'>): Phase | null {
+  if (task.fastMode && task.phase === 'spec' && !task.workflowSlug) return null;
+  return restoreTargetPhase(task.phase);
 }
 
 /**
@@ -169,16 +252,30 @@ export function isValidWorkflowFile(name: string): boolean {
   return /^[A-Za-z0-9._-]+\.ya?ml$/.test(name) && !name.includes('..');
 }
 
-/** Sanitize a user-supplied slug to snake_case `[a-z0-9_]` (Task 5 / arg-validation, spec §J). */
+/** Sanitize a user-supplied slug to snake_case `[a-z0-9_]` (Task 5 / arg-validation, spec §J). An
+ *  intentional LEADING underscore is preserved so the reserved `_drafts` project (spec 030 D5) round-trips
+ *  identically here and in `init_project.py`'s `slugify` (they must agree — confinement compares the
+ *  stored `project` to the on-disk folder). */
 export function sanitizeSlug(raw: string): string {
-  return (
+  const body =
     raw
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '')
       .slice(0, 40)
-      .replace(/_+$/, '') || 'workflow'
-  );
+      .replace(/_+$/, '') || 'workflow';
+  return raw.trim().startsWith('_') ? `_${body}` : body;
+}
+
+/** Spec 030 (D5): the reserved project folder that holds "loose" workflows — a global "New task" with
+ *  no chosen project builds here, keeping the invariant "every workflow is `projects/<project>/<workflow>/`". */
+export const DRAFTS_PROJECT = '_drafts';
+
+/** Spec 030: the repo-relative workflow subtree `projects/<project>/<workflowSlug>` for a task, or null
+ *  pre-scaffold (either half unset). Centralizes the 2-level path so the many builders don't each
+ *  re-concatenate it (and can't drift from the confinement whitelist). */
+export function workflowDir(task: Pick<Task, 'project' | 'workflowSlug'>): string | null {
+  return task.project && task.workflowSlug ? `projects/${task.project}/${task.workflowSlug}` : null;
 }
 
 const runsRoot = (projectsDir: string): string => join(projectsDir, 'apps/builder/.runs');
@@ -205,22 +302,38 @@ export async function createTask(projectsDir: string, input: CreateTaskInput): P
   const workflow = input.workflow && input.workflow.trim() && input.workflow.trim() !== 'none'
     ? input.workflow.trim()
     : null;
-  const slug = input.slug && input.slug.trim() ? sanitizeSlug(input.slug.trim()) : null;
+  const workflowSlug = input.slug && input.slug.trim() ? sanitizeSlug(input.slug.trim()) : null;
+  // Spec 030: the TARGET project folder (sidebar project-"+" or the workflow-"+" parent). null until
+  // resolved — a from-scratch build defaults to `_drafts` at the Spec gate (D5); edit/seed builds
+  // resolve it in localEditSeed / difySeedScaffoldAndPull. Sanitized as a dir name (same charset).
+  const project = input.project && input.project.trim() ? sanitizeSlug(input.project.trim()) : null;
+  const seedAppId = input.seed && input.seed.trim() ? input.seed.trim() : null;
+  // Spec 028 §1: fast mode is FROM-SCRATCH ONLY — force it off whenever a seed/workflow/slug is set
+  // (a seed/edit build assumes the standard 4-turn path; a user-supplied workflow slug would flip the
+  // merged turn's `.runs/`-only artifact path + confinement whitelist to the nested workflow subtree).
+  // A `project` target does NOT force it off (like the retired group): it names the folder, not the shape.
+  const fastMode = normalizeFastMode(input.fast) && !workflow && !workflowSlug && !seedAppId;
+  // Spec 032: live test mode is selfhost-only (cloud CSRF-blocks auto-import; none has no app). Force
+  // `static` for any other deploy so a stray `test_mode:live` can never reach Dify on a non-selfhost build.
+  const deploy = normalizeDeploy(input.deploy);
+  const testMode: TestMode = deploy === 'selfhost' ? normalizeTestMode(input.testMode) : 'static';
   const task: Task = {
     taskId,
-    project: slug,
+    project,
+    workflowSlug,
     workflow,
     workflowFile: (input.workflowFile ?? 'main.yml').trim() || 'main.yml',
     requirement: input.requirement.trim(),
     seedPath: null, // set by the Dify-seed scaffold-then-pull (Task 5) when seedAppId is present
-    seedAppId: input.seed && input.seed.trim() ? input.seed.trim() : null,
-    deploy: normalizeDeploy(input.deploy),
+    seedAppId,
+    deploy,
+    testMode,
     appId: null,
     appUrl: null,
     confirmMode: normalizeConfirmMode(input.confirmMode),
+    fastMode,
     phase: 'analyze',
     status: 'running',
-    slug,
     name: input.name && input.name.trim() ? input.name.trim() : null,
     sessionIds: {},
     artifacts: {},
@@ -247,12 +360,24 @@ export function bumpRev(task: Task): void {
   task.rev = (task.rev ?? 0) + 1;
 }
 
-/** Atomic write: temp file then `rename` (so a crash never leaves a half-written task.json). */
+// Monotonic, process-local — gives every saveTask call a UNIQUE temp filename. A FIXED `${final}.${process.pid}.${++_saveSeq}.tmp`
+// raced when two saves ran concurrently for the same task (e.g. /cancel's save while the force-killed
+// turn's own save was in flight): both wrote then renamed the SAME `.tmp`, so the second rename hit
+// `ENOENT: rename task.json.tmp -> task.json` (the first had already consumed it) → an HTTP 500 on cancel.
+let _saveSeq = 0;
+
+/** Atomic write: UNIQUE temp file then `rename` (so a crash never leaves a half-written task.json, and
+ *  concurrent saves for the same task can't collide on the temp path). Last rename wins on `final`. */
 export async function saveTask(projectsDir: string, task: Task): Promise<void> {
   const dir = taskDir(projectsDir, task.taskId);
   await mkdir(dir, { recursive: true });
   const final = taskFile(projectsDir, task.taskId);
-  const tmp = `${final}.tmp`;
+  const tmp = `${final}.${process.pid}.${++_saveSeq}.tmp`;
   await writeFile(tmp, JSON.stringify(task, null, 2));
-  await rename(tmp, final);
+  try {
+    await rename(tmp, final);
+  } catch (e) {
+    await unlink(tmp).catch(() => {}); // don't leak the unique temp if the rename itself fails
+    throw e;
+  }
 }

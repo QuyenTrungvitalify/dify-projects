@@ -59,6 +59,25 @@ def client():
 def test_client_headers(client):
     assert client._headers["Authorization"] == "Bearer fake-token"
     assert client._headers["Content-Type"] == "application/json"
+    # No workspace id → no X-WORKSPACE-ID header (browser-JWT path, unchanged).
+    assert "X-WORKSPACE-ID" not in client._headers
+
+
+def test_client_headers_admin_key_sends_workspace_id():
+    # ADMIN_API_KEY path: a workspace id makes _headers carry X-WORKSPACE-ID (dify requires it to
+    # resolve the workspace owner when the bearer is an admin key rather than a session JWT).
+    c = sync.DifyConsoleClient("https://dify.test/console/api", "admin-key", workspace_id="tenant-123")
+    assert c._headers["Authorization"] == "Bearer admin-key"
+    assert c._headers["X-WORKSPACE-ID"] == "tenant-123"
+
+
+def test_client_from_env_reads_workspace_id(monkeypatch):
+    monkeypatch.setenv("DIFY_CONSOLE_URL", "https://dify.test/console/api")
+    monkeypatch.setenv("DIFY_CONSOLE_TOKEN", "admin-key")
+    monkeypatch.setenv("DIFY_WORKSPACE_ID", "tenant-abc")
+    c = sync._client_from_env()
+    assert c.workspace_id == "tenant-abc"
+    assert c._headers["X-WORKSPACE-ID"] == "tenant-abc"
 
 
 def test_client_strips_trailing_slash():
@@ -152,12 +171,13 @@ def test_pull_writes_yaml_files(tmp_path, monkeypatch, mock_apps_response, fake_
         ]
 
         args = MagicMock(
-            project="demo", app_id=None, name_contains=None,
+            project="demo", workflow="summarizer", app_id=None, name_contains=None,
             include_secret=False, yes=True,
         )
         sync.cmd_pull(args)
 
-    workflows = project / "workflows"
+    # spec 030: files land in the nested workflow folder projects/<project>/<workflow>/workflows/.
+    workflows = project / "summarizer" / "workflows"
     files = sorted(f.name for f in workflows.glob("*.yml"))
     assert files == ["chat_demo.yml", "rag_bot.yml", "translation.yml"]
     assert (workflows / "rag_bot.yml").read_text() == fake_yaml

@@ -47,7 +47,7 @@ function baseSnapshotRel(taskId: string): string {
 
 /** The produced workflow path (the "new" side of the diff). */
 function newWorkflowRel(task: Task): string {
-  return `projects/${task.slug}/workflows/${task.workflowFile}`;
+  return `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`;
 }
 
 /**
@@ -57,7 +57,7 @@ function newWorkflowRel(task: Task): string {
  * file doesn't exist yet (a no-seed new workflow → empty base → full additions).
  */
 export async function snapshotDiffBase(projectsDir: string, task: Task): Promise<void> {
-  if (!task.slug || task.seedPath) return;
+  if (!task.project || !task.workflowSlug || task.seedPath) return;
   const snapRel = baseSnapshotRel(task.taskId);
   const snapAbs = join(projectsDir, snapRel);
   if (existsSync(snapAbs)) return;

@@ -1,0 +1,32 @@
+{
+  "taskId": "1782539119087",
+  "n": 2,
+  "slug": "workflow_2",
+  "ground_truth": "translation_workflow.yml",
+  "status": "done",
+  "mode": "workflow",
+  "deploy": "none",
+  "phases": {
+    "analyze": { "process_ok": true, "tool_calls": 6, "errors_real": 0, "errors_benign": 2, "procedure": "did not touch workflow file; only wrote analyze.json", "note": "honest from-scratch; risk#3 anticipated multi-LLM pass" },
+    "spec": { "process_ok": true, "tool_calls": 12, "errors_real": 0, "errors_benign": 2, "procedure": "searched pattern library before choosing; did not mint ids or write yaml", "note": "chose multi-step-llm; resolved analyze risk#3 (3 sequential LLM, no loop); no drift" },
+    "implement": { "process_ok": true, "tool_calls": 14, "errors_real": 0, "errors_benign": 3, "procedure": "minted ids via generate_id.py; ran all 3 validators", "note": "lint_refs ran 3x = 1 real + 1 chained-rejected + 1 re-run; NOT ref-fixing. 'one pass clean' corroborated" },
+    "test": { "process_ok": true, "note": "backend-run, no transcript; verified by independent validator re-run" }
+  },
+  "must_do": [
+    { "item": "produce an initial translation", "verdict": "met", "node": "LLM 1 — Translate" },
+    { "item": "a distinct self-review/critique step", "verdict": "met", "node": "LLM 2 — Self-Review" },
+    { "item": "a final improved translation informed by the critique", "verdict": "met", "node": "LLM 3 — Revise" }
+  ],
+  "lint": { "validate": 0, "lint_refs": 0, "lint_plugin_hashes": 0, "reran_independently": true, "matches_report_json": true },
+  "unresolved_plugin_todo": true,
+  "structure_vs_ground_truth": { "ground_truth_nodes": { "start": 1, "llm": 4, "if-else": 1, "variable-aggregator": 1, "end": 1 }, "builder_nodes": { "start": 1, "llm": 3, "end": 1 }, "delta": "dropped if-else + variable-aggregator + 1 llm = allow_diff (not a defect)" },
+  "runnable": false,
+  "runnable_blockers": ["model.provider/name empty on all 3 LLM nodes", "unresolved plugin TODO"],
+  "runtime": "NOT VERIFIED",
+  "genuine_misses": [],
+  "needs_improvement": [
+    { "type": "runnability", "detail": "fill model.provider/name before running (by design, but not runnable as-is)" },
+    { "type": "cosmetic", "detail": "input labels equal variable names; bilingual labels (like #1) would be nicer" }
+  ],
+  "verdict": "PASS (Tier-1), high quality — process followed procedure across all 3 phases, no drift, implementation matches spec 100%, 3/3 must_do met. Output quality UNVERIFIED until a manual run is graded (Tier-2)."
+}

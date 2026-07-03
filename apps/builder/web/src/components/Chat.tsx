@@ -156,6 +156,28 @@ function gateView(t: WireTask): GateView {
       title: tf('gateImportTitle', { file: t.workflowFile }),
       meta, summary, showReportLink: true };
   }
+  // spec 032: the live-test verdict gate — show the verdict, the auto-filled model, an output preview,
+  // and the app link so the human can judge the real result (never auto-passed).
+  if (t.gate?.flag === 'test_result') {
+    const lt = t.liveTest;
+    const pass = lt?.verdict === 'passed';
+    const summary: string[] = [];
+    if (lt?.reason) summary.push(lt.reason);
+    if (lt?.model) summary.push(tf('gateLiveModel', { model: lt.model.name, n: String(lt.modelAutofilled ?? 0) }));
+    if (lt?.output != null) {
+      const out = typeof lt.output === 'string' ? lt.output : JSON.stringify(lt.output);
+      summary.push(tf('gateLiveOutput', { out: out.length > 400 ? out.slice(0, 400) + '…' : out }));
+    }
+    if (lt?.appUrl) summary.push(tf('gateLiveApp', { url: lt.appUrl }));
+    return { tone: pass ? 'done' : 'warn', badge: pass ? tr('gateLivePassBadge') : tr('gateLiveFailBadge'),
+      title: pass ? tr('gateLivePassTitle') : tr('gateLiveFailTitle'), meta, summary, showReportLink: true };
+  }
+  // spec 032 D1c: live couldn't run for an infra reason — the static lint result stands.
+  if (t.gate?.flag === 'infra_degraded') {
+    const lt = t.liveTest;
+    return { tone: 'warn', badge: tr('gateLiveInfraBadge'), title: tr('gateLiveInfraTitle'), meta,
+      summary: [lt?.reason ?? tr('gateLiveInfraSummary'), tr('gateLiveStaticStands')], showReportLink: true };
+  }
   switch (t.phase) {
     case 'analyze': {
       // O2 (spec 019): surface the chosen pattern + any pattern-coverage advisory at the Analyze gate.
@@ -164,9 +186,14 @@ function gateView(t: WireTask): GateView {
       if (t.analysisPattern) lines.unshift(tf('gatePattern', { pattern: t.analysisPattern }));
       return { tone: '', badge: tr('gateAnalyzeBadge'), title: tr('gateAnalyzeTitle'), meta, summary: lines };
     }
-    case 'spec':
-      return { tone: '', badge: tr('gateSpecBadge'), title: tr('gateSpecTitle'), meta,
-        summary: [tr('gateSpecSummary1')], showSpecLink: true };
+    case 'spec': {
+      // spec 028 §5: a fast build's auto+guard hard-stop surfaces its review note leading the summary,
+      // so the human sees "non-trivial shape — review" before confirming the (possibly under-built) spec.
+      const lines = [tr('gateSpecSummary1')];
+      if (t.fastReviewNote) lines.unshift(t.fastReviewNote);
+      return { tone: t.fastReviewNote ? 'warn' : '', badge: tr('gateSpecBadge'), title: tr('gateSpecTitle'), meta,
+        summary: lines, showSpecLink: true };
+    }
     case 'implement':
       return { tone: '', badge: tr('gateImplBadge'), title: tr('gateImplTitle'), meta,
         summary: slugLine([tr('gateImplSummary1')]), showDiffLink: true };
@@ -288,13 +315,16 @@ export function GateCard({ task, resolved, busy, onConfirm, onReply, onCancel, o
 }
 
 /* ---- setting dropdown (below-input run settings, AC #14) ---- */
-function SettingSelect({ icon, label, value, options, onChange, mono, disabled, title }: {
+function SettingSelect({ icon, label, value, options, onChange, mono, shrink, disabled, title }: {
   icon?: VNode;
   label: string;
   value: string;
   options: { v: string; l: string }[];
   onChange: (v: string) => void;
   mono?: boolean;
+  /** The one chip allowed to shrink+truncate on a full row (the workflow slug). Fixed-label chips omit
+   *  it so they hold their natural width and never clip, keeping attach/send on the same row. */
+  shrink?: boolean;
   /** F2 (spec 010): a read-only chip (Workflow/Deploy in conversation view — start-bound, not patchable). */
   disabled?: boolean;
   title?: string;
@@ -309,7 +339,7 @@ function SettingSelect({ icon, label, value, options, onChange, mono, disabled, 
   }, [open]);
   const sel = options.find((o) => o.v === value);
   return (
-    <div className="setting-select" ref={ref} style={{ position: 'relative' }}>
+    <div className={'setting-select' + (shrink ? ' shrink' : '')} ref={ref} style={{ position: 'relative' }}>
       <button className={'setting-chip' + (mono ? ' mono' : '') + (disabled ? ' disabled' : '')}
         onClick={() => { if (!disabled) setOpen((o) => !o); }} type="button"
         disabled={disabled} title={disabled ? (title ?? tr('setAtStart')) : undefined}>
@@ -342,8 +372,9 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
   onSend: () => void;
   settings: Settings;
   onSettings: (patch: Partial<Settings>) => void;
-  /** existing workflow slugs from /api/tree, lazily lists in the Workflow dropdown (AC #14). */
-  workflows?: string[];
+  /** spec 030: existing workflows from /api/tree as `{ v: 'project/workflow', l: 'Project / Workflow' }`
+   *  (project-qualified — the same name can exist in several projects). Lists in the Workflow dropdown (AC #14). */
+  workflows?: { v: string; l: string }[];
   placeholder: string;
   disabled?: boolean;
   /** F2 (spec 010): conversation view — Workflow + Deploy are start-bound (read-only); only Confirm is
@@ -360,17 +391,25 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
-  // Auto-grow the textarea to fit its content. Recompute on value changes AND on window
-  // resize, since soft-wrapping (hence the line count, hence the height) depends on width.
-  useEffect(() => {
+  // Auto-grow the textarea to fit its content. `autosize` resets height then reads scrollHeight.
+  // We call it on every `input` (live — incl. mid-IME composition) so the box grows AS you wrap,
+  // AND on value/resize changes, since soft-wrapping (line count → height) depends on width.
+  const autosize = () => {
     const el = ref.current; if (!el) return;
-    const autosize = () => { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 180) + 'px'; };
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+  };
+  useEffect(() => {
     autosize();
     window.addEventListener('resize', autosize);
     return () => window.removeEventListener('resize', autosize);
   }, [value]);
   const ready = value.trim().length > 0 && !disabled;
   const onKeyDown: JSX.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
+    // IME guard: while composing (e.g. picking a kanji from the JP candidate list),
+    // Enter confirms the candidate — it must NOT submit. `isComposing` is the standard
+    // signal; keyCode 229 covers Safari/older IMEs that don't set it (spec: JP input).
+    if (e.isComposing || (e as unknown as { keyCode: number }).keyCode === 229) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (ready) onSend(); }
   };
 
@@ -394,14 +433,14 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
     e.preventDefault(); setDragOver(true);
   };
 
-  const workflowOpts = [{ v: 'none', l: tr('noneNew') }, ...(workflows ?? []).map((w) => ({ v: w, l: w }))];
+  const workflowOpts = [{ v: 'none', l: tr('noneNew') }, ...(workflows ?? [])];
   const atts = files ?? [];
 
   return (
     <div className={'composer' + (dragOver ? ' drag-over' : '')}
       onDrop={onDrop} onDragOver={onDragOver} onDragLeave={() => setDragOver(false)}>
       {dragOver && (
-        <div className="composer-drop-hint"><I.image />{tr('dropFiles')}</div>
+        <div className="composer-drop-hint"><I.paperclip />{tr('dropFiles')}</div>
       )}
       {atts.length > 0 && (
         <div className="composer-attachments">
@@ -424,11 +463,13 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
       )}
       <textarea ref={ref} className="composer-input" rows={1}
         placeholder={placeholder} value={value} disabled={disabled}
-        onChange={(e) => onChange(e.currentTarget.value)}
+        /* preact maps onChange → the native `change` event (fires on blur, not per keystroke),
+           so the value must commit on `input` — otherwise `ready`/autosize only update on blur. */
+        onInput={(e) => { onChange(e.currentTarget.value); autosize(); }}
         onKeyDown={onKeyDown} onPaste={onPaste}
       />
       <div className="composer-row">
-        <SettingSelect mono icon={<I.sliders style={{ width: 12, height: 12 }} />} label={tr('workflow')}
+        <SettingSelect mono shrink icon={<I.sliders style={{ width: 12, height: 12 }} />} label={tr('workflow')}
           value={settings.workflow} options={workflowOpts} onChange={(v) => onSettings({ workflow: v })}
           disabled={lockStartBound} title={tr('workflowFixed')} />
         <SettingSelect label={tr('confirm')} value={settings.confirm}
@@ -439,6 +480,17 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
           options={[{ v: 'none', l: tr('none') }, { v: 'selfhost', l: tr('selfhost') }, { v: 'cloud', l: tr('cloud') }]}
           onChange={(v) => onSettings({ deploy: v })}
           disabled={lockStartBound} title={tr('deployFixed')} />
+        {/* spec 028: ⚡ Fast build — start-bound (like deploy) and only for a from-scratch build
+            (disabled when an existing workflow is chosen; the backend also force-offs on seed/slug). */}
+        <SettingSelect label={tr('fast')} value={settings.fast ? 'on' : 'off'}
+          options={[{ v: 'off', l: tr('fastOff') }, { v: 'on', l: tr('fastOn') }]}
+          onChange={(v) => onSettings({ fast: v === 'on' })}
+          disabled={lockStartBound || settings.workflow !== 'none'} title={tr('fastHint')} />
+        {/* spec 032: ④ test mode — start-bound, selfhost-only (backend force-offs to static otherwise). */}
+        <SettingSelect label={tr('testMode')} value={settings.deploy === 'selfhost' ? (settings.test ?? 'static') : 'static'}
+          options={[{ v: 'static', l: tr('testStatic') }, { v: 'live', l: tr('testLive') }]}
+          onChange={(v) => onSettings({ test: v })}
+          disabled={lockStartBound || settings.deploy !== 'selfhost'} title={tr('testHint')} />
         <span className="spacer" />
         {onAddFiles && (
           <>
@@ -448,7 +500,7 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
             <button className="composer-attach" type="button" disabled={!canAttach}
               aria-label={tr('attachFile')} title={tr('attachFile')}
               onClick={() => fileRef.current?.click()}>
-              <I.image />
+              <I.paperclip />
             </button>
           </>
         )}

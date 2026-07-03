@@ -28,8 +28,9 @@ export async function runImportAndFinish(task: Task, ctx: OrchestratorCtx): Prom
   task.error = undefined;
   await emit(task, ctx);
 
-  const slug = task.slug!;
-  const appName = task.name ?? slug;
+  const project = task.project!;
+  const workflowSlug = task.workflowSlug!;
+  const appName = task.name ?? workflowSlug;
 
   const creds = difyCreds();
   if (!creds.url || !creds.token) {
@@ -57,8 +58,8 @@ export async function runImportAndFinish(task: Task, ctx: OrchestratorCtx): Prom
     }
   } else {
     // Fresh import: write the marker BEFORE the push (the guard keys off the PRE-push marker, §I).
-    await writePushIntent(projectsDir, task.taskId, { slug, file: task.workflowFile, appName, appId: null });
-    const push = await pushApp(projectsDir, slug, task.workflowFile, appName);
+    await writePushIntent(projectsDir, task.taskId, { project, workflowSlug, file: task.workflowFile, appName, appId: null });
+    const push = await pushApp(projectsDir, project, workflowSlug, task.workflowFile, appName);
     // --json-out is PRIMARY; on absence/crash, reconcile by slugified name (D6: exactly-one match, else
     // ambiguous — never a silent newest-pick that could attach the wrong app).
     if (push.appId) {
@@ -83,7 +84,7 @@ export async function runImportAndFinish(task: Task, ctx: OrchestratorCtx): Prom
   const appUrl = appId ? appUrlFrom(creds.url, appId) : null;
   task.appId = appId;
   task.appUrl = appUrl;
-  await writePushIntent(projectsDir, task.taskId, { slug, file: task.workflowFile, appName, appId });
+  await writePushIntent(projectsDir, task.taskId, { project, workflowSlug, file: task.workflowFile, appName, appId });
 
   // Push ALWAYS makes a NEW app → editing an existing workflow silently DUPLICATES (spec footgun).
   const duplicateWarning = task.workflow

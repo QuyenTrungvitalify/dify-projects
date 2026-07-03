@@ -211,5 +211,58 @@ def test_non_list_nodes_errors_not_crash(tmp_path: Path) -> None:
     assert _has(errors, "'nodes' must be a list"), errors
 
 
+# ── advanced-chat (chatflow) mode: terminates at an 'answer' node, not 'end' ─────────────────────
+
+def _chatflow(nodes: list) -> dict:
+    return {
+        "kind": "app",
+        "version": "0.6.0",
+        "app": {"name": "t", "mode": "advanced-chat"},
+        "workflow": {"graph": {"nodes": nodes, "edges": []}},
+    }
+
+
+def test_advanced_chat_with_answer_passes(tmp_path: Path) -> None:
+    """A chatflow (mode advanced-chat) ending at an 'answer' node is valid — no end node required."""
+    wf = _chatflow([
+        {"id": "1000000000001", "data": {"type": "start", "variables": []}},
+        {"id": "1000000000004", "data": {"type": "answer", "answer": "hi"}},
+    ])
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert is_valid, errors
+    assert not _has(errors, "app mode")
+    assert not _has(errors, "'end' node")
+
+
+def test_advanced_chat_without_answer_errors(tmp_path: Path) -> None:
+    """A chatflow with no 'answer' node fails (the chatflow analogue of the missing-'end' rule)."""
+    wf = _chatflow([{"id": "1000000000001", "data": {"type": "start", "variables": []}}])
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert not is_valid
+    assert _has(errors, "'answer' node"), errors
+
+
+def test_workflow_mode_still_requires_end(tmp_path: Path) -> None:
+    """Regression guard: workflow mode is unchanged — an 'answer' node does NOT satisfy it."""
+    wf = {
+        "kind": "app", "version": "0.6.0", "app": {"name": "t", "mode": "workflow"},
+        "workflow": {"graph": {"nodes": [
+            {"id": "1000000000001", "data": {"type": "start", "variables": []}},
+            {"id": "1000000000004", "data": {"type": "answer", "answer": "hi"}},
+        ], "edges": []}},
+    }
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert not is_valid
+    assert _has(errors, "'end' node"), errors
+
+
+def test_unknown_mode_still_rejected(tmp_path: Path) -> None:
+    wf = _chatflow([{"id": "1000000000001", "data": {"type": "start", "variables": []}}])
+    wf["app"]["mode"] = "completion"
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert not is_valid
+    assert _has(errors, "app mode"), errors
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

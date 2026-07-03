@@ -15,7 +15,14 @@ import type { Deploy, Gate, GateAction, Phase } from '../state/task.js';
 
 /** Verify outcome the orchestrator resolves before gating. `awaiting_import` is the Lát-5 ④ state:
  *  selfhost lint is clean but the import hasn't run yet → present the Import button (AC #16). */
-export type GateOutcome = 'success' | 'error' | 'still_failing' | 'awaiting_import';
+export type GateOutcome =
+  | 'success'
+  | 'error'
+  | 'still_failing'
+  | 'awaiting_import'
+  // Spec 032 live-test ④ verdicts (produced by runLiveTest, never by the static path):
+  | 'test_result' // ran + verified → human confirms/rejects the result (auto hard-stops on fail, B4)
+  | 'infra_degraded'; // couldn't run for an infra reason → degrade-to-static confirm (D1c)
 export interface GateVerify {
   outcome: GateOutcome;
 }
@@ -53,7 +60,7 @@ const ERROR_GATE: Gate = { actions: [REPLY('retry', 'Retry phase')] };
  * a clean selfhost ④ pauses at `awaiting_import` with an Import action (AC #16); `none`/`cloud`
  * ④-success is terminal with no actions.
  */
-export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy): Gate {
+export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy, liveAvailable = false): Gate {
   if (verify.outcome === 'error') return { actions: [...ERROR_GATE.actions] };
 
   switch (phase) {
@@ -89,6 +96,10 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy): 
       return {
         actions: [
           CONFIRM('continue', 'Continue to Test'),
+          // Spec 032 D1(a): when live is available (deploy=selfhost + creds), offer a second confirm to
+          // run the workflow for real. `continue` stays FIRST (the safe static default); auto+live picks
+          // `test_live` in maybeAutoAdvance by testMode, not by order.
+          ...(liveAvailable ? [CONFIRM('test_live', 'Test với workflow')] : []),
           REPLY('changes', 'Request changes'),
           DISCARD(), // F1: dismiss a build parked at a clean Implement
         ],
@@ -119,6 +130,34 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy): 
             DISCARD(), // F1: dismiss a build parked at the selfhost Import gate (the linted .yml stays on disk)
           ],
           flag: 'awaiting_import',
+        };
+      }
+      if (verify.outcome === 'test_result') {
+        // Spec 032 §5 — the live-test verdict gate: the workflow ran + was verified; the human confirms
+        // or iterates. `auto` HARD-STOPS here (flag `test_result`) — it only reaches this gate on a
+        // fail/subjective result (a clean auto pass finishes in runLiveTest without parking). Actions:
+        // accept→done · changes→/reply fix · test_live→re-import & re-run the fix · discard.
+        return {
+          actions: [
+            CONFIRM('accept', 'Accept result'),
+            REPLY('changes', 'Request changes'),
+            CONFIRM('test_live', 'Re-test'),
+            DISCARD(),
+          ],
+          flag: 'test_result',
+        };
+      }
+      if (verify.outcome === 'infra_degraded') {
+        // Spec 032 D1c — live couldn't run for an INFRA reason (Dify down / 0 model / API error), NOT a
+        // workflow fault. The static lint result stands (PASS); offer to retry live or accept the static
+        // result. `auto` HARD-STOPS (flag `infra_degraded`) rather than silently finishing.
+        return {
+          actions: [
+            CONFIRM('retry_live', 'Retry live'),
+            CONFIRM('accept_static', 'Accept static'),
+            DISCARD(),
+          ],
+          flag: 'infra_degraded',
         };
       }
       // ④ success with deploy=none|cloud (or a completed selfhost import) is terminal — no actions.

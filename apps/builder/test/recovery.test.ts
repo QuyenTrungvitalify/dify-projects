@@ -34,7 +34,7 @@ async function seedTask(dir: string, taskId: string): Promise<Task> {
   const task = {
     taskId, project: 'p', workflow: null, workflowFile: 'main.yml', requirement: 'r',
     seedPath: null, seedAppId: null, deploy: 'selfhost', appId: null, appUrl: null,
-    confirmMode: 'each_step', phase: 'test', status: 'error', slug: 'p', name: 'App',
+    confirmMode: 'each_step', phase: 'test', status: 'error', workflowSlug: 'wf', name: 'App',
     sessionIds: {}, artifacts: {},
   } as unknown as Task;
   await saveTask(dir, task);
@@ -44,10 +44,10 @@ async function seedTask(dir: string, taskId: string): Promise<Task> {
 describe('push_intent round-trip (013 D3 / C3)', () => {
   test('write → read returns the same intent; clear removes it', async () => {
     const dir = tmp();
-    await writePushIntent(dir, '1', { slug: 'p', file: 'main.yml', appName: 'App', appId: null });
-    assert.deepEqual(await readPushIntent(dir, '1'), { slug: 'p', file: 'main.yml', appName: 'App', appId: null });
+    await writePushIntent(dir, '1', { project: 'p', workflowSlug: 'wf', file: 'main.yml', appName: 'App', appId: null });
+    assert.deepEqual(await readPushIntent(dir, '1'), { project: 'p', workflowSlug: 'wf', file: 'main.yml', appName: 'App', appId: null });
 
-    await writePushIntent(dir, '1', { slug: 'p', file: 'main.yml', appName: 'App', appId: 'abc' });
+    await writePushIntent(dir, '1', { project: 'p', workflowSlug: 'wf', file: 'main.yml', appName: 'App', appId: 'abc' });
     assert.equal((await readPushIntent(dir, '1'))?.appId, 'abc', 'appId written back');
 
     await clearPushIntent(dir, '1');
@@ -56,12 +56,12 @@ describe('push_intent round-trip (013 D3 / C3)', () => {
 
   test('write is atomic: no .tmp residue, overwrite never leaves a torn marker (spec 014 D3)', async () => {
     const dir = tmp();
-    await writePushIntent(dir, '3', { slug: 'p', file: 'main.yml', appName: 'App', appId: null });
+    await writePushIntent(dir, '3', { project: 'p', workflowSlug: 'wf', file: 'main.yml', appName: 'App', appId: null });
     // temp+rename: the staging file must NOT survive and the marker must be complete valid JSON.
     assert.equal(existsSync(markerPath(dir, '3') + '.tmp'), false, 'no .tmp staging file left behind');
-    assert.deepEqual(await readPushIntent(dir, '3'), { slug: 'p', file: 'main.yml', appName: 'App', appId: null });
+    assert.deepEqual(await readPushIntent(dir, '3'), { project: 'p', workflowSlug: 'wf', file: 'main.yml', appName: 'App', appId: null });
     // overwriting (id written back) is likewise clean — rename replaces in place, no torn read.
-    await writePushIntent(dir, '3', { slug: 'p', file: 'main.yml', appName: 'App', appId: 'xyz' });
+    await writePushIntent(dir, '3', { project: 'p', workflowSlug: 'wf', file: 'main.yml', appName: 'App', appId: 'xyz' });
     assert.equal(existsSync(markerPath(dir, '3') + '.tmp'), false, 'no .tmp after overwrite');
     assert.equal((await readPushIntent(dir, '3'))?.appId, 'xyz');
   });
@@ -79,7 +79,7 @@ describe('reconcilePushIntents — reconcile, NEVER re-push (013 D3 / AC #25)', 
   test('marker without appId + Dify list unavailable → task annotated, marker left appId:null', async () => {
     const dir = tmp();
     await seedTask(dir, '100');
-    await writePushIntent(dir, '100', { slug: 'p', file: 'main.yml', appName: 'App', appId: null });
+    await writePushIntent(dir, '100', { project: 'p', workflowSlug: 'wf', file: 'main.yml', appName: 'App', appId: null });
 
     // reconcileAppIdByName shells `.venv/bin/python sync.py list` → ENOENT in a bare tmpdir → null,
     // so the recover path can't find an id. It must NOT fabricate one nor re-push.
@@ -94,7 +94,7 @@ describe('reconcilePushIntents — reconcile, NEVER re-push (013 D3 / AC #25)', 
   test('marker without appId + AMBIGUOUS reconcile (≥2 same-named) → "verify in Dify", appId NOT attached (D6)', async () => {
     const dir = tmp();
     await seedTask(dir, '150');
-    await writePushIntent(dir, '150', { slug: 'p', file: 'main.yml', appName: 'App', appId: null });
+    await writePushIntent(dir, '150', { project: 'p', workflowSlug: 'wf', file: 'main.yml', appName: 'App', appId: null });
 
     // inject a reconcile that reports ambiguity (the real path shells `sync.py list` → ≥2 name matches).
     await reconcilePushIntents(dir, log, async () => ({ appId: null, ambiguous: true }));
@@ -111,7 +111,7 @@ describe('reconcilePushIntents — reconcile, NEVER re-push (013 D3 / AC #25)', 
     const task = await seedTask(dir, '200');
     task.error = 'original error';
     await saveTask(dir, task);
-    await writePushIntent(dir, '200', { slug: 'p', file: 'main.yml', appName: 'App', appId: 'already-here' });
+    await writePushIntent(dir, '200', { project: 'p', workflowSlug: 'wf', file: 'main.yml', appName: 'App', appId: 'already-here' });
 
     await reconcilePushIntents(dir, log);
 

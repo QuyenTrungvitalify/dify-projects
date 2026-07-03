@@ -13,6 +13,15 @@ import { postTurnCheck as realPostTurnCheck } from './post-turn.js';
 import { runPython as realRunPython } from './shell.js';
 import { runTurn as realRunTurn } from './turn-runner.js';
 import { runReport as realRunReport } from './report.js';
+import {
+  resolveLlmModels as realResolveLlmModels,
+  deployWithModel as realDeployWithModel,
+  importForTest as realImportForTest,
+  mintAppKey as realMintAppKey,
+  publishWorkflow as realPublishWorkflow,
+  runWorkflow as realRunWorkflow,
+  deleteApp as realDeleteApp,
+} from './dify-io.js';
 import { saveTask, type Task } from '../state/task.js';
 
 /**
@@ -30,6 +39,20 @@ export interface OrchestratorRunners {
   runPython: typeof realRunPython;
   runReport: typeof realRunReport;
   postTurnCheck: typeof realPostTurnCheck;
+  /** Spec 032: the live-test Dify ops (each shells sync.py). Tests inject fakes here to drive
+   *  runLiveTest without a real Dify; absent ⇒ the real dify-io impls. */
+  liveOps?: Partial<LiveOps>;
+}
+
+/** Spec 032 (S3-wiring-b) — the injectable live-test Dify ops seam (resolved by {@link resolveLiveOps}). */
+export interface LiveOps {
+  resolveLlmModels: typeof realResolveLlmModels;
+  deployWithModel: typeof realDeployWithModel;
+  importForTest: typeof realImportForTest;
+  mintAppKey: typeof realMintAppKey;
+  publishWorkflow: typeof realPublishWorkflow;
+  runWorkflow: typeof realRunWorkflow;
+  deleteApp: typeof realDeleteApp;
 }
 
 export interface OrchestratorCtx {
@@ -48,10 +71,12 @@ export interface OrchestratorCtx {
   runners?: Partial<OrchestratorRunners>;
 }
 
-/** A user-edited slug/name carried on the ②→③ `/confirm` (AC #18). */
+/** A user-edited slug/name carried on the ②→③ `/confirm` (AC #18). Spec 032: `deleteOldApp` rides a
+ *  live re-test `/confirm` (the "🗑 delete old test app" checkbox, Q3). */
 export interface ConfirmPayload {
   slug?: string;
   name?: string;
+  deleteOldApp?: boolean;
 }
 
 /** Resolve the runner seams once: each falls back to its real impl when not injected. */
@@ -62,6 +87,20 @@ export function resolveRunners(ctx: OrchestratorCtx): OrchestratorRunners {
     runPython: r.runPython ?? realRunPython,
     runReport: r.runReport ?? realRunReport,
     postTurnCheck: r.postTurnCheck ?? realPostTurnCheck,
+  };
+}
+
+/** Resolve the live-test Dify ops (spec 032): each falls back to its real dify-io impl when not injected. */
+export function resolveLiveOps(ctx: OrchestratorCtx): LiveOps {
+  const o = ctx.runners?.liveOps ?? {};
+  return {
+    resolveLlmModels: o.resolveLlmModels ?? realResolveLlmModels,
+    deployWithModel: o.deployWithModel ?? realDeployWithModel,
+    importForTest: o.importForTest ?? realImportForTest,
+    mintAppKey: o.mintAppKey ?? realMintAppKey,
+    publishWorkflow: o.publishWorkflow ?? realPublishWorkflow,
+    runWorkflow: o.runWorkflow ?? realRunWorkflow,
+    deleteApp: o.deleteApp ?? realDeleteApp,
   };
 }
 

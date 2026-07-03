@@ -5,7 +5,6 @@
 project:
   name: "{{project_name}}"
   slug: "{{project_slug}}"
-  group: "{{group}}"
   app_type: "{{app_type}}"
   dsl_version: "{{dsl_version}}"
   dify_tag: "{{dify_tag}}"

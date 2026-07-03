@@ -22,7 +22,7 @@ imported into a Dify workspace. Source pin: `.dify-tag` = `1.13.0`. DSL pin: `.d
 - Read [docs/GUIDE.md](docs/GUIDE.md) section 3 ("Anatomy của 1 Dify Workflow YAML") if you have not seen Dify DSL.
 - If `skills/` or `corpus/` or `vendor/` is missing/empty, run `./scripts/setup.sh` — they are gitignored read-only clones.
 - Identify the target project: `ls projects/`. If creating new, use `init_project.py` (do not hand-create the folder).
-- Read the project's DSL version: `cat projects/<slug>/.dify-workspace.yaml`. Fallback: `.dify-dsl-version` at repo root.
+- Read the project's DSL version: `cat projects/<project>/.dify-workspace.yaml`. Fallback: `.dify-dsl-version` at repo root.
 - **Never edit** anything under `skills/`, `corpus/`, or `vendor/` — they are external clones, changes will be wiped by `setup.sh`.
 
 ## 3. Building a new workflow — exact 5-step sequence
@@ -39,19 +39,19 @@ All commands run from repo root. Use `.venv/bin/python` (created by `./scripts/s
 # 2. Find the closest existing pattern (filter by feature).
 .venv/bin/python tools/dify_base/find.py --has iteration --has file-input
 .venv/bin/python tools/dify_base/find.py --list-features    # see all features
-# Priority order: templates/patterns/ > projects/*/workflows/ > corpus/ > skills/*/assets/
+# Priority order: templates/patterns/ > projects/*/*/workflows/ > corpus/ > skills/*/assets/
 
 # 3. Generate node IDs (Unix-timestamp-ms strings, guaranteed unique).
 .venv/bin/python skills/mango-svip/scripts/generate_id.py 7
 
 # 4. Copy chosen pattern into your project, then customize all # TODO: markers.
-cp templates/patterns/multi-step-llm.yml projects/<slug>/workflows/main.yml
+cp templates/patterns/multi-step-llm.yml projects/<project>/<workflow>/workflows/main.yml
 #    Edit: app.name, app.description, node IDs (find&replace), prompts,
 #    variable references {{#<node_id>.<field>#}}, plugin dependencies.
 
 # 5. Validate (structure + schema). Pre-commit will re-run these on git commit.
-.venv/bin/python tools/dify_base/validate_workflow.py projects/<slug>/workflows/main.yml
-.venv/bin/pre-commit run --files projects/<slug>/workflows/main.yml
+.venv/bin/python tools/dify_base/validate_workflow.py projects/<project>/<workflow>/workflows/main.yml
+.venv/bin/pre-commit run --files projects/<project>/<workflow>/workflows/main.yml
 ```
 
 ## 4. Conventions agents trip on
@@ -119,8 +119,8 @@ The hash changes when the plugin is upgraded in the workspace. If you see a "plu
 grep -A 30 "^### .*<node_type>" skills/mango-svip/references/node_types.md
 
 # What's the current state of a project?
-ls projects/<slug>/workflows/
-cat projects/<slug>/.dify-workspace.yaml
+ls projects/<project>/<workflow>/workflows/
+cat projects/<project>/.dify-workspace.yaml
 
 # Diff local vs remote Dify workspace (requires DIFY_CONSOLE_TOKEN in envs/dev.env).
 .venv/bin/python tools/dify_base/sync.py diff --project <slug>
@@ -138,7 +138,7 @@ All assumed to run from repo root.
 # Unit + harness tests (skips cleanly without Dify creds).
 .venv/bin/pytest tests/
 
-# Project-scoped harness tests (loads projects/<slug>/envs/dev.env).
+# Project-scoped harness tests (loads projects/<project>/envs/dev.env).
 DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 
 # Pre-commit on all files (yamllint + JSON Schema + skill validator + DSL version guard).
@@ -175,7 +175,7 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 | Project scaffold skeleton | [templates/_base/project/](templates/_base/project/) |
 | JSON Schema (DSL v0.6.0) | [schemas/dify-dsl-0.6.0.json](schemas/dify-dsl-0.6.0.json) |
 | Schema generator (regen on Dify upgrade) | [schemas/gen_schema.py](schemas/gen_schema.py) |
-| Project scaffolder | [tools/dify_base/init_project.py](tools/dify_base/init_project.py) — `--group` sets the optional `project.group` sub-key (app sidebar grouping) |
+| Project scaffolder | [tools/dify_base/init_project.py](tools/dify_base/init_project.py) — `--kind project` scaffolds `projects/<project>/` (manifest + envs); `--kind workflow --project <p>` scaffolds `projects/<project>/<workflow>/` |
 | Template search | [tools/dify_base/find.py](tools/dify_base/find.py) |
 | GitOps sync (pull/push/diff) | [tools/dify_base/sync.py](tools/dify_base/sync.py) — `push --json-out` prints the raw import result on one line (machine-readable `app_id`) |
 | Pre-commit config | [.pre-commit-config.yaml](.pre-commit-config.yaml) |
@@ -213,6 +213,6 @@ the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.
 - **Specs**: [009](docs/specs/009-browser-workflow-builder.md) (the app),
   [010](docs/specs/010-builder-ux-hardening.md) (UX hardening),
   [011](docs/specs/011-builder-test-coverage-and-remediation.md) (tests + review remediation).
-- **Builder QA writes scratch projects** to `projects/<slug>/` — gitignored regenerable throwaways
-  (spec 011 R2; `build_index.py` skips gitignored YAMLs). Don't commit them. The hand-made projects
-  `news_automation/` and `eiken_stem_proofread/` are kept and indexed.
+- **Builder QA writes scratch workflows** into the reserved `projects/_drafts/<workflow>/` project
+  (spec 030) — gitignored regenerable throwaways (spec 011 R2; `build_index.py` skips gitignored
+  YAMLs). Don't commit them. Real projects live at `projects/<project>/<workflow>/` and are indexed.

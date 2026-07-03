@@ -1,0 +1,22 @@
+{
+  "taskId": "1782542318045",
+  "slug": "url_web",
+  "ground_truth": "Jina Reader Jinja.yml",
+  "status": "done",
+  "phases": {
+    "analyze": { "process_ok": true, "errors_real": 0, "note": "no workflow file touched; honest from-scratch seed:null; 2 benign shell-metachar rejections" },
+    "spec": { "process_ok": true, "errors_real": 0, "note": "searched patterns; no IDs minted, no YAML; lean reduction justified; 1 benign rejection" },
+    "implement": { "process_ok": true, "errors_real": 0, "note": "minted IDs via generate_id.py; all 3 validators run; 5 benign errors (4 shell-metachar + 1 abs-path allow-set, re-run); no real mid-run fix" },
+    "test": { "process_ok": true, "errors_real": 0, "note": "backend-run; validators re-verified, all exit 0" }
+  },
+  "must_do": [
+    { "item": "accept a URL input", "verdict": "met" },
+    { "item": "fetch the page content (tool or http-request)", "verdict": "met" },
+    { "item": "output a summary of that content", "verdict": "met" }
+  ],
+  "lint": { "validate": 0, "lint_refs": 0, "lint_plugin_hashes": 0 },
+  "runnable": false,
+  "runtime": "NOT VERIFIED",
+  "genuine_misses": [],
+  "verdict": "PASS (Tier-1) — lean, valid, all 3 must_do met; more prompt-faithful than ground truth; runtime unverified pending model+plugin-hash fill"
+}

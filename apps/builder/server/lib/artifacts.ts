@@ -9,13 +9,14 @@
  *   - {@link specPathFor} — the SAME SPEC.md path the orchestrator's §A gate-check uses
  *     (`projects/<slug>/SPEC.md` once a slug exists, else the pre-scaffold `.runs/<taskId>/SPEC.md`),
  *     shared by the GET and the PUT so an in-place edit round-trips to where Implement re-reads it.
- *   - {@link buildTree} — the `project.group → projects/<slug>/ → .runs task` 3-level sidebar tree
- *     (spec §Data model + §Revision Frontend model).
+ *   - {@link buildTree} — the `projects/<project>/ → projects/<project>/<workflow>/ → .runs task`
+ *     3-level sidebar tree, a direct 2-level filesystem walk (spec 030).
  */
 import { existsSync } from 'node:fs';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { runsRoot, type Task } from '../state/task.js';
+import { DRAFTS_PROJECT, runsRoot, workflowDir, type Task } from '../state/task.js';
+import { titleCaseSlug } from './slug.js';
 
 export interface ArtifactContents {
   /** projects/<slug>/SPEC.md or the pre-scaffold .runs/<taskId>/SPEC.md (phase ②, editable). */
@@ -28,11 +29,19 @@ export interface ArtifactContents {
   diff: string | null;
 }
 
-/** Resolve the canonical SPEC.md path for a task — slug-known → project, else pre-scaffold run dir. */
+/** Resolve the canonical SPEC.md path for a task — scaffolded → workflow subtree, else pre-scaffold run dir. */
 export function specPathFor(projectsDir: string, task: Task): string {
-  return task.slug
-    ? join(projectsDir, 'projects', task.slug, 'SPEC.md')
+  const dir = workflowDir(task);
+  return dir
+    ? join(projectsDir, dir, 'SPEC.md')
     : join(projectsDir, 'apps/builder/.runs', task.taskId, 'SPEC.md');
+}
+
+/** Resolve the on-disk workflow YAML path for a task, or null pre-scaffold (not written yet).
+ *  Mirrors the yaml read in {@link readArtifactContents}; used by the "Reveal in Finder" endpoint. */
+export function workflowPathFor(projectsDir: string, task: Task): string | null {
+  const dir = workflowDir(task);
+  return dir ? join(projectsDir, dir, 'workflows', task.workflowFile) : null;
 }
 
 async function readMaybe(abs: string): Promise<string | null> {
@@ -49,9 +58,8 @@ export async function readArtifactContents(
   task: Task
 ): Promise<ArtifactContents> {
   const spec = await readMaybe(specPathFor(projectsDir, task));
-  const yaml = task.slug
-    ? await readMaybe(join(projectsDir, 'projects', task.slug, 'workflows', task.workflowFile))
-    : null;
+  const wfPath = workflowPathFor(projectsDir, task);
+  const yaml = wfPath ? await readMaybe(wfPath) : null;
   let report: unknown | null = null;
   if (task.artifacts.report) {
     const raw = await readMaybe(join(projectsDir, task.artifacts.report));
@@ -87,59 +95,79 @@ export interface TreeTaskNode {
   phase: Task['phase'];
 }
 export interface TreeWorkflowNode {
-  id: string; // slug
+  id: string; // workflow folder name (spec 030)
   name: string;
   tasks: TreeTaskNode[];
 }
 export interface TreeProjectNode {
-  id: string; // group key
+  id: string; // project folder name (spec 030)
   name: string;
   workflows: TreeWorkflowNode[];
 }
 
-interface WorkspaceProject {
-  slug: string;
-  name: string;
-  group: string;
-}
-
 /**
- * Minimal reader for the `project:` mapping in a `.dify-workspace.yaml` — extracts `name`, `slug`,
- * and the optional `group` sub-key (spec §Data model). The files are machine-generated with
- * consistent 2-space indentation, so a scoped block read is sufficient and avoids a YAML dep.
- *
- * This NEVER writes the file (writing a scalar `project:` would crash `regen_vscode_settings.py`,
- * spec §Data model) — it only reads the nested keys. `group` defaults to the slug when absent
- * (ungrouped → the slug is its own Project row, §Revision Frontend model).
+ * Read a single `<parent>:` mapping key from a machine-generated YAML (`.dify-workspace.yaml`'s
+ * `project.name`, or a workflow `main.yml`'s `app.name`). The files use consistent 2-space
+ * indentation, so a scoped block read is sufficient and avoids a YAML dependency. Returns null when
+ * the parent block or the key is absent. Read-only — it NEVER writes.
  */
-function parseWorkspaceProject(yamlText: string, fallbackSlug: string): WorkspaceProject {
+function readNestedScalar(yamlText: string, parent: string, key: string): string | null {
   const lines = yamlText.split('\n');
-  const out: Record<string, string> = {};
-  let inProject = false;
+  let inBlock = false;
   for (const line of lines) {
-    if (/^project:\s*$/.test(line)) {
-      inProject = true;
+    if (new RegExp(`^${parent}:\\s*$`).test(line)) {
+      inBlock = true;
       continue;
     }
-    if (inProject) {
-      // A non-indented, non-empty line ends the project block.
-      if (/^\S/.test(line)) break;
+    if (inBlock) {
+      if (/^\S/.test(line)) break; // a non-indented line ends the block
       const m = line.match(/^\s+([A-Za-z_][\w-]*):\s*(.*)$/);
-      if (m) {
-        const key = m[1];
+      if (m && m[1] === key) {
         let val = m[2].trim();
-        // strip surrounding quotes + trailing inline comment on unquoted scalars
         if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
           val = val.slice(1, -1);
         } else {
           val = val.replace(/\s+#.*$/, '').trim();
         }
-        out[key] = val;
+        return val || null;
       }
     }
   }
-  const slug = out.slug || fallbackSlug;
-  return { slug, name: out.name || slug, group: out.group || slug };
+  return null;
+}
+
+/** Spec 030 D1: the PROJECT display name = `project.name` in `projects/<project>/.dify-workspace.yaml`,
+ *  else a title-cased folder name. */
+function projectDisplayName(manifestText: string | null, projectFolder: string): string {
+  return (manifestText && readNestedScalar(manifestText, 'project', 'name')) || titleCaseSlug(projectFolder);
+}
+
+/** Spec 030 D6: the WORKFLOW display name = the Dify DSL `app.name` in the workflow's `main.yml`
+ *  (else the first `*.yml` in workflows/), falling back to a title-cased folder name when absent
+ *  or the YAML is broken. */
+async function workflowDisplayName(wfAbs: string, wfFolder: string): Promise<string> {
+  const wfDir = join(wfAbs, 'workflows');
+  if (existsSync(wfDir)) {
+    let files: string[];
+    try {
+      files = (await readdir(wfDir)).filter((f) => /\.ya?ml$/i.test(f));
+    } catch {
+      files = [];
+    }
+    // Prefer main.yml (the from-scratch convention); else the first yaml (a Dify-seed pull).
+    const pick = files.includes('main.yml') ? 'main.yml' : files.sort()[0];
+    if (pick) {
+      const text = await readMaybe(join(wfDir, pick));
+      const name = text && readNestedScalar(text, 'app', 'name');
+      if (name) return name;
+    }
+  }
+  return titleCaseSlug(wfFolder);
+}
+
+/** At the PROJECT level, these entries are NOT workflow folders (D1/D2 shared config + dotfiles). */
+function isReservedProjectEntry(name: string): boolean {
+  return name === 'envs' || name === 'README.md' || name.startsWith('.');
 }
 
 /** ms-timestamp taskId → coarse "now" relative label (spec sidebar shows a short age, not a clock). */
@@ -202,28 +230,20 @@ export async function listActiveTasks(projectsDir: string, nowMs: number): Promi
 }
 
 /**
- * Build the Project ▸ Workflow ▸ Task tree (spec §Data model). Scans each
- * `projects/<slug>/.dify-workspace.yaml` for the workflow rows (grouped by `project.group`), then
- * attaches each `.runs/<taskId>/task.json`
- * to its workflow by `task.slug`. Slug-less tasks (a new build still pre-scaffold) collect under a
- * synthetic "Drafts" project so the active build is always visible in the sidebar.
+ * Spec 030 — build the Project ▸ Workflow ▸ Task tree as a DIRECT 2-level read of the filesystem:
+ * `projects/<project>/` are the Project rows, `projects/<project>/<workflow>/` (a dir with a
+ * `workflows/` inside) are the Workflow rows. There is no more `project.group` grouping — the folder
+ * IS the group. Tasks attach by their `(project, workflowSlug)` pair. A task with no folder yet
+ * (pre-scaffold, or a raced/removed dir) is surfaced (under its project if it exists on disk, else the
+ * `_drafts` project) so an in-flight build is never stranded.
  */
 export async function buildTree(projectsDir: string, nowMs: number): Promise<TreeProjectNode[]> {
-  // 1. Workflows from projects/<slug>/ (+ their workspace group).
-  const projectsRoot = join(projectsDir, 'projects');
-  const workflowBySlug = new Map<string, WorkspaceProject>();
-  if (existsSync(projectsRoot)) {
-    for (const slug of await readdir(projectsRoot)) {
-      const wsPath = join(projectsRoot, slug, '.dify-workspace.yaml');
-      if (!existsSync(wsPath)) continue;
-      const text = await readMaybe(wsPath);
-      workflowBySlug.set(slug, text ? parseWorkspaceProject(text, slug) : { slug, name: slug, group: slug });
-    }
-  }
+  const byTaskIdDesc = (a: TreeTaskNode, b: TreeTaskNode): number => Number(b.id) - Number(a.id);
+  const keyOf = (project: string, workflow: string): string => `${project}/${workflow}`;
 
-  // 2. Tasks from .runs/<taskId>/task.json, bucketed by slug.
-  const tasksBySlug = new Map<string, TreeTaskNode[]>();
-  const drafts: TreeTaskNode[] = [];
+  // 1. Tasks from .runs/<taskId>/task.json, bucketed by the (project, workflowSlug) pair.
+  const tasksByKey = new Map<string, TreeTaskNode[]>();
+  const drafts: TreeTaskNode[] = []; // pre-scaffold (project/workflowSlug null) → still visible
   const root = runsRoot(projectsDir);
   if (existsSync(root)) {
     for (const taskId of await readdir(root)) {
@@ -244,48 +264,87 @@ export async function buildTree(projectsDir: string, nowMs: number): Promise<Tre
         status: task.status,
         phase: task.phase,
       };
-      if (task.slug) {
-        const arr = tasksBySlug.get(task.slug) ?? [];
-        arr.push(node);
-        tasksBySlug.set(task.slug, arr);
+      if (task.project && task.workflowSlug) {
+        const k = keyOf(task.project, task.workflowSlug);
+        (tasksByKey.get(k) ?? tasksByKey.set(k, []).get(k)!).push(node);
       } else {
         drafts.push(node);
       }
     }
   }
 
-  const byTaskIdDesc = (a: TreeTaskNode, b: TreeTaskNode): number => Number(b.id) - Number(a.id);
+  // 2. Walk projects/<project>/<workflow>/ two levels deep → the real tree.
+  const projectsRoot = join(projectsDir, 'projects');
+  const projects = new Map<string, TreeProjectNode>();
+  const claimedKeys = new Set<string>();
+  const getProject = (folder: string, name: string): TreeProjectNode => {
+    let p = projects.get(folder);
+    if (!p) {
+      p = { id: folder, name, workflows: [] };
+      projects.set(folder, p);
+    }
+    return p;
+  };
 
-  // 3. Group workflows by project.group.
-  const groups = new Map<string, TreeProjectNode>();
-  for (const wp of workflowBySlug.values()) {
-    const tasks = (tasksBySlug.get(wp.slug) ?? []).sort(byTaskIdDesc);
-    const wf: TreeWorkflowNode = { id: wp.slug, name: wp.name, tasks };
-    const proj = groups.get(wp.group) ?? { id: wp.group, name: wp.group, workflows: [] };
-    proj.workflows.push(wf);
-    groups.set(wp.group, proj);
-  }
-
-  // A task whose slug has no projects/<slug>/ dir yet (scaffold raced / removed) → keep it visible.
-  for (const [slug, tasks] of tasksBySlug) {
-    if (!workflowBySlug.has(slug)) {
-      const proj = groups.get(slug) ?? { id: slug, name: slug, workflows: [] };
-      proj.workflows.push({ id: slug, name: slug, tasks: tasks.sort(byTaskIdDesc) });
-      groups.set(slug, proj);
+  if (existsSync(projectsRoot)) {
+    for (const projectFolder of await readdir(projectsRoot)) {
+      const projectAbs = join(projectsRoot, projectFolder);
+      let entries: string[];
+      try {
+        if (!(await stat(projectAbs)).isDirectory()) continue;
+        entries = await readdir(projectAbs);
+      } catch {
+        continue;
+      }
+      const manifest = await readMaybe(join(projectAbs, '.dify-workspace.yaml'));
+      const proj = getProject(projectFolder, projectDisplayName(manifest, projectFolder));
+      for (const wfFolder of entries) {
+        if (isReservedProjectEntry(wfFolder)) continue;
+        const wfAbs = join(projectAbs, wfFolder);
+        // A workflow folder is a dir that CONTAINS a workflows/ subdir.
+        if (!existsSync(join(wfAbs, 'workflows'))) continue;
+        const k = keyOf(projectFolder, wfFolder);
+        claimedKeys.add(k);
+        proj.workflows.push({
+          id: wfFolder,
+          name: await workflowDisplayName(wfAbs, wfFolder),
+          tasks: (tasksByKey.get(k) ?? []).sort(byTaskIdDesc),
+        });
+      }
     }
   }
 
-  const result = [...groups.values()];
-  result.forEach((p) => p.workflows.sort((a, b) => a.name.localeCompare(b.name)));
-  result.sort((a, b) => a.name.localeCompare(b.name));
-
-  // 4. Drafts (slug-less, in-flight) lead the list so the active build is visible.
-  if (drafts.length) {
-    result.unshift({
-      id: '__drafts__',
-      name: 'Drafts',
-      workflows: [{ id: '__drafts__', name: '(unsaved)', tasks: drafts.sort(byTaskIdDesc) }],
-    });
+  // 3. Orphan visibility — a task whose (project, workflowSlug) matches no folder yet (scaffold raced /
+  //    removed) must not be dropped. Attach it to its project row if that project exists on disk, else
+  //    collect it under the reserved `_drafts` project (created below alongside pre-scaffold drafts).
+  const orphanDrafts: TreeTaskNode[] = [];
+  for (const [k, tasks] of tasksByKey) {
+    if (claimedKeys.has(k)) continue;
+    const slash = k.indexOf('/');
+    const project = k.slice(0, slash);
+    const workflow = k.slice(slash + 1);
+    if (projects.has(project)) {
+      projects.get(project)!.workflows.push({ id: workflow, name: titleCaseSlug(workflow), tasks: tasks.sort(byTaskIdDesc) });
+    } else {
+      orphanDrafts.push(...tasks);
+    }
   }
+
+  // 4. Pre-scaffold + orphaned-project tasks → the `_drafts` project (real folder if it exists on disk,
+  //    else a synthetic row) so an in-flight build is always reachable.
+  const loose = [...drafts, ...orphanDrafts];
+  if (loose.length) {
+    const draftsRow = getProject(DRAFTS_PROJECT, 'Drafts');
+    draftsRow.workflows.push({ id: '(unsaved)', name: '(unsaved)', tasks: loose.sort(byTaskIdDesc) });
+  }
+
+  const result = [...projects.values()];
+  result.forEach((p) => p.workflows.sort((a, b) => a.name.localeCompare(b.name)));
+  // `_drafts` leads the list so the active build is visible; the rest sort by name.
+  result.sort((a, b) => {
+    if (a.id === DRAFTS_PROJECT) return -1;
+    if (b.id === DRAFTS_PROJECT) return 1;
+    return a.name.localeCompare(b.name);
+  });
   return result;
 }

@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""Interactive scaffolder for new Dify projects under the base workspace.
+"""Scaffolder for the two on-disk tiers of a Dify project (spec 030).
 
-Copies `templates/_base/project/` to `projects/<slug>/`, substituting
-{{placeholder}} tokens with answers to a short prompt.
+The hierarchy is REAL: a Project is `projects/<project>/` and a Workflow is
+`projects/<project>/<workflow>/`. This tool scaffolds either tier:
+
+  * `--kind project`  → copies `templates/_base/project/`  to `projects/<slug>/`
+                        (the shared manifest + envs, created once per project).
+  * `--kind workflow` → copies `templates/_base/workflow/` to `projects/<project>/<slug>/`
+                        (workflows/ prompts/ inputs/ tests/, created per workflow).
 
 Usage:
-    python3 tools/dify_base/init_project.py
-    python3 tools/dify_base/init_project.py --non-interactive --name "..." --slug "..." --app-type workflow ...
+    python3 tools/dify_base/init_project.py                       # interactive (project tier)
+    python3 tools/dify_base/init_project.py --non-interactive --kind project  --name "..." --slug "..."
+    python3 tools/dify_base/init_project.py --non-interactive --kind workflow --project "<project>" --slug "..."
 
 No external dependencies — uses stdlib only (input/argparse/pathlib/shutil).
 """
@@ -21,7 +27,9 @@ from datetime import date
 from pathlib import Path
 
 BASE = Path(__file__).parent.parent.parent  # dify-projects/
-TEMPLATE_DIR = BASE / "templates" / "_base" / "project"
+TEMPLATE_ROOT = BASE / "templates" / "_base"
+TEMPLATE_DIR_PROJECT = TEMPLATE_ROOT / "project"
+TEMPLATE_DIR_WORKFLOW = TEMPLATE_ROOT / "workflow"
 PROJECTS_DIR = BASE / "projects"
 
 APP_TYPES = ["workflow", "chatflow", "agent", "completion"]
@@ -43,15 +51,17 @@ class Answers:
     dify_tag: str
     primary_lang: str
     date: str
-    # App sidebar grouping → project.group in .dify-workspace.yaml. asdict() exposes it as {{group}}.
-    # Empty string = ungrouped (a harmless sibling key the dsl scripts ignore — they read dsl_version).
-    group: str = ""
 
 
 def slugify(name: str) -> str:
-    """Convert any string to snake_case slug usable as a directory name."""
-    s = re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip())
+    """Convert any string to a snake_case slug usable as a directory name. An intentional LEADING
+    underscore is preserved (spec 030's reserved `_drafts` project must round-trip through slugify),
+    while underscores introduced from leading punctuation/whitespace are still trimmed."""
+    raw = name.strip()
+    s = re.sub(r"[^a-zA-Z0-9_-]+", "_", raw)
     s = re.sub(r"_+", "_", s).strip("_").lower()
+    if raw.startswith("_") and s:
+        s = "_" + s
     return s or "project"
 
 
@@ -118,7 +128,6 @@ def collect_interactive() -> Answers:
     dify_tag = detect_dify_tag()
     print(f"  ℹ Dify source tag pinned by repo: {dify_tag} (from .dify-tag)")
     primary_lang = ask("Primary prompt language", default="en", choices=LANGS)
-    group = ask("App sidebar group (blank = ungrouped)", default="")
 
     return Answers(
         project_name=name,
@@ -129,7 +138,6 @@ def collect_interactive() -> Answers:
         dify_tag=dify_tag,
         primary_lang=primary_lang,
         date=date.today().isoformat(),
-        group=group,
     )
 
 
@@ -140,8 +148,8 @@ def substitute(text: str, vars: dict[str, str]) -> str:
     return text
 
 
-def copy_template(answers: Answers, target_root: Path, force: bool = False) -> None:
-    """Walk TEMPLATE_DIR and copy to target_root with {{var}} substitution."""
+def copy_template(answers: Answers, template_dir: Path, target_root: Path, force: bool = False) -> None:
+    """Walk `template_dir` and copy to target_root with {{var}} substitution."""
     if target_root.exists() and not force:
         raise FileExistsError(f"{target_root} already exists. Use --force to overwrite.")
     if target_root.exists() and force:
@@ -149,8 +157,8 @@ def copy_template(answers: Answers, target_root: Path, force: bool = False) -> N
 
     vars = asdict(answers)
 
-    for src in sorted(TEMPLATE_DIR.rglob("*")):
-        rel = src.relative_to(TEMPLATE_DIR)
+    for src in sorted(template_dir.rglob("*")):
+        rel = src.relative_to(template_dir)
         # Substitute placeholders in path components
         rel_substituted = Path(*[substitute(p, vars) for p in rel.parts])
         dst = target_root / rel_substituted
@@ -171,26 +179,32 @@ def copy_template(answers: Answers, target_root: Path, force: bool = False) -> N
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--non-interactive", action="store_true")
-    p.add_argument("--name", help="Project name (human-readable)")
-    p.add_argument("--slug", help="Project slug (folder name)")
+    p.add_argument("--kind", choices=["project", "workflow"], default="project",
+                   help="Scaffold the project tier (projects/<slug>/) or a workflow tier "
+                        "(projects/<project>/<slug>/). Default: project.")
+    p.add_argument("--project", help="Parent project folder (required for --kind workflow)")
+    p.add_argument("--name", help="Human-readable name")
+    p.add_argument("--slug", help="Slug (folder name — the project or the workflow subfolder)")
     p.add_argument("--description", default="")
     p.add_argument("--app-type", choices=APP_TYPES, default="workflow")
     p.add_argument("--dsl-version", default=None,
                    help=f"DSL version (default: detect from schemas/, or {DEFAULT_DSL_VERSION})")
     p.add_argument("--primary-lang", choices=LANGS, default="en")
-    p.add_argument("--group", default="",
-                   help="App sidebar grouping (project.group); empty = ungrouped")
     p.add_argument("--force", action="store_true",
-                   help="Overwrite existing projects/<slug>/")
+                   help="Overwrite the existing target dir")
     args = p.parse_args()
 
-    if not TEMPLATE_DIR.exists():
-        print(f"❌ Template dir not found: {TEMPLATE_DIR}", file=sys.stderr)
+    template_dir = TEMPLATE_DIR_WORKFLOW if args.kind == "workflow" else TEMPLATE_DIR_PROJECT
+    if not template_dir.exists():
+        print(f"❌ Template dir not found: {template_dir}", file=sys.stderr)
         return 1
 
     if args.non_interactive:
         if not args.name:
             print("❌ --non-interactive requires --name", file=sys.stderr)
+            return 1
+        if args.kind == "workflow" and not args.project:
+            print("❌ --kind workflow requires --project", file=sys.stderr)
             return 1
         answers = Answers(
             project_name=args.name,
@@ -201,15 +215,19 @@ def main() -> int:
             dify_tag=detect_dify_tag(),
             primary_lang=args.primary_lang,
             date=date.today().isoformat(),
-            group=args.group,
         )
     else:
         answers = collect_interactive()
 
-    target = PROJECTS_DIR / answers.project_slug
+    # Project tier → projects/<slug>/ ; workflow tier → projects/<project>/<slug>/.
+    if args.kind == "workflow":
+        target = PROJECTS_DIR / slugify(args.project) / answers.project_slug
+    else:
+        target = PROJECTS_DIR / answers.project_slug
 
     print()
     print("=== Will create ===")
+    print(f"  kind           {args.kind}")
     for k, v in asdict(answers).items():
         print(f"  {k:14} {v}")
     print(f"  target         {target}")
@@ -222,7 +240,8 @@ def main() -> int:
             return 0
 
     try:
-        copy_template(answers, target, force=args.force)
+        target.parent.mkdir(parents=True, exist_ok=True)  # ensure projects/<project>/ exists (workflow tier)
+        copy_template(answers, template_dir, target, force=args.force)
     except FileExistsError as e:
         print(f"❌ {e}", file=sys.stderr)
         return 1
@@ -242,11 +261,14 @@ def main() -> int:
 
     print()
     print("Next steps:")
-    print(f"  cd {target.relative_to(BASE.parent)}")
-    print(f"  cp envs/dev.env.example envs/dev.env  # fill secrets")
-    print(f"  # Add your first workflow YAML to workflows/")
+    if args.kind == "project":
+        print(f"  cd {target.relative_to(BASE.parent)}")
+        print(f"  cp envs/dev.env.example envs/dev.env  # fill secrets")
+        print(f"  # Add a workflow:  init_project.py --kind workflow --project {answers.project_slug} --slug <wf>")
+    else:
+        print(f"  # Add your workflow YAML to {target.relative_to(BASE)}/workflows/")
     print()
-    print(f"Rebuild template index to include this project:")
+    print(f"Rebuild template index to include this:")
     print(f"  python3 tools/dify_base/build_index.py")
     return 0
 

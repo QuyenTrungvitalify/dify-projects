@@ -29,7 +29,10 @@ import { emit, errMsg, httpError, resolveRunners, type OrchestratorCtx, type Con
 import { deriveSlugName, firstFreeSlug } from './slug.js';
 import { difySeedScaffoldAndPull, localEditSeed, scaffoldAtSpecGate, relocateRunArtifacts } from './scaffold.js';
 import { runImportAndFinish, finishWithoutImport } from './import.js';
+import { runLiveTest, finishLiveAccepted } from './live-test.js';
+import { difyCreds } from './dify-io.js';
 import { applyAnalysisToTask } from './analysis.js';
+import { persistCriteria } from './criteria.js';
 import { saveTask, type Task } from '../state/task.js';
 
 // L2 (spec 019): the runner seams, ctx types, ConfirmPayload, and emit/errMsg/httpError moved to
@@ -78,7 +81,11 @@ export async function startTask(task: Task, ctx: OrchestratorCtx): Promise<void>
     }
     if (isCancelled(task.taskId)) return;
   }
-  await runPhaseAndGate(task, 'analyze', ctx);
+  // Spec 028: a fast build (from-scratch single-LLM; seed/edit/slug already forced fastMode:false, so
+  // task.workflowSlug is null here) SKIPS the standalone Analyze turn+gate — `runPhaseAndGate('spec')` runs the
+  // merged Analyze+Spec `draft.md` (the `spec` slot's fast, pre-scaffold promptFile) and stops at the
+  // Spec gate. The Analyze gate is simply never emitted.
+  await runPhaseAndGate(task, task.fastMode ? 'spec' : 'analyze', ctx);
   if (isCancelled(task.taskId)) return;
   await maybeAutoAdvance(task, ctx);
 }
@@ -125,16 +132,34 @@ export async function confirmAdvance(
     }
     await runPhaseAndGate(task, 'implement', ctx);
   } else if (cur === 'implement') {
-    // 'continue' (clean) or 'accept' (still-failing human override) → ④. `accept` proceeds even
-    // with lint≠0 (a HUMAN override; `auto` never reaches here — maybeAutoAdvance hard-stops, §D).
+    // Spec 032: `test_live` → the LIVE sub-orchestrator (import→run→verify). `continue`/`accept` → the
+    // STATIC path exactly as before (`accept` = the still-failing human override, lint≠0).
+    if (actionId === 'test_live') {
+      await runLiveTest(task, ctx);
+      return; // ④ live parks at its own gate (test_result / infra_degraded) — never falls through
+    }
     await runTestAndFinish(task, ctx, actionId === 'accept');
     // deploy=none|cloud → ④ is terminal (status:done) unless lint failed (spec 014 D2 → a ④ accept
     // gate). selfhost-clean → runTestAndFinish parks at the Import gate. Either parked gate is a
     // `flag` that maybeAutoAdvance HARD-STOPS on (D1 deploy / D2 still-failing), so `auto`/`spec_only`
     // wait for the explicit human button rather than auto-confirming (AC #16/#25 reworded).
   } else if (cur === 'test') {
-    // ④ gates: 'import' → backend push + finish; 'skip_import' → done w/o push; 'accept' → the D2
-    // still-failing override (finish `done`, tagged accepted_lint_failure). 'discard' is /cancel.
+    // Spec 032 live-test ④ gates (distinguished by the gate flag) take precedence over the static ones:
+    //   test_result: accept → done · test_live → re-test (new app) · (changes is a /reply)
+    //   infra_degraded: retry_live → re-run live · accept_static → done on the static result
+    const flag = task.gate?.flag;
+    if (actionId === 'test_live' || actionId === 'retry_live') {
+      // A re-test ALWAYS makes a NEW app (D5); the "delete old app" checkbox rides the payload (Q3).
+      await runLiveTest(task, ctx, { deleteOldAppId: payload?.deleteOldApp ? task.appId ?? null : null });
+      return;
+    }
+    if (actionId === 'accept_static' || (actionId === 'accept' && flag === 'test_result')) {
+      await finishLiveAccepted(task, ctx); // accept the live/static result → done
+      return;
+    }
+    // ── static ④ gates (unchanged) ──
+    // 'import' → backend push + finish; 'skip_import' → done w/o push; 'accept' → the D2 still-failing
+    // override (finish `done`, tagged accepted_lint_failure). 'discard' is /cancel.
     if (actionId === 'import') {
       await runImportAndFinish(task, ctx);
     } else if (actionId === 'accept') {
@@ -159,7 +184,12 @@ export async function confirmAdvance(
  */
 export async function replyWithin(task: Task, text: string, ctx: OrchestratorCtx): Promise<void> {
   if (task.phase === 'test') {
-    // ④ is backend (no turn/session) — a reply at the terminal phase just re-runs the report.
+    // Spec 032: at a LIVE test-result gate a /reply re-runs the live test (new app). Static ④ is backend
+    // (no turn/session) — a reply there just re-runs the report, exactly as before.
+    if (task.testMode === 'live') {
+      await runLiveTest(task, ctx);
+      return;
+    }
     await runTestAndFinish(task, ctx, false);
     return;
   }
@@ -188,7 +218,12 @@ async function runPhaseAndGate(
  * caller decides whether to maybeAutoAdvance.
  */
 async function gateAfterPhase(task: Task, verify: PhaseVerify, ctx: OrchestratorCtx): Promise<void> {
-  task.gate = computeGate(task.phase, { outcome: verify.outcome }, task.deploy);
+  // Spec 032 C1/D1(a): offer the `test_live` button at a clean Implement gate when live is available
+  // (deploy=selfhost + console creds). computeGate is PURE, so the creds probe happens HERE, not in it.
+  // `continue` stays the primary; maybeAutoAdvance picks `test_live` only for auto+testMode=live.
+  const creds = difyCreds();
+  const liveAvailable = task.phase === 'implement' && task.deploy === 'selfhost' && !!creds.url && !!creds.token;
+  task.gate = computeGate(task.phase, { outcome: verify.outcome }, task.deploy, liveAvailable);
   if (verify.outcome === 'error') {
     task.status = 'error';
     task.error = verify.reasons.filter(Boolean).join(' | ') || 'phase failed';
@@ -200,14 +235,39 @@ async function gateAfterPhase(task: Task, verify: PhaseVerify, ctx: Orchestrator
   await emit(task, ctx);
 }
 
+/** Spec 028 §5: true iff `features` is a NON-EMPTY array whose every entry is 'llm'. Deliberately
+ *  FALSE for undefined/[] — ∅ ⊆ {llm} is vacuously true, but the guard must hard-stop on a merged
+ *  draft that wrote no features (fail-safe), so we require non-empty. */
+function featuresSubsetOfLlm(features: string[] | undefined): boolean {
+  return Array.isArray(features) && features.length > 0 && features.every((f) => f === 'llm');
+}
+
 /** Decide per Confirm-mode whether THIS boundary auto-advances, then issue the primary confirm. */
 async function maybeAutoAdvance(task: Task, ctx: OrchestratorCtx): Promise<void> {
   if (isCancelled(task.taskId)) return; // a /cancel mutates a separate object — re-check the live flag
   if (task.status !== 'awaiting_confirm') return; // error / done / cancelled never auto-advance
   if (task.gate?.flag === 'still_failing') return; // `auto` HARD-STOPS at still-failing (§D / AC #25)
   if (task.gate?.flag === 'awaiting_import') return; // deploy is ALWAYS an explicit human decision (spec 014 D1)
+  if (task.gate?.flag === 'test_result') return; // spec 032 B4: live-test verdict → human decides (auto only parks here on a fail)
+  if (task.gate?.flag === 'infra_degraded') return; // spec 032 D1c: degrade-to-static → human decides
   if (!boundaryAutoAdvances(task.confirmMode, task.phase)) return;
-  const primary = task.gate?.actions.find((a) => a.kind === 'confirm');
+  // Spec 028 §5: the auto+fast structural sanity-check — the ONE config with no human gate. Before
+  // auto-confirming the MERGED Spec gate, require the draft's analyze.json.features (folded onto
+  // task.analysisFeatures by the merged verify) to be a non-empty subset of {llm}. If the merged draft
+  // itself found a non-trivial shape — or wrote no features — hard-stop and park at the Spec gate for a
+  // human. (each_step/spec_only already paused via boundaryAutoAdvances, so this only fires under `auto`.)
+  if (task.fastMode && task.phase === 'spec' && !featuresSubsetOfLlm(task.analysisFeatures)) {
+    task.fastReviewNote = 'Fast build found a non-trivial shape — review before continuing';
+    await emit(task, ctx);
+    return;
+  }
+  // Spec 032 D1(b): under `auto` with testMode=live, the implement-gate primary is `test_live` (run the
+  // workflow for real), not `continue` (static). Everywhere else (and testMode=static) the primary is the
+  // first confirm — so this is inert until the live button is offered (S3-wiring-b / liveAvailable).
+  const primary =
+    (task.phase === 'implement' && task.testMode === 'live'
+      ? task.gate?.actions.find((a) => a.id === 'test_live')
+      : undefined) ?? task.gate?.actions.find((a) => a.kind === 'confirm');
   if (!primary) return; // terminal (④) — nothing to advance
   await confirmAdvance(task, primary.id, ctx);
 }
@@ -243,9 +303,10 @@ async function runPhase(
   task.status = 'running';
   task.gate = undefined;
   task.error = undefined;
+  task.fastReviewNote = undefined; // spec 028: a re-run/reply re-evaluates the §5 guard from scratch
   await emit(task, ctx);
 
-  const body = await readFile(join(projectsDir, phase.promptFile!), 'utf8');
+  const body = await readFile(join(projectsDir, phase.promptFile!(task)), 'utf8');
   const renderedFresh = renderPrompt(body, phase.injectVars(task));
   // Spec 012: the trailing `添付画像:` path block (empty string when no images). Appended ONCE to
   // whichever prompt string is finally sent — this is the single seam BOTH the fresh render and the
@@ -379,7 +440,8 @@ async function verifyPhase(
   if (phase.id === 'implement') {
     const check = await postTurnCheck({
       projectsDir,
-      slug: task.slug!,
+      project: task.project!,
+      workflowSlug: task.workflowSlug!,
       workflowFile: task.workflowFile,
       taskId: task.taskId,
       baseline,
@@ -426,9 +488,32 @@ async function verifyPhase(
       reasons.push(`analyze.json invalid JSON: ${errMsg(e)}`);
     }
   }
+  // Spec 028 §3: the MERGED draft turn (fast `spec`) also wrote analyze.json — fold it too. Its path is
+  // NOT `phase.artifactRel` (that is SPEC.md); it is the analyze slot's canonical path (post-relocate).
+  // Folding sets task.analysisFeatures, which the §5 auto+fast guard reads. Set artifacts.analyze here
+  // (runPhase sets artifacts.spec via `artifacts[sessKey]`). Throws on invalid/missing JSON → error.
+  if (phase.id === 'spec' && task.fastMode) {
+    const analyzeRel = PHASES.find((p) => p.id === 'analyze')!.artifactRel(task);
+    try {
+      applyAnalysisToTask(task, await readFile(join(projectsDir, analyzeRel), 'utf8'), projectsDir);
+      task.artifacts.analyze = analyzeRel;
+    } catch (e) {
+      reasons.push(`analyze.json invalid/missing (merged draft): ${errMsg(e)}`);
+    }
+  }
+  // Spec 032 A3: persist the Acceptance-Criteria rubric from SPEC.md → criteria.json. NON-FATAL — a
+  // parse/write failure never fails Spec; the live-test judge (T3) just degrades to a smoke-test. Runs
+  // for every spec verify (standard + fast + /reply) so a human's gate edit to the criteria is captured.
+  if (phase.id === 'spec' && size > 0) {
+    try {
+      await persistCriteria(projectsDir, task, abs);
+    } catch (e) {
+      log.warn({ taskId: task.taskId, err: errMsg(e) }, 'criteria persist failed (non-fatal)');
+    }
+  }
   // Confinement runs unconditionally — a breach must be reverted even if the artifact failed.
   reasons.push(
-    ...(await confinementCheck({ projectsDir, slug: task.slug, taskId: task.taskId, baseline, log }))
+    ...(await confinementCheck({ projectsDir, project: task.project, workflowSlug: task.workflowSlug, taskId: task.taskId, baseline, log }))
   );
   return { outcome: reasons.length ? 'error' : 'success', reasons };
 }

@@ -43,10 +43,12 @@ Read, do not restate: [AGENTS.md](../../../AGENTS.md) **§3** (5-step build sequ
 
 ## Inject variables (the app substitutes these; a human fills them in mentally)
 
-`{{TASK_ID}}` `{{SLUG}}` `{{WORKFLOW_FILE}}` `{{SEED_PATH}}` `{{REQUIREMENT}}`
+`{{TASK_ID}}` `{{PROJECT}}` `{{WORKFLOW_SLUG}}` `{{WORKFLOW_FILE}}` `{{SEED_PATH}}` `{{REQUIREMENT}}`
 `{{PRIOR_ARTIFACT}}` `{{DEPLOY}}`
 
-- `{{SLUG}}` empty until the Spec gate proposes one (new-workflow path).
+- `{{PROJECT}}` / `{{WORKFLOW_SLUG}}` — the on-disk hierarchy is `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/`
+  (spec 030). `{{WORKFLOW_SLUG}}` is empty until the Spec gate proposes one (new-workflow path);
+  `{{PROJECT}}` defaults to `_drafts` for a loose from-scratch build (D5).
 - `{{WORKFLOW_FILE}}` = `main.yml` for a new workflow, else the selected existing `*.yml`.
 - `{{SEED_PATH}}` = a local YAML to analyze/edit (or empty for a from-scratch build).
 - `{{PRIOR_ARTIFACT}}` = the previous phase's file path (handed forward; **re-read it fresh**).
@@ -65,6 +67,6 @@ Read, do not restate: [AGENTS.md](../../../AGENTS.md) **§3** (5-step build sequ
 | Phase | File | Produces | In-app executor |
 |---|---|---|---|
 | ① Analyze | [analyze.md](analyze.md) | `.runs/<taskId>/analyze.json` + prose | claude turn |
-| ② Spec | [spec.md](spec.md) | `SPEC.md` (`.runs/<taskId>/` pre-slug, else `projects/<slug>/`) | claude turn |
-| ③ Implement | [implement.md](implement.md) | `projects/<slug>/workflows/<workflowFile>` | claude turn |
+| ② Spec | [spec.md](spec.md) | `SPEC.md` (`.runs/<taskId>/` pre-slug, else `projects/<project>/<workflowSlug>/`) | claude turn |
+| ③ Implement | [implement.md](implement.md) | `projects/<project>/<workflowSlug>/workflows/<workflowFile>` | claude turn |
 | ④ Test & Report | [test.md](test.md) | `.runs/<taskId>/report.json` (+ import if `selfhost`) | **backend** (CLI/human use this file) |

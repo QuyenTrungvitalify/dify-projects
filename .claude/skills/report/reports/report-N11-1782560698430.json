@@ -1,0 +1,24 @@
+{
+  "taskId": "1782560698430",
+  "slug": "workflow_7",
+  "ground_truth": "memorytest.yml",
+  "status": "done",
+  "phases": {
+    "analyze": { "process_ok": true, "errors_real": false, "note": "6 calls; only wrote analyze.json, no workflow file; honest from-scratch (seed:null, custom, empty nodes); risks block correctly anticipated adv-chat memory mechanism. 3 errors all benign (chained-reject, file-not-found probe, mkdir not-in-allow-set)." },
+    "spec": { "process_ok": true, "errors_real": false, "note": "8 calls; searched pattern library (find.py across adv-chat/templates/projects); no IDs minted, no YAML written; chose+reduced Python Coding Prompt.yml (start->llm->answer w/ memory.window); covers all 3 must_do; 4 open-Qs. 1 benign pipe-reject." },
+    "implement": { "process_ok": true, "errors_real": false, "note": "20 calls; minted IDs via generate_id.py; ran all 3 validators; YAML matches spec exactly (no drift); IDs 13-digit quoted; model filled openai/gpt-4o (flagged placeholder); deps [] + TODO (no fabricated hash). 3 errors all shell-metachar chain/redirect re-run individually; lint_refs_runs:3 = chain-reject re-run, NOT a real fix; 'all exit 0' corroborated." },
+    "test": { "process_ok": true, "errors_real": false, "note": "backend-run; re-ran validators 0/0/0, matches report.json." }
+  },
+  "must_do": [
+    { "item": "chat mode (multi-turn)", "verdict": "met — app.mode: advanced-chat (main.yml:5)" },
+    { "item": "retain memory across turns (LLM memory enabled OR conversation_variables+assigner)", "verdict": "met — llm memory.window.enabled:true size:10 (main.yml:81-87)" },
+    { "item": "reply using prior-turn info", "verdict": "met — system prompt instructs use of conversation history + memory window feeds it (main.yml:97-104)" }
+  ],
+  "lint": { "validate": 0, "lint_refs": 0, "lint_plugin_hashes": 0 },
+  "runnable": false,
+  "runnable_blockers": ["unresolved plugin TODO (dependencies: [] + # TODO hash) — model field itself filled (openai/gpt-4o)"],
+  "runtime": "NOT VERIFIED",
+  "genuine_misses": [],
+  "structure_note": "builder 3 nodes (start/llm/answer) vs GT 38 (llm14, if-else6, assigner5, code5, answer4, var-agg1, tool1, start1); deliberate lean simplification; mode_match true; both satisfy 'remember conversation' (GT via assigner+conv-vars, builder via LLM window).",
+  "verdict": "PASS (high) — clean 0/0/0, correct advanced-chat + LLM memory window, all 3 must_do met, honest provenance, procedure followed, auto-completed (not parked). Runtime unverified until manual multi-turn chat run graded."
+}

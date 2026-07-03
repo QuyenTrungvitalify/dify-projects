@@ -1,0 +1,31 @@
+{
+  "taskId": "1782556755872",
+  "slug": "workflow_5",
+  "ground_truth": "BookTranslate.yml",
+  "status": "awaiting_confirm",
+  "gate_flag": "still_failing",
+  "gate_reason": "BUILDER-GATE BUG (now fixed), NOT plugin-TODO: post-turn.ts:148 idsOk regex /^\\d{13}$/ rejected the legit iteration-start id '1782556995650start' (<id>start is valid per AGENTS.md §4.1 + validate_workflow.py). still_failing = !lintClean||!idsOk; all linters exit 0, so idsOk=false was the cause. Fixed to /^\\d{13}(start)?$/.",
+  "gate_reason_corrected": "original draft wrongly said 'plugin-TODO advisory'",
+  "phases": {
+    "analyze": { "process_ok": true, "tool_calls": 5, "errors_real": 0, "note": "wrote only analyze.json; honest from-scratch seed:null pattern:custom; features anticipate split/iterate shape; 2 benign errors (chaining + file-not-found probe)" },
+    "spec": { "process_ok": true, "tool_calls": 15, "errors_real": 0, "note": "searched pattern library (file-iteration.yml top hit), specialised inner Code->LLM, borrowed <=30 batching, no IDs/YAML; 5 open-Qs; 3 benign errors" },
+    "implement": { "process_ok": true, "tool_calls": 32, "errors_real": 0, "note": "minted IDs via generate_id.py; ran all 3 validators; lint_refs 3x = chain-reject re-run (no real fix); model filled gpt-4o-mini" },
+    "test": { "process_ok": true, "errors_real": 0, "note": "backend-run, no transcript; gate still_failing = post-turn idsOk false-flag on iteration-start id (builder-gate bug, now fixed); validators all pass" }
+  },
+  "must_do": [
+    { "item": "accept long text input", "verdict": "met" },
+    { "item": "SPLIT long input into chunks (iteration)", "verdict": "met" },
+    { "item": "translate every chunk", "verdict": "met" },
+    { "item": "reassemble the full translation", "verdict": "met" }
+  ],
+  "lint": { "validate": 0, "lint_refs": 0, "lint_plugin_hashes": 0 },
+  "structure": { "builder_nodes": 8, "ground_truth_nodes": 13, "mode_match": true, "histogram_delta": "builder llm1/code2/doc-extractor1 vs GT llm4/template-transform1/empty3 — allow_diff" },
+  "sandbox_trap": false,
+  "model_empty": false,
+  "model": "langgenius/openai/openai · gpt-4o-mini",
+  "runnable": false,
+  "runnable_blockers": ["unresolved plugin TODO (dependencies: [] + # TODO hash)"],
+  "runtime": "NOT VERIFIED",
+  "genuine_misses": [],
+  "verdict": "PASS (high) — 4/4 must_do incl. mandatory iteration/chunking; lint 0/0/0; no sandbox trap; model pre-filled; still_failing gate was a builder-gate bug (post-turn idsOk rejected the legit iteration-start id, now fixed), NOT plugin-TODO — build was always success-worthy. Tier-2 unverified."
+}

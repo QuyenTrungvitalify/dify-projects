@@ -47,6 +47,7 @@ describe('hasUnresolvedPluginTodo (pure)', () => {
 
 // ── runReport integration: the advisory rides along but never flips lintClean ───────────────────
 
+const PROJECT = 'proj_plugin_todo';
 const SLUG = 'wf_plugin_todo';
 let dir: string;
 
@@ -54,7 +55,7 @@ let dir: string;
 const SHIM = '#!/usr/bin/env bash\nexit 0\n';
 
 function seedWorkflow(content: string): void {
-  const wf = join(dir, 'projects', SLUG, 'workflows');
+  const wf = join(dir, 'projects', PROJECT, SLUG, 'workflows');
   mkdirSync(wf, { recursive: true });
   writeFileSync(join(wf, 'main.yml'), content);
 }
@@ -71,7 +72,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 describe('runReport — D2 advisory', () => {
   test('unresolved TODO → report flags it + notes it, but lintClean stays true (cannot block none)', async () => {
     seedWorkflow('dependencies: []\n# TODO: add plugin hash from target workspace\n');
-    const task = await createTask(dir, { requirement: 'x', slug: SLUG, deploy: 'none' });
+    const task = await createTask(dir, { requirement: 'x', project: PROJECT, slug: SLUG, deploy: 'none' });
     const rep = await runReport(dir, task, log);
     assert.equal(rep.lintClean, true, 'the advisory must NOT flip the lint verdict');
     const report = JSON.parse(readFileSync(join(dir, rep.reportRel), 'utf8'));
@@ -81,7 +82,7 @@ describe('runReport — D2 advisory', () => {
 
   test('clean workflow → flag false, no advisory note', async () => {
     seedWorkflow('dependencies: []\nworkflow:\n  graph:\n    nodes: []\n');
-    const task = await createTask(dir, { requirement: 'y', slug: SLUG, deploy: 'none' });
+    const task = await createTask(dir, { requirement: 'y', project: PROJECT, slug: SLUG, deploy: 'none' });
     const rep = await runReport(dir, task, log);
     assert.equal(rep.lintClean, true);
     const report = JSON.parse(readFileSync(join(dir, rep.reportRel), 'utf8'));

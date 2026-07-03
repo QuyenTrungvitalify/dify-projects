@@ -51,18 +51,23 @@ JSON Schema cho DSL + pytest harness cho deployed workflow.
 - `tests/conftest.py` → `DifyWorkflowClient` minimal (~80 LOC) + env-loader fixture.
 - `tests/test_*.py` → syrupy snapshot tests cho deployed workflow.
 
-### Trụ 4 — Project (`projects/`)
-Mỗi dự án 1 thư mục độc lập, scaffold từ `templates/_base/project/`:
+### Trụ 4 — Project ▸ Workflow (`projects/`, spec 030)
+Hệ thống 2 tầng thật trên đĩa: 1 Project là 1 thư mục chứa nhiều Workflow con.
+Tầng Project scaffold từ `templates/_base/project/`, tầng Workflow từ `templates/_base/workflow/`:
 ```
-projects/<slug>/
-├── workflows/             # Dify YAML
-├── prompts/               # Externalized prompts (Phase 2 flatten target)
-├── inputs/                # Sample/fixture data
-├── tests/fixtures/        # JSON test fixtures
-├── envs/                  # dev.env, staging.env, prod.env (gitignored)
-├── .dify-workspace.yaml   # env → workspace URL mapping
-└── README.md
+projects/<project>/
+├── .dify-workspace.yaml   # PROJECT manifest (name + env → workspace URL mapping) — dùng chung
+├── envs/                  # dev.env (gitignored) — creds Dify DÙNG CHUNG cho mọi workflow
+├── README.md
+├── <workflow>/            # 1 Workflow (thư mục con)
+│   ├── workflows/         # Dify YAML (main.yml)
+│   ├── SPEC.md
+│   ├── prompts/           # Externalized prompts
+│   ├── inputs/            # Sample/fixture data
+│   └── tests/fixtures/    # JSON test fixtures
+└── <workflow_2>/ …
 ```
+`projects/_drafts/` là project dành riêng cho các build "loose" (New task không chọn project).
 
 ## Workflow end-to-end
 

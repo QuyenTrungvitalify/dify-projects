@@ -1,0 +1,54 @@
+{
+  "taskId": "1782548987196",
+  "slug": "web_url",
+  "ground_truth": "ArticleRewrite.yml",
+  "status": "done",
+  "phases": {
+    "analyze": {
+      "process_ok": true,
+      "tool_calls": 5,
+      "errors_real": 0,
+      "note": "Wrote only analyze.json (no workflow file). 2 benign errors: 1 shell-metachar chaining rejection, 1 file-not-found probe. seed:null, pattern:custom, features [http-request,llm,tool,code] anticipate the ask."
+    },
+    "spec": {
+      "process_ok": true,
+      "tool_calls": 20,
+      "errors_real": 0,
+      "note": "searched_patterns true (read multi-step-llm + agent-with-tools, justified rejecting agent). No IDs minted, no YAML. 4 benign errors (2 shell-metachar, 1 file-not-found probe, 1 parallel-batch cancellation). 6 open questions surfaced. Covers all 4 must_do."
+    },
+    "implement": {
+      "process_ok": true,
+      "tool_calls": 25,
+      "errors_real": 0,
+      "note": "ran_generate_id true; all 3 validators run; lint_refs x2 = plain + --check-reachability (spec-020 gate), not a fix-rerun. 4 benign shell-metachar rejections. YAML realizes spec's 7-node table exactly. Code stdlib-only (no §4.5 trap). Model nodes filled. IMAGE tool honestly left plugin_unique_identifier:'' + TODO."
+    },
+    "test": {
+      "process_ok": true,
+      "errors_real": 0,
+      "note": "Backend-run. Validators re-run clean 0/0/0, matches report.json."
+    }
+  },
+  "must_do": [
+    { "item": "accept a URL", "verdict": "met" },
+    { "item": "fetch the source article", "verdict": "met" },
+    { "item": "produce a rewritten/imitated article", "verdict": "met" },
+    { "item": "attach matching image(s)", "verdict": "met" }
+  ],
+  "lint": { "validate": 0, "lint_refs": 0, "lint_plugin_hashes": 0 },
+  "node_histogram": { "start": 1, "http-request": 1, "code": 1, "llm": 2, "tool": 1, "end": 1 },
+  "runnable": false,
+  "runnable_blockers": [
+    "unresolved plugin TODO (dependencies: [] + # TODO hash)",
+    "IMAGE tool plugin_unique_identifier empty + provider_id/tool_name (dalle3) best-guess, needs workspace confirmation"
+  ],
+  "model_empty": false,
+  "sandbox_trap": false,
+  "runtime": "NOT VERIFIED",
+  "genuine_misses": [],
+  "allow_diff_applied": [
+    "image generation instead of GT imageSearch (SPEC open-Q#1)",
+    "http-request + stdlib regex instead of GT custom localScrape plugin",
+    "no per-paragraph multi-image iteration (enrichment)"
+  ],
+  "verdict": "PASS (clean, honest stress-test). 4/4 must_do met by a lean valid lint-clean linear pipeline; §4.5 trap avoided; no fabricated plugin on a no-precedent node. Result-quality unverified until manual run."
+}

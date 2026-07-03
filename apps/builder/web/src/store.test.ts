@@ -5,7 +5,7 @@
  * carries a monotonic `rev`; a strictly-older snapshot for the same task is dropped.
  */
 import { describe, it, expect } from 'vitest';
-import { applyTask, applyOutput, flushPendingOutput, isFreshSnapshot, resetToNew, task, thread } from './store';
+import { applyTask, applyOutput, flushPendingOutput, isFreshSnapshot, resetToNew, settings, splitWorkflowSetting, task, thread } from './store';
 import type { LiveThreadItem } from './store';
 import type { WireTask, WirePhase } from './types';
 
@@ -23,12 +23,26 @@ const mk = (taskId: string, rev: number | undefined, phase: WirePhase = 'analyze
     confirmMode: 'each_step',
     phase,
     status: 'running',
-    slug: null,
+    workflowSlug: null,
     name: null,
     sessionIds: {},
     artifacts: {},
     rev,
   }) as WireTask;
+
+describe('splitWorkflowSetting (spec 030 — compound project/workflow parse)', () => {
+  it("'none'/empty → null (from-scratch)", () => {
+    expect(splitWorkflowSetting('none')).toBe(null);
+    expect(splitWorkflowSetting('')).toBe(null);
+    expect(splitWorkflowSetting(null)).toBe(null);
+  });
+  it('compound project/workflow → both parts', () => {
+    expect(splitWorkflowSetting('client_a/summarizer')).toEqual({ project: 'client_a', workflow: 'summarizer' });
+  });
+  it('a bare legacy value → workflow only (no project)', () => {
+    expect(splitWorkflowSetting('summarizer')).toEqual({ workflow: 'summarizer' });
+  });
+});
 
 describe('isFreshSnapshot (pure rev comparator)', () => {
   it('same task: a strictly-older rev is stale → dropped', () => {
@@ -172,6 +186,100 @@ describe('flushPendingOutput straggler safety (019 C1)', () => {
   });
 });
 
+// ── artifactContents preservation (restores the lost R3/R8 "never blank a defined artifact" guard) ──
+// SSE `task:update` and the optimistic /confirm snapshots carry NO artifactContents — only a GET does.
+// A naive `task.value = t` blanked the artifact panel (spec/yaml/diff/report read task.artifactContents)
+// for the ENTIRE running phase, since a running phase never re-fetches. Symptom: at the Spec gate the
+// panel showed SPEC.md, then went "SPEC.md はまだありません" the instant Implement started. setTaskValue
+// carries the last-known contents forward for the SAME task; a fresh GET still overrides them.
+const withArtifacts = (taskId: string, rev: number, phase: WirePhase, spec: string): WireTask =>
+  ({
+    ...mk(taskId, rev, phase),
+    artifactContents: { spec, yaml: null, report: null, diff: null },
+  }) as unknown as WireTask;
+
+describe('artifactContents survive a content-less snapshot (panel-blank fix)', () => {
+  it('a later SSE update WITHOUT artifactContents keeps the gate-fetched spec (same task)', () => {
+    applyTask(withArtifacts('AC1', 1, 'spec', '# SPEC body')); // e.g. the Spec-gate enrichment GET
+    expect(task.value?.artifactContents?.spec).toBe('# SPEC body');
+
+    applyTask(mk('AC1', 2, 'implement')); // live task:update: running Implement, no artifactContents
+    expect(task.value?.phase).toBe('implement');
+    expect(task.value?.artifactContents?.spec).toBe('# SPEC body'); // preserved — panel stays populated
+  });
+
+  it('a fresh GET still OVERRIDES preserved contents (e.g. yaml appears after Implement)', () => {
+    applyTask(withArtifacts('AC2', 1, 'implement', '# SPEC'));
+    applyTask(withArtifacts('AC2', 2, 'test', '# SPEC v2')); // a real GET with newer contents wins
+    expect(task.value?.artifactContents?.spec).toBe('# SPEC v2');
+  });
+
+  it('a DIFFERENT task does not inherit the previous task\'s artifactContents', () => {
+    applyTask(withArtifacts('AC3', 1, 'spec', 'leak?'));
+    applyTask(mk('AC4', 1, 'analyze')); // a freshly-opened build, content-less
+    expect(task.value?.taskId).toBe('AC4');
+    expect(task.value?.artifactContents).toBeUndefined(); // no cross-task bleed
+  });
+});
+
+// ── auto-mode panel-blank: a STALE-rev gate GET still grafts its contents (contents only, not phase) ──
+// In `auto` confirm-mode the Spec gate auto-advances before the spec-gate enrichment GET resolves, so the
+// GET lands at a STRICTLY OLDER rev than the running Implement and the freshness guard drops it whole →
+// spec pane blank for the phase. graftStaleArtifacts recovers the contents WITHOUT reverting phase/gate.
+describe('stale-rev gate GET grafts artifactContents without reverting phase (auto panel-blank fix)', () => {
+  it('a late older-rev spec GET grafts the spec onto the running Implement (phase/rev unchanged)', () => {
+    applyTask(mk('AUTO', 3, 'implement')); // auto already advanced to Implement, content-less
+    expect(task.value?.artifactContents?.spec).toBeUndefined();
+    applyTask(withArtifacts('AUTO', 2, 'spec', '# SPEC body')); // the spec-gate GET resolves LATE (rev 2 < 3)
+    expect(task.value?.phase).toBe('implement'); // NOT reverted to spec
+    expect(task.value?.rev).toBe(3); // NOT reverted
+    expect(task.value?.artifactContents?.spec).toBe('# SPEC body'); // grafted → panel populated
+  });
+
+  it('a stale GET WITHOUT artifactContents grafts nothing (014 D5 drop preserved)', () => {
+    applyTask(mk('AUTO2', 3, 'implement'));
+    applyTask(mk('AUTO2', 2, 'spec')); // older rev, no contents → fully dropped
+    expect(task.value?.phase).toBe('implement');
+    expect(task.value?.artifactContents).toBeUndefined();
+  });
+
+  it('graft never OVERWRITES content the live state already has (current non-null wins)', () => {
+    applyTask(withArtifacts('AUTO3', 3, 'implement', '# new spec'));
+    applyTask(withArtifacts('AUTO3', 2, 'spec', '# old spec')); // stale GET with an older spec
+    expect(task.value?.artifactContents?.spec).toBe('# new spec'); // not clobbered by the stale graft
+  });
+});
+
+// ── orphan running-run reconciliation (auto-mode stuck "実行中 ②" after cancel) ──────────────────
+// Only ONE phase runs at a time (turn-locked) → only the trailing run item may be `running`. An
+// out-of-order/auto/reconnect snapshot can leave an earlier run still spinning, and cancel only closes
+// the trailing item → the orphan spins forever. applyTask finalizes any non-trailing running run.
+describe('non-trailing running run is finalized (stuck-spinner fix)', () => {
+  it('closes an orphan "Running spec" left behind when Implement is the trailing run', () => {
+    thread.value = [
+      { id: 'g', kind: 'gate', phase: 'spec', snapshot: mk('ORPH', 2, 'spec'), resolved: 'x' },
+      { id: 'r-spec', kind: 'run', phase: 'spec', running: true, output: '' }, // orphan: still running
+      { id: 'r-impl', kind: 'run', phase: 'implement', running: true, output: '' },
+    ] as unknown as typeof thread.value;
+    applyTask(mk('ORPH', 5, 'implement')); // any fresh same-task update runs the reconciliation sweep
+    const specRun = thread.value.find((i) => i.kind === 'run' && i.phase === 'spec') as
+      | (LiveThreadItem & { kind: 'run' })
+      | undefined;
+    expect(specRun?.running).toBe(false); // orphan finalized…
+    expect(specRun?.stopped).toBeUndefined(); // …as DONE (its phase completed), not stopped
+    expect(thread.value.filter((i) => i.kind === 'run' && i.running).length).toBeLessThanOrEqual(1);
+  });
+
+  it('does NOT touch the trailing running run (the genuinely active phase)', () => {
+    thread.value = [];
+    applyTask(mk('TRAIL', 1, 'implement')); // opens a fresh trailing Implement run
+    const run = thread.value.find((i) => i.kind === 'run' && i.phase === 'implement') as
+      | (LiveThreadItem & { kind: 'run' })
+      | undefined;
+    expect(run?.running).toBe(true);
+  });
+});
+
 // ── spec 019 C2: resetToNew must clear the reconnect rev-guard ───────────────────────────────────
 // The guard (_appliedTaskId/_appliedRev) drops any same-task snapshot strictly older than the last
 // applied (014 D5). resetToNew used to leave it set, so re-opening a build whose persisted rev is ≤ the
@@ -197,5 +305,22 @@ describe('resetToNew clears the reconnect rev-guard (019 C2)', () => {
     // shows only the user line (blank). WITH C2, resetToNew cleared the guard so it applies.
     expect(task.value?.taskId).toBe('RX');
     expect(thread.value.length).toBeGreaterThan(1); // a run item was appended → not blank
+  });
+});
+
+// ── New task resets the "base on existing workflow / seed app" selectors ─────────────────────────
+// The Workflow/Seed pickers choose what a build starts from; they are start-bound (read-only once a
+// build is open) and the dropdown's `none` reset can be off-screen with many workflows. So resetToNew
+// must clear them — otherwise the prior build's choice silently carries into the next "new task".
+describe('resetToNew resets the new-build base selectors', () => {
+  it('clears workflow → none and seed → null (confirm/deploy preferences persist)', () => {
+    settings.value = { workflow: 'workflow_uppercases_input_string', confirm: 'auto', deploy: 'cloud', seed: 's1', fast: true, test: 'static', targetProject: 'my_app' };
+    resetToNew();
+    expect(settings.value.workflow).toBe('none');
+    expect(settings.value.seed).toBe(null);
+    expect(settings.value.fast).toBe(false); // spec 028: per-build shape assertion — reset like the base selectors
+    expect(settings.value.targetProject).toBe(null); // spec 029: per-build target — reset like the base selectors (AC6)
+    expect(settings.value.confirm).toBe('auto'); // general preference — not reset
+    expect(settings.value.deploy).toBe('cloud'); // general preference — not reset
   });
 });
