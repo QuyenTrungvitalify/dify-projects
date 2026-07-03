@@ -29,7 +29,7 @@ import { emit, errMsg, httpError, resolveRunners, type OrchestratorCtx, type Con
 import { deriveSlugName, firstFreeSlug } from './slug.js';
 import { difySeedScaffoldAndPull, localEditSeed, scaffoldAtSpecGate, relocateRunArtifacts } from './scaffold.js';
 import { runImportAndFinish, finishWithoutImport } from './import.js';
-import { runLiveTest, finishLiveAccepted } from './live-test.js';
+import { runLiveTest, finishLiveAccepted, cleanupTestApps } from './live-test.js';
 import { difyCreds } from './dify-io.js';
 import { applyAnalysisToTask } from './analysis.js';
 import { persistCriteria } from './criteria.js';
@@ -151,6 +151,11 @@ export async function confirmAdvance(
     if (actionId === 'test_live' || actionId === 'retry_live') {
       // A re-test ALWAYS makes a NEW app (D5); the "delete old app" checkbox rides the payload (Q3).
       await runLiveTest(task, ctx, { deleteOldAppId: payload?.deleteOldApp ? task.appId ?? null : null });
+      return;
+    }
+    if (actionId === 'cleanup_apps') {
+      // S6: delete this build's test apps, re-park the same live gate (result still stands).
+      await cleanupTestApps(task, ctx);
       return;
     }
     if (actionId === 'accept_static' || (actionId === 'accept' && flag === 'test_result')) {

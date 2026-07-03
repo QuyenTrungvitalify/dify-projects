@@ -9,10 +9,10 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runLiveTest, resolveInput } from '../server/lib/live-test.js';
+import { runLiveTest, resolveInput, extractJson, parseJudgeVerdict, cleanupTestApps } from '../server/lib/live-test.js';
 import { createTask, loadTask, type Task } from '../server/state/task.js';
 import type { OrchestratorCtx, LiveOps } from '../server/lib/orchestrator-shared.js';
 import type { SessionLogger } from '../server/lib/claude-session.js';
@@ -77,6 +77,28 @@ describe('resolveInput (D8)', () => {
     assert.equal(inputs.n, 1);
     assert.ok(!('opt' in inputs), 'optional not filled');
     assert.deepEqual(missing.sort(), ['doc', 'sel']);
+  });
+});
+
+describe('extractJson / parseJudgeVerdict (T3)', () => {
+  test('extracts fenced json, bare trailing json; no json → null', () => {
+    assert.deepEqual(extractJson('blah\n```json\n{"a":1}\n```\nend'), { a: 1 });
+    assert.deepEqual(extractJson('here it is {"a":2}'), { a: 2 });
+    assert.equal(extractJson('no json here'), null);
+  });
+
+  test('parseJudgeVerdict maps criteria, filters empty, reads summary', () => {
+    const v = parseJudgeVerdict(
+      '```json\n{"criteria":[{"criterion":"A","pass":true,"evidence":"e"},{"criterion":"","pass":false}],"summary":"1/1"}\n```'
+    );
+    assert.equal(v?.criteria.length, 1);
+    assert.deepEqual(v?.criteria[0], { criterion: 'A', pass: true, evidence: 'e' });
+    assert.equal(v?.summary, '1/1');
+  });
+
+  test('missing criteria array → null (inconclusive → advisory-absent)', () => {
+    assert.equal(parseJudgeVerdict('{"foo":1}'), null);
+    assert.equal(parseJudgeVerdict('not json'), null);
   });
 });
 
@@ -156,10 +178,63 @@ describe('runLiveTest verdict → gate', () => {
     assert.equal((task.liveTest?.input as Record<string, unknown>)?.query, seenQuery, 'query shown in the gate input');
   }));
 
+  test('T3 judge grades output against the rubric + attaches verdict (advisory)', withCreds(async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'livejudge-'));
+    const task = await createTask(dir, { requirement: 'r', deploy: 'selfhost', testMode: 'live', project: 'proj', slug: 'wf' });
+    // runJudge reads the rubric (persisted at spec-verify) + the judge skill body from projectsDir.
+    writeFileSync(join(dir, `apps/builder/.runs/${task.taskId}/criteria.json`), JSON.stringify({ criteria: ['Reply politely'] }));
+    mkdirSync(join(dir, '.claude/skills/dify-build'), { recursive: true });
+    writeFileSync(join(dir, '.claude/skills/dify-build/judge.md'), 'judge {{CRITERIA}} {{OUTPUT}}');
+    const ctx: OrchestratorCtx = {
+      projectsDir: dir,
+      settingsPath: '',
+      log,
+      runners: {
+        runReport: async () => ({ ok: true, reasons: [], reportRel: 'x', lintClean: true }),
+        runTurn: async (_s, _p, _i, opts) => {
+          opts?.onText?.('```json\n{"criteria":[{"criterion":"Reply politely","pass":true,"evidence":"was polite"}],"summary":"1/1 met"}\n```');
+          return { sessionId: 's', result: null, isError: false };
+        },
+        liveOps: okOps(),
+      },
+    };
+    await runLiveTest(task, ctx);
+    assert.equal(task.liveTest?.verdict, 'passed');
+    assert.equal(task.liveTest?.judge?.criteria.length, 1);
+    assert.equal(task.liveTest?.judge?.criteria[0].pass, true);
+    assert.equal(task.liveTest?.judge?.summary, '1/1 met');
+  }));
+
+  test('no rubric → judge skipped (smoke-test only), still passes', withCreds(async () => {
+    const { task, ctx } = await harness({}); // no criteria.json written → judge absent
+    await runLiveTest(task, ctx);
+    assert.equal(task.liveTest?.verdict, 'passed');
+    assert.equal(task.liveTest?.judge, undefined);
+  }));
+
   test('import fails → infra_degraded (no app id)', withCreds(async () => {
     const { task, ctx } = await harness({ importForTest: async () => ({ ok: false, appId: null, stderr: 'boom' }) });
     await runLiveTest(task, ctx);
     assert.equal(task.gate?.flag, 'infra_degraded');
     assert.ok(!task.testApps || task.testApps.length === 0);
+  }));
+});
+
+describe('cleanupTestApps (S6)', () => {
+  test('deletes this build\'s test apps + re-parks the same live gate', withCreds(async () => {
+    const { task, ctx } = await harness({ deleteApp: async () => true });
+    await runLiveTest(task, ctx);
+    assert.deepEqual(task.testApps, ['app-123']);
+    await cleanupTestApps(task, ctx);
+    assert.deepEqual(task.testApps, []);
+    assert.equal(task.gate?.flag, 'test_result'); // re-parked, result still stands
+    assert.equal(task.appId, null);
+  }));
+
+  test('keeps ids that fail to delete (best-effort)', withCreds(async () => {
+    const { task, ctx } = await harness({ deleteApp: async () => false });
+    await runLiveTest(task, ctx);
+    await cleanupTestApps(task, ctx);
+    assert.deepEqual(task.testApps, ['app-123']); // delete failed → left in the list
   }));
 });

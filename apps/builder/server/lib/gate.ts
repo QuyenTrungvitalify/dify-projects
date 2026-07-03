@@ -142,6 +142,7 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy, l
             CONFIRM('accept', 'Accept result'),
             REPLY('changes', 'Request changes'),
             CONFIRM('test_live', 'Re-test'),
+            CONFIRM('cleanup_apps', 'Delete test apps'), // S6 — FE shows it only when testApps>0
             DISCARD(),
           ],
           flag: 'test_result',
@@ -155,6 +156,7 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy, l
           actions: [
             CONFIRM('retry_live', 'Retry live'),
             CONFIRM('accept_static', 'Accept static'),
+            CONFIRM('cleanup_apps', 'Delete test apps'), // S6 — FE shows it only when testApps>0
             DISCARD(),
           ],
           flag: 'infra_degraded',

@@ -226,48 +226,85 @@ class DifyConsoleClient:
 
     @staticmethod
     def _run_timeout(read: int | None):
-        # (connect, read): fail FAST on an unreachable service API (~5s) instead of hanging the full
-        # read timeout; keep a long read window for a slow LLM response.
-        return (5, read or 60)
+        # (connect, read): fail FAST on an unreachable service API (~5s); the read timeout applies BETWEEN
+        # streamed chunks, so a steadily-streaming LLM never trips it. (Blocking mode held the whole
+        # response and nginx reset it — spec 032; the Dify UI itself streams, verified working.)
+        return (5, read or 120)
 
     def _run_headers(self, app_key: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {app_key}", "Content-Type": "application/json"}
 
+    def _collect_stream(self, r: Any, chat: bool) -> dict[str, Any]:
+        """Consume a Dify SSE run stream and NORMALIZE it into the blocking-response shape (so the TS
+        parser is unchanged): chat → `{answer, metadata.usage.total_tokens}`; workflow → `{data:{status,
+        outputs, total_tokens, error}}`. Streaming avoids the long-held blocking connection nginx resets."""
+        r.raise_for_status()
+        answer_parts: list[str] = []
+        total_tokens = None
+        outputs = None
+        status = None
+        error = None
+        for raw in r.iter_lines(decode_unicode=True):
+            if not raw or not raw.startswith("data:"):
+                continue
+            payload = raw[len("data:"):].strip()
+            if not payload or payload == "[DONE]":
+                continue
+            try:
+                ev = json.loads(payload)
+            except json.JSONDecodeError:
+                continue
+            etype = ev.get("event")
+            if etype in ("message", "agent_message"):
+                answer_parts.append(ev.get("answer") or "")
+            elif etype == "message_end":
+                total_tokens = ((ev.get("metadata") or {}).get("usage") or {}).get("total_tokens", total_tokens)
+            elif etype == "workflow_finished":
+                data = ev.get("data") or {}
+                status, outputs, error = data.get("status"), data.get("outputs"), data.get("error")
+                total_tokens = data.get("total_tokens", total_tokens)
+            elif etype == "error":
+                error = ev.get("message") or ev.get("code") or "stream error"
+        if chat:
+            out: dict[str, Any] = {"answer": "".join(answer_parts), "metadata": {"usage": {"total_tokens": total_tokens}}}
+            if error:
+                out["error"] = error
+            return out
+        return {"data": {"status": status or ("failed" if error else "succeeded"),
+                         "outputs": outputs, "total_tokens": total_tokens, "error": error}}
+
     def run_workflow(self, app_key: str, inputs: dict[str, Any], timeout: int | None = None) -> dict[str, Any]:
-        """Run a `workflow`-mode app via the Service API with the APP KEY (NOT the admin token)."""
+        """Run a `workflow`-mode app (streaming SSE, normalized) with the APP KEY (NOT the admin token)."""
         r = requests.post(
             f"{self._service_base()}/workflows/run",
             headers=self._run_headers(app_key),
-            data=json.dumps({"inputs": inputs, "response_mode": "blocking", "user": "builder-live-test"}),
-            timeout=self._run_timeout(timeout),
+            data=json.dumps({"inputs": inputs, "response_mode": "streaming", "user": "builder-live-test"}),
+            timeout=self._run_timeout(timeout), stream=True,
         )
-        r.raise_for_status()
-        return r.json()
+        return self._collect_stream(r, chat=False)
 
     def run_chat(self, app_key: str, inputs: dict[str, Any], query: str, timeout: int | None = None) -> dict[str, Any]:
-        """Run a chat-like app (advanced-chat / chat / agent-chat) via `/chat-messages` (needs a `query`)."""
+        """Run a chat-like app (advanced-chat / chat / agent-chat) via `/chat-messages` streaming (needs `query`)."""
         r = requests.post(
             f"{self._service_base()}/chat-messages",
             headers=self._run_headers(app_key),
             data=json.dumps({
-                "inputs": inputs, "query": query, "response_mode": "blocking",
+                "inputs": inputs, "query": query, "response_mode": "streaming",
                 "user": "builder-live-test", "conversation_id": "",
             }),
-            timeout=self._run_timeout(timeout),
+            timeout=self._run_timeout(timeout), stream=True,
         )
-        r.raise_for_status()
-        return r.json()
+        return self._collect_stream(r, chat=True)
 
     def run_completion(self, app_key: str, inputs: dict[str, Any], timeout: int | None = None) -> dict[str, Any]:
-        """Run a `completion`-mode app via `/completion-messages` (the prompt rides `inputs`)."""
+        """Run a `completion`-mode app via `/completion-messages` streaming (the prompt rides `inputs`)."""
         r = requests.post(
             f"{self._service_base()}/completion-messages",
             headers=self._run_headers(app_key),
-            data=json.dumps({"inputs": inputs, "response_mode": "blocking", "user": "builder-live-test"}),
-            timeout=self._run_timeout(timeout),
+            data=json.dumps({"inputs": inputs, "response_mode": "streaming", "user": "builder-live-test"}),
+            timeout=self._run_timeout(timeout), stream=True,
         )
-        r.raise_for_status()
-        return r.json()
+        return self._collect_stream(r, chat=False)
 
 
 # ---------------------------------------------------------------------------

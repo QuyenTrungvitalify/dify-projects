@@ -152,6 +152,13 @@ describe('parseRunResult', () => {
   test('empty chat answer → not ok', () => {
     assert.equal(parseRunResult(JSON.stringify({ answer: '' })).ok, false);
   });
+
+  test('chat stream error → not ok, error surfaced (streaming normalized shape)', () => {
+    const r = parseRunResult(JSON.stringify({ answer: '', error: 'model call failed', metadata: { usage: { total_tokens: null } } }));
+    assert.equal(r.ok, false);
+    assert.equal(r.status, 'failed');
+    assert.equal(r.error, 'model call failed');
+  });
 });
 
 describe('appKeyFromStdout', () => {

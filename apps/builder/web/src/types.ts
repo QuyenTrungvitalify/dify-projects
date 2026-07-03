@@ -45,6 +45,8 @@ export interface WireLiveTest {
   t1Pass?: boolean;
   needInputVars?: string[];
   reason?: string;
+  /** spec 032 T3: the judge's per-criterion grade (advisory). */
+  judge?: { criteria: { criterion: string; pass: boolean; evidence?: string }[]; summary?: string };
 }
 
 /** Artifact contents inlined on GET /api/tasks/:id (artifacts.ts). diff is Lát-5 (null here). */

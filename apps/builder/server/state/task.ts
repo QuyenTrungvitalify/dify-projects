@@ -43,6 +43,17 @@ export type TestMode = 'static' | 'live';
 
 /** Spec 032 — the outcome of a live workflow test (S3-wiring-b), surfaced on the task for the gate/report
  *  render. The minted app-key is NEVER stored here (redacted, backend-only). */
+/** Spec 032 T3 (S4) — the judge's per-criterion verdict (ADVISORY; a human still confirms at the gate). */
+export interface JudgeCriterion {
+  criterion: string;
+  pass: boolean;
+  evidence?: string;
+}
+export interface JudgeVerdict {
+  criteria: JudgeCriterion[];
+  summary?: string;
+}
+
 export type LiveVerdict = 'passed' | 'workflow_fail' | 'infra_fail' | 'need_input';
 export interface LiveTestResult {
   verdict: LiveVerdict;
@@ -60,6 +71,9 @@ export interface LiveTestResult {
   t1Pass?: boolean; // mechanical: run succeeded + output non-empty
   needInputVars?: string[]; // set when verdict=need_input (couldn't derive a sample input)
   reason?: string; // human-facing one-line summary / infra reason
+  /** T3 (S4): the judge's per-criterion grade against the Acceptance Criteria. ADVISORY — absent when
+   *  there is no rubric (smoke-test) or the judge was inconclusive. Never flips T1/the gate outcome. */
+  judge?: JudgeVerdict;
 }
 
 /** A gate action button (spec §Revision Cleanups + §D): `kind` distinguishes a `/confirm` advance

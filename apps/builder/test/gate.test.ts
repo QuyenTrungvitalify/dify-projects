@@ -73,17 +73,17 @@ describe('computeGate', () => {
     ]);
   });
 
-  test('test test_result → Accept / Request changes / Re-test / Discard, flagged (auto hard-stops)', () => {
+  test('test test_result → Accept / Request changes / Re-test / Delete apps / Discard, flagged (auto hard-stops)', () => {
     const g = computeGate('test', { outcome: 'test_result' }, 'selfhost');
-    assert.deepEqual(g.actions.map((a) => a.id), ['accept', 'changes', 'test_live', 'discard']);
-    assert.deepEqual(g.actions.map((a) => a.kind), ['confirm', 'reply', 'confirm', 'cancel']);
+    assert.deepEqual(g.actions.map((a) => a.id), ['accept', 'changes', 'test_live', 'cleanup_apps', 'discard']);
+    assert.deepEqual(g.actions.map((a) => a.kind), ['confirm', 'reply', 'confirm', 'confirm', 'cancel']);
     assert.equal(g.flag, 'test_result');
   });
 
-  test('test infra_degraded → Retry live / Accept static / Discard, flagged', () => {
+  test('test infra_degraded → Retry live / Accept static / Delete apps / Discard, flagged', () => {
     const g = computeGate('test', { outcome: 'infra_degraded' }, 'selfhost');
-    assert.deepEqual(g.actions.map((a) => a.id), ['retry_live', 'accept_static', 'discard']);
-    assert.deepEqual(g.actions.map((a) => a.kind), ['confirm', 'confirm', 'cancel']);
+    assert.deepEqual(g.actions.map((a) => a.id), ['retry_live', 'accept_static', 'cleanup_apps', 'discard']);
+    assert.deepEqual(g.actions.map((a) => a.kind), ['confirm', 'confirm', 'confirm', 'cancel']);
     assert.equal(g.flag, 'infra_degraded');
   });
 

@@ -474,7 +474,14 @@ export function parseRunResult(stdout: string): RunResult {
   if (obj.data === undefined && typeof obj.answer === 'string') {
     const usage = (obj.metadata as Record<string, unknown> | undefined)?.usage as Record<string, unknown> | undefined;
     const totalTokens = typeof usage?.total_tokens === 'number' ? usage.total_tokens : null;
-    return { ok: obj.answer.length > 0, status: 'succeeded', outputs: { answer: obj.answer }, error: null, totalTokens };
+    const error = typeof obj.error === 'string' && obj.error ? obj.error : null;
+    return {
+      ok: !error && obj.answer.length > 0,
+      status: error ? 'failed' : 'succeeded',
+      outputs: obj.answer ? { answer: obj.answer } : null,
+      error,
+      totalTokens,
+    };
   }
   const data = (typeof obj.data === 'object' && obj.data ? obj.data : obj) as Record<string, unknown>;
   const status = typeof data.status === 'string' ? data.status : null;

@@ -8,14 +8,110 @@
  * clean auto-done arrive in S4). Every Dify call goes through the injectable `liveOps` seam (013 D2) so
  * the FSM is unit-testable without a real Dify.
  */
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { computeGate } from './gate.js';
 import { difyCreds, appUrlFrom, unregisterSecret, type InputVar } from './dify-io.js';
 import { emit, resolveRunners, resolveLiveOps, type OrchestratorCtx } from './orchestrator-shared.js';
-import { isCancelled } from './lock.js';
-import type { LiveTestResult, Task } from '../state/task.js';
+import { isCancelled, setSession, clearSession } from './lock.js';
+import { ClaudeSession } from './claude-session.js';
+import { renderPrompt } from './phases.js';
+import { criteriaRel } from './criteria.js';
+import type { LiveTestResult, JudgeVerdict, Task } from '../state/task.js';
 
 const RUN_TIMEOUT_MS = Number(process.env.BUILDER_LIVE_RUN_TIMEOUT_MS) || 120_000;
+const JUDGE_TIMEOUT_MS = 3 * 60 * 1000; // T3 judge is a short data-only turn
 const INFRA_RUN_RETRY = 2; // OQ2 default — retry only the (transient) run step, never re-import
+const JUDGE_SKILL = '.claude/skills/dify-build/judge.md';
+
+/** Read the Acceptance-Criteria rubric persisted at spec-verify (A3). [] when absent → smoke-test only. */
+async function readCriteria(projectsDir: string, taskId: string): Promise<string[]> {
+  try {
+    const raw = await readFile(join(projectsDir, criteriaRel(taskId)), 'utf8');
+    const obj = JSON.parse(raw) as { criteria?: unknown };
+    return Array.isArray(obj.criteria) ? obj.criteria.filter((c): c is string => typeof c === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Extract the last parseable JSON object from an LLM message (tolerates a ```json fence + prose). */
+export function extractJson(text: string): Record<string, unknown> | null {
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/gi);
+  const candidates = fence ? fence.map((f) => f.replace(/```(?:json)?/i, '').replace(/```$/, '').trim()) : [];
+  // also try the raw text (last {...} span) as a fallback
+  const brace = text.lastIndexOf('{');
+  if (brace >= 0) candidates.push(text.slice(brace));
+  for (const c of candidates.reverse()) {
+    try {
+      const obj = JSON.parse(c);
+      if (obj && typeof obj === 'object') return obj as Record<string, unknown>;
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  return null;
+}
+
+/** Parse the judge's message → a structured verdict (ADVISORY). null when no criteria array is found. */
+export function parseJudgeVerdict(text: string): JudgeVerdict | null {
+  const obj = extractJson(text);
+  if (!obj || !Array.isArray(obj.criteria)) return null;
+  const criteria = (obj.criteria as Array<Record<string, unknown>>)
+    .map((c) => ({
+      criterion: typeof c.criterion === 'string' ? c.criterion : '',
+      pass: c.pass === true,
+      evidence: typeof c.evidence === 'string' ? c.evidence : undefined,
+    }))
+    .filter((c) => c.criterion);
+  return { criteria, summary: typeof obj.summary === 'string' ? obj.summary : undefined };
+}
+
+/**
+ * T3 judge (spec 032 D3/S4) — a DATA-ONLY turn: grade the run OUTPUT against the Acceptance Criteria.
+ * No creds (spec 015 strips DIFY_* from every turn), no tools needed (all data is in the prompt). ADVISORY:
+ * a failure/parse-miss returns null and never flips T1 or the gate. Injectable via the runTurn seam.
+ */
+async function runJudge(
+  task: Task,
+  ctx: OrchestratorCtx,
+  criteria: string[],
+  input: Record<string, unknown>,
+  output: Record<string, unknown> | null
+): Promise<JudgeVerdict | null> {
+  if (!criteria.length) return null; // no rubric → smoke-test only (A3)
+  const { projectsDir, settingsPath, log } = ctx;
+  const { runTurn } = resolveRunners(ctx);
+  let body: string;
+  try {
+    body = await readFile(join(projectsDir, JUDGE_SKILL), 'utf8');
+  } catch {
+    return null;
+  }
+  const prompt = renderPrompt(body, {
+    REQUIREMENT: task.requirement,
+    CRITERIA: criteria.map((c, i) => `${i + 1}. ${c}`).join('\n'),
+    INPUT: JSON.stringify(input),
+    OUTPUT: JSON.stringify(output ?? {}),
+  });
+  const session = new ClaudeSession(`${task.taskId}:judge`, {
+    taskId: task.taskId,
+    workingDir: projectsDir,
+    settingsPath,
+    log,
+  });
+  setSession(task.taskId, session); // hand the child to /cancel
+  let text = '';
+  const turn = await runTurn(session, prompt, () => {}, {
+    timeoutMs: JUDGE_TIMEOUT_MS,
+    onText: (t) => {
+      text += t;
+    },
+  });
+  clearSession(task.taskId);
+  if (turn.isError) return null;
+  return parseJudgeVerdict(text);
+}
 
 /**
  * Build a sample run input from the start-node schema (D8). Fills REQUIRED text/paragraph/number with a
@@ -168,6 +264,17 @@ export async function runLiveTest(
   }
   const outputNonEmpty = !!run.outputs && Object.keys(run.outputs).length > 0;
   const t1Pass = run.ok && outputNonEmpty; // T1 mechanical
+
+  // T3 (advisory, spec 032 D3): grade the OUTPUT against the Acceptance Criteria. Skipped when there is
+  // no output or no rubric. NEVER flips T1 or the gate outcome — it's enrichment for the human decision.
+  let judge: JudgeVerdict | undefined;
+  if (outputNonEmpty) {
+    const criteria = await readCriteria(projectsDir, task.taskId);
+    if (bail()) return;
+    judge = (await runJudge(task, ctx, criteria, runInput, run.outputs)) ?? undefined;
+    if (bail()) return;
+  }
+
   return parkResult({
     verdict: t1Pass ? 'passed' : 'workflow_fail',
     label: t1Pass ? 'live-verified' : 'live-verified-fail',
@@ -175,8 +282,9 @@ export async function runLiveTest(
     output: run.outputs,
     runError: run.error,
     t1Pass,
+    judge,
     reason: t1Pass
-      ? `ran OK on ${pick.name} (${run.totalTokens ?? '?'} tokens) — review the output below`
+      ? `ran OK (${dep.nodeCount > 0 ? `auto-filled ${dep.nodeCount} node(s) with ${pick.name}` : "workflow's own model"}, ${run.totalTokens ?? '?'} tokens) — review the output below`
       : run.error
         ? `workflow ran but FAILED: ${run.error}`
         : 'workflow ran but produced no output',
@@ -188,5 +296,36 @@ export async function runLiveTest(
 export async function finishLiveAccepted(task: Task, ctx: OrchestratorCtx): Promise<void> {
   task.status = 'done';
   task.gate = computeGate('test', { outcome: 'success' }, task.deploy);
+  await emit(task, ctx);
+}
+
+/**
+ * S6 — delete THIS build's test apps (Q3/Q4 cleanup): `DELETE /console/api/apps/{id}` for every id in
+ * `test_apps.json`/`task.testApps` (the minted app-keys die with the app). Then re-park the SAME live gate
+ * with the list cleared, so the human can still Accept/Discard the (now app-less) result. Best-effort:
+ * a delete that fails just leaves that id — the user can retry or clean in Dify.
+ */
+export async function cleanupTestApps(task: Task, ctx: OrchestratorCtx): Promise<void> {
+  const { projectsDir } = ctx;
+  const live = resolveLiveOps(ctx);
+  const ids = task.testApps ?? [];
+  const remaining: string[] = [];
+  for (const id of ids) {
+    const ok = await live.deleteApp(projectsDir, id).catch(() => false);
+    if (!ok) remaining.push(id); // couldn't delete → keep it in the list
+  }
+  task.testApps = remaining;
+  if (!remaining.length) {
+    task.appId = null;
+    task.appUrl = null;
+    if (task.liveTest) {
+      task.liveTest.appUrl = null;
+      task.liveTest.reason = `${task.liveTest.reason ?? ''} (test app(s) deleted)`.trim();
+    }
+  }
+  // re-park the SAME gate (outcome unchanged — the result still stands; only the apps are gone).
+  const outcome = task.gate?.flag === 'infra_degraded' ? 'infra_degraded' : 'test_result';
+  task.status = 'awaiting_confirm';
+  task.gate = computeGate('test', { outcome }, task.deploy);
   await emit(task, ctx);
 }

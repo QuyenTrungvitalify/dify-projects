@@ -184,6 +184,7 @@ const EN: Dict = {
   gateLiveFailTitle: 'Live test result needs review',
   gateLiveModel: 'model: {model} (auto-filled {n} node(s))',
   gateLiveOutput: 'output: {out}',
+  gateLiveJudge: 'judge (advisory):',
   gateLiveApp: 'app: {url}',
   gateLiveInfraBadge: 'LIVE ⚠',
   gateLiveInfraTitle: "Live test couldn't run (infrastructure)",
@@ -422,6 +423,7 @@ const JA: Dict = {
   gateLiveFailTitle: 'ライブテスト結果の確認が必要',
   gateLiveModel: 'モデル: {model}（{n}ノード自動補完）',
   gateLiveOutput: '出力: {out}',
+  gateLiveJudge: '判定（参考）:',
   gateLiveApp: 'アプリ: {url}',
   gateLiveInfraBadge: 'LIVE ⚠',
   gateLiveInfraTitle: 'ライブテストを実行できません（インフラ）',
@@ -541,6 +543,12 @@ const ACTION_JA: Dict = {
   'Skip import': 'インポートをスキップ',
   'Retry phase': 'フェーズを再試行',
   'Discard build': 'ビルドを破棄',
+  /* spec 032 live-test gate actions */
+  'Accept result': '結果を承認',
+  'Re-test': '再テスト',
+  'Retry live': 'ライブ再試行',
+  'Accept static': '静的結果を承認',
+  'Delete test apps': 'テストアプリを削除',
   /* resolved-state labels (store.ts resolveLabel / reply) */
   Cancelled: 'キャンセル済み',
   Continued: '続行済み',

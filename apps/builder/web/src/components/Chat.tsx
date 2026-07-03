@@ -168,6 +168,11 @@ function gateView(t: WireTask): GateView {
       const out = typeof lt.output === 'string' ? lt.output : JSON.stringify(lt.output);
       summary.push(tf('gateLiveOutput', { out: out.length > 400 ? out.slice(0, 400) + '…' : out }));
     }
+    // spec 032 T3: the judge's per-criterion grade (advisory) — one ✓/✗ line each.
+    if (lt?.judge?.criteria?.length) {
+      summary.push(tr('gateLiveJudge') + (lt.judge.summary ? ` (${lt.judge.summary})` : ''));
+      for (const c of lt.judge.criteria) summary.push(`${c.pass ? '✓' : '✗'} ${c.criterion}${c.evidence ? ` — ${c.evidence}` : ''}`);
+    }
     if (lt?.appUrl) summary.push(tf('gateLiveApp', { url: lt.appUrl }));
     return { tone: pass ? 'done' : 'warn', badge: pass ? tr('gateLivePassBadge') : tr('gateLiveFailBadge'),
       title: pass ? tr('gateLivePassTitle') : tr('gateLiveFailTitle'), meta, summary, showReportLink: true };
@@ -296,6 +301,13 @@ export function GateCard({ task, resolved, busy, onConfirm, onReply, onCancel, o
       ) : actions.length > 0 ? (
         <div className="gate-foot">
           {actions.map((a) => {
+            // spec 032 S6: the "delete test apps" cleanup shows only when this build actually has test
+            // apps to remove, rendered as a quiet ghost button with the count.
+            if (a.id === 'cleanup_apps') {
+              const n = task.testApps?.length ?? 0;
+              if (!n) return null;
+              return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => onConfirm(a)}>🗑 {tAction(a.label)} ({n})</button>;
+            }
             if (a.kind === 'reply') {
               return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => setReplying(true)}><I.message />{tAction(a.label)}</button>;
             }
