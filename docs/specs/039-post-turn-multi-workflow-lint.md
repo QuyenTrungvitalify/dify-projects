@@ -304,6 +304,16 @@ Each of the five `files:` regexes is `^(templates/(patterns|probes|library)/.*\.
 - **OQ2 (D4/D5)** — once a legitimate multi-file producer exists, should the UI surface per-extra-file lint results
   (today they appear only as path-prefixed gate reasons)? Default: reasons-only until a producer exists; the
   `extraFiles` detail field already carries the structure a future UI needs.
+- **OQ3 (post-implement review, 2026-07-06) — the multi-turn escape.** Turn 1 writes a BAD `extra.yml` → gate
+  parks with the extra's failure reason; a `/reply` turn 2 that fixes ONLY `main.yml` and never touches
+  `extra.yml` sees it in its own baseline (dirty since turn 1) → `extras = []` → the gate resolves success while
+  the known-bad extra still sits on disk. This is a DIRECT consequence of AC 3's turn-delta enumeration (the
+  alternative — a `readdir` glob — would lint baseline-dirty files that are not ours to judge, exactly what AC 3
+  forbids). Mitigations today: the human SAW the extra's failure at the turn-1 gate, and pre-commit (D6) still
+  gates the file at commit time. If this bites in practice, the fix shape is: persist the extras list from the
+  prior verify in task state and re-lint the union on subsequent verifies of the same task. Related note: the
+  `\.ya?ml$` filter is lowercase-only, matching `isValidWorkflowFile` and the pre-commit regexes — an
+  `extra.YAML` is not swept (unchanged from pre-039; the whole toolchain is lowercase-extension).
 
 ## Revision log
 
