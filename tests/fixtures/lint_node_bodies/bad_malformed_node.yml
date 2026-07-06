@@ -1,0 +1,11 @@
+# AC 4 (spec 038, V1 rule): a non-dict entry in nodes[] → structured one-line error, exit 2,
+# NEVER a traceback (a hard gate that stack-traces is a spec-026-class regression).
+workflow:
+  graph:
+    nodes:
+      - just-a-string-not-a-node
+      - id: '1700000000003'
+        data:
+          type: end
+          title: End
+          outputs: []

@@ -1,0 +1,17 @@
+# AC 2 second half (spec 038 D3): an llm node missing `context` (required). With
+# `--demote NodeData_LLMNodeData:context` this is a stderr WARNING + exit 0; without, exit 1.
+# DEMOTED_REQUIRED ships empty — the flag is the subprocess-boundary test seam; P2 fills the table.
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000002'
+        data:
+          type: llm
+          title: Demotable
+          model:
+            provider: openai
+            name: gpt-4o-mini
+            mode: chat
+          prompt_template:
+            - role: system
+              text: hi

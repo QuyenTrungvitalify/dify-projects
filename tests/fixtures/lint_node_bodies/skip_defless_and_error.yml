@@ -1,0 +1,18 @@
+# AC 3 (spec 038 D4): `assigner` has no dumped def (explicit None row) and `http-request` carries
+# an `_error` stub in the pinned schema — both must WARN-SKIP (stderr), file otherwise clean → exit 0.
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000001'
+        data:
+          type: assigner
+          title: Assign
+      - id: '1700000000002'
+        data:
+          type: http-request
+          title: Fetch
+      - id: '1700000000003'
+        data:
+          type: end
+          title: End
+          outputs: []

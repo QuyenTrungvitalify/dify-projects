@@ -1,0 +1,32 @@
+# AC 2 (spec 038 D3): a realistic body carrying keys the defs do NOT declare (`type`, `selected`,
+# `isInIteration`) must pass — additionalProperties stays open by design.
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000001'
+        selected: false
+        data:
+          type: start
+          title: Start
+          variables: []
+          isInIteration: false
+      - id: '1700000000002'
+        data:
+          type: llm
+          title: Generate
+          selected: false
+          model:
+            provider: openai
+            name: gpt-4o-mini
+            mode: chat
+            completion_params: {}
+          prompt_template:
+            - role: system
+              text: You are helpful.
+          context:
+            enabled: false
+      - id: '1700000000003'
+        data:
+          type: end
+          title: End
+          outputs: []

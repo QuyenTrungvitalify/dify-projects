@@ -1,11 +1,10 @@
 # Spec 038 — Node-body schema linter: wire the 29 dormant `NodeData_*` $defs (`lint_node_bodies.py`)
 
-**Status**: Draft — authored 2026-07-06 for implementation. Medium size: one new Python tool + fixtures,
-a measured FP report, and (at promotion only) one mechanical spec-013 contract change plus one pre-commit
-hook. Rollout copies spec 020's mandatory 3 phases verbatim — nothing gates until a written 0-FP report over
-the full indexed surface ships with the PR. D1–D8 are locked below (the prior multi-agent pass adversarially
-judged the design; the tensions it surfaced are resolved as decisions, not left open). Ready to implement
-P1 → P3.
+**Status**: Partially implemented — P1 shipped 2026-07-07 (see r3: tool + 18 tests + dead-code removal,
+UNWIRED as designed); P2 preview measured (41 indexed files → findings ONLY in agent-type nodes, 2 files);
+the formal P2 report (038-fp-report.md, agent-def adjudication) and P3 promotion remain. Rollout copies spec
+020's mandatory 3 phases verbatim — nothing gates until the written FP report over the indexed surface ships.
+D1–D8 locked (adversarially judged pre-implementation).
 
 **Builds on**:
 - [020](020-builder-graph-reachability-linter.md) — the 3-phase rollout discipline (warn-only → measured
@@ -367,3 +366,16 @@ nothing enforces it. No flag-flip or default-exit change happens at promotion; p
   `_drafts` gate-regex note; D3/AC 2 gained the `--demote` test seam; AC 5 scoped to non-`None` rows; `path:line`
   mechanism specified; 039 sibling coordination added; anchor/count nits (symlink L658, requirements.in:8,
   validate_workflow 7-dispatch/6-deep).
+- r3 (2026-07-07) — P1 IMPLEMENTED red-first: `tools/dify_base/lint_node_bodies.py` (D1 standalone-def
+  validation — re-verified all 29 defs resolve their internal refs within their own nested `$defs`; D2 table
+  27 mapped + `assigner: None`; D3 `DEMOTED_REQUIRED` ships empty + `--demote` seam; D4 runtime-derived
+  `_error`/def-less warn-skip; D6 `--schema` override; V1 no-traceback), 18 tests + 6 fixtures in
+  `tests/test_lint_node_bodies.py` (ACs 1, 1b, 2, 3, 3b, 4, 5, 6 all covered), dead known-node-types constant
+  deleted from `lint_refs.py`. Full pytest 124 passed. P2 PREVIEW (informal, the formal report still owed):
+  41 indexed files → exit 1 on exactly 2: `templates/patterns/agent-with-tools.yml` (13 findings — the agent
+  node lacks `agent_strategy_name/provider_name/label` and its `agent_parameters` values are scalars where
+  `NodeData_AgentNodeData` wants `{type, value}` objects; ON the gate surface, needs P2 adjudication:
+  pattern-bug vs importer-leniency) and `skills/Tomatio13/example/adoviser_bot.yml` (1 — never-gated tier);
+  14 warn-skips as designed (http-request ×8 `_error`, assigner ×6 def-less). 39/41 clean, zero findings on
+  llm/code/start/end/if-else/iteration across the corpus — the `required[]` fear (OQ1) did not materialize
+  outside the agent def.

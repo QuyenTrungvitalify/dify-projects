@@ -58,7 +58,7 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 | [035](035-builder-edit-again-from-done.md) | Edit-again entry from done/cancelled + thread persistence | Implemented | S |
 | [036](036-builder-capability-aware-test-targets.md) | Capability-aware test targets (`difyTargets()`, Option-A retarget) | Implemented | M |
 | [037](037-builder-runnability-preflight-and-workspace-facts.md) | Runnability preflight (③ advisory note) + workspace facts (`{{KNOWLEDGE}}`) | Draft | M |
-| [038](038-node-body-schema-linter.md) | Node-body schema linter: wire the 29 dormant `NodeData_*` $defs (`lint_node_bodies.py`) | Draft | M |
+| [038](038-node-body-schema-linter.md) | Node-body schema linter: wire the 29 dormant `NodeData_*` $defs (`lint_node_bodies.py`) | Partially implemented (P1 tool+tests; P2 report + P3 promote open) | M |
 | [039](039-post-turn-multi-workflow-lint.md) | Post-turn lint completeness: gate every turn-touched `workflows/*.ya?ml` + extension-twin hard error | Implemented | S |
 
 \* Spec 001 + 006 have 2 minor Q awaiting confirm; can proceed with defaults.

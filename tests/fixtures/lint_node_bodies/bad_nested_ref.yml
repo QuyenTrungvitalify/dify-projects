@@ -1,0 +1,18 @@
+# AC 1b (spec 038, anti-gaming): every TOP-LEVEL required field is present; the defect lives only
+# inside the def's nested $defs — `model` is missing `provider` (ModelConfig.required, resolved via
+# the internal #/$defs/ModelConfig ref). A naive top-level-only validator passes this file.
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000002'
+        data:
+          type: llm
+          title: Nested Broken
+          model:
+            name: gpt-4o-mini
+            mode: chat
+          prompt_template:
+            - role: system
+              text: hi
+          context:
+            enabled: false

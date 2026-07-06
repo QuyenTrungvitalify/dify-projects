@@ -1,0 +1,19 @@
+# AC 1 (spec 038): an llm node WITHOUT prompt_template — a required top-level field
+# (NodeData_LLMNodeData.required includes 'prompt_template') → exit 1.
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000001'
+        data:
+          type: start
+          title: Start
+      - id: '1700000000002'
+        data:
+          type: llm
+          title: Broken LLM
+          model:
+            provider: openai
+            name: gpt-4o-mini
+            mode: chat
+          context:
+            enabled: false

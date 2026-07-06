@@ -37,24 +37,9 @@ IMPLICIT_OUTPUTS: dict[str, set[str]] = {
     "list-operator": {"result"},
 }
 
-KNOWN_NODE_TYPES = (
-    IMPLICIT_OUTPUTS.keys()
-    | {
-        "start",
-        "code",
-        "parameter-extractor",
-        "variable-aggregator",
-        "variable-assigner",
-        "iteration",
-        "loop",
-        "if-else",
-        "answer",
-        "end",
-        "assigner",
-        "iteration-start",
-        "loop-start",
-    }
-)
+# (The old known-node-types constant was deleted — spec 038 D2: dead code with no consumer; the
+# authoritative node-type list is now lint_node_bodies.TYPE_TO_DEF, drift-tested against the
+# schema and bound to IMPLICIT_OUTPUTS via tests/test_lint_node_bodies.py.)
 
 
 def collect_outputs(node_data: dict) -> set[str] | None:
