@@ -1,10 +1,10 @@
 # Spec 038 — Node-body schema linter: wire the 29 dormant `NodeData_*` $defs (`lint_node_bodies.py`)
 
-**Status**: Partially implemented — P1 shipped 2026-07-07 (see r3: tool + 18 tests + dead-code removal,
-UNWIRED as designed); P2 preview measured (41 indexed files → findings ONLY in agent-type nodes, 2 files);
-the formal P2 report (038-fp-report.md, agent-def adjudication) and P3 promotion remain. Rollout copies spec
-020's mandatory 3 phases verbatim — nothing gates until the written FP report over the indexed surface ships.
-D1–D8 locked (adversarially judged pre-implementation).
+**Status**: Partially implemented — P1 shipped 2026-07-07 (r3) and P2 MEASURED CLEAN the same day (r4:
+[038-fp-report.md](038-fp-report.md) — 378 bodies validated across the rebuilt 42-file surface, **0 FP on the
+gate surface**, zero demotions; the 13 agent findings were TRUE positives — `agent-with-tools.yml` fixed against
+the vendored `AgentNodeData` source). Only P3 (promotion: 4th `LINTERS` entry + pre-commit hook + escape hatch)
+remains. D1–D8 locked.
 
 **Builds on**:
 - [020](020-builder-graph-reachability-linter.md) — the 3-phase rollout discipline (warn-only → measured
@@ -379,3 +379,12 @@ nothing enforces it. No flag-flip or default-exit change happens at promotion; p
   14 warn-skips as designed (http-request ×8 `_error`, assigner ×6 def-less). 39/41 clean, zero findings on
   llm/code/start/end/if-else/iteration across the corpus — the `required[]` fear (OQ1) did not materialize
   outside the agent def.
+- r4 (2026-07-07) — P2 MEASURED, formal report shipped ([038-fp-report.md](038-fp-report.md)): rebuilt index
+  (42 files) → 402 nodes → 378 validated → 14 findings, all agent-type. Adjudicated TRUE POSITIVE against
+  `vendor/dify-src/.../agent/entities.py` (`agent_strategy_*: str` and `agent_parameters: dict[str, AgentInput]`
+  carry NO defaults — guaranteed runtime ValidationError): `templates/patterns/agent-with-tools.yml` had the
+  strategy fields nested inside `agent_parameters` and scalar parameter values; FIXED (strategy fields lifted to
+  `data.*`, values wrapped `{type, value}`, TODOs preserved) — the linter's first real catch, previously invisible
+  to all three linters + the envelope hook. Re-measure: gate surface 0 FP, `DEMOTED_REQUIRED` stays empty, the
+  gitignored `_drafts` sweep (14 files) clean. OQ1 answered by measurement: `required[]` strictness produced zero
+  FPs outside the (genuinely broken) agent pattern. Promotion condition met → P3 unblocked.
