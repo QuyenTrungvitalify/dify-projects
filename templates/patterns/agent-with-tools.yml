@@ -90,34 +90,51 @@ workflow:
       data:
         title: 'Agent'
         type: agent
-        # TODO: pick a model with strong tool-use capability
+        # Strategy identity — TOP-LEVEL AgentNodeData fields, runtime-required (Dify constructs
+        # AgentNodeData(**data) at execution; missing → pydantic ValidationError). Caught by
+        # lint_node_bodies.py — spec 038 P2 true-positive fix (was nested in agent_parameters).
+        # TODO: match the agent-strategy plugin installed in your workspace (react | function_calling)
+        agent_strategy_provider_name: langgenius/agent
+        agent_strategy_name: react
+        agent_strategy_label: 'ReAct'
+        memory: null
+        # Every agent_parameters VALUE is an AgentInput object {type: constant|variable|mixed, value: …}
+        # (AgentNodeData.agent_parameters: dict[str, AgentInput]); param NAMES are declared by the
+        # chosen strategy plugin — these match langgenius/agent's react strategy.
         agent_parameters:
           model:
-            provider: ''
-            name: ''
-            mode: chat
-            completion_params:
-              temperature: 0.2
-          tools: []
-          # TODO: register tools available to the agent. Example shape:
-          # tools:
-          #   - provider_id: langgenius/google_search
-          #     provider_type: builtin
-          #     tool_name: google_search
-          #     tool_label: Google Search
-          #     tool_configurations: {}
-          #     enabled: true
-          instruction: |
-            You are a helpful agent. Use the available tools to answer the user's query.
-            Think step by step: identify what information is needed, call the most
-            appropriate tool, then synthesize a clear answer.
-            # TODO: customize instructions, persona, constraints
-          query_variable_selector: ['1700003000001', query]
-          max_iteration: 5
-          memory: null
-          agent_strategy_provider_name: langgenius/agent
-          agent_strategy_name: react
-          agent_strategy_label: 'ReAct'
+            type: constant
+            # TODO: pick a model with strong tool-use capability
+            value:
+              provider: ''
+              name: ''
+              mode: chat
+              completion_params:
+                temperature: 0.2
+          tools:
+            type: constant
+            value: []
+            # TODO: register tools available to the agent. Example value shape:
+            # value:
+            #   - provider_id: langgenius/google_search
+            #     provider_type: builtin
+            #     tool_name: google_search
+            #     tool_label: Google Search
+            #     tool_configurations: {}
+            #     enabled: true
+          instruction:
+            type: constant
+            value: |
+              You are a helpful agent. Use the available tools to answer the user's query.
+              Think step by step: identify what information is needed, call the most
+              appropriate tool, then synthesize a clear answer.
+              # TODO: customize instructions, persona, constraints
+          query:
+            type: variable
+            value: ['1700003000001', query]
+          maximum_iterations:
+            type: constant
+            value: 5
         output_type: text
       position: { x: 342, y: 280 }
       positionAbsolute: { x: 342, y: 280 }
