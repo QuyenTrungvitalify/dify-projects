@@ -107,6 +107,10 @@ workflowFile: string;         // unchanged — "main.yml"
 
 ### §2 Confinement — the security-critical edit (test FIRST)
 
+> Reader note (2026-07-06): [spec 039](039-post-turn-multi-workflow-lint.md) extends this
+> delegation — the ③ gate now also LINTS every turn-touched `workflows/*.ya?ml` inside the
+> whitelisted subtree (this spec polices only the boundary).
+
 [`confinementCheck`](../../apps/builder/server/lib/post-turn.ts#L175) reverts any turn-touched path not whitelisted. The rule today ([post-turn.ts:180-189](../../apps/builder/server/lib/post-turn.ts#L180)):
 
 ```ts

@@ -78,7 +78,7 @@ describe('confinementCheck (013 D3 + spec 030 §2 — per-workflow subtree)', ()
     put(dir, `.runs/${TASK}/scratch.txt`, 'shorthand run dir\n'); // whitelisted
     put(dir, '.vscode/settings.json', '{}'); // whitelisted (exact-path)
 
-    const reasons = await confinementCheck({ projectsDir: dir, project: PROJECT, workflowSlug: WF, taskId: TASK, baseline, log });
+    const { breaches: reasons } = await confinementCheck({ projectsDir: dir, project: PROJECT, workflowSlug: WF, taskId: TASK, baseline, log });
 
     // Exactly the four breaches reverted, each reported.
     assert.equal(reasons.length, 4, 'four breaches reported');
@@ -111,7 +111,7 @@ describe('confinementCheck (013 D3 + spec 030 §2 — per-workflow subtree)', ()
     // `summarizer_2` starts with `summarizer` but the trailing `/` anchor rejects it.
     put(dir, `projects/${PROJECT}/${WF}_2/main.yml`, 'prefix sibling\n');
 
-    const reasons = await confinementCheck({ projectsDir: dir, project: PROJECT, workflowSlug: WF, taskId: TASK, baseline, log });
+    const { breaches: reasons } = await confinementCheck({ projectsDir: dir, project: PROJECT, workflowSlug: WF, taskId: TASK, baseline, log });
 
     assert.equal(reasons.length, 1);
     assert.ok(reasons[0].includes(`${WF}_2/main.yml`), 'prefix-sibling flagged');
@@ -124,7 +124,7 @@ describe('confinementCheck (013 D3 + spec 030 §2 — per-workflow subtree)', ()
     put(dir, `projects/${PROJECT}/${WF}/workflows/main.yml`, 'workflow: {}\n');
     put(dir, `apps/builder/.runs/${TASK}/report.json`, '{}');
 
-    const reasons = await confinementCheck({ projectsDir: dir, project: PROJECT, workflowSlug: WF, taskId: TASK, baseline, log });
+    const { breaches: reasons } = await confinementCheck({ projectsDir: dir, project: PROJECT, workflowSlug: WF, taskId: TASK, baseline, log });
 
     assert.deepEqual(reasons, []);
     assert.ok(existsSync(join(dir, `projects/${PROJECT}/${WF}/workflows/main.yml`)));
@@ -135,7 +135,7 @@ describe('confinementCheck (013 D3 + spec 030 §2 — per-workflow subtree)', ()
     const baseline = await gitDirtyPaths(dir);
     put(dir, `projects/${PROJECT}/${WF}/leaked.yml`, 'should not exist before scaffold\n');
 
-    const reasons = await confinementCheck({ projectsDir: dir, project: null, workflowSlug: null, taskId: TASK, baseline, log });
+    const { breaches: reasons } = await confinementCheck({ projectsDir: dir, project: null, workflowSlug: null, taskId: TASK, baseline, log });
 
     assert.equal(reasons.length, 1);
     assert.ok(reasons[0].includes(`projects/${PROJECT}/${WF}/`), 'projects/ write flagged when unscaffolded');

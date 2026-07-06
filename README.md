@@ -221,7 +221,8 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **Builder app** (specs [009](docs/specs/009-browser-workflow-builder.md)–036) — web UI local cho build 4 phase có gate; đã ship: turn sandbox (015/018), linter gates + graph reachability (020), template library (022), file attachments (025), live workflow test trên Dify thật (032 S1–S5), Ask mode tại gate (033–035), capability-aware test targets (036)
 - ✅ **Curated template library** ([templates/library/](templates/library/), spec 022) — promote qua `/template-promote`, provenance-stamped
 - ⏳ **Polish 1.A** — `http_request` schema-dump currently **fails** (`_error: SchemaSerializer` on `dify_config.HTTP_REQUEST_MAX_*` defaults); 25/25 node modules import and 29 schemas generate, but this one ships with an `_error` marker rather than a clean dump. Tracked as spec 024 **S1** (make a dump-fail fatal in `gen_schema.py`, then fix the stub).
-- ⏳ **Specs 037–039** (đã author 2026-07-06, chưa implement) — runnability preflight + workspace facts (037), node-body schema linter (038), post-turn multi-file lint (039). Index: [docs/specs/README.md](docs/specs/README.md)
+- ✅ **Spec 039** — post-turn gate lint mọi `workflows/*.ya?ml` mà turn chạm + extension-twin hard error; 5 hook pre-commit DSL mở rộng sang `.ya?ml`
+- ⏳ **Specs 037–038** (đã author 2026-07-06, chưa implement) — runnability preflight + workspace facts (037), node-body schema linter (038). Index: [docs/specs/README.md](docs/specs/README.md)
 
 Chi tiết design: xem [docs/architecture.md](docs/architecture.md).
 

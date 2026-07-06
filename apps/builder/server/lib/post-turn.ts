@@ -40,6 +40,17 @@ export interface PostTurnParams {
   log: SessionLogger;
 }
 
+/** Spec 039 D5 — the per-file verdict for every OTHER turn-touched `workflows/*.ya?ml` (the
+ *  declared artifact keeps the top-level fields). `twin` = an extension twin of the declared file
+ *  (D4 — hard error even when lint-clean). */
+export interface ExtraFileCheck {
+  path: string;
+  yamlOk: boolean;
+  lintCodes: LintCodes | null;
+  idsOk: boolean;
+  twin: boolean;
+}
+
 /** Structured breakdown of the ③ correctness + confinement check — lets Lát 3 pick the Implement
  *  gate variant (clean vs still-failing vs hard-error) instead of collapsing to one boolean. */
 export interface PostTurnDetail {
@@ -53,6 +64,9 @@ export interface PostTurnDetail {
   idsOk: boolean;
   /** reverted out-of-confinement paths (non-empty = a security breach → always hard error). */
   confinementBreaches: string[];
+  /** spec 039 — per-file gate results for every other turn-touched `workflows/*.ya?ml`
+   *  (`[]` = the turn touched only its declared file, the universal case pre-039). */
+  extraFiles: ExtraFileCheck[];
 }
 
 export interface PostTurnResult {
@@ -92,6 +106,13 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
   const reasons: string[] = [];
   const rel = `projects/${p.project}/${p.workflowSlug}/workflows/${p.workflowFile}`;
   const abs = join(p.projectsDir, rel);
+
+  // ─── (b) CONFINEMENT first (spec 039 D1) ───────────────────────
+  // Revert breaches BEFORE enumerating the correctness set, so the extras lint list can never
+  // include a path that is about to be reverted, and ONE git-status snapshot serves both checks.
+  // Breach REASONS still surface LAST (assembly order below ≠ execution order — pinned by
+  // linters.test.ts D5 order tests + confinement.test.ts).
+  const { breaches: confinementBreaches, touched } = await confinementCheck(p);
 
   // ─── (a) CORRECTNESS ───────────────────────────────────────────
 
@@ -158,21 +179,119 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
     idsOk = nodeIds.length > 0 && bad.length === 0;
   }
 
-  // ─── (b) CONFINEMENT (baseline-delta + whitelist + REVERT) ──────
-  // Run unconditionally — a breach must be reverted even if (a) already failed.
-  const confinementBreaches = await confinementCheck(p);
+  // ─── (a′) CORRECTNESS on every OTHER turn-touched workflows/*.ya?ml (spec 039 D2–D4) ───
+  // Enumerated from the confinement delta (never a readdir glob — baseline-dirty files are not
+  // ours to judge). Scope mirrors the pre-commit DSL hooks: only `workflows/*.ya?ml`; subtree
+  // fixtures (tests/, inputs/, prompts/) stay confinement-only (D2). Each extra gets EXACTLY the
+  // declared file's treatment (D3), one spawn per (linter, file) — validate_workflow.py reads
+  // argv[1] only and silently ignores extras, so batching argv would skip files.
+  const wfDirPrefix = `projects/${p.project}/${p.workflowSlug}/workflows/`;
+  const extras = touched
+    .filter((path) => path.startsWith(wfDirPrefix) && /\.ya?ml$/.test(path) && path !== rel)
+    .sort();
+  const extraFiles: ExtraFileCheck[] = [];
+  const twinReasons: string[] = [];
+  const relDir = rel.slice(0, rel.lastIndexOf('/'));
+  const stem = (name: string): string => name.replace(/\.ya?ml$/, '');
+  for (const path of extras) {
+    const r = await checkExtraWorkflowFile(p.projectsDir, path);
+    // D4: a twin sits DIRECTLY in workflows/ (nested same-stem files are plain extras) with the
+    // declared file's stem under the other `.ya?ml` extension — both directions, never hardcoding
+    // `main.yml`. Two canonical-looking artifacts = correctness ambiguity → hard error even when
+    // lint-clean (the twin is still fully linted above for diagnostic value).
+    const base = path.slice(path.lastIndexOf('/') + 1);
+    const twin =
+      path.slice(0, path.lastIndexOf('/')) === relDir &&
+      stem(base) === stem(p.workflowFile) &&
+      base !== p.workflowFile;
+    if (twin) twinReasons.push(`extension twin of ${p.workflowFile}: ${path}`);
+    extraFiles.push({ path, yamlOk: r.yamlOk, lintCodes: r.lintCodes, idsOk: r.idsOk, twin });
+    reasons.push(...r.reasons);
+  }
+  reasons.push(...twinReasons);
+
+  // Confinement breach reasons LAST — as before 039 (assembly order is byte-compatible).
   reasons.push(...confinementBreaches);
 
-  const detail: PostTurnDetail = { artifactOk, yamlOk, lintCodes, idsOk, confinementBreaches };
+  const detail: PostTurnDetail = { artifactOk, yamlOk, lintCodes, idsOk, confinementBreaches, extraFiles };
   const ok = reasons.length === 0;
   return { ok, status: ok ? 'done' : 'error', reasons, detail };
 }
 
 /**
+ * Spec 039 D3 — one extra turn-touched `workflows/*.ya?ml`, given the declared file's EXACT
+ * contract: stat first (missing/empty — e.g. a turn-DELETED tracked file — is its own reason with
+ * `lintCodes: null`); when size > 0 the YAML probe AND the 3 linters ALL run (linters gate on
+ * size, not on the probe result, mirroring the declared path); then the idsOk regex. Reasons are
+ * path-prefixed so a multi-file failure reads unambiguously at the gate.
+ */
+async function checkExtraWorkflowFile(
+  projectsDir: string,
+  rel: string
+): Promise<{ yamlOk: boolean; lintCodes: LintCodes | null; idsOk: boolean; reasons: string[] }> {
+  const reasons: string[] = [];
+  let size = -1;
+  try {
+    size = (await stat(join(projectsDir, rel))).size;
+  } catch {
+    reasons.push(`extra workflow file missing (turn-touched then deleted): ${rel}`);
+  }
+  if (size === 0) reasons.push(`extra workflow file empty: ${rel}`);
+
+  let yamlOk = false;
+  let nodeIds: string[] | null = null;
+  let lintCodes: LintCodes | null = null;
+  if (size > 0) {
+    const probe = await runPython(projectsDir, ['-c', YAML_PROBE, rel]);
+    if (probe.code !== 0) {
+      reasons.push(`${rel}: yaml parse failed (truncated/corrupt): ${(probe.stderr || probe.stdout).trim()}`);
+    } else {
+      try {
+        const out = JSON.parse(probe.stdout) as { node_ids: unknown[] };
+        nodeIds = (out.node_ids ?? []).map((x) => String(x));
+        yamlOk = true;
+      } catch {
+        reasons.push(`${rel}: yaml probe returned non-JSON: ${probe.stdout.slice(0, 200)}`);
+      }
+    }
+    lintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 };
+    const results = await Promise.all(LINTERS.map((lint) => runPython(projectsDir, [lint.script, rel])));
+    LINTERS.forEach((lint, i) => {
+      const r = results[i];
+      lintCodes![lint.key] = r.code;
+      if (r.code !== 0) {
+        const detail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-LINT_DETAIL_LINES).join(' ⏎ ');
+        reasons.push(`${rel}: ${lint.name} exit ${r.code}: ${detail}`);
+      }
+    });
+  }
+
+  let idsOk = false;
+  if (nodeIds) {
+    if (nodeIds.length === 0) reasons.push(`${rel}: no node ids found in workflow.graph.nodes`);
+    const bad = nodeIds.filter((id) => !/^\d{13}(start)?$/.test(id));
+    if (bad.length) reasons.push(`${rel}: non-13-digit node id(s): ${bad.slice(0, 10).join(', ')}`);
+    idsOk = nodeIds.length > 0 && bad.length === 0;
+  }
+  return { yamlOk, lintCodes, idsOk, reasons };
+}
+
+/** Spec 039 D1 — `confinementCheck`'s return. `breaches` = the FORMATTED reason strings exactly
+ *  as returned pre-039 (`confinement breach (reverted): <path>`); `touched` = the RAW repo-relative
+ *  in-whitelist survivors of the turn delta (breaches excluded — they were just reverted). The
+ *  asymmetry is deliberate: confinement.test.ts assertions and the orchestrator ①/② spread stay
+ *  byte-unchanged, while the ③ extras pass gets clean paths to enumerate from. */
+export interface ConfinementResult {
+  breaches: string[];
+  touched: string[];
+}
+
+/**
  * (b) standalone — baseline-delta git porcelain against the whitelist; REVERTS any
  * turn-introduced path outside it (findings E2d / plan Cross-cutting #3b). Returns one reason
- * per reverted breach (empty = confinement clean). Shared by the ③ post-turn check (above) and
- * the ①/② turn verify (orchestrator), which have no YAML artifact to lint.
+ * per reverted breach (empty = confinement clean) plus the in-whitelist touched paths (039 D1).
+ * Shared by the ③ post-turn check (above) and the ①/② turn verify (orchestrator), which have
+ * no YAML artifact to lint.
  *
  * When `project`/`workflowSlug` are null (pre-scaffold ①/②), the `projects/<project>/<workflowSlug>/`
  * rule can't match, so any write under `projects/` is correctly treated as a breach (nothing should
@@ -184,7 +303,7 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
  * subtrees are structurally rejected. The old per-project `.dify-workspace.yaml` special-case is DROPPED
  * (D1): the manifest lives at the PROJECT level and a workflow build turn has no business writing it.
  */
-export async function confinementCheck(p: ConfinementParams): Promise<string[]> {
+export async function confinementCheck(p: ConfinementParams): Promise<ConfinementResult> {
   const reasons: string[] = [];
   const after = await gitDirtyPaths(p.projectsDir);
   const turnTouched = [...after].filter((path) => !p.baseline.has(path));
@@ -205,12 +324,16 @@ export async function confinementCheck(p: ConfinementParams): Promise<string[]> 
     await revertPath(p.projectsDir, breach, p.log);
     reasons.push(`confinement breach (reverted): ${breach}`);
   }
-  return reasons;
+  return { breaches: reasons, touched: turnTouched.filter(isWhitelisted) };
 }
 
-/** Parse `git status --porcelain` into a set of dirty repo-relative paths. */
+/** Parse `git status --porcelain` into a set of dirty repo-relative paths.
+ *  `-uall` (spec 039): default porcelain collapses a NEW untracked directory to one `dir/` entry,
+ *  which would hide a nested `workflows/sub/x.yaml` from the extras filter (and coarsen breach
+ *  reverts). Listing individual files changes nothing about the baseline-delta: baseline and
+ *  after are captured by this same function, so both sides collapse — or don't — identically. */
 export async function gitDirtyPaths(projectsDir: string): Promise<Set<string>> {
-  const r = await runGit(projectsDir, ['status', '--porcelain']);
+  const r = await runGit(projectsDir, ['status', '--porcelain', '-uall']);
   const set = new Set<string>();
   for (const line of r.stdout.split('\n')) {
     if (!line.trim()) continue;

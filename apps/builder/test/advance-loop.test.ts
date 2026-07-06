@@ -115,7 +115,7 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
       ok: clean,
       status: clean ? 'done' : 'error',
       reasons,
-      detail: { artifactOk: true, yamlOk: true, lintCodes, idsOk: true, confinementBreaches: [] },
+      detail: { artifactOk: true, yamlOk: true, lintCodes, idsOk: true, confinementBreaches: [], extraFiles: [] },
     };
   };
 
@@ -401,7 +401,7 @@ describe('advance-loop integration (013 D3)', () => {
           ok: true,
           status: 'done',
           reasons: [],
-          detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 }, idsOk: true, confinementBreaches: [] },
+          detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 }, idsOk: true, confinementBreaches: [], extraFiles: [] },
         }),
       },
     };
@@ -442,7 +442,7 @@ describe('advance-loop integration (013 D3)', () => {
           ok: true,
           status: 'done',
           reasons: [],
-          detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 }, idsOk: true, confinementBreaches: [] },
+          detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 }, idsOk: true, confinementBreaches: [], extraFiles: [] },
         }),
       },
     };

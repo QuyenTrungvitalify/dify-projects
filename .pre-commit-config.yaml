@@ -55,7 +55,7 @@ repos:
     hooks:
       - id: check-jsonschema
         name: check-jsonschema (Dify DSL v0.6.0)
-        files: ^(templates/(patterns|probes|library)/.*\.yml|projects/.*/workflows/.*\.yml)$
+        files: ^(templates/(patterns|probes|library)/.*\.ya?ml|projects/.*/workflows/.*\.ya?ml)$
         args:
           - --schemafile
           - schemas/dify-dsl-0.6.0.json
@@ -69,7 +69,7 @@ repos:
         # fresh setup.sh clone (the skill clone is gitignored & not guaranteed to carry our checks).
         entry: scripts/py.sh tools/dify_base/validate_workflow.py
         language: system
-        files: ^(templates/(patterns|probes|library)/.*\.yml|projects/.*/workflows/.*\.yml)$
+        files: ^(templates/(patterns|probes|library)/.*\.ya?ml|projects/.*/workflows/.*\.ya?ml)$
         require_serial: false
 
       - id: dify-dsl-version-guard
@@ -78,7 +78,7 @@ repos:
         # matching the committed schema. Catches accidental version drift.
         entry: scripts/check_dsl_version.sh
         language: script
-        files: ^(templates/(patterns|probes|library)/.*\.yml|projects/.*/workflows/.*\.yml)$
+        files: ^(templates/(patterns|probes|library)/.*\.ya?ml|projects/.*/workflows/.*\.ya?ml)$
 
       - id: agents-md-refs
         name: AGENTS.md references valid
@@ -95,7 +95,7 @@ repos:
         # Catches Dify import error class #1 (typo in node id / field name).
         entry: scripts/py.sh tools/dify_base/lint_refs.py
         language: system
-        files: ^(templates/(patterns|probes|library)/.*\.yml|projects/.*/workflows/.*\.yml)$
+        files: ^(templates/(patterns|probes|library)/.*\.ya?ml|projects/.*/workflows/.*\.ya?ml)$
         require_serial: false
 
       - id: dify-lint-plugin-hashes
@@ -104,5 +104,5 @@ repos:
         # <provider>/<plugin>:<semver>@<sha256> (sub-spec 005.1).
         entry: scripts/py.sh tools/dify_base/lint_plugin_hashes.py
         language: system
-        files: ^(templates/(patterns|probes|library)/.*\.yml|projects/.*/workflows/.*\.yml)$
+        files: ^(templates/(patterns|probes|library)/.*\.ya?ml|projects/.*/workflows/.*\.ya?ml)$
         require_serial: false

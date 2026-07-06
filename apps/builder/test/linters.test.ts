@@ -8,6 +8,10 @@
  *   2. CROSS-CONSUMER IDENTITY: postTurnCheck (③) and runReport (④) run over the SAME fixture invoke
  *      the IDENTICAL ordered set of linter scripts and reach the IDENTICAL clean/dirty verdict — so a
  *      key/path/order change in the shared module moves both at once, and they can never disagree.
+ *      (Spec 039 D7: the identity is the per-file contract on the DECLARED artifact — ③ additionally
+ *      lints every other turn-touched workflows/*.ya?ml, which ④ structurally cannot re-scan: report
+ *      time has no turn baseline to diff against. This suite's fixture has no extras, so it pins the
+ *      declared-artifact identity unchanged.)
  *
  * The two REAL linter-invokers are exercised through a `.venv/bin/python` SHIM that records the
  * script path of each linter invocation and answers the YAML probe. (verifyPhase's `lintClean`

@@ -1,9 +1,10 @@
 # Spec 039 — Post-turn lint completeness: gate every workflow YAML the turn touched
 
-**Status**: Draft (2026-07-06) — authored for implementation. Small, surgical, backend-only (~30 lines in
-`post-turn.ts` + a variant-resolution touch in `orchestrator.ts` + tests), with a 5-regex pre-commit widening as
-an in-scope companion (D6). D1–D7 locked; two OQs parked with defaults. No new deps, no Dify contact, no gate-FSM
-change, no permission-hook change. Ready to implement S1→S3, failing-test-first.
+**Status**: Implemented (2026-07-06, same day as authored — see r3). Small, surgical, backend-only (~30 lines
+in `post-turn.ts` + a variant-resolution touch in `orchestrator.ts` + tests), with a 5-regex pre-commit widening
+as an in-scope companion (D6). D1–D7 locked; two OQs parked with defaults. No new deps, no Dify contact, no
+gate-FSM change, no permission-hook change. Implemented S1→S3 failing-test-first; one implementation addition
+recorded in r3 (`gitDirtyPaths -uall`).
 
 > **Reference the SYMBOL, not the line.** Line links below were verified 2026-07-06; re-grep before editing.
 
@@ -313,3 +314,10 @@ Each of the five `files:` regexes is `^(templates/(patterns|probes|library)/.*\.
   in `workflows/` (+ AC 2c); §2 pins the extra-file stat/probe edge contract (+ AC 6 clause); D6 `*.yaml` inventory
   completed; §4/AC 7 regex wording corrected (both `\.yml` occurrences, `\.ya?ml)$` line end); AC 4 breach-record
   clause marked defense-in-depth; 030-delegation bullet softened. No Decision intent changed.
+- r3 (2026-07-06) — IMPLEMENTED (S1 red-first → S2 → S3; 12 tests in
+  `apps/builder/test/post-turn-multi-lint.test.ts`, full server suite 347/347, pre-commit all-files green).
+  AC 2's layer implemented via the exported-pure-helper option: `resolveImplementOutcome(detail, turnNote)` in
+  `orchestrator.ts`. One addition the spec missed: `gitDirtyPaths` now passes `-uall` — default porcelain
+  collapses a NEW untracked directory to one `dir/` entry, which hid a nested `workflows/sub/x.yaml` from the
+  D2 filter (caught by AC 2c's red run); baseline and after are captured by the same function, so the
+  delta semantics are unchanged, and breach reverts gain per-file granularity as a side effect.

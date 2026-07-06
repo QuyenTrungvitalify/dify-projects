@@ -231,3 +231,5 @@ the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.
 - **Builder QA writes scratch workflows** into the reserved `projects/_drafts/<workflow>/` project
   (spec 030) — gitignored regenerable throwaways (spec 011 R2; `build_index.py` skips gitignored
   YAMLs). Don't commit them. Real projects live at `projects/<project>/<workflow>/` and are indexed.
+- **The ③ gate lints every turn-touched `workflows/*.ya?ml`** (spec 039), not just the declared
+  file; an extension twin of the declared file (`main.yaml` beside `main.yml`) is a hard error.

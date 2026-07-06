@@ -59,7 +59,7 @@ function stubs(dir: string, task: Task): { ctx: OrchestratorCtx; events: typeof 
   };
   const postTurnCheck = async (_p: PostTurnParams): Promise<PostTurnResult> => ({
     ok: true, status: 'done', reasons: [],
-    detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 }, idsOk: true, confinementBreaches: [] },
+    detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 }, idsOk: true, confinementBreaches: [], extraFiles: [] },
   });
   const runReport = async (_d: string, t: Task): Promise<ReportResult> =>
     ({ ok: true, reasons: [], reportRel: `apps/builder/.runs/${t.taskId}/report.json`, lintClean: true });

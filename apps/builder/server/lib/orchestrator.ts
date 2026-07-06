@@ -17,7 +17,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ClaudeSession } from './claude-session.js';
-import { confinementCheck, gitDirtyPaths } from './post-turn.js';
+import { confinementCheck, gitDirtyPaths, type PostTurnDetail } from './post-turn.js';
 import { type TurnResult } from './turn-runner.js';
 import { PHASES, renderPrompt, type PhaseDef } from './phases.js';
 import { attachmentBlock } from './attachments.js';
@@ -444,6 +444,34 @@ async function runPhase(
   return verify;
 }
 
+/**
+ * Spec 039 D5 — the ③ variant fold, extracted PURE so the hard/success/still_failing split is
+ * directly unit-testable (post-turn-multi-lint.test.ts; `PostTurnResult.status` cannot express it).
+ *
+ * HARD error (→ status:error, Retry): a crash/timeout, no artifact, unparseable YAML (truncation),
+ * a confinement breach (security — always reverted + error, AC #23), an unparseable/missing EXTRA
+ * workflow file, or an extension TWIN of the declared file (039 D4 — two canonical-looking
+ * artifacts is a correctness ambiguity even lint-clean). These are NOT the still-failing gate
+ * (which assumes present, parseable, in-confinement files).
+ *
+ * Success consumes the SHARED lintClean (013 D1) — the identical clean-test the ④ report's Import
+ * precondition uses — for the declared artifact AND every extra (039 D5); anything else parks at
+ * still_failing (cap-5 reached; the agent self-corrected as far as it could — §D / AC #20).
+ */
+export function resolveImplementOutcome(
+  d: PostTurnDetail,
+  turnNote: string | undefined
+): 'error' | 'success' | 'still_failing' {
+  const hardError =
+    !!turnNote || !d.artifactOk || !d.yamlOk || d.confinementBreaches.length > 0 ||
+    d.extraFiles.some((f) => !f.yamlOk || f.twin);
+  if (hardError) return 'error';
+  if (lintClean(d.lintCodes) && d.idsOk && d.extraFiles.every((f) => lintClean(f.lintCodes) && f.idsOk)) {
+    return 'success';
+  }
+  return 'still_failing';
+}
+
 /** Post-turn verify → outcome. ③ resolves clean/still-failing/hard-error from the post-turn detail. */
 async function verifyPhase(
   phase: PhaseDef,
@@ -469,23 +497,10 @@ async function verifyPhase(
       baseline,
       log,
     });
-    const d = check.detail;
     const reasons = [...check.reasons];
     if (turnNote) reasons.unshift(turnNote);
-
-    // HARD error (→ status:error, Retry): a crash/timeout, no artifact, unparseable YAML
-    // (truncation), or a confinement breach (security — always reverted + error, AC #23). These are
-    // NOT the still-failing gate (which assumes a present, parseable, in-confinement partial file).
-    const hardError = !!turnNote || !d.artifactOk || !d.yamlOk || d.confinementBreaches.length > 0;
-    if (hardError) return { outcome: 'error', reasons };
-
-    // The Implement success gate consumes the SHARED lintClean (013 D1) — the identical clean-test the
-    // ④ report's Import precondition uses, so the ③ gate and the ④ report can never disagree.
-    if (lintClean(d.lintCodes) && d.idsOk) return { outcome: 'success', reasons: [] };
-
-    // Present + parseable + in-confinement, but lint≠0 or non-13-digit ids → still-failing gate
-    // (cap-5 reached; the agent self-corrected as far as it could in its one turn — §D / AC #20).
-    return { outcome: 'still_failing', reasons };
+    const outcome = resolveImplementOutcome(check.detail, turnNote);
+    return { outcome, reasons: outcome === 'success' ? [] : reasons };
   }
 
   // ①/②: artifact exists + non-empty (+ analyze.json valid JSON) + confinement+revert.
@@ -535,7 +550,7 @@ async function verifyPhase(
   }
   // Confinement runs unconditionally — a breach must be reverted even if the artifact failed.
   reasons.push(
-    ...(await confinementCheck({ projectsDir, project: task.project, workflowSlug: task.workflowSlug, taskId: task.taskId, baseline, log }))
+    ...(await confinementCheck({ projectsDir, project: task.project, workflowSlug: task.workflowSlug, taskId: task.taskId, baseline, log })).breaches
   );
   return { outcome: reasons.length ? 'error' : 'success', reasons };
 }
