@@ -9,6 +9,8 @@
       "projects/cc/*/workflows/*.yaml",
       "projects/dd/*/workflows/*.yml",
       "projects/dd/*/workflows/*.yaml",
+      "projects/ee/*/workflows/*.yml",
+      "projects/ee/*/workflows/*.yaml",
       "projects/eiken_project/*/workflows/*.yml",
       "projects/eiken_project/*/workflows/*.yaml",
       "projects/new/*/workflows/*.yml",
