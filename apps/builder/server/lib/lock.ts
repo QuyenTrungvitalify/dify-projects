@@ -27,6 +27,16 @@ interface TurnHolder {
   taskId: string;
   /** the live child for the in-flight turn; null between acquire and spawn, or after the turn ends. */
   session: ClaudeSession | null;
+  /** Spec 033 D9: distinguishes a phase turn from an Ask turn so `/cancel` can scope its abort — an
+   *  Ask's force-kill must never converge the build's `status`/`gate` to `cancelled` (D3 keeps the gate
+   *  parked throughout an Ask). Defaults to 'phase' via `acquireTurn`'s 2nd param. */
+  kind: 'phase' | 'ask';
+  /** Spec 033 review #2: set by `/cancel` when a Stop lands in the [lock acquired → session spawned]
+   *  window of an Ask, where there is no live child to force-kill yet. `askWithin` checks it after its
+   *  (potentially long) snapshot walk and bails before spawning. Lives on the holder (NOT the shared
+   *  `cancelledTasks` Set, which would leak — an Ask never reaches a terminal status to evict it, D9), so
+   *  it dies with the turn on `releaseTurn`. */
+  cancelRequested: boolean;
 }
 
 // The build whose turn is CURRENTLY executing, or null when no turn is running (any number of builds
@@ -46,10 +56,10 @@ const cancelledTasks = new Set<string>();
  * double-dispatch race — two concurrent `/confirm` for ONE build: the 2nd `acquireTurn` fails, so it
  * replaces the old `advancing` Set. Called synchronously in the route, right before dispatch.
  */
-export function acquireTurn(taskId: string): boolean {
+export function acquireTurn(taskId: string, kind: 'phase' | 'ask' = 'phase'): boolean {
   if (turnHolder !== null) return false;
   cancelledTasks.delete(taskId); // fresh slate on (re)acquire (e.g. a /reply retry out of error)
-  turnHolder = { taskId, session: null };
+  turnHolder = { taskId, session: null, kind, cancelRequested: false };
   return true;
 }
 
@@ -85,6 +95,24 @@ export function clearSession(taskId: string): void {
 /** The live child for `taskId`, or null when no turn is running for it / it is not the holder. */
 export function liveSession(taskId: string): ClaudeSession | null {
   return turnHolder && turnHolder.taskId === taskId ? turnHolder.session : null;
+}
+
+/** Spec 033 D9: the kind of turn currently executing for `taskId` ('phase' | 'ask'), or null when no
+ *  turn is running for it / it is not the holder. `/cancel` branches on this to scope an Ask's abort. */
+export function liveKind(taskId: string): 'phase' | 'ask' | null {
+  return turnHolder && turnHolder.taskId === taskId ? turnHolder.kind : null;
+}
+
+/** Spec 033 review #2: flag an in-flight Ask for cancellation when there is no live child to force-kill
+ *  yet (the pre-spawn snapshot window). No-op unless `taskId` is the current holder. */
+export function requestAskCancel(taskId: string): void {
+  if (turnHolder && turnHolder.taskId === taskId) turnHolder.cancelRequested = true;
+}
+
+/** True if a cancel was requested for the in-flight turn on `taskId` (checked by `askWithin` after its
+ *  snapshot, before spawning). Dies with the turn on `releaseTurn` — never leaks across turns. */
+export function isAskCancelRequested(taskId: string): boolean {
+  return !!turnHolder && turnHolder.taskId === taskId && turnHolder.cancelRequested;
 }
 
 /** Mark the in-flight build cancelled (checked by the orchestrator after each await; survives release). */

@@ -22,7 +22,7 @@ function esc(s: string): string {
     .replace(/'/g, '&#39;');
 }
 
-/** Inline spans: code → bold → italic → links. Operates on ALREADY-escaped text. */
+/** Inline spans: code → links (markdown + bare-URL autolink) → bold → italic. Operates on ALREADY-escaped text. */
 function inline(escaped: string): string {
   // Pull inline `code` spans out to NUL sentinels FIRST so their contents are genuinely shielded from
   // the emphasis/link passes below (those .replace() calls scan the whole string, so a `*`/`_`/`[`
@@ -30,13 +30,28 @@ function inline(escaped: string): string {
   const codes: string[] = [];
   let out = escaped.replace(/`([^`]+)`/g, (_m, c) => {
     codes.push(`<code>${c}</code>`);
-    return `\x00${codes.length - 1}\x00`; // NUL can't occur in escaped model/user text
+    return `\x00C${codes.length - 1}\x00`; // NUL can't occur in escaped model/user text
   });
+  // Anchors (markdown links + bare-URL autolinks) are ALSO pulled to sentinels as they're created, so
+  // (a) the emphasis/strike passes below can't corrupt a URL that contains `_`/`*` (e.g. a `foo_bar`
+  // path segment), and (b) the bare-URL autolink can't re-link a URL already inside a markdown link.
+  const anchors: string[] = [];
+  const anchor = (href: string, label: string): string => {
+    anchors.push(`<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+    return `\x00A${anchors.length - 1}\x00`;
+  };
   // [label](url) — only http/https/relative; the url is escaped, javascript: is dropped.
   out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, url) => {
     const safe = /^(https?:\/\/|\/|\.\/|#)/i.test(url) ? url : '#';
-    return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+    return anchor(safe, label);
   });
+  // Bare-URL autolink: a plain http(s):// URL in the streamed output becomes clickable (opens a new
+  // tab), so a model-emitted `app: http://…/workflow` is one click away. Runs AFTER markdown links (a
+  // link's `(url)` is already a sentinel, so it can't double-match) and while code is a sentinel. The
+  // body class excludes `\x00` (never eats a sentinel) + brackets/quotes; the final char class drops a
+  // URL's trailing sentence punctuation so `see http://x.` links `http://x` not `http://x.`. The
+  // matched text is already HTML-escaped, so it's safe as both the href and the visible label.
+  out = out.replace(/\bhttps?:\/\/[^\s<>()[\]{}"'\x00]+[^\s<>()[\]{}"'\x00.,;:!?]/gi, (m) => anchor(m, m));
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   // Emphasis only when the marker is flanked by non-word chars, so intra-word `my_var_name` / `a*b`
   // (snake_case identifiers, multiplication — which Claude streams constantly) don't italicize.
@@ -44,8 +59,9 @@ function inline(escaped: string): string {
   out = out.replace(/(^|[^\w_])_([^_\n]+)_(?=[^\w_]|$)/g, '$1<em>$2</em>');
   // Strikethrough: ~~text~~ (matches the spec-editor toolbar's S button).
   out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-  // Re-insert the protected code spans.
-  out = out.replace(/\x00(\d+)\x00/g, (_m, n) => codes[Number(n)]);
+  // Re-insert the protected spans: anchors FIRST (a link label may itself hold a code sentinel), then code.
+  out = out.replace(/\x00A(\d+)\x00/g, (_m, n) => anchors[Number(n)]);
+  out = out.replace(/\x00C(\d+)\x00/g, (_m, n) => codes[Number(n)]);
   return out;
 }
 

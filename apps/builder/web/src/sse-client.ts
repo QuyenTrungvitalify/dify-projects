@@ -17,6 +17,17 @@
    ============================================================ */
 import type { WireTask } from './types';
 
+/** spec 033: the layer-2 restore-anomaly report on an Ask's `ask:done{ok:false}` — one entry per file
+ *  the backend detected + already reverted (not just the phase's own gate artifact, FIX-M). */
+export interface AskAnomalyFile {
+  path: string;
+  kind: 'modified' | 'created' | 'deleted';
+  diff?: string;
+  /** spec 033 review #4: the backend could NOT revert this file (an fs error during restore) — surfaced
+   *  so a partial restore is visible, not hidden behind a clean-looking notice. */
+  restoreFailed?: boolean;
+}
+
 export interface SSEHandlers {
   /** Minimal server init ({reconnected}). The store re-fetches GET /api/tasks/:id from here. */
   onInit: (data: { reconnected: boolean }) => void;
@@ -24,6 +35,12 @@ export interface SSEHandlers {
   onTaskUpdate: (task: WireTask) => void;
   /** A streamed assistant fragment for the current phase. */
   onPhaseOutput: (data: { phase: string; text: string }) => void;
+  /** spec 033: a streamed Ask-answer fragment (mirrors onPhaseOutput, high-volume/not buffered). */
+  onAskAnswer: (data: { text: string }) => void;
+  /** spec 033: the Ask turn's terminal marker — ok, or ok:false + the (already-reverted) anomaly.
+   *  spec 034 §2: a ④/terminal fresh-seeded Ask also carries `seededFrom` (which of
+   *  requirement/SPEC.md/main.yml/report.json/liveTest were folded in) — absent on a 033 phase Ask. */
+  onAskDone: (data: { ok: boolean; anomaly?: { files: AskAnomalyFile[] }; seededFrom?: string[] }) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
 }
@@ -75,6 +92,16 @@ export function connectSSE(taskId: string, handlers: SSEHandlers): () => void {
     eventSource.addEventListener('phase:output', (e: MessageEvent) => {
       if (waitingForInit) return; // symmetry with task:update — don't append a pre-init replayed fragment
       handlers.onPhaseOutput(JSON.parse(e.data));
+    });
+
+    eventSource.addEventListener('ask:answer', (e: MessageEvent) => {
+      if (waitingForInit) return; // same stale-suppression guard as phase:output
+      handlers.onAskAnswer(JSON.parse(e.data));
+    });
+
+    eventSource.addEventListener('ask:done', (e: MessageEvent) => {
+      if (waitingForInit) return;
+      handlers.onAskDone(JSON.parse(e.data));
     });
   }
 

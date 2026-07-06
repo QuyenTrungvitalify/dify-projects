@@ -142,6 +142,71 @@ describe('decide — dispatcher behavior', () => {
   });
 });
 
+// ─── spec 033 D3 layer 1: BUILDER_ASK_MODE denies EVERY write-class tool (the primary containment) ───
+// This is the load-bearing safety layer for AC#4 — and it was previously untested at the pure-decision
+// level (the ask.ts 1b/1c tests inject a fake runTurn, bypassing the hook entirely). Without these, a
+// future refactor that reorders decide()'s branches, drops the askMode branch, or narrows WRITE_TOOLS
+// would pass every other test while silently disabling the whole containment.
+describe('spec 033 — decide(askMode=true) denies all write-class tools; askMode=false is unchanged', () => {
+  const WRITE_CASES: Array<{ tool: string; input: Record<string, unknown> }> = [
+    { tool: 'Write', input: { file_path: 'projects/x/workflows/main.yml' } },
+    { tool: 'Edit', input: { file_path: 'projects/x/SPEC.md' } },
+    { tool: 'MultiEdit', input: { file_path: `apps/builder/.runs/${TASK}/SPEC.md` } },
+    { tool: 'NotebookEdit', input: { notebook_path: `.runs/${TASK}/x.ipynb` } },
+  ];
+
+  test('every write-class tool that would NORMALLY be an in-project allow is DENIED under askMode', () => {
+    for (const { tool, input } of WRITE_CASES) {
+      // baseline: without askMode these are legit in-project writes → allow (proves the deny is askMode's doing)
+      assert.equal(decide({ tool_name: tool, tool_input: input }, TASK, false).decision, 'allow', `${tool} allowed normally`);
+      // askMode → deny, with the ask-mode reason
+      const d = decide({ tool_name: tool, tool_input: input }, TASK, true);
+      assert.equal(d.decision, 'deny', `${tool} denied under askMode`);
+      assert.match(d.reason, /Ask mode/i);
+    }
+  });
+
+  test('askMode denies a write even to a path a NORMAL turn could write (not just protected paths)', () => {
+    // the deny is categorical (the tool), not path-based — a brand-new file in the build's own project.
+    assert.equal(decide({ tool_name: 'Write', tool_input: { file_path: 'projects/x/notes.md' } }, TASK, true).decision, 'deny');
+  });
+
+  test('askMode does NOT broaden the deny to read-only tools or Bash (still allow/analyze as usual)', () => {
+    assert.equal(decide({ tool_name: 'Read', tool_input: { file_path: 'projects/x/SPEC.md' } }, TASK, true).decision, 'allow');
+    assert.equal(decide({ tool_name: 'Grep', tool_input: { pattern: 'foo' } }, TASK, true).decision, 'allow');
+    // an allowed phase script still allowed; a forbidden Bash still denied — askMode is orthogonal to Bash.
+    assert.equal(decide({ tool_name: 'Bash', tool_input: { command: 'git status' } }, TASK, true).decision, 'allow');
+    assert.equal(decide({ tool_name: 'Bash', tool_input: { command: 'rm -rf projects' } }, TASK, true).decision, 'deny');
+  });
+
+  test('a forbidden-path write is denied under askMode too (forbidden-paths still runs first)', () => {
+    assert.equal(decide({ tool_name: 'Write', tool_input: { file_path: '.venv/bin/python' } }, TASK, true).decision, 'deny');
+  });
+});
+
+// The live-binary half: prove main() actually READS BUILDER_ASK_MODE from the env and wires it into
+// decide() — a pure-function test can't catch a future main() that forgets to pass askMode through.
+describe('spec 033 — live hook binary honors BUILDER_ASK_MODE=1', () => {
+  const hookPath = fileURLToPath(new URL('../server/hooks/permission-gate.ts', import.meta.url));
+  const fire = (payload: unknown, askMode: boolean): string | undefined => {
+    const env: NodeJS.ProcessEnv = { ...process.env, BUILDER_TASK_ID: TASK };
+    if (askMode) env.BUILDER_ASK_MODE = '1';
+    else delete env.BUILDER_ASK_MODE;
+    const out = execFileSync('node', ['--disable-warning=ExperimentalWarning', hookPath], {
+      input: JSON.stringify(payload),
+      encoding: 'utf8',
+      env,
+    });
+    const j = out.trim() ? (JSON.parse(out) as { hookSpecificOutput?: { permissionDecision?: string } }) : {};
+    return j.hookSpecificOutput?.permissionDecision;
+  };
+  const write = { hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: 'projects/x/workflows/main.yml' } };
+  test('an in-project Write is ALLOWED without the env, DENIED with BUILDER_ASK_MODE=1', () => {
+    assert.equal(fire(write, false), 'allow');
+    assert.equal(fire(write, true), 'deny');
+  });
+});
+
 // ─── Red-team review fixes (spec 015) ────────────────────────────────────────────────────────────
 describe('review C1 — `git diff`/`status` flags are NOT all read-only', () => {
   test('git diff --output=<path> (an arbitrary-file WRITE) is denied', () => {

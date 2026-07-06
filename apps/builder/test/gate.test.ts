@@ -56,21 +56,27 @@ describe('computeGate', () => {
     assert.equal(g.flag, 'awaiting_import');
   });
 
-  // ── spec 032 live-test gate additions ──
-  test('implement success + liveAvailable → adds a test_live confirm after Continue (continue stays first)', () => {
-    const g = computeGate('implement', { outcome: 'success' }, 'selfhost', true);
+  // ── spec 032/036 live-test gate additions ──
+  const SELFHOST = { selfhost: { url: 'http://localhost/console/api', token: 't' } };
+  test('spec 036: implement success + targets.selfhost → adds a test_live confirm after Continue (continue stays first)', () => {
+    const g = computeGate('implement', { outcome: 'success' }, 'none', SELFHOST);
     assert.deepEqual(g.actions.map((a) => a.id), ['continue', 'test_live', 'changes', 'discard']);
     assert.deepEqual(g.actions.map((a) => a.kind), ['confirm', 'confirm', 'reply', 'cancel']);
     assert.equal(g.actions[0].id, 'continue', 'continue is the safe static primary');
   });
 
-  test('implement success WITHOUT liveAvailable (default) is byte-identical to before', () => {
+  test('spec 036: implement success WITHOUT any target (default {}) is byte-identical to before — no test_live', () => {
     assert.deepEqual(ids('implement', 'success'), ['continue', 'changes', 'discard']);
-    assert.deepEqual(computeGate('implement', { outcome: 'success' }, 'selfhost', false).actions.map((a) => a.id), [
+    assert.deepEqual(computeGate('implement', { outcome: 'success' }, 'none', {}).actions.map((a) => a.id), [
       'continue',
       'changes',
       'discard',
     ]);
+    // §8 reserved seam: a cloud-only target must NOT emit test_live in this spec (self-host is the one live target).
+    assert.deepEqual(
+      computeGate('implement', { outcome: 'success' }, 'none', { cloud: { url: 'u', token: 't' } }).actions.map((a) => a.id),
+      ['continue', 'changes', 'discard']
+    );
   });
 
   test('test test_result → Accept / Request changes / Re-test / Delete apps / Discard, flagged (auto hard-stops)', () => {

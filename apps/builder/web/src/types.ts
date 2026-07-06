@@ -77,6 +77,10 @@ export interface WireTask {
   /** spec 032: the latest live-test result (Test-result gate render); test app ids (cleanup). */
   liveTest?: WireLiveTest;
   testApps?: string[];
+  /** spec 036 S5: computed capability bit (server-side, `toWireTask`) — whether a self-host Dify target
+   *  is reachable NOW. The FE can't probe env, so the done-state "Run test with workflow" foot reads this.
+   *  A boolean only (N5), never creds. Absent on a pre-036 snapshot ⇒ treated as not reachable. */
+  liveTargets?: { selfhost: boolean };
   phase: WirePhase;
   status: WireStatus;
   /** spec 030: the workflow subfolder — the build lives at `projects/<project>/<workflowSlug>/`. null
@@ -155,12 +159,11 @@ export type ArtifactTab = 'spec' | 'yaml' | 'diff' | 'report';
 export interface Settings {
   workflow: string;
   confirm: string;
-  deploy: string;
   /** spec 028: `⚡ Fast build` toggle (merge Analyze+Spec). Optional so the conversation-view composer
    *  (which builds a Settings without it) still type-checks; absent ⇒ off. */
   fast?: boolean;
-  /** spec 032: Phase ④ test mode 'static' | 'live' (only meaningful when deploy=selfhost). Optional. */
-  test?: string;
+  // spec 036: `deploy` + `test` removed — they are no longer composer settings; deploy/testMode are
+  // decided at the test gate from reachable creds (difyTargets), then stamped on the task at gate-time.
 }
 
 /** spec 030: the two sidebar "+" intents, carried from Sidebar → App.newTask. Workflow "+" pre-selects

@@ -22,7 +22,7 @@ import {
   runWorkflow as realRunWorkflow,
   deleteApp as realDeleteApp,
 } from './dify-io.js';
-import { saveTask, type Task } from '../state/task.js';
+import { saveTask, toWireTask, type Task } from '../state/task.js';
 
 /**
  * Injectable subprocess seams (spec 013 D2, fixes C2). The orchestrator's verdict/advance code hard-
@@ -71,12 +71,12 @@ export interface OrchestratorCtx {
   runners?: Partial<OrchestratorRunners>;
 }
 
-/** A user-edited slug/name carried on the ②→③ `/confirm` (AC #18). Spec 032: `deleteOldApp` rides a
- *  live re-test `/confirm` (the "🗑 delete old test app" checkbox, Q3). */
+/** A user-edited slug/name carried on the ②→③ `/confirm` (AC #18). Spec 036: `keepCurrent` rides a
+ *  `cleanup_apps` confirm — delete only the OLD test apps (keep the current one) vs delete ALL. */
 export interface ConfirmPayload {
   slug?: string;
   name?: string;
-  deleteOldApp?: boolean;
+  keepCurrent?: boolean;
 }
 
 /** Resolve the runner seams once: each falls back to its real impl when not injected. */
@@ -116,7 +116,9 @@ export async function emit(task: Task, ctx: OrchestratorCtx): Promise<void> {
   // they deliberately do not bump it.
   task.rev = (task.rev ?? 0) + 1;
   await saveTask(ctx.projectsDir, task);
-  ctx.broadcast?.(task.taskId, 'task:update', task);
+  // Spec 036 S5: broadcast the WIRE shape — the persisted task + the computed `liveTargets` capability bit
+  // (never persisted; recomputed here). saveTask above writes the plain task, so task.json stays clean.
+  ctx.broadcast?.(task.taskId, 'task:update', toWireTask(task));
 }
 
 export const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));

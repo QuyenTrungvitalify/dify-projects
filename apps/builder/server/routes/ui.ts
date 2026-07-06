@@ -24,6 +24,7 @@ import { revealInFileManager } from '../lib/reveal.js';
 import { listSeeds } from '../lib/dify-io.js';
 import { runPython as realRunPython } from '../lib/shell.js';
 import { checkProjectName, scaffoldProjectTier } from '../lib/project-create.js';
+import { turnHolderId } from '../lib/lock.js';
 
 export interface UiRoutesOptions {
   projectsDir: string;
@@ -117,6 +118,14 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
   // ── PUT /api/tasks/:id/spec — persist an in-place SPEC.md edit (last-writer) ──
   app.put<{ Params: { id: string } }>('/api/tasks/:id/spec', async (req, reply) => {
     if (!isTaskId(req.params.id)) return reply.code(400).send({ error: 'invalid task id' });
+    // Spec 033 §1 mandatory fix: this manual Save had NO turn-lock check — a race with ANY live turn
+    // (a phase turn OR an Ask) risked silent last-writer-wins data loss, and specifically undermined
+    // Ask's layer-2 byte-compare (a legitimate Save landing inside the Ask's snapshot window would be
+    // misattributed to the Ask and wrongly restored-over). Mirrors the identical guard at
+    // PATCH /api/tasks/:id (routes/tasks.ts).
+    if (turnHolderId() === req.params.id) {
+      return reply.code(409).send({ error: 'a turn is running for this build — save once it pauses' });
+    }
     let task;
     try {
       task = await loadTask(projectsDir, req.params.id);

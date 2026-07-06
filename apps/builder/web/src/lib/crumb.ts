@@ -36,6 +36,29 @@ export function projectDisplayName(tree: WireTreeProject[], project: string): st
 }
 
 /**
+ * Options for the composer's Workflow dropdown, sorted by RECENCY (the workflow whose NEWEST task is most
+ * recent leads) instead of alphabetically — so the workflows you actually touch surface at the top when
+ * there are many (the flat A→Z list didn't scale). `_drafts` scratch is excluded. Each option is the
+ * spec-030 compound `project/workflow` value + a readable `Project / Workflow` label. Pure (tree-derived).
+ */
+export function workflowOptions(tree: WireTreeProject[]): { v: string; l: string }[] {
+  return tree
+    .filter((p) => p.id !== '_drafts')
+    .flatMap((p) =>
+      p.workflows.map((w) => ({
+        v: `${p.id}/${w.id}`,
+        l: `${p.name} / ${w.name}`,
+        // buildTree returns a workflow's tasks NEWEST-first, so tasks[0].id (a 13-digit ms timestamp) is
+        // its most recent activity. A workflow with no tasks sorts last (0). Number compare is exact for
+        // 13-digit ids (< 2^53).
+        recent: Number(w.tasks[0]?.id ?? 0),
+      })),
+    )
+    .sort((a, b) => b.recent - a.recent)
+    .map(({ v, l }) => ({ v, l }));
+}
+
+/**
  * Derive the new-task crumb from the current RunSettings pre-selection. Workflow-edit wins over a
  * project target (AC5 precedence: if the user picks a workflow after a project "+", the edit label
  * shows). `active` gates the clickable-to-clear affordance; a plain new task is inert (as before).

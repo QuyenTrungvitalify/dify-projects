@@ -77,8 +77,9 @@ export const api = {
   createTask: (body: CreateTaskBody): Promise<WireTask> => request('POST', '/api/tasks', body),
   /** GET /api/tasks/:id → authoritative state + artifact contents (the reconnect re-fetch, AC #22). */
   getTask: (id: string): Promise<WireTask> => request('GET', `/api/tasks/${encodeURIComponent(id)}`),
-  /** POST /api/tasks/:id/confirm → advance the gate (carries the chosen action id, + slug/name at ②). */
-  confirm: (id: string, actionId: string, extra?: { slug?: string; name?: string }): Promise<WireTask> =>
+  /** POST /api/tasks/:id/confirm → advance the gate (carries the chosen action id, + slug/name at ②, or
+   *  spec 036 `keepCurrent` on a `cleanup_apps` delete — delete only OLD test apps vs all). */
+  confirm: (id: string, actionId: string, extra?: { slug?: string; name?: string; keepCurrent?: boolean }): Promise<WireTask> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/confirm`, { actionId, ...extra }),
   /** POST /api/tasks/:id/reply → within-phase change request / Retry-out-of-error (+ optional files, AC3). */
   reply: (id: string, text: string, files?: Attachment[]): Promise<WireTask> =>
@@ -86,6 +87,10 @@ export const api = {
       text,
       ...(files && files.length ? { files } : {}),
     }),
+  /** spec 033: POST /api/tasks/:id/ask → conversational Q&A at a parked gate — no phase re-run, no
+   *  gate/status change. Responds `{ok:true}` immediately; the answer streams over SSE (ask:answer/done). */
+  ask: (id: string, text: string): Promise<{ ok: boolean }> =>
+    request('POST', `/api/tasks/${encodeURIComponent(id)}/ask`, { text }),
   /** PATCH /api/tasks/:id → live-patch confirm_mode on a non-terminal build (spec 010 F2; 409 if terminal). */
   patchTask: (id: string, patch: { confirm_mode: string }): Promise<WireTask> =>
     request('PATCH', `/api/tasks/${encodeURIComponent(id)}`, patch),
@@ -95,6 +100,10 @@ export const api = {
   /** POST /api/tasks/:id/restore → reopen a cancelled build at the previous phase's gate (undo Continue). */
   restore: (id: string): Promise<WireTask> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/restore`),
+  /** spec 036 D5: POST /api/tasks/:id/live-test → run a live workflow test from a terminal `done`
+   *  autonomous build (the done-state "Run test with workflow" foot). 409 if the gate no longer holds. */
+  liveTest: (id: string): Promise<WireTask> =>
+    request('POST', `/api/tasks/${encodeURIComponent(id)}/live-test`),
   /** GET /api/tasks/:id/spec → current SPEC.md content for the editable panel. */
   getSpec: (id: string): Promise<{ content: string }> =>
     request('GET', `/api/tasks/${encodeURIComponent(id)}/spec`),

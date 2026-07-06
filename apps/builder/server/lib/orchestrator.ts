@@ -30,7 +30,7 @@ import { deriveSlugName, firstFreeSlug } from './slug.js';
 import { difySeedScaffoldAndPull, localEditSeed, scaffoldAtSpecGate, relocateRunArtifacts } from './scaffold.js';
 import { runImportAndFinish, finishWithoutImport } from './import.js';
 import { runLiveTest, finishLiveAccepted, cleanupTestApps } from './live-test.js';
-import { difyCreds } from './dify-io.js';
+import { difyTargets } from './dify-io.js';
 import { applyAnalysisToTask } from './analysis.js';
 import { persistCriteria } from './criteria.js';
 import { saveTask, type Task } from '../state/task.js';
@@ -135,6 +135,12 @@ export async function confirmAdvance(
     // Spec 032: `test_live` → the LIVE sub-orchestrator (import→run→verify). `continue`/`accept` → the
     // STATIC path exactly as before (`accept` = the still-failing human override, lint≠0).
     if (actionId === 'test_live') {
+      // Spec 036 D4: stamp the chosen target so report.ts and the /reply-re-runs-live path
+      // (replyWithin's `testMode==='live'`) label the verdict as a real selfhost live test — not
+      // `deploy=none` (createTask now defaults deploy:'none', S1). The stamp persists via runLiveTest's
+      // first `emit` (which saveTasks). testMode='live' also arms the `/reply` re-run to stay live.
+      task.deploy = 'selfhost';
+      task.testMode = 'live';
       await runLiveTest(task, ctx);
       return; // ④ live parks at its own gate (test_result / infra_degraded) — never falls through
     }
@@ -149,13 +155,15 @@ export async function confirmAdvance(
     //   infra_degraded: retry_live → re-run live · accept_static → done on the static result
     const flag = task.gate?.flag;
     if (actionId === 'test_live' || actionId === 'retry_live') {
-      // A re-test ALWAYS makes a NEW app (D5); the "delete old app" checkbox rides the payload (Q3).
-      await runLiveTest(task, ctx, { deleteOldAppId: payload?.deleteOldApp ? task.appId ?? null : null });
+      // A re-test ALWAYS makes a NEW app (D5); spec 036: runLiveTest auto-deletes the PRIOR apps so they
+      // don't accumulate (the new app supersedes the old ones).
+      await runLiveTest(task, ctx);
       return;
     }
     if (actionId === 'cleanup_apps') {
-      // S6: delete this build's test apps, re-park the same live gate (result still stands).
-      await cleanupTestApps(task, ctx);
+      // S6 / spec 036: delete this build's test apps then re-park the same live gate (the result still
+      // stands). `payload.keepCurrent` deletes only the OLD apps (keep the current one); absent → delete all.
+      await cleanupTestApps(task, ctx, payload?.keepCurrent === true);
       return;
     }
     if (actionId === 'accept_static' || (actionId === 'accept' && flag === 'test_result')) {
@@ -189,12 +197,19 @@ export async function confirmAdvance(
  */
 export async function replyWithin(task: Task, text: string, ctx: OrchestratorCtx): Promise<void> {
   if (task.phase === 'test') {
-    // Spec 032: at a LIVE test-result gate a /reply re-runs the live test (new app). Static ④ is backend
-    // (no turn/session) — a reply there just re-runs the report, exactly as before.
+    // FIX (a spec-032 defect, corrected during 036): "Request changes" at the LIVE test-result gate is a
+    // REVISION request — the human wants the WORKFLOW changed per their feedback. 032 dropped `text` and
+    // just re-ran runLiveTest on the UNCHANGED main.yml, so the edit silently no-op'd (the output never
+    // changed — the reported bug). Route it back through the IMPLEMENT phase instead: resume the implement
+    // session and edit main.yml with the change request, then re-park at the Implement gate — the human
+    // re-tests from there via "Test with workflow". (A bare re-run with NO edit stays the separate
+    // "Re-test" button, `test_live`, which still calls runLiveTest on the current workflow.)
     if (task.testMode === 'live') {
-      await runLiveTest(task, ctx);
+      const resumeId = task.sessionIds.implement;
+      await runPhaseAndGate(task, 'implement', ctx, { resumeId, replyText: text });
       return;
     }
+    // Static ④ is backend (no turn/session) — a reply there just re-runs the report, exactly as before.
     await runTestAndFinish(task, ctx, false);
     return;
   }
@@ -223,12 +238,12 @@ async function runPhaseAndGate(
  * caller decides whether to maybeAutoAdvance.
  */
 async function gateAfterPhase(task: Task, verify: PhaseVerify, ctx: OrchestratorCtx): Promise<void> {
-  // Spec 032 C1/D1(a): offer the `test_live` button at a clean Implement gate when live is available
-  // (deploy=selfhost + console creds). computeGate is PURE, so the creds probe happens HERE, not in it.
-  // `continue` stays the primary; maybeAutoAdvance picks `test_live` only for auto+testMode=live.
-  const creds = difyCreds();
-  const liveAvailable = task.phase === 'implement' && task.deploy === 'selfhost' && !!creds.url && !!creds.token;
-  task.gate = computeGate(task.phase, { outcome: verify.outcome }, task.deploy, liveAvailable);
+  // Spec 036 D1/D4: capability-aware Implement gate — the live "Test with workflow" button is offered per
+  // reachable Dify target (difyTargets()), NOT by an upfront `deploy=selfhost` declaration. computeGate is
+  // PURE, so the env probe happens HERE and the targets are passed in. Only computeGate's `implement`
+  // branch reads them, so probing at every phase is harmless (analyze/spec/test ignore `targets`).
+  const targets = difyTargets();
+  task.gate = computeGate(task.phase, { outcome: verify.outcome }, task.deploy, targets);
   if (verify.outcome === 'error') {
     task.status = 'error';
     task.error = verify.reasons.filter(Boolean).join(' | ') || 'phase failed';
@@ -266,13 +281,13 @@ async function maybeAutoAdvance(task: Task, ctx: OrchestratorCtx): Promise<void>
     await emit(task, ctx);
     return;
   }
-  // Spec 032 D1(b): under `auto` with testMode=live, the implement-gate primary is `test_live` (run the
-  // workflow for real), not `continue` (static). Everywhere else (and testMode=static) the primary is the
-  // first confirm — so this is inert until the live button is offered (S3-wiring-b / liveAvailable).
-  const primary =
-    (task.phase === 'implement' && task.testMode === 'live'
-      ? task.gate?.actions.find((a) => a.id === 'test_live')
-      : undefined) ?? task.gate?.actions.find((a) => a.kind === 'confirm');
+  // Spec 036 D5: an autonomous build is ALWAYS static at the implement gate — the primary is `continue`
+  // (the first confirm). The 032 `testMode==='live' → primary=test_live` auto-pick is DELETED: `auto`/
+  // `spec_only` never live-test (live is a human action from the done state, S5). testMode is never 'live'
+  // at an autonomous implement gate anyway (only a human `test_live` click stamps it), so this is both the
+  // policy AND already unreachable — even with self-host creds present the implement gate offers the
+  // `test_live` button but auto takes `continue`, finishing `done` on the static test (AC #4).
+  const primary = task.gate?.actions.find((a) => a.kind === 'confirm');
   if (!primary) return; // terminal (④) — nothing to advance
   await confirmAdvance(task, primary.id, ctx);
 }
@@ -319,13 +334,15 @@ async function runPhase(
   // the only place that covers create→Analyze AND a reply at any phase (AC2/AC3). Every phase benefits,
   // including a fresh Implement turn (which has no {{REQUIREMENT}} token to inject into).
   const block = attachmentBlock(task.attachments);
-  // A /reply with a live session sends ONLY the change request (the resumed session has context); a
-  // fresh fallback sends the rendered body + the request appended (seeded with the artifact PATH).
+  // A /reply carries a CHANGE REQUEST under an explicit "revise the artifact" header. The resumed session
+  // already has context, but WITHOUT this header a terse request (e.g. "Return the summary in ALL
+  // UPPERCASE") reads as conversational and the model may answer instead of EDITING the file — the
+  // observed bug where a live-gate "Request changes" re-ran Implement but left main.yml unchanged. Give the
+  // resume prompt the SAME header as the fresh path so "revise the artifact" is unambiguous either way.
+  const CHANGE_REQUEST = '## Change request (revise the existing artifact; do not restart from scratch)';
   const freshPrompt =
-    (opts?.replyText
-      ? `${renderedFresh}\n\n## Change request (revise the existing artifact; do not restart from scratch)\n${opts.replyText}`
-      : renderedFresh) + block;
-  const resumePrompt = opts?.replyText ? `${opts.replyText}${block}` : freshPrompt;
+    (opts?.replyText ? `${renderedFresh}\n\n${CHANGE_REQUEST}\n${opts.replyText}` : renderedFresh) + block;
+  const resumePrompt = opts?.replyText ? `${CHANGE_REQUEST}\n${opts.replyText}${block}` : freshPrompt;
 
   // Snapshot the pre-edit workflow BEFORE Implement overwrites it, so an edit-existing diff has a
   // real base (idempotent: no-op on a no-seed new build, a Dify-seed, or a /reply re-run, Task 4).
@@ -555,10 +572,20 @@ async function runTestAndFinish(
     return; // the dispatch `finally` frees the turn lock (§I)
   }
 
-  // selfhost + clean lint → park behind the Import button (the push is runImportAndFinish). Deploy is
-  // ALWAYS a human decision: `auto`/`spec_only` PARK here too (spec 014 D1) — maybeAutoAdvance no longer
-  // auto-confirms the import; the turn lock frees on settle and the build waits for Import/Skip.
-  if (task.deploy === 'selfhost' && res.lintClean) {
+  // Spec 036 D4 (Option A): a CLEAN static test parks at the Import gate only for a HUMAN — `each_step`
+  // or a null/corrupt confirmMode (fail-safe to human). The autonomous set `{auto, spec_only}` does NOT
+  // park: it falls through to `done` static and reaches Dify only via the D5 done-state live action
+  // (keeps `auto` hands-free with creds present, AC #4). The trigger is now CAPABILITY (`targets.selfhost`,
+  // difyTargets()), not the removed upfront `deploy` declaration.
+  const targets = difyTargets();
+  const isAutonomous = task.confirmMode === 'auto' || task.confirmMode === 'spec_only';
+  if (targets.selfhost && res.lintClean && !isAutonomous) {
+    // Deploy-stamp fix (D4 Rev-A / AC #9): a static "Continue to Test" leaves `task.deploy='none'`, but if
+    // the human then clicks Import the push succeeds (import.ts reads creds, not task.deploy) while
+    // report.ts — which branches entirely on task.deploy — would mislabel it `deploy=none` / `DEPLOYED ·
+    // none`. Stamp `selfhost` HERE, before the Import/Skip re-report, so the real import labels selfhost.
+    // `testMode` stays 'static' — it WAS a static test; only the deploy target moves.
+    task.deploy = 'selfhost';
     task.status = 'awaiting_confirm';
     task.gate = computeGate('test', { outcome: 'awaiting_import' }, task.deploy);
     await emit(task, ctx);

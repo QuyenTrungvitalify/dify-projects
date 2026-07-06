@@ -32,6 +32,51 @@ describe('renderMarkdownHtml — XSS safety', () => {
   });
 });
 
+describe('renderMarkdownHtml — bare-URL autolink', () => {
+  it('autolinks a bare http(s) URL into a new-tab anchor', () => {
+    const url = 'http://localhost:8090/app/73791c65-cd82-4a3b-8a98-171316d84e01/workflow';
+    const out = renderMarkdownHtml(`app: ${url}`);
+    expect(out).toContain(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+  });
+
+  it('does not swallow trailing sentence punctuation', () => {
+    const out = renderMarkdownHtml('see http://example.com/foo.');
+    expect(out).toContain('href="http://example.com/foo"');
+    expect(out).not.toContain('foo."'); // the '.' stays as text, outside the href
+  });
+
+  it('links a URL wrapped in parentheses without eating the closing paren', () => {
+    const out = renderMarkdownHtml('(http://example.com/x)');
+    expect(out).toContain('href="http://example.com/x"');
+    expect(out).toContain(')'); // the wrapping ) remains literal text
+    expect(out).not.toContain('href="http://example.com/x)"');
+  });
+
+  it('does not autolink a bare non-http scheme', () => {
+    const out = renderMarkdownHtml('run javascript:alert(1) now');
+    expect(out).not.toContain('<a ');
+  });
+
+  it('does not double-link a URL already inside a markdown link', () => {
+    const out = renderMarkdownHtml('[site](https://example.com)');
+    // exactly one anchor — the autolink pass must not re-wrap the href's URL
+    expect(out.match(/<a /g)?.length).toBe(1);
+    expect(out).not.toContain('<a href="https://example.com" target="_blank" rel="noopener noreferrer">https://example.com</a>');
+  });
+
+  it('does not autolink a URL inside an inline code span', () => {
+    const out = renderMarkdownHtml('use `curl http://example.com` here');
+    expect(out).toContain('<code>curl http://example.com</code>');
+    expect(out).not.toContain('<a ');
+  });
+
+  it('preserves a snake_case path segment in the URL (emphasis must not corrupt it)', () => {
+    const out = renderMarkdownHtml('open http://example.com/a_b_c/d');
+    expect(out).toContain('href="http://example.com/a_b_c/d"');
+    expect(out).not.toContain('<em>');
+  });
+});
+
 describe('renderMarkdownHtml — emphasis / code guards', () => {
   it('renders inline code and shields its contents from emphasis', () => {
     const out = renderMarkdownHtml('use `a_b_c` now');

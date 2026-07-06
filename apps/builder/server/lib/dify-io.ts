@@ -45,6 +45,41 @@ export function difyCreds(): { url?: string; token?: string; workspaceId?: strin
   };
 }
 
+/** Spec 036 D1 — a fully-populated live target (both url AND token present; workspaceId when the token
+ *  is an ADMIN_API_KEY). Unlike {@link difyCreds}'s all-optional shape, `url`/`token` are guaranteed. */
+export interface TargetCreds {
+  url: string;
+  token: string;
+  workspaceId?: string;
+}
+
+/**
+ * Spec 036 D1 — the set of live Dify targets reachable RIGHT NOW, derived from separated creds. Replaces
+ * the old start-bound `deploy==='selfhost' && creds` declaration with a capability probe: the gate offers
+ * a live action for each populated slot. This spec ships ONLY `selfhost` (from the existing
+ * `DIFY_CONSOLE_*` env, D2); `cloud` is a reserved seam (§8) — the field stays in the interface but is
+ * never populated here. When cloud lands it reads its own `DIFY_CLOUD_*` and fills that slot additively,
+ * touching only {@link difyTargets} and the cloud gate action — never the gate/orchestrator wiring.
+ */
+export interface DifyTargets {
+  selfhost?: TargetCreds;
+  cloud?: TargetCreds;
+}
+
+/**
+ * Spec 036 D1/D2 — detect which live targets are configured. `selfhost` reads the EXISTING
+ * `DIFY_CONSOLE_URL`/`DIFY_CONSOLE_TOKEN` (+ optional `DIFY_WORKSPACE_ID`) via {@link difyCreds} — zero
+ * migration for existing operators (AC #6). Both url AND token must be present, else the slot is absent
+ * (undefined). No new env vars, no `redactSecrets` change (N5). Pure — reads `process.env` fresh each call.
+ */
+export function difyTargets(): DifyTargets {
+  const { url, token, workspaceId } = difyCreds();
+  return {
+    selfhost: url && token ? { url, token, ...(workspaceId ? { workspaceId } : {}) } : undefined,
+    // cloud: reserved for §8 — always absent in this spec (no DIFY_CLOUD_* read here).
+  };
+}
+
 /**
  * Spec 032 B3 — a per-run registry of secrets that are NOT in the env, so {@link difyCreds} can't see
  * them. The app-level API key (`app-…`) is MINTED at runtime by `mintAppKey`; without registering it,

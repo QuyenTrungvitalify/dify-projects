@@ -16,6 +16,7 @@
  */
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { difyTargets } from '../lib/dify-io.js';
 
 export type Phase = 'analyze' | 'spec' | 'implement' | 'test';
 // `scaffolding` is the transient state around the (non-atomic) Spec-gate scaffold (plan QĐ #9) —
@@ -107,10 +108,12 @@ export interface Task {
   seedPath: string | null;
   // The Dify workspace app id chosen in the seed picker (Lát 5). null = no Dify seed (local/no-seed).
   seedAppId: string | null;
-  deploy: Deploy; // 'none' (Lát 3 default) | 'selfhost' | 'cloud' (Lát 5)
-  // Spec 032: Phase ④ test mode (start-bound like `deploy`). Absent on a pre-032 task.json ⇒ treated as
-  // `static` (back-compat: every `task.testMode === 'live'` guard reads it as off). Force `static` unless
-  // deploy=selfhost (createTask).
+  // Spec 036 D3: `deploy`/`testMode` are GATE-STAMPED, not start-bound — createTask defaults them
+  // ('none'/'static') and they are (re)written at the test gate from reachable creds: 'selfhost' on the
+  // human static→Import park, 'selfhost'/'live' on a `test_live` dispatch or the done-state live action.
+  deploy: Deploy; // 'none' (default) | 'selfhost' (stamped at the ④ gate) | 'cloud' (§8, unused)
+  // Phase ④ test mode. Absent on a pre-032 task.json ⇒ treated as `static` (back-compat: every
+  // `task.testMode === 'live'` guard reads it as off). Stamped 'live' only by a gate live action (S3/S5).
   testMode: TestMode;
   // selfhost Phase ④ result (Lát 5 Task 6): the NEW Dify app id captured from the import + its url.
   appId?: string | null;
@@ -124,7 +127,10 @@ export interface Task {
   status: Status;
   name: string | null;
   // PERSIST per-phase session_id (Lát 3's /reply reads these back to --resume within a phase).
-  sessionIds: { analyze?: string; spec?: string; implement?: string };
+  // Spec 034 D2: `askTest` is a SEPARATE chat-continuity slot for a ④/terminal Ask (there is no `test`
+  // phase session) — never read by computeGate/runPhaseAndGate/maybeAutoAdvance; only askTestWithin
+  // consults it to decide fresh-spawn vs --resume for a follow-up question in the same conversation.
+  sessionIds: { analyze?: string; spec?: string; implement?: string; askTest?: string };
   artifacts: { analyze?: string; spec?: string; implement?: string; report?: string; diff?: string; criteria?: string };
   // the live gate (set at awaiting_confirm; cleared/ignored in terminal states).
   gate?: Gate;
@@ -160,6 +166,25 @@ export interface Task {
   testApps?: string[];
 }
 
+/**
+ * Spec 036 S5 — the extra bits added when a `Task` is serialized to the SSE/GET wire. `liveTargets` is a
+ * COMPUTED capability flag (never persisted): the FE can't probe the backend env, so the done-state
+ * "Run test with workflow" foot (gate-foot.ts `terminalFootActions`) reads it to know self-host is
+ * reachable RIGHT NOW. A boolean only (N5) — never the creds. `cloud` joins additively when §8 lands.
+ */
+export interface WireExtras {
+  liveTargets: { selfhost: boolean };
+}
+
+/**
+ * Serialize a `Task` for the wire (SSE `task:update` + GET /api/tasks/:id): the persisted task PLUS the
+ * computed {@link WireExtras}. Recomputed from {@link difyTargets} on every emit, so a build that finished
+ * before the operator exported creds still lights up its done-state live action on the next snapshot.
+ */
+export function toWireTask(task: Task): Task & WireExtras {
+  return { ...task, liveTargets: { selfhost: !!difyTargets().selfhost } };
+}
+
 export interface CreateTaskInput {
   requirement: string;
   /** new-workflow path uses "main.yml"; accepted for forward-compat. */
@@ -168,10 +193,11 @@ export interface CreateTaskInput {
   workflow?: string | null;
   /** verbose `confirm_mode` OR internal value — normalized via {@link normalizeConfirmMode}. */
   confirmMode?: string;
-  /** deploy target — 'none' | 'selfhost' | 'cloud' (normalized via {@link normalizeDeploy}, Lát 5). */
+  /** spec 036 D3: IGNORED by {@link createTask} — deploy is no longer start-bound (stamped at gate-time
+   *  from reachable creds). Retained on the input for wire back-compat; a sent value is a no-op. */
   deploy?: string;
-  /** spec 032: Phase ④ test mode — 'static' | 'live' (public `test_mode`). Normalized via
-   *  {@link normalizeTestMode}; force-down to 'static' in {@link createTask} unless deploy=selfhost. */
+  /** spec 036 D3: IGNORED by {@link createTask} — testMode is no longer start-bound (stamped 'live' at a
+   *  `test_live` dispatch / the done-state live action). Retained for wire back-compat; a sent value is a no-op. */
   testMode?: string;
   /** chosen Dify seed app id from the seed picker (null/empty = no Dify seed, Lát 5). */
   seed?: string | null;
@@ -327,10 +353,13 @@ export async function createTask(projectsDir: string, input: CreateTaskInput): P
   // merged turn's `.runs/`-only artifact path + confinement whitelist to the nested workflow subtree).
   // A `project` target does NOT force it off (like the retired group): it names the folder, not the shape.
   const fastMode = normalizeFastMode(input.fast) && !workflow && !workflowSlug && !seedAppId;
-  // Spec 032: live test mode is selfhost-only (cloud CSRF-blocks auto-import; none has no app). Force
-  // `static` for any other deploy so a stray `test_mode:live` can never reach Dify on a non-selfhost build.
-  const deploy = normalizeDeploy(input.deploy);
-  const testMode: TestMode = deploy === 'selfhost' ? normalizeTestMode(input.testMode) : 'static';
+  // Spec 036 D3/N3: `deploy` + `testMode` are NO LONGER start-bound — createTask defaults them and stops
+  // reading `input.deploy`/`input.testMode`. They are (re)stamped at GATE-time from what creds are
+  // reachable: 'selfhost'/'live' on a `test_live` dispatch (implement gate) or the D5 done-state live
+  // action, and 'selfhost'/'static' on the human static→Import park (orchestrator, S3). The persisted
+  // fields stay in the schema for report.ts + back-compat (N3); only their WRITE SITE moved to gate-time.
+  const deploy: Deploy = 'none';
+  const testMode: TestMode = 'static';
   const task: Task = {
     taskId,
     project,

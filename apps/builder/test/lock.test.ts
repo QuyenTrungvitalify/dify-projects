@@ -16,6 +16,7 @@ import {
   releaseTurn,
   turnBusy,
   turnHolderId,
+  liveKind,
   markCancelled,
   isCancelled,
   evictCancelled,
@@ -43,6 +44,23 @@ describe('acquire / release single-holder invariant', () => {
 
     assert.equal(acquireTurn('B'), true); // free now
     releaseTurn('B');
+  });
+});
+
+describe('spec 033 D9 — acquireTurn kind tag + liveKind()', () => {
+  test('defaults to "phase" when the 2nd param is omitted (every pre-033 call site)', () => {
+    assert.equal(acquireTurn('E'), true);
+    assert.equal(liveKind('E'), 'phase');
+    releaseTurn('E');
+    assert.equal(liveKind('E'), null);
+  });
+
+  test('acquireTurn(id, "ask") tags the holder; liveKind() reflects it; null once released', () => {
+    assert.equal(acquireTurn('F', 'ask'), true);
+    assert.equal(liveKind('F'), 'ask');
+    assert.equal(liveKind('G'), null, 'a different, non-holder id sees null');
+    releaseTurn('F');
+    assert.equal(liveKind('F'), null);
   });
 });
 

@@ -101,6 +101,18 @@ The real `.env` is gitignored; only `.env.example` is committed.
 
 Each boundary pauses for confirmation per the **Confirm mode** (each step / spec only / auto).
 
+**Ask vs Request changes** (spec 033) — at a parked Analyze/Spec/Implement gate, the composer defaults
+to **Ask**: a conversational, resume-the-session question that streams a message↔message answer and
+never touches the gate or the artifact (SPEC.md/main.yml) — enforced structurally (a permission-hook
+write-deny + a byte-snapshot/restore backstop), not by trusting the model. Explicitly switch to
+**Request changes** (via a gate's "Edit spec"/"Request changes" action) to actually re-run the phase and
+revise the artifact — the two are always an explicit choice, never inferred from the text. **Spec 034**
+extends Ask to the ④ Test gates and to a terminal `done`/`cancelled` build: since there is no phase
+session to resume there, it runs a **fresh-seeded** turn (assembled from requirement/SPEC.md/main.yml/
+report.json/liveTest, shown as a "based on:" caption), and a terminal build's composer becomes Ask-only.
+**Spec 035** adds an "Edit this workflow" button on the done/cancelled gate foot to start a new
+edit-existing build (starting a brand-new build lives at the sidebar "+").
+
 **⚡ Fast build** (spec 028) — a composer toggle for **from-scratch single-LLM** builds: it merges
 Analyze ①+② into one turn (skips the `find.py` pattern search) and still **stops at the Spec gate**.
 Off by default; auto-forced off for seed/edit/slug builds. Under `auto` confirm-mode a structural

@@ -141,14 +141,13 @@ export function resolveInput(vars: InputVar[]): { inputs: Record<string, unknown
 const lastLine = (s: string): string => s.trim().split('\n').slice(-1)[0] || '';
 
 /**
- * The live-test sub-orchestrator. `opts.deleteOldAppId` (a re-test with the "delete old app" checkbox)
- * deletes the prior app AFTER the new import succeeds. Always ends parked at a human gate (`test_result`
- * or `infra_degraded`) or `error`; never silently `done`.
+ * The live-test sub-orchestrator. Spec 036: a re-test that creates a new app AUTO-DELETES every PRIOR test
+ * app of this build, so apps don't accumulate across re-tests — only the current run's app remains. Always
+ * ends parked at a human gate (`test_result` or `infra_degraded`) or `error`; never silently `done`.
  */
 export async function runLiveTest(
   task: Task,
-  ctx: OrchestratorCtx,
-  opts?: { deleteOldAppId?: string | null }
+  ctx: OrchestratorCtx
 ): Promise<void> {
   const { projectsDir, log } = ctx;
   const { runReport } = resolveRunners(ctx);
@@ -210,7 +209,7 @@ export async function runLiveTest(
       model: pick,
       modelAutofilled: dep.nodeCount,
       needInputVars: missing,
-      reason: `cần input mẫu cho: ${missing.join(', ')} — cung cấp qua /reply rồi test lại`,
+      reason: `need sample input for: ${missing.join(', ')} — provide it via /reply then test again`,
     });
   }
 
@@ -223,16 +222,20 @@ export async function runLiveTest(
   }
   const appId = imp.appId;
   const appUrl = appUrlFrom(creds.url, appId);
+  const priorApps = (task.testApps ?? []).filter((id) => id !== appId); // apps from EARLIER runs of this build
   task.testApps = [...(task.testApps ?? []), appId];
   task.appId = appId;
   task.appUrl = appUrl;
   await emit(task, ctx); // surface the new app_url promptly
 
-  // Re-test with the "delete old app" checkbox: remove the prior app now that the new one exists (Q3).
-  if (opts?.deleteOldAppId && opts.deleteOldAppId !== appId) {
-    await live.deleteApp(projectsDir, opts.deleteOldAppId).catch(() => {});
-    task.testApps = (task.testApps ?? []).filter((id) => id !== opts.deleteOldAppId);
+  // Spec 036: a NEW test app supersedes the old ones — auto-delete every PRIOR test app so they don't pile
+  // up across re-tests (the reported "app 1→5" accumulation). Best-effort: a failed delete is left in the
+  // list (cleaned via "Delete test apps"). Only the just-created app remains as the current one.
+  for (const oldId of priorApps) {
+    const ok = await live.deleteApp(projectsDir, oldId).catch(() => false);
+    if (ok) task.testApps = (task.testApps ?? []).filter((id) => id !== oldId);
   }
+  if (priorApps.length) await emit(task, ctx); // reflect the pruned list
 
   // Chat-like apps (advanced-chat / chat / agent-chat) run via /chat-messages and need a `query` message;
   // workflow apps run via /workflows/run with just inputs.
@@ -303,22 +306,28 @@ export async function finishLiveAccepted(task: Task, ctx: OrchestratorCtx): Prom
 }
 
 /**
- * S6 — delete THIS build's test apps (Q3/Q4 cleanup): `DELETE /console/api/apps/{id}` for every id in
- * `test_apps.json`/`task.testApps` (the minted app-keys die with the app). Then re-park the SAME live gate
- * with the list cleared, so the human can still Accept/Discard the (now app-less) result. Best-effort:
- * a delete that fails just leaves that id — the user can retry or clean in Dify.
+ * S6 — delete THIS build's test apps (Q3/Q4 cleanup): `DELETE /console/api/apps/{id}` (the minted
+ * app-keys die with the app). Spec 036: `keepCurrent` deletes every app EXCEPT the current one ("Delete
+ * old apps"); else delete ALL ("Delete test apps"). Then re-park the SAME live gate with the deleted ids
+ * removed, so the human can still Accept/Discard the result. Best-effort: a failed delete leaves that id.
  */
-export async function cleanupTestApps(task: Task, ctx: OrchestratorCtx): Promise<void> {
+export async function cleanupTestApps(task: Task, ctx: OrchestratorCtx, keepCurrent = false): Promise<void> {
   const { projectsDir } = ctx;
   const live = resolveLiveOps(ctx);
-  const ids = task.testApps ?? [];
-  const remaining: string[] = [];
-  for (const id of ids) {
+  const all = task.testApps ?? [];
+  // keepCurrent → delete every app EXCEPT the current one (the "Delete old apps" button); else delete ALL.
+  const targets = keepCurrent ? all.filter((id) => id !== task.appId) : all;
+  const remaining: string[] = [...all];
+  let deleted = 0;
+  for (const id of targets) {
     const ok = await live.deleteApp(projectsDir, id).catch(() => false);
-    if (!ok) remaining.push(id); // couldn't delete → keep it in the list
+    if (ok) {
+      const i = remaining.indexOf(id);
+      if (i >= 0) remaining.splice(i, 1); // drop only the ones that actually deleted (a fail keeps it)
+      deleted++;
+    }
   }
   task.testApps = remaining;
-  const deleted = ids.length - remaining.length;
   // Null the current-app pointers ONLY if that app is actually gone (a partial multi-app cleanup can
   // delete some ids and keep others) — otherwise the gate would show a dead link (review #1).
   if (task.appId && !remaining.includes(task.appId)) {

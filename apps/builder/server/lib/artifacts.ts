@@ -286,16 +286,21 @@ export async function buildTree(projectsDir: string, nowMs: number): Promise<Tre
     return p;
   };
 
+  const createdByProject = new Map<string, number>(); // folder birthtime → newest-first project sort
   if (existsSync(projectsRoot)) {
     for (const projectFolder of await readdir(projectsRoot)) {
       const projectAbs = join(projectsRoot, projectFolder);
       let entries: string[];
+      let createdMs = 0;
       try {
-        if (!(await stat(projectAbs)).isDirectory()) continue;
+        const st = await stat(projectAbs);
+        if (!st.isDirectory()) continue;
+        createdMs = st.birthtimeMs || st.mtimeMs; // birthtime; mtime fallback for FS without it
         entries = await readdir(projectAbs);
       } catch {
         continue;
       }
+      createdByProject.set(projectFolder, createdMs);
       const manifest = await readMaybe(join(projectAbs, '.dify-workspace.yaml'));
       const proj = getProject(projectFolder, projectDisplayName(manifest, projectFolder));
       for (const wfFolder of entries) {
@@ -340,11 +345,15 @@ export async function buildTree(projectsDir: string, nowMs: number): Promise<Tre
 
   const result = [...projects.values()];
   result.forEach((p) => p.workflows.sort((a, b) => a.name.localeCompare(b.name)));
-  // `_drafts` leads the list so the active build is visible; the rest sort by name.
+  // `_drafts` leads the list so the active build is visible; the rest sort NEWEST-CREATED FIRST (folder
+  // birthtime) so a just-created project surfaces at the top, not buried alphabetically. Name is the
+  // tie-break (or for a synthetic project with no folder timestamp).
   result.sort((a, b) => {
     if (a.id === DRAFTS_PROJECT) return -1;
     if (b.id === DRAFTS_PROJECT) return 1;
-    return a.name.localeCompare(b.name);
+    const ca = createdByProject.get(a.id) ?? 0;
+    const cb = createdByProject.get(b.id) ?? 0;
+    return cb - ca || a.name.localeCompare(b.name);
   });
   return result;
 }

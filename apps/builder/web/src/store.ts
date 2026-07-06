@@ -7,9 +7,11 @@
    the action verbs the components call (start/confirm/reply/cancel/
    saveSpec/openTask). All gate/verify/phase logic stays backend-side.
    ============================================================ */
-import { signal, computed } from '@preact/signals';
+import { signal, computed, effect } from '@preact/signals';
 import { api, confirmModeWire, ApiError, type Attachment } from './api';
-import { connectSSE } from './sse-client';
+import { serializeThread, parseThread, hydrateForReopen } from './lib/thread-persist';
+import { connectSSE, type AskAnomalyFile } from './sse-client';
+import { t as tr, tf } from './lib/i18n';
 import type {
   WireTask,
   WireArtifacts,
@@ -30,16 +32,20 @@ const PHASE_ORDER: WirePhase[] = ['analyze', 'spec', 'implement', 'test'];
 export type LiveThreadItem =
   | { id: string; kind: 'user'; text: string }
   | { id: string; kind: 'run'; phase: WirePhase; running: boolean; output: string; stopped?: boolean }
-  | { id: string; kind: 'gate'; phase: WirePhase; snapshot: WireTask; resolved?: string };
+  | { id: string; kind: 'gate'; phase: WirePhase; snapshot: WireTask; resolved?: string }
+  /** spec 033: a conversational Ask exchange — message↔message, never re-runs the phase. `done` flips
+   *  once the backend's `ask:done` settles (streaming stops; the "Answered" chrome renders).
+   *  spec 034 §2: `seededFrom` (④/terminal Ask only) lists the sources folded into the fresh seed so a
+   *  possibly-incomplete answer is visible rather than silently trusted; absent on a 033 phase Ask. */
+  | { id: string; kind: 'qa'; question: string; answer: string; done: boolean; seededFrom?: string[] };
 
-/** Run-settings shown below the input (AC #14): Workflow / Confirm mode / Deploy only. */
+/** Run-settings shown below the input (AC #14): Workflow · Confirm · Fast build (spec 036 dropped
+ *  Deploy + Test — deploy/testMode are decided at the test gate from reachable creds, not start-bound). */
 export interface RunSettings {
   workflow: string; // 'none' = new workflow
   confirm: string; // 'each step' | 'spec only' | 'auto'
-  deploy: string; // 'none' | 'selfhost' | 'cloud'
   seed: string | null; // selected seed id (degrades to none until Lát 5)
   fast: boolean; // spec 028: ⚡ Fast build (merge Analyze+Spec); backend force-offs it on seed/workflow/slug
-  test: string; // spec 032: Phase ④ test mode 'static' | 'live'; only meaningful when deploy=selfhost
   targetProject: string | null; // spec 030: the target PROJECT folder — the sidebar project-"+" folder, OR the parent project of a workflow-"+" edit. The build lands in projects/<targetProject>/.
 }
 
@@ -56,7 +62,7 @@ export const active = signal<WireTreeTask[]>([]);
 export const startError = signal<string | null>(null);
 /** The taskId whose turn is running, parsed from a 409 — lets the UI offer "open it" (Lát 6). */
 export const busyHolder = signal<string | null>(null);
-export const settings = signal<RunSettings>({ workflow: 'none', confirm: 'each step', deploy: 'none', seed: null, fast: false, test: 'static', targetProject: null });
+export const settings = signal<RunSettings>({ workflow: 'none', confirm: 'each step', seed: null, fast: false, targetProject: null });
 
 // ───────────────────────────── confirm dialog (common) ─────────────────────────────
 /** Options for the site-styled confirm dialog (replaces window.confirm()). */
@@ -119,6 +125,10 @@ export const currentPhase = computed<WirePhase | null>(() => task.value?.phase ?
 export const busy = computed<boolean>(
   () => task.value?.status === 'running' || task.value?.status === 'scaffolding'
 );
+/** spec 033 FIX-H: `busy` is derived solely from status running/scaffolding — an Ask never sets those
+ *  (D3), so it never flips `busy`. This independent signal tracks a LIVE Ask so the docked action bar
+ *  (and the composer's send-readiness) can disable during one: `disabled={busy || asking}`. */
+export const asking = signal(false);
 
 // ───────────────────────────── thread building ─────────────────────────────
 /** Coarse phase-state used to decide thread transitions (scaffolding folds into running). */
@@ -239,10 +249,23 @@ export function applyTask(t: WireTask): void {
     if (last && last.kind === 'run' && last.running) {
       items[items.length - 1] = { ...last, running: false, stopped: t.status === 'cancelled' };
     }
-    const lastNow = items[items.length - 1];
-    if (lastNow && lastNow.kind === 'gate' && !lastNow.resolved && lastNow.phase === t.phase) {
-      items[items.length - 1] = { ...lastNow, snapshot: t }; // refresh the active gate (reconnect)
-    } else {
+    // Refresh the parked gate in place on a reconnect/re-emit. The trailing item is NOT necessarily the
+    // gate: an Ask (spec 033/034) pushes `user`+`qa` items AFTER the gate card, so a plain `items[len-1]`
+    // check would miss the still-parked gate on a reconnect GET (onInit → getTask → applyTask) and push a
+    // DUPLICATE gate card below the Q&A — visibly wrong, and at a ④/terminal gate the duplicate carries
+    // live action buttons. Scan back past qa/user items for the unresolved same-phase gate instead; stop at
+    // a `run` (a gate before it belongs to a prior phase). Mirrors the run-branch's own backward scan above.
+    let refreshed = false;
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind === 'run') break;
+      if (it.kind === 'gate' && !it.resolved && it.phase === t.phase) {
+        items[i] = { ...it, snapshot: t }; // refresh the active gate (reconnect)
+        refreshed = true;
+        break;
+      }
+    }
+    if (!refreshed) {
       items.push({ id: uid(), kind: 'gate', phase: t.phase, snapshot: t });
     }
     // SSE task:update carries no artifact contents — re-fetch once at a gate so the panel is fresh.
@@ -343,6 +366,148 @@ export function applyOutput(phase: string, text: string): void {
   }
 }
 
+// ───────────────────────────── Ask streaming accumulation (spec 033 FIX-C) ──────────────────────
+// A parallel rAF-coalesced buffer for `{kind:'qa'}` items — targeted by scanning for the trailing
+// qa item with `done:false` (not a per-phase Map, unlike applyOutput above): the app-wide turn lock
+// (server/lib/lock.ts) guarantees at most one turn — phase OR Ask — runs anywhere at a time, so there
+// is never more than one qa item "in flight" at once; the scan is equivalent to (and simpler + more
+// testable than) tracking a private current-item id, mirroring how `optimisticAdvance` already finds
+// "the trailing unresolved gate" by scanning rather than tracking an id.
+function findOpenAskIdx(items: LiveThreadItem[]): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.kind === 'qa' && !it.done) return i;
+  }
+  return -1;
+}
+
+let _pendingAskText = '';
+let _askRaf: number | null = null;
+
+export function flushPendingAsk(): void {
+  if (_askRaf != null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(_askRaf);
+  _askRaf = null;
+  if (!_pendingAskText) return;
+  const items = thread.value.slice();
+  const idx = findOpenAskIdx(items);
+  if (idx === -1) {
+    _pendingAskText = '';
+    return;
+  }
+  const qa = items[idx] as LiveThreadItem & { kind: 'qa' };
+  items[idx] = { ...qa, answer: qa.answer + _pendingAskText };
+  _pendingAskText = '';
+  thread.value = items;
+}
+
+export function applyAskAnswer(text: string): void {
+  _pendingAskText += text;
+  if (typeof requestAnimationFrame === 'function') {
+    if (_askRaf == null) _askRaf = requestAnimationFrame(flushPendingAsk);
+  } else {
+    flushPendingAsk();
+  }
+}
+
+/** Render the layer-2 anomaly report (FIX-M: one or more files, not just the phase's own artifact) as
+ *  a single `<c>mono</c>`-chip-bearing message for the reused ConfirmModal (D3 layer 2). */
+export function describeAnomalyFiles(files: AskAnomalyFile[]): string {
+  const KIND_WORD: Record<AskAnomalyFile['kind'], string> = {
+    modified: tr('askAnomalyKindModified'),
+    created: tr('askAnomalyKindCreated'),
+    deleted: tr('askAnomalyKindDeleted'),
+  };
+  // review #4: a file the backend could NOT revert is flagged distinctly so a partial restore is visible.
+  return files
+    .map((f) => `<c>${f.path}</c> (${f.restoreFailed ? tr('askAnomalyRestoreFailed') : KIND_WORD[f.kind]})`)
+    .join(', ');
+}
+
+export function applyAskDone(d: { ok: boolean; anomaly?: { files: AskAnomalyFile[] }; seededFrom?: string[] }): void {
+  flushPendingAsk(); // land any trailing buffered fragment before finalizing (mirrors applyTask's rule)
+  asking.value = false;
+  const items = thread.value.slice();
+  const idx = findOpenAskIdx(items);
+  if (idx !== -1) {
+    // spec 034 §2: fold `seededFrom` onto the qa item so QaAnswer can caption a ④/terminal answer with
+    // the sources it was assembled from (absent → a 033 phase Ask, no caption).
+    const qa = items[idx] as LiveThreadItem & { kind: 'qa' };
+    items[idx] = { ...qa, done: true, ...(d.seededFrom && d.seededFrom.length > 0 ? { seededFrom: d.seededFrom } : {}) };
+  }
+  thread.value = items;
+  // D3 layer 2 (FIX-M): layer 1 should make this unreachable — surface it verbatim via the EXISTING
+  // ConfirmModal/askConfirm pattern (no new dialog component). Both buttons dismiss identically (D1):
+  // there is no "keep this change" affordance — the restore already happened before this notice shows.
+  if (!d.ok && d.anomaly && d.anomaly.files.length > 0) {
+    void askConfirm({
+      title: tr('askAnomalyTitle'),
+      message: tf('askAnomalyMsg', { files: describeAnomalyFiles(d.anomaly.files) }),
+      okLabel: tr('askAnomalyOk'),
+      cancelLabel: tr('askAnomalyOk'),
+    });
+  }
+}
+
+// ───────────────────────────── thread persistence (client-side; D6-safe) ─────────────────────────────
+// Persist the chat thread to localStorage so a HARD reload keeps the Q&A conversation (a soft SSE
+// reconnect already preserves the in-memory thread). Client-only — no backend transcript, so 033 D6
+// holds. Best-effort: every access is try/catch-guarded; slim/reconcile logic lives in thread-persist.ts.
+const THREAD_KEY = (id: string): string => `builder.thread.${id}`;
+const THREAD_INDEX = 'builder.thread.index';
+const THREAD_MAX = 20; // LRU cap across builds
+let _persistTimer: ReturnType<typeof setTimeout> | null = null;
+let _lastPersisted = ''; // dedupe: skip a write when the slim serialization is unchanged (stream churn)
+
+function threadIndex(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(THREAD_INDEX) ?? '[]');
+    return Array.isArray(v) ? (v as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Write the current thread for the open task (deduped + LRU-bounded). Best-effort — quota/private-mode safe. */
+function persistThreadNow(): void {
+  const t = task.value;
+  if (!t) return;
+  try {
+    const json = serializeThread(thread.value);
+    if (json === _lastPersisted) return; // unchanged slim payload (e.g. run-output-only churn) → skip
+    _lastPersisted = json;
+    localStorage.setItem(THREAD_KEY(t.taskId), json);
+    const idx = threadIndex().filter((x) => x !== t.taskId);
+    idx.push(t.taskId);
+    while (idx.length > THREAD_MAX) {
+      const evict = idx.shift();
+      if (evict) localStorage.removeItem(THREAD_KEY(evict));
+    }
+    localStorage.setItem(THREAD_INDEX, JSON.stringify(idx));
+  } catch {
+    /* storage disabled / quota exceeded — persistence is best-effort, never blocks the UI */
+  }
+}
+
+/** Restore + reconcile a persisted thread for reopening `taskId`, or null if none/corrupt. */
+function loadPersistedThread(taskId: string): LiveThreadItem[] | null {
+  try {
+    const items = parseThread(localStorage.getItem(THREAD_KEY(taskId)));
+    return items ? hydrateForReopen(items) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Debounced write on any thread/task change (coalesces the qa-answer streaming churn to ~1 write/settle).
+if (typeof localStorage !== 'undefined') {
+  effect(() => {
+    void thread.value;
+    void task.value; // subscribe to both
+    if (_persistTimer) clearTimeout(_persistTimer);
+    _persistTimer = setTimeout(persistThreadNow, 500);
+  });
+}
+
 // ───────────────────────────── SSE lifecycle ─────────────────────────────
 let teardown: (() => void) | null = null;
 
@@ -351,10 +516,18 @@ function openStream(taskId: string): void {
   teardown = connectSSE(taskId, {
     // On (re)connect, re-fetch the authoritative state so a missed gate is restored (AC #22).
     onInit: () => {
+      // spec 033 FIX-H reconnect guard: a reconnect that spans an Ask's `ask:done` would DROP it (the
+      // client's waitingForInit guard suppresses replayed events until init, and onAskDone honors it), so
+      // `asking` could stick true forever → the docked bar + composer stay disabled with no recovery. On
+      // every (re)connect, finalize any still-open qa item + clear `asking` (idempotent no-op on the very
+      // first connect, when nothing is open). A still-running turn's post-init live events are unaffected.
+      if (asking.value || findOpenAskIdx(thread.value) !== -1) applyAskDone({ ok: true });
       void api.getTask(taskId).then(applyTask).catch(() => {});
     },
     onTaskUpdate: applyTask,
     onPhaseOutput: (d) => applyOutput(d.phase, d.text),
+    onAskAnswer: (d) => applyAskAnswer(d.text),
+    onAskDone: (d) => applyAskDone(d),
     onConnect: () => {
       connected.value = true;
     },
@@ -446,6 +619,7 @@ export function splitWorkflowSetting(workflow: string | null | undefined): { pro
  *  + busyHolder, AC #21). A parked build no longer blocks — only a running turn does. */
 export async function start(requirement: string, files?: Attachment[]): Promise<void> {
   clearErrors();
+  _lastPersisted = ''; // fresh build — reset the persistence dedupe so the new task.json persists cleanly
   const s = settings.value;
   thread.value = [{ id: uid(), kind: 'user', text: requirement }];
   task.value = null;
@@ -460,14 +634,14 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
       requirement,
       workflow: editing?.workflow ?? null,
       confirm_mode: confirmModeWire(s.confirm),
-      deploy: s.deploy,
       seed: s.seed,
       // spec 028: fast build is from-scratch single-LLM only — send it only when no seed/workflow is
       // chosen (the backend force-offs it regardless; this keeps the wire honest). Slug is proposed by
       // the build, not set here, so no slug guard is needed at this seam.
       ...(s.fast && !s.seed && !editing ? { fast_mode: true } : {}),
-      // spec 032: send `live` only for a selfhost build (backend force-offs it otherwise; keep the wire honest).
-      ...(s.test === 'live' && s.deploy === 'selfhost' ? { test_mode: 'live' } : {}),
+      // spec 036: `deploy`/`test_mode` are NO LONGER sent — createTask defaults deploy:'none',
+      // testMode:'static'; both are stamped at gate-time (test_live dispatch / static→Import park / the
+      // done-state live action) from what creds are reachable, not declared here.
       ...(project ? { project } : {}),
       ...(files && files.length ? { files } : {}),
     });
@@ -480,8 +654,9 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
   }
 }
 
-/** Confirm a gate action (kind:'confirm'). Slug/name carried at the Spec gate (AC #18). */
-export async function confirm(action: WireGateAction, extra?: { slug?: string; name?: string }): Promise<void> {
+/** Confirm a gate action (kind:'confirm'). Slug/name carried at the Spec gate (AC #18); spec 036
+ *  `keepCurrent` carried on a `cleanup_apps` delete (delete only OLD test apps vs all). */
+export async function confirm(action: WireGateAction, extra?: { slug?: string; name?: string; keepCurrent?: boolean }): Promise<void> {
   const t = task.value;
   if (!t) return;
   try {
@@ -507,6 +682,42 @@ export async function reply(text: string, label?: string, files?: Attachment[]):
     optimisticAdvance(await api.reply(t.taskId, text.trim(), files), label ?? 'Requested changes');
     void loadActive();
   } catch (e) {
+    surfaceError(e);
+  }
+}
+
+/**
+ * spec 033 — a conversational Ask at a parked gate (chat, no phase re-run, answer-only). Pushes the
+ * question as a plain user item + a fresh `{kind:'qa'}` item locally (optimistic), sets `asking` true
+ * synchronously (before the POST even resolves — D3/§1: the response carries no status/gate snapshot to
+ * key off), then relies entirely on the `ask:answer`/`ask:done` SSE events (§2) to stream + finalize it.
+ */
+export async function ask(text: string): Promise<void> {
+  const t = task.value;
+  if (!t || !text.trim()) return;
+  // FIX-C/H defense-in-depth: never open a 2nd qa item while one is already in flight. The composer is
+  // disabled during a live Ask (App: disabled={asking}), so this is belt-and-suspenders — but it also
+  // guarantees the single-open-qa invariant `findOpenAskIdx` relies on, regardless of how ask() is
+  // reached. A concurrent Ask would 409 on the global turn lock anyway.
+  if (asking.value) return;
+  const items = thread.value.slice();
+  items.push({ id: uid(), kind: 'user', text: text.trim() });
+  const qaId = uid();
+  items.push({ id: qaId, kind: 'qa', question: text.trim(), answer: '', done: false });
+  thread.value = items;
+  asking.value = true;
+  try {
+    await api.ask(t.taskId, text.trim());
+  } catch (e) {
+    // The POST itself failed (400/409/500) — no turn was ever dispatched, so no ask:done will ever
+    // arrive to settle this. Finalize the qa item locally with the error, matching surfaceError's shape.
+    asking.value = false;
+    const cur = thread.value.slice();
+    const idx = cur.findIndex((it) => it.id === qaId);
+    if (idx !== -1) {
+      cur[idx] = { ...(cur[idx] as LiveThreadItem & { kind: 'qa' }), answer: String(e instanceof Error ? e.message : e), done: true };
+      thread.value = cur;
+    }
     surfaceError(e);
   }
 }
@@ -552,6 +763,23 @@ export async function restore(): Promise<void> {
   }
   void loadTree();
   void loadActive();
+}
+
+/** spec 036 D5: run a live workflow test from a terminal `done` autonomous build (the done-state "Run
+ *  test with workflow" foot — its only live path). Optimistically resolves the done gate (the button
+ *  disappears, `busy` flips) with the action label; SSE then carries done→running→test_result→done. A
+ *  409 (the gate no longer holds — creds gone, or a turn is running) surfaces via the shared error banner. */
+export async function liveTest(): Promise<void> {
+  const t = task.value;
+  if (!t) return;
+  try {
+    // The POST returns a running(④) snapshot; optimisticAdvance marks the trailing (done) gate resolved
+    // WITHOUT pushing a run item — the authoritative SSE task:update opens the correct "Running ④ Test".
+    optimisticAdvance(await api.liveTest(t.taskId), tr('runTestWithWorkflow'));
+    void loadActive();
+  } catch (e) {
+    surfaceError(e);
+  }
 }
 
 /** F1: cancel a build by id WITHOUT it being the open task (the sidebar hover-×). The open task's
@@ -603,6 +831,25 @@ export async function saveSpec(content: string): Promise<void> {
   }
 }
 
+/**
+ * On-demand artifact enrichment for the OPEN task: re-read its SPEC.md / main.yml / report / diff from
+ * disk (`GET /api/tasks/:id` returns them fresh via readArtifactContents). WHY this exists: in `auto`
+ * confirm-mode the Spec gate is auto-confirmed, so the client never hits the gate branch that inlines
+ * SPEC.md — the panel then shows "No SPEC.md yet" during Implement even though the file is already on
+ * disk. The panel calls this when it opens so the contents are pulled regardless of whether a gate
+ * re-fetch ever fired. applyTask's rev-guard keeps it safe: a fresh GET applies fully; a stale one only
+ * GRAFTS the missing artifact contents (never phase/gate). Best-effort — a failure leaves the panel as-is.
+ */
+export async function refreshArtifacts(): Promise<void> {
+  const t = task.value;
+  if (!t) return;
+  try {
+    applyTask(await api.getTask(t.taskId));
+  } catch {
+    /* enrichment is best-effort — the panel keeps whatever it has */
+  }
+}
+
 /** Open the OS file manager (Finder) at the task's workflow YAML file. Fire-and-forget; a failure
  *  (file not scaffolded yet, launcher error) surfaces via the shared error banner. */
 export async function revealWorkflow(taskId: string): Promise<void> {
@@ -617,9 +864,18 @@ export async function revealWorkflow(taskId: string): Promise<void> {
  *  thread starts from the requirement + current gate/run). */
 export async function openTask(taskId: string): Promise<void> {
   clearErrors();
+  // spec 033 FIX-I: a live Ask belongs to the PREVIOUS task's stream — switching tasks must not leave
+  // the new view's composer stuck "disabled".
+  asking.value = false;
+  _lastPersisted = ''; // task switch — force a re-persist for the newly-opened build (dedupe reset)
   try {
     const t = await api.getTask(taskId);
-    thread.value = [{ id: uid(), kind: 'user', text: t.requirement }];
+    // Restore the client-side conversation (Q&A + resolved history) if we persisted it across a reload
+    // (D6-safe — client-only). hydrateForReopen already dropped any stale unresolved gate, so the ONE
+    // live gate comes fresh + authoritative from applyTask below — no phantom buttons for a phase the
+    // build advanced past while the tab was closed.
+    const restored = loadPersistedThread(taskId);
+    thread.value = restored ?? [{ id: uid(), kind: 'user', text: t.requirement }];
     task.value = null;
     applyTask(t);
     openStream(taskId);
@@ -634,6 +890,8 @@ export function resetToNew(): void {
   teardown = null;
   task.value = null;
   thread.value = [];
+  // spec 033 FIX-I: same reset as openTask — a new/empty view must never inherit a stuck `asking`.
+  asking.value = false;
   // C2 (spec 019): also clear the reconnect rev-guard. Without this, `_appliedTaskId`/`_appliedRev`
   // survive the reset, so re-opening a build whose persisted `rev` is ≤ the last-applied rev is dropped
   // by `isFreshSnapshot` in `applyTask` → `task.value` stays null and the thread shows only the user
@@ -646,7 +904,8 @@ export function resetToNew(): void {
   // trivial build's `⚡` doesn't silently carry into a possibly non-trivial next one. targetProject (spec
   // 030) is a per-build target project folder — reset it too so a stale one can't survive "New task". The
   // "+"-launched non-clobber is achieved by App.newTask re-applying opts AFTER this reset, not by making
-  // this conditional. Confirm-mode/deploy are general preferences and intentionally persist.
+  // this conditional. Confirm-mode is a general preference and intentionally persists. (spec 036: deploy
+  // is no longer a setting — it is decided at the test gate from reachable creds.)
   settings.value = { ...settings.value, workflow: 'none', seed: null, fast: false, targetProject: null };
   clearErrors();
   connected.value = false;

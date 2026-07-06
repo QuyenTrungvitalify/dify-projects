@@ -5,9 +5,9 @@
  * by store.test.ts (resetToNew) and manual QA.
  */
 import { describe, it, expect } from 'vitest';
-import { newTaskCrumb, wfDisplayName, runContextCrumb } from './crumb';
+import { newTaskCrumb, wfDisplayName, runContextCrumb, workflowOptions } from './crumb';
 import { setLang } from './i18n';
-import type { WireTreeProject, WireTask } from '../types';
+import type { WireTreeProject, WireTreeTask, WireTask } from '../types';
 
 const tree: WireTreeProject[] = [
   { id: 'my_app', name: 'My App', workflows: [
@@ -95,6 +95,35 @@ describe('030 · runContextCrumb (open-build context)', () => {
     const solo: WireTreeProject[] = [{ id: 'solo', name: 'solo', workflows: [{ id: 'solo', name: 'solo', tasks: [] }] }];
     const c = runContextCrumb(t({ project: 'solo', workflowSlug: 'solo' }), solo);
     expect(c).toEqual({ group: 'solo', leaf: null });
+  });
+});
+
+describe('workflowOptions (recency-sorted composer dropdown)', () => {
+  const mkTask = (id: string): WireTreeTask => ({ id, name: 't', time: '', status: 'done', phase: 'test' });
+  const rtree: WireTreeProject[] = [
+    // _drafts must be excluded even though its task is the "newest".
+    { id: '_drafts', name: 'Drafts', workflows: [{ id: '(unsaved)', name: '(unsaved)', tasks: [mkTask('9999999999999')] }] },
+    { id: 'proj_a', name: 'Proj A', workflows: [
+      { id: 'old_wf', name: 'Old WF', tasks: [mkTask('1000000000001')] },       // oldest activity
+      { id: 'no_task_wf', name: 'No Task WF', tasks: [] },                       // never built → sorts last
+    ] },
+    { id: 'proj_b', name: 'Proj B', workflows: [
+      { id: 'new_wf', name: 'New WF', tasks: [mkTask('1783000000000'), mkTask('1000000000000')] }, // newest (tasks newest-first)
+    ] },
+  ];
+
+  it('sorts by newest-task recency ACROSS projects; excludes _drafts; a no-task workflow sorts last', () => {
+    expect(workflowOptions(rtree).map((o) => o.v)).toEqual([
+      'proj_b/new_wf',      // newest task 1783…
+      'proj_a/old_wf',      // 1000000000001
+      'proj_a/no_task_wf',  // no task → 0 → last
+    ]);
+    expect(workflowOptions(rtree).some((o) => o.v.startsWith('_drafts/'))).toBe(false);
+  });
+
+  it('value is the compound "project/workflow"; label is "Project / Workflow"', () => {
+    const nw = workflowOptions(rtree).find((o) => o.v === 'proj_b/new_wf');
+    expect(nw?.l).toBe('Proj B / New WF');
   });
 });
 

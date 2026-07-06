@@ -5,10 +5,20 @@
       "templates/_base/**/workflows/*.yml",
       "projects/_drafts/*/workflows/*.yml",
       "projects/_drafts/*/workflows/*.yaml",
+      "projects/cc/*/workflows/*.yml",
+      "projects/cc/*/workflows/*.yaml",
+      "projects/dd/*/workflows/*.yml",
+      "projects/dd/*/workflows/*.yaml",
+      "projects/eiken_project/*/workflows/*.yml",
+      "projects/eiken_project/*/workflows/*.yaml",
       "projects/new/*/workflows/*.yml",
       "projects/new/*/workflows/*.yaml",
       "projects/new_test/*/workflows/*.yml",
-      "projects/new_test/*/workflows/*.yaml"
+      "projects/new_test/*/workflows/*.yaml",
+      "projects/test/*/workflows/*.yml",
+      "projects/test/*/workflows/*.yaml",
+      "projects/test_new/*/workflows/*.yml",
+      "projects/test_new/*/workflows/*.yaml"
     ]
   },
   "yaml.validate": true,

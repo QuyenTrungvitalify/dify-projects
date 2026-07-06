@@ -12,6 +12,7 @@
  *   - kind:"cancel"  → abandon (POST /cancel)
  */
 import type { Deploy, Gate, GateAction, Phase } from '../state/task.js';
+import type { DifyTargets } from './dify-io.js';
 
 /** Verify outcome the orchestrator resolves before gating. `awaiting_import` is the Lát-5 ④ state:
  *  selfhost lint is clean but the import hasn't run yet → present the Import button (AC #16). */
@@ -56,11 +57,14 @@ const DISCARD = (): GateAction => CANCEL('discard', 'Discard build');
 const ERROR_GATE: Gate = { actions: [REPLY('retry', 'Retry phase')] };
 
 /**
- * Compute the gate for a finished phase. `deploy` drives the Lát-5 ④ `selfhost` Import button:
- * a clean selfhost ④ pauses at `awaiting_import` with an Import action (AC #16); `none`/`cloud`
- * ④-success is terminal with no actions.
+ * Compute the gate for a finished phase. Spec 036 D1/D4: `targets` (the reachable Dify live targets,
+ * probed by the orchestrator via `difyTargets()`) drives the implement-gate live action — one
+ * `test_live` confirm per populated slot (`selfhost` here; `cloud` is a reserved §8 seam). It replaces
+ * 032's `liveAvailable` boolean: capability now, not an upfront deploy declaration. Defaults to `{}` so
+ * the many 3-arg call sites (error/restore gates) keep compiling — those phases ignore `targets` anyway.
+ * `_deploy` is retained positionally for those call sites but no longer read here.
  */
-export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy, liveAvailable = false): Gate {
+export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy, targets: DifyTargets = {}): Gate {
   if (verify.outcome === 'error') return { actions: [...ERROR_GATE.actions] };
 
   switch (phase) {
@@ -96,10 +100,10 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy, l
       return {
         actions: [
           CONFIRM('continue', 'Continue to Test'),
-          // Spec 032 D1(a): when live is available (deploy=selfhost + creds), offer a second confirm to
-          // run the workflow for real. `continue` stays FIRST (the safe static default); auto+live picks
-          // `test_live` in maybeAutoAdvance by testMode, not by order.
-          ...(liveAvailable ? [CONFIRM('test_live', 'Test với workflow')] : []),
+          // Spec 036 D4: offer a live "Test with workflow" per reachable target (import → run for real).
+          // `continue` (static) stays FIRST — the safe default. `targets.selfhost` is the only live target
+          // this spec ships; `targets.cloud` is the reserved §8 seam ('Test with cloud' — NOT emitted here).
+          ...(targets.selfhost ? [CONFIRM('test_live', 'Test with workflow')] : []),
           REPLY('changes', 'Request changes'),
           DISCARD(), // F1: dismiss a build parked at a clean Implement
         ],

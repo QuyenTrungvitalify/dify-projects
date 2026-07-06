@@ -4,8 +4,24 @@
  * `task:update` would clobber it (the UI reverts to an older phase/gate). Each persisted transition now
  * carries a monotonic `rev`; a strictly-older snapshot for the same task is dropped.
  */
-import { describe, it, expect } from 'vitest';
-import { applyTask, applyOutput, flushPendingOutput, isFreshSnapshot, resetToNew, settings, splitWorkflowSetting, task, thread } from './store';
+import { describe, it, expect, afterEach } from 'vitest';
+import {
+  applyTask,
+  applyOutput,
+  flushPendingOutput,
+  applyAskAnswer,
+  applyAskDone,
+  flushPendingAsk,
+  describeAnomalyFiles,
+  ask,
+  asking,
+  isFreshSnapshot,
+  resetToNew,
+  settings,
+  splitWorkflowSetting,
+  task,
+  thread,
+} from './store';
 import type { LiveThreadItem } from './store';
 import type { WireTask, WirePhase } from './types';
 
@@ -313,14 +329,149 @@ describe('resetToNew clears the reconnect rev-guard (019 C2)', () => {
 // build is open) and the dropdown's `none` reset can be off-screen with many workflows. So resetToNew
 // must clear them — otherwise the prior build's choice silently carries into the next "new task".
 describe('resetToNew resets the new-build base selectors', () => {
-  it('clears workflow → none and seed → null (confirm/deploy preferences persist)', () => {
-    settings.value = { workflow: 'workflow_uppercases_input_string', confirm: 'auto', deploy: 'cloud', seed: 's1', fast: true, test: 'static', targetProject: 'my_app' };
+  it('clears workflow → none and seed → null (confirm preference persists)', () => {
+    // spec 036: RunSettings no longer carries deploy/test (they are gate-time now, not composer chips).
+    settings.value = { workflow: 'workflow_uppercases_input_string', confirm: 'auto', seed: 's1', fast: true, targetProject: 'my_app' };
     resetToNew();
     expect(settings.value.workflow).toBe('none');
     expect(settings.value.seed).toBe(null);
     expect(settings.value.fast).toBe(false); // spec 028: per-build shape assertion — reset like the base selectors
     expect(settings.value.targetProject).toBe(null); // spec 029: per-build target — reset like the base selectors (AC6)
     expect(settings.value.confirm).toBe('auto'); // general preference — not reset
-    expect(settings.value.deploy).toBe('cloud'); // general preference — not reset
+  });
+});
+
+// ── spec 033 FIX-C: Ask streaming accumulation + FIX-M anomaly notice ───────────────────────────────
+// findOpenAskIdx targets the trailing `{kind:'qa', done:false}` item (not a per-phase Map, and not a
+// tracked id) — the single-turn-lock invariant guarantees at most one qa item is ever "in flight".
+const qaItem = (id: string, answer = '', done = false): LiveThreadItem =>
+  ({ id, kind: 'qa', question: 'why?', answer, done });
+
+describe('applyAskAnswer/flushPendingAsk — targets the trailing open qa item', () => {
+  it('accumulates fragments onto the trailing qa item with done:false', () => {
+    thread.value = [qaItem('q1')];
+    applyAskAnswer('Sure — ');
+    applyAskAnswer('here you go.');
+    flushPendingAsk();
+    const last = thread.value[thread.value.length - 1] as LiveThreadItem & { kind: 'qa' };
+    expect(last.answer).toBe('Sure — here you go.');
+    expect(last.done).toBe(false);
+  });
+
+  it('a fragment with no open (done:false) qa item anywhere is dropped, not thrown', () => {
+    thread.value = [qaItem('q2', 'already answered', true)];
+    applyAskAnswer('a straggler');
+    flushPendingAsk();
+    const last = thread.value[thread.value.length - 1] as LiveThreadItem & { kind: 'qa' };
+    expect(last.answer).toBe('already answered'); // untouched — nothing open to land on
+  });
+});
+
+describe('applyAskDone — finalizes the qa item, flips `asking`, no anomaly on the clean path', () => {
+  afterEach(() => {
+    asking.value = false;
+  });
+
+  it('ok:true → done:true, asking flips false, no confirm prompt armed', () => {
+    thread.value = [qaItem('q3', 'the answer')];
+    asking.value = true;
+    applyAskDone({ ok: true });
+    const last = thread.value[thread.value.length - 1] as LiveThreadItem & { kind: 'qa' };
+    expect(last.done).toBe(true);
+    expect(asking.value).toBe(false);
+  });
+
+  it('flushes a trailing buffered fragment before finalizing (no fragment lost at the settle boundary)', () => {
+    thread.value = [qaItem('q4')];
+    asking.value = true;
+    applyAskAnswer('landed just before settle');
+    applyAskDone({ ok: true }); // no explicit flush call — applyAskDone must flush first, like applyTask
+    const last = thread.value[thread.value.length - 1] as LiveThreadItem & { kind: 'qa' };
+    expect(last.answer).toBe('landed just before settle');
+    expect(last.done).toBe(true);
+  });
+});
+
+describe('describeAnomalyFiles (FIX-M) — a multi-file report, not just the phase artifact', () => {
+  it('renders one <c>path</c> (kind) chip per file, comma-joined', () => {
+    const out = describeAnomalyFiles([
+      { path: 'projects/p/wf/SPEC.md', kind: 'modified' },
+      { path: 'projects/p/wf/evil.txt', kind: 'created' },
+    ]);
+    expect(out).toContain('<c>projects/p/wf/SPEC.md</c>');
+    expect(out).toContain('<c>projects/p/wf/evil.txt</c>');
+    expect(out).toContain(', '); // one entry per file, not collapsed into one
+  });
+  it('a restoreFailed file is flagged distinctly (review #4 — a partial restore is visible)', () => {
+    const out = describeAnomalyFiles([{ path: 'projects/p/wf/main.yml', kind: 'modified', restoreFailed: true }]);
+    // uses the restore-failed wording, NOT the normal "modified, reverted" kind word.
+    expect(out).toMatch(/could NOT be reverted/i);
+    expect(out).not.toContain('modified, reverted');
+  });
+});
+
+describe('ask() double-open guard (FIX-C/H defense-in-depth)', () => {
+  afterEach(() => {
+    asking.value = false;
+    task.value = null;
+    thread.value = [];
+  });
+  it('a 2nd ask() while one is already in flight (asking=true) does NOT open a 2nd qa item', async () => {
+    task.value = mk('T', 1, 'spec');
+    thread.value = [qaItem('open')]; // one qa already streaming
+    asking.value = true;
+    const before = thread.value.length;
+    await ask('a racing second question'); // must early-return before any push/fetch
+    expect(thread.value.length).toBe(before); // no 2nd qa — the single-open invariant holds
+  });
+});
+
+// FIX-H reconnect recovery: a reconnect that spans an Ask's ask:done would leave `asking` stuck true.
+// The store's onInit calls applyAskDone({ok:true}) exactly when asking is set or a qa is still open, to
+// finalize it. This pins that recovery path's effect (asking cleared, the open qa finalized).
+describe('reconnect recovery finalizes a stuck open Ask (FIX-H)', () => {
+  afterEach(() => {
+    asking.value = false;
+    thread.value = [];
+  });
+  it('applyAskDone({ok:true}) clears a stuck `asking` and marks the open qa done', () => {
+    thread.value = [qaItem('stuck', 'half an answer', false)];
+    asking.value = true; // simulate: POST returned 200, ask:done was dropped by the reconnect guard
+    applyAskDone({ ok: true }); // what onInit runs on (re)connect
+    expect(asking.value).toBe(false);
+    const last = thread.value[thread.value.length - 1] as LiveThreadItem & { kind: 'qa' };
+    expect(last.done).toBe(true);
+    expect(last.answer).toBe('half an answer'); // partial answer preserved
+  });
+});
+
+// ── spec 033/034 review: a reconnect after an Ask must REFRESH the parked gate in place, not duplicate it.
+// store.ask() pushes user+qa items AFTER the gate card, so the trailing thread item is a `qa`. A reconnect
+// GET (onInit → getTask → applyTask) re-applies the same awaiting_confirm gate; the old gate-branch only
+// checked items[len-1], missed the still-parked gate, and pushed a DUPLICATE card below the Q&A (with live
+// action buttons at a ④/terminal gate). The fix scans back past qa/user items for the same-phase gate. ──
+describe('reconnect after an Ask does not duplicate the parked gate (033/034 review)', () => {
+  afterEach(() => {
+    resetToNew();
+    thread.value = [];
+  });
+  it('a reconnect GET refreshes the parked gate in place even when a qa item trails it', () => {
+    resetToNew();
+    const gate = {
+      ...mk('DUP1', 1, 'test'),
+      status: 'awaiting_confirm',
+      artifactContents: {}, // truthy → skip the enrichment GET (no network in the unit)
+    } as unknown as WireTask;
+    applyTask(gate); // park the ④ gate → pushes exactly one gate item
+    // simulate an Ask having pushed user + qa items AFTER the gate card (store.ask's shape)
+    thread.value = [
+      ...thread.value,
+      { id: 'u1', kind: 'user', text: 'why did that fail?' } as LiveThreadItem,
+      { id: 'q1', kind: 'qa', question: 'why did that fail?', answer: 'because…', done: true } as LiveThreadItem,
+    ];
+    // a reconnect re-applies the SAME parked gate (higher rev passes the 014-D5 freshness guard)
+    applyTask({ ...gate, rev: 2 } as unknown as WireTask);
+    expect(thread.value.filter((i) => i.kind === 'gate').length).toBe(1); // refreshed, NOT duplicated
+    expect(thread.value[thread.value.length - 1].kind).toBe('qa'); // the Q&A is preserved below the gate
   });
 });

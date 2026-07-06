@@ -154,30 +154,45 @@ const EN: Dict = {
   cancel: 'Cancel',
   sendRerun: 'Send & re-run',
 
-  /* composer settings */
+  /* spec 033: composer Ask vs Request-changes mode */
+  modeAsk: 'Ask',
+  modeChange: 'Request changes',
+  modeBackToAsk: 'Back to Ask',
+  phAskGate: 'Ask a question…',
+  phChangeMode: 'What should change?',
+  qaAnswered: 'Answered',
+  // spec 034: terminal (done/cancelled) Ask composer placeholder + the fresh-seed "sources" caption.
+  phAskAboutBuild: 'Ask about this build…',
+  qaSeededFrom: 'Based on: {sources}',
+  // spec 035: the done/cancelled gate-foot "Edit this workflow" button.
+  editThisWorkflow: 'Edit this workflow',
+  // spec 036 D5: the done-state "Run test with workflow" foot action (autonomous builds + self-host creds).
+  runTestWithWorkflow: 'Run test with workflow',
+  askAnomalyTitle: 'Ask reverted an unexpected write',
+  askAnomalyMsg: 'The Ask turn attempted to write despite the guard — reverted: {files}. Nothing was kept; use Request changes if you want that edit.',
+  askAnomalyOk: 'OK',
+  askAnomalyKindModified: 'modified, reverted',
+  askAnomalyKindCreated: 'created, removed',
+  askAnomalyKindDeleted: 'deleted, restored',
+  askAnomalyRestoreFailed: 'could NOT be reverted — check this file',
+
+  /* composer settings — spec 036: Deploy + Test chips removed (row is Workflow · Confirm · Fast build).
+     deploy/test are capability-driven at the test gate now (difyTargets), not start-bound; the
+     deploy/deployFixed/selfhost/cloud/testMode/testStatic/testLive/testHint labels went with them. */
   workflow: 'Workflow',
   confirm: 'Confirm',
-  deploy: 'Deploy',
   workflowFixed: 'workflow target is fixed when the build starts',
   confirmModeHint: 'change confirm-mode once the build pauses at a gate',
-  deployFixed: 'deploy target is fixed when the build starts',
   setAtStart: 'set when the build started — not changeable mid-build',
   noneNew: 'none (new)',
   eachStep: 'each step',
   specOnly: 'spec only',
   auto: 'auto',
-  selfhost: 'selfhost',
-  cloud: 'cloud',
   /* spec 028: fast-build toggle */
   fast: 'Fast build',
   fastHint: 'merge Analyze+Spec, skip pattern search — single-LLM, from-scratch only',
   fastOn: 'on',
   fastOff: 'off',
-  /* spec 032: Phase ④ test mode */
-  testMode: 'Test',
-  testStatic: 'static',
-  testLive: 'live',
-  testHint: 'live: import → auto-fix model → run → verify on Dify (selfhost only)',
   gateLivePassBadge: 'LIVE ✓',
   gateLiveFailBadge: 'LIVE ✗',
   gateLivePassTitle: 'Workflow ran — review the output',
@@ -186,6 +201,9 @@ const EN: Dict = {
   gateLiveOutput: 'output: {out}',
   gateLiveJudge: 'judge (advisory):',
   gateLiveApp: 'app: {url}',
+  // spec 036: "Delete old apps" on the live gate — remove every test app except the current one (a re-test
+  // also auto-deletes the prior apps, so this rarely has anything to clean).
+  deleteOldApps: 'Delete old apps ({n})',
   gateLiveInfraBadge: 'LIVE ⚠',
   gateLiveInfraTitle: "Live test couldn't run (infrastructure)",
   gateLiveInfraSummary: 'the live run could not complete',
@@ -282,7 +300,7 @@ const EN: Dict = {
   open: 'Open',
   noteCloud: 'Cloud deploy — import the YAML manually in Dify Studio (steps in the notes below; the YAML is in the main.yml tab).',
   noteSelfhost: 'Not imported — use the Import button, or check Dify (see notes).',
-  noteDeployOff: 'Deploy is off — no app URL. Set Deploy ≠ none to import & get a link.',
+  noteDeployOff: 'No Dify target configured — no app URL. Set DIFY_CONSOLE_URL / DIFY_CONSOLE_TOKEN to import & get a link.',
 };
 
 const JA: Dict = {
@@ -393,30 +411,44 @@ const JA: Dict = {
   cancel: 'キャンセル',
   sendRerun: '送信して再実行',
 
-  /* composer settings */
+  /* spec 033: composer Ask vs Request-changes mode */
+  modeAsk: '質問',
+  modeChange: '変更を依頼',
+  modeBackToAsk: '質問に戻る',
+  phAskGate: '質問を入力…',
+  phChangeMode: '何を変更しますか？',
+  qaAnswered: '回答済み',
+  // spec 034
+  phAskAboutBuild: 'このビルドについて質問…',
+  qaSeededFrom: '参照: {sources}',
+  // spec 035
+  editThisWorkflow: 'このワークフローを編集',
+  // spec 036 D5
+  runTestWithWorkflow: 'ワークフローでテスト実行',
+  askAnomalyTitle: '予期しない書き込みを元に戻しました',
+  askAnomalyMsg: 'ガードにもかかわらず質問ターンが書き込みを試みたため、元に戻しました: {files}。変更は反映されていません — その内容が必要な場合は「変更を依頼」を使ってください。',
+  askAnomalyOk: 'OK',
+  askAnomalyKindModified: '変更を元に戻しました',
+  askAnomalyKindCreated: '作成されたため削除しました',
+  askAnomalyKindDeleted: '削除されたため復元しました',
+  askAnomalyRestoreFailed: '元に戻せませんでした — このファイルを確認してください',
+
+  /* composer settings — spec 036: Deploy + Test チップを削除（行は Workflow · Confirm · Fast build）。
+     deploy/test はテストゲートで capability から決まる（difyTargets）— 開始時固定ではない。 */
   workflow: 'ワークフロー',
   confirm: '確認',
-  deploy: 'デプロイ',
   workflowFixed: 'ワークフローの対象はビルド開始時に固定されます',
   confirmModeHint: 'ビルドがゲートで一時停止したら確認モードを変更できます',
-  deployFixed: 'デプロイ対象はビルド開始時に固定されます',
   setAtStart: 'ビルド開始時に設定されます — ビルド中は変更できません',
   noneNew: 'なし（新規）',
   eachStep: '各ステップ',
   specOnly: '仕様のみ',
   auto: '自動',
-  selfhost: 'セルフホスト',
-  cloud: 'クラウド',
   /* spec 028: fast-build toggle */
   fast: '高速ビルド',
   fastHint: 'Analyze+Specを統合しパターン検索を省略 — 単一LLM・新規作成のみ',
   fastOn: 'オン',
   fastOff: 'オフ',
-  /* spec 032: フェーズ④ テストモード */
-  testMode: 'テスト',
-  testStatic: '静的',
-  testLive: 'ライブ',
-  testHint: 'ライブ: インポート→モデル自動補完→実行→検証（セルフホストのみ）',
   gateLivePassBadge: 'LIVE ✓',
   gateLiveFailBadge: 'LIVE ✗',
   gateLivePassTitle: 'ワークフローが実行されました — 出力を確認',
@@ -425,6 +457,8 @@ const JA: Dict = {
   gateLiveOutput: '出力: {out}',
   gateLiveJudge: '判定（参考）:',
   gateLiveApp: 'アプリ: {url}',
+  // spec 036: 「古いアプリを削除」— 現在のアプリ以外のテストアプリを削除（再テスト時に自動削除もされる）
+  deleteOldApps: '古いアプリを削除 ({n})',
   gateLiveInfraBadge: 'LIVE ⚠',
   gateLiveInfraTitle: 'ライブテストを実行できません（インフラ）',
   gateLiveInfraSummary: 'ライブ実行を完了できませんでした',
@@ -521,7 +555,7 @@ const JA: Dict = {
   open: '開く',
   noteCloud: 'クラウドデプロイ — Dify Studio で YAML を手動インポートしてください（手順は下記のノート、YAML は main.yml タブにあります）。',
   noteSelfhost: '未インポート — インポートボタンを使うか、Dify を確認してください（ノート参照）。',
-  noteDeployOff: 'デプロイはオフ — アプリ URL はありません。インポートしてリンクを得るには Deploy を「なし」以外に設定してください。',
+  noteDeployOff: 'Dify ターゲット未設定 — アプリ URL はありません。インポートしてリンクを得るには DIFY_CONSOLE_URL / DIFY_CONSOLE_TOKEN を設定してください。',
 };
 
 const DICT: Record<Lang, Dict> = { en: EN, ja: JA };
@@ -544,6 +578,7 @@ const ACTION_JA: Dict = {
   'Retry phase': 'フェーズを再試行',
   'Discard build': 'ビルドを破棄',
   /* spec 032 live-test gate actions */
+  'Test with workflow': 'ワークフローでテスト',
   'Accept result': '結果を承認',
   'Re-test': '再テスト',
   'Retry live': 'ライブ再試行',

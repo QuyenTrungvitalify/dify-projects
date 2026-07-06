@@ -188,10 +188,10 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
      would have prevented it>`. Do not invent failures — only log real ones. -->
 
 - 2026-05-19: Designed if-else node with only `cases[].conditions` (modern Dify 0.6.0 schema) → `validate_workflow.py` rejected it because it checks for top-level `data.conditions` (legacy). → When emitting if-else nodes, include BOTH `conditions` (legacy, satisfies validator) AND `cases` (modern, real Dify behavior). See [constraints.md §7](skills/mango-svip/references/constraints.md).
-- 2026-05-19: Built two separate workflow YAMLs (mock + DeepL skeleton) before user clarified preference for single-file branched design → wasted ~10min on the v2 file before deleting it. → For "Phase 1 demo + Phase 2 pending API" patterns, default to a single-file if-else+variable-aggregator branched workflow ([eiken main.yml](projects/eiken_stem_proofread/workflows/main.yml) is canonical), not 2 parallel files.
+- 2026-05-19: Built two separate workflow YAMLs (mock + DeepL skeleton) before user clarified preference for single-file branched design → wasted ~10min on the v2 file before deleting it. → For "Phase 1 demo + Phase 2 pending API" patterns, default to a single-file if-else+variable-aggregator branched workflow (eiken main.yml is canonical — project removed from the tree 2026-07-03; view via `git show 565480c^:projects/eiken_stem_proofread/workflows/main.yml`), not 2 parallel files.
 - 2026-05-19: Discovered the bowenliang123 md_exporter plugin collapses consecutive whitespace in Markdown table cells → 10-space placeholder became 1-space in output CSV. Functionally OK for human reviewers, but breaks byte-exact downstream parsers. → When CSV output requires exact whitespace, don't pipe through md_exporter — see [constraints.md §5](skills/mango-svip/references/constraints.md) for workarounds.
 - 2026-05-21: Used string node IDs (`node-code-1`) in a workflow → downstream `{{#node-code-1.text#}}` rendered as literal template string in output, no error, no warning. → Dify template engine only resolves numeric-timestamp IDs. Always generate via `skills/mango-svip/scripts/generate_id.py` per §4.1.
-- 2026-05-22: Proposed LanguageTool free tier for production proofread → ToS prohibits automated/non-interactive use. → For any tiered third-party API, read ToS for "automated requests" clause before designing free-tier production path. Tracker: [eiken/spec_todo/api_alternatives.md](projects/eiken_stem_proofread/spec_todo/api_alternatives.md).
+- 2026-05-22: Proposed LanguageTool free tier for production proofread → ToS prohibits automated/non-interactive use. → For any tiered third-party API, read ToS for "automated requests" clause before designing free-tier production path. Tracker (project removed from the tree 2026-07-03): `git show 565480c^:projects/eiken_stem_proofread/spec_todo/api_alternatives.md`.
 
 ## 10. The builder app (apps/builder)
 
@@ -212,7 +212,22 @@ the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.
   [docs/specs/prompts/009/qa/](docs/specs/prompts/009/qa/).
 - **Specs**: [009](docs/specs/009-browser-workflow-builder.md) (the app),
   [010](docs/specs/010-builder-ux-hardening.md) (UX hardening),
-  [011](docs/specs/011-builder-test-coverage-and-remediation.md) (tests + review remediation).
+  [011](docs/specs/011-builder-test-coverage-and-remediation.md) (tests + review remediation),
+  [033](docs/specs/033-builder-gate-qa-chat-mode.md) (Ask vs Request-changes at a gate — see below).
+- **Ask vs Request-changes** (spec 033): at a parked Analyze/Spec/Implement gate, the composer's Send
+  defaults to **Ask** — a resumed, answer-only turn (message↔message, no phase re-run) that can never
+  write `SPEC.md`/`main.yml`, enforced by two independent layers (`BUILDER_ASK_MODE` permission-gate
+  deny + a byte-snapshot/restore backstop over the build's own writable roots, `apps/builder/server/lib/ask.ts`), not
+  by trusting the model. **Request changes** (explicit, via a gate action) is the only path that re-runs
+  the phase and revises the artifact — never inferred from the message text. **Spec 034** extends Ask to
+  the ④ Test gates AND to a terminal `done`/`cancelled` build via a **fresh-seeded** turn (`askTestWithin`
+  — there is no phase session to resume, so the seed is assembled from whatever of
+  requirement/SPEC.md/main.yml/report.json/liveTest exist, surfaced as a `seededFrom` caption; a dedicated
+  `sessionIds.askTest` slot carries follow-up continuity; layer-1 `BUILDER_ASK_MODE` only — no snapshot
+  backstop, since report.json is backend-authored and there is no in-progress artifact to protect). At a
+  terminal build the composer is Ask-only (starting a NEW build moved to the sidebar "+"). **Spec 035**
+  adds an "Edit this workflow" button on the done/cancelled gate foot that starts a new edit-existing
+  build via the same `newTask({baseWorkflow})` the sidebar "+" uses.
 - **Builder QA writes scratch workflows** into the reserved `projects/_drafts/<workflow>/` project
   (spec 030) — gitignored regenerable throwaways (spec 011 R2; `build_index.py` skips gitignored
   YAMLs). Don't commit them. Real projects live at `projects/<project>/<workflow>/` and are indexed.

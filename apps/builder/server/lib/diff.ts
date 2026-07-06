@@ -25,7 +25,10 @@ export interface DiffPayload {
   diff: string;
 }
 
-/** Inline `difflib.unified_diff` over two files; a missing/empty base path reads as []. */
+/** Inline `difflib.unified_diff` over two files; a missing/empty base path reads as []. A non-UTF-8
+ *  (binary) file also reads as [] rather than crashing the probe with an uncaught UnicodeDecodeError
+ *  (spec 033 review #7): for the Ask anomaly path a binary file yields an empty diff — the anomaly is
+ *  still reported+restored, just without a human-readable text diff. Byte-identical for text inputs. */
 const DIFF_PROBE = `
 import sys, difflib
 def read(p):
@@ -34,7 +37,7 @@ def read(p):
     try:
         with open(p, encoding='utf-8') as f:
             return f.readlines()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return []
 a = read(sys.argv[1]); b = read(sys.argv[2])
 sys.stdout.write(''.join(difflib.unified_diff(a, b, fromfile=sys.argv[3], tofile=sys.argv[4])))
@@ -65,6 +68,20 @@ export async function snapshotDiffBase(projectsDir: string, task: Task): Promise
   if (!existsSync(srcAbs)) return; // no pre-edit file → nothing to snapshot (new workflow)
   await mkdir(join(projectsDir, `apps/builder/.runs/${task.taskId}`), { recursive: true });
   await copyFile(srcAbs, snapAbs);
+}
+
+/** Spec 033 D3 layer 2 (FIX-M): the same `difflib.unified_diff` probe {@link produceDiff} uses, exposed
+ *  as a standalone two-ABSOLUTE-path helper so `ask.ts`'s anomaly-report can reuse it over a held
+ *  before-snapshot vs the current on-disk file, without inventing a second diff algorithm. */
+export async function unifiedDiffOfFiles(
+  projectsDir: string,
+  basePathAbs: string,
+  newPathAbs: string,
+  fromLabel: string,
+  toLabel: string
+): Promise<string> {
+  const r = await runPython(projectsDir, ['-c', DIFF_PROBE, basePathAbs, newPathAbs, fromLabel, toLabel]);
+  return r.stdout;
 }
 
 /** Resolve the diff base path + a human label for the `from` side, per build kind. */

@@ -313,9 +313,10 @@ const READ_ONLY_TOOLS = new Set(['Read', 'Glob', 'Grep', 'TodoWrite', 'WebSearch
 /**
  * The pure decision for one PreToolUse payload. `abstain` (→ emit `{}`) defers to the settings'
  * permission model for tools the hook neither blesses nor blocks (it never broadens Bash — Bash is
- * always allow/deny). `taskId` (from BUILDER_TASK_ID) scopes the sibling-`.runs` write guard.
+ * always allow/deny). `taskId` (from BUILDER_TASK_ID) scopes the sibling-`.runs` write guard. `askMode`
+ * (from BUILDER_ASK_MODE, spec 033 D3 layer 1) denies every write-class call outright for this turn.
  */
-export function decide(input: HookInput, taskId?: string): DecisionResult {
+export function decide(input: HookInput, taskId?: string, askMode?: boolean): DecisionResult {
   // Fail CLOSED on a malformed payload (e.g. JSON `null`/an array) — a thrown decide() would emit no
   // decision and Claude Code would fail OPEN (spec 015 review H1).
   if (!input || typeof input !== 'object') {
@@ -338,15 +339,22 @@ export function decide(input: HookInput, taskId?: string): DecisionResult {
     return analyzeBashCommand(command);
   }
 
-  // 2. Write-class (Write/Edit/MultiEdit/NotebookEdit) — forbidden-paths already passed; in-project → allow.
+  // 2. Spec 033 D3 layer 1 — Ask mode: deny EVERY write-class call outright, checked before the
+  //    existing write-allow below. A normal phase/reply/judge turn never sets BUILDER_ASK_MODE, so
+  //    branch 3 below is untouched byte-for-byte for every other turn.
+  if (askMode && WRITE_TOOLS.has(toolName)) {
+    return { decision: 'deny', reason: 'Ask mode — this turn may not write files' };
+  }
+
+  // 3. Write-class (Write/Edit/MultiEdit/NotebookEdit) — forbidden-paths already passed; in-project → allow.
   if (WRITE_TOOLS.has(toolName)) {
     return { decision: 'allow', reason: 'in-project write' };
   }
 
-  // 3. Read-only tools — safe once forbidden-paths passed.
+  // 4. Read-only tools — safe once forbidden-paths passed.
   if (READ_ONLY_TOOLS.has(toolName)) return { decision: 'allow', reason: 'read-only tool' };
 
-  // 4. Unknown tool → abstain (let the settings' allow-list decide; the hook never broadens it).
+  // 5. Unknown tool → abstain (let the settings' allow-list decide; the hook never broadens it).
   return { decision: 'abstain', reason: `no opinion on ${toolName || 'unknown tool'}` };
 }
 
@@ -385,11 +393,15 @@ export function main(): void {
   // BUILDER_TASK_ID is exported into the turn env by claude-session.ts so the sibling-`.runs` write
   // guard knows which task is "self". Absent (direct CLI use) → the guard is skipped.
   const taskId = process.env.BUILDER_TASK_ID || undefined;
+  // Spec 033 D3 layer 1: BUILDER_ASK_MODE=1 (set by claude-session.ts only for an Ask turn) denies
+  // every write-class call outright for this call. Absent for every other turn → decide()'s existing
+  // write-allow branch is unaffected.
+  const askMode = process.env.BUILDER_ASK_MODE === '1';
   // Fail CLOSED: any throw computing the decision DENIES rather than emitting nothing (which Claude Code
   // would treat as no-decision → fail OPEN, turning the whole gate off for that call — review H1).
   let result: DecisionResult;
   try {
-    result = decide(input, taskId);
+    result = decide(input, taskId, askMode);
   } catch {
     result = { decision: 'deny', reason: 'permission hook error — fail closed' };
   }

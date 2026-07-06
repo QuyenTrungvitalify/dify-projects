@@ -87,9 +87,11 @@ export function createSSEState(): SSEState {
   function broadcast(taskId: string, event: string, data: unknown): void {
     eventCounter++;
     const id = eventCounter;
-    // Exclude the high-volume streamed-output event from the replay buffer (nexus excludes
-    // `task:output`); keep the lightweight phase/status/gate `task:update` events replayable.
-    if (event !== 'phase:output') {
+    // Exclude the high-volume streamed-output events from the replay buffer (nexus excludes
+    // `task:output`); spec 033: `ask:answer` is the same high-volume shape as `phase:output`, so it gets
+    // the identical exclusion. Keep the lightweight phase/status/gate `task:update` + the terminal
+    // `ask:done` marker replayable.
+    if (event !== 'phase:output' && event !== 'ask:answer') {
       eventBuffer.push({ id, taskId, event, data, ts: Date.now() });
     }
     for (const client of clients) {

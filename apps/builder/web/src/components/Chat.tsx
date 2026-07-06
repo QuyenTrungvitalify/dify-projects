@@ -14,6 +14,7 @@ import { I } from './Icon';
 import { Twist } from './Sidebar';
 import { renderMarkdownHtml } from '../lib/markdown';
 import { PHASE_LABELS, phaseIndex, phaseLabelAt } from '../lib/phase';
+import { terminalFootActions } from '../lib/gate-foot';
 import { t as tr, tf, phaseLabel, tAction } from '../lib/i18n';
 import {
   type ComposerAttachment,
@@ -30,14 +31,42 @@ import type {
   WireGateAction,
 } from '../types';
 
-/* render text with <c>mono</c> chips (kept for any chip-bearing summary line) */
+/* Bare http(s) URL matcher — mirrors the markdown renderer's autolink: the body excludes brackets/
+   quotes and the final char drops trailing sentence punctuation so `see http://x.` links `http://x`. */
+const URL_RE = /https?:\/\/[^\s<>()[\]{}"']+[^\s<>()[\]{}"'.,;:!?]/gi;
+
+/** Split a plain-text segment into text + clickable new-tab anchors for any bare URL it contains.
+ *  The input is plain text (JSX escapes it on render; href is set as a prop → no injection). */
+function linkify(text: string, keyBase: string): (VNode | string)[] {
+  const out: (VNode | string)[] = [];
+  let last = 0;
+  let n = 0;
+  let m: RegExpExecArray | null;
+  URL_RE.lastIndex = 0;
+  while ((m = URL_RE.exec(text)) !== null) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    const url = m[0];
+    out.push(
+      <a key={`${keyBase}-l${n++}`} className="out-link" href={url} target="_blank" rel="noopener noreferrer">{url}</a>,
+    );
+    last = m.index + url.length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+/* render text with <c>mono</c> chips (kept for any chip-bearing summary line); bare URLs in the
+   plain-text segments are autolinked so a model-emitted `app: http://…` is one click away. */
 export function richText(str: string): (VNode | string)[] {
   const parts = String(str).split(/(<c>.*?<\/c>)/g);
-  return parts.map((p, i) => {
+  const out: (VNode | string)[] = [];
+  parts.forEach((p, i) => {
+    if (!p) return;
     const m = p.match(/^<c>(.*?)<\/c>$/);
-    if (m) return <span key={i} className="mchip">{m[1]}</span>;
-    return <Fragment key={i}>{p}</Fragment>;
+    if (m) { out.push(<span key={i} className="mchip">{m[1]}</span>); return; }
+    out.push(...linkify(p, `t${i}`));
   });
+  return out;
 }
 
 export function numCircle(n: number): string {
@@ -207,28 +236,22 @@ function gateView(t: WireTask): GateView {
   }
 }
 
-export function GateCard({ task, resolved, busy, onConfirm, onReply, onCancel, onRestore, onOpenArtifact }: {
+/** The awaiting_confirm action-foot (confirm/reply/cancel), extracted (spec 033 FIX-J) so it can render
+ *  BOTH inline (GateCard, when phase==='test' — unchanged from today) AND in the docked bar App.tsx
+ *  renders for phase∈{analyze,spec,implement} (D7). `onArmChange` replaces the old inline reply textarea:
+ *  clicking a reply-kind action now arms the COMPOSER's change-mode (the one reply surface) instead of
+ *  opening a second, parallel textarea. */
+export function GateActions({ task, busy, onConfirm, onArmChange, onCancel }: {
   task: WireTask;
-  resolved?: string;
   busy?: boolean;
-  onConfirm: (action: WireGateAction, extra?: { slug?: string; name?: string }) => void;
+  onConfirm: (action: WireGateAction, extra?: { slug?: string; name?: string; keepCurrent?: boolean }) => void;
   /** `label` is the chosen reply action's English label (Edit spec / Keep trying / Request changes) so
    *  the resolved gate reads true instead of a generic "Requested changes" (spec 016 D4). */
-  onReply: (text: string, label: string) => void;
+  onArmChange: (label: string) => void;
   onCancel: (action: WireGateAction) => void;
-  onRestore?: () => void;
-  onOpenArtifact: (tab: ArtifactTab) => void;
 }) {
-  const [replying, setReplying] = useState(false);
-  const [reply, setReplyText] = useState('');
-  const v = gateView(task);
   const actions = task.gate?.actions ?? [];
-  const tone = v.tone ? ' tone-' + v.tone : '';
-  const badgeIcon = v.tone === 'error' ? <I.alert /> : v.tone === 'warn' ? <I.warn />
-    : v.tone === 'danger' ? <I.lock /> : v.tone === 'done' ? <I.checkCircle />
-    : v.tone === 'deploy' ? <I.external /> : <I.spark />;
-
-  const replyAction = actions.find((a) => a.kind === 'reply');
+  if (actions.length === 0) return null;
 
   const btnClass = (a: WireGateAction): string => {
     if (a.kind === 'cancel') return 'ghost';
@@ -239,6 +262,107 @@ export function GateCard({ task, resolved, busy, onConfirm, onReply, onCancel, o
     if (task.gate?.flag === 'awaiting_import' && a.id === 'skip_import') return 'ghost';
     return 'ok';
   };
+
+  return (
+    <div className="gate-foot">
+      {actions.map((a) => {
+        // spec 032 S6: the "delete test apps" cleanup shows only when this build actually has test
+        // apps to remove, rendered as a quiet ghost button with the count.
+        if (a.id === 'cleanup_apps') {
+          const apps = task.testApps ?? [];
+          if (!apps.length) return null;
+          // spec 036: a re-test auto-deletes the prior apps, so the list is usually just the current one.
+          // Two clean buttons (no per-app clutter): "Delete old apps (N-1)" (keep the current) shows only
+          // when there ARE old apps; "Delete test apps (N)" removes everything.
+          const oldCount = apps.filter((id) => id !== task.appId).length;
+          return (
+            <Fragment key={a.id}>
+              {oldCount > 0 && (
+                <button className="btn ghost" disabled={busy} onClick={() => onConfirm(a, { keepCurrent: true })}>
+                  🗑 {tf('deleteOldApps', { n: String(oldCount) })}
+                </button>
+              )}
+              <button className="btn ghost" disabled={busy} onClick={() => onConfirm(a)}>🗑 {tAction(a.label)} ({apps.length})</button>
+            </Fragment>
+          );
+        }
+        if (a.kind === 'reply') {
+          return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => onArmChange(a.label)}><I.message />{tAction(a.label)}</button>;
+        }
+        if (a.kind === 'cancel') {
+          return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => onCancel(a)}>{tAction(a.label)}</button>;
+        }
+        return (
+          <button key={a.id} className={'btn ' + btnClass(a)} disabled={busy} onClick={() => onConfirm(a)}>
+            {task.gate?.flag === 'awaiting_import' && a.id === 'import' ? <I.external /> : <I.check />}{tAction(a.label)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** spec 033 — a conversational Ask exchange's answer bubble (message↔message, no phase re-run). The
+ *  question itself is already rendered as a preceding plain user bubble (store.ask() pushes both). */
+export function QaAnswer({ answer, done, seededFrom }: { answer: string; done: boolean; seededFrom?: string[] }) {
+  const html = useMemo(() => (answer.trim() ? renderMarkdownHtml(answer) : ''), [answer]);
+  return (
+    <div className="qa-bubble">
+      <div className="qa-head">
+        {done ? <I.checkCircle style={{ width: 13, height: 13, color: 'var(--ok)' }} /> : <span className="spin" />}
+        <span className="qa-badge">{done ? tr('qaAnswered') : tr('running')}</span>
+      </div>
+      {html ? (
+        <div className="qa-body md-stream" dangerouslySetInnerHTML={{ __html: html }} />
+      ) : !done ? (
+        <div className="qa-body"><div className="dd-line">{tr('working')}</div></div>
+      ) : null}
+      {/* spec 034 §2: a ④/terminal fresh-seeded answer captions which sources were folded into its seed,
+          so a possibly-incomplete answer is visible rather than silently trusted. Phase Asks omit this. */}
+      {done && seededFrom && seededFrom.length > 0 && (
+        <div className="qa-seeded">{tf('qaSeededFrom', { sources: seededFrom.join(', ') })}</div>
+      )}
+    </div>
+  );
+}
+
+export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCancel, onRestore, onEditAgain, onRunTest, onOpenArtifact }: {
+  task: WireTask;
+  resolved?: string;
+  busy?: boolean;
+  onConfirm: (action: WireGateAction, extra?: { slug?: string; name?: string; keepCurrent?: boolean }) => void;
+  /** spec 033 FIX-J: arms the composer's change-mode with the chosen reply action's label — replaces
+   *  the old inline reply textarea (removed; the composer is now the ONE reply surface). */
+  onArmChange: (label: string) => void;
+  onCancel: (action: WireGateAction) => void;
+  onRestore?: () => void;
+  /** spec 035: start a NEW edit-existing build from a done/cancelled gate foot (same newTask({baseWorkflow})
+   *  the sidebar "+" uses). Only fired when task.project/task.workflowSlug are both set. */
+  onEditAgain?: (project: string, workflowSlug: string) => void;
+  /** spec 036 D5: run a live workflow test from a done AUTONOMOUS build (its only live path). Rendered
+   *  only when terminalFootActions.runTest holds (done + creds reachable + auto/spec_only). */
+  onRunTest?: () => void;
+  onOpenArtifact: (tab: ArtifactTab) => void;
+}) {
+  const v = gateView(task);
+  const actions = task.gate?.actions ?? [];
+  const tone = v.tone ? ' tone-' + v.tone : '';
+  const badgeIcon = v.tone === 'error' ? <I.alert /> : v.tone === 'warn' ? <I.warn />
+    : v.tone === 'danger' ? <I.lock /> : v.tone === 'done' ? <I.checkCircle />
+    : v.tone === 'deploy' ? <I.external /> : <I.spark />;
+  // spec 033 D7/FIX-J: at an awaiting_confirm gate for phase∈{analyze,spec,implement}, the action-foot
+  // docks (App.tsx, above the composer) instead of rendering inline here — Ask never consumes the gate,
+  // so the SAME actions stay valid through any amount of chat. ④ Test gates are UNSCOPED (still inline,
+  // unchanged from today, D4) and error/cancelled stay inline too (handled by the branches below).
+  const docked = task.status === 'awaiting_confirm' && (task.phase === 'analyze' || task.phase === 'spec' || task.phase === 'implement');
+  // spec 035 D2: two INDEPENDENT terminal-foot actions (Restore cancelled-only, NOT gated on
+  // project/workflowSlug so a pre-scaffold cancel keeps it; Edit-again needs an on-disk target). Extracted
+  // to a pure helper (gate-foot.ts) with the four regression-guard cases in gate-foot.test.ts (§S1).
+  const { restore: canRestore, editAgain: canEditAgain, runTest: canRunTest } = terminalFootActions(task, {
+    restore: !!onRestore,
+    editAgain: !!onEditAgain,
+    runTest: !!onRunTest,
+  });
 
   return (
     <div className={'gate' + tone}>
@@ -279,48 +403,29 @@ export function GateCard({ task, resolved, busy, onConfirm, onReply, onCancel, o
             <I.check style={{ width: 13, height: 13 }} />{tAction(resolved)}
           </span>
         </div>
-      ) : replying && replyAction ? (
-        <div className="gate-reply">
-          <textarea autoFocus placeholder={tr('phWhatShouldChange')}
-            value={reply} onChange={(e) => setReplyText(e.currentTarget.value)}
-          />
-          <div className="gr-actions">
-            <button className="btn ghost" onClick={() => { setReplying(false); setReplyText(''); }}>{tr('cancel')}</button>
-            <button className="btn primary" disabled={!reply.trim()}
-              onClick={() => { onReply(reply, replyAction.label); setReplying(false); setReplyText(''); }}>
-              <I.arrowUp style={{ width: 13, height: 13 }} />{tr('sendRerun')}
+      ) : canRestore || canEditAgain || canRunTest ? (
+        // spec 035 D2 / 036 D5: Restore (cancelled-only — reopens THIS build), Edit-this-workflow (both
+        // statuses — starts a NEW edit-existing build), and Run-test-with-workflow (done autonomous +
+        // creds — re-enters the live sub-orchestrator) coexist as independent actions in one foot.
+        <div className="gate-foot">
+          {canRestore && (
+            <button className="btn ghost" disabled={busy} onClick={() => onRestore!()}>
+              <I.undo />{tr('restoreBuild')}
             </button>
-          </div>
+          )}
+          {canEditAgain && (
+            <button className="btn ghost" disabled={busy} onClick={() => onEditAgain!(task.project!, task.workflowSlug!)}>
+              <I.message />{tr('editThisWorkflow')}
+            </button>
+          )}
+          {canRunTest && (
+            <button className="btn ghost" disabled={busy} onClick={() => onRunTest!()}>
+              <I.spark />{tr('runTestWithWorkflow')}
+            </button>
+          )}
         </div>
-      ) : task.status === 'cancelled' && onRestore ? (
-        <div className="gate-foot">
-          <button className="btn ghost" disabled={busy} onClick={() => onRestore()}>
-            <I.undo />{tr('restoreBuild')}
-          </button>
-        </div>
-      ) : actions.length > 0 ? (
-        <div className="gate-foot">
-          {actions.map((a) => {
-            // spec 032 S6: the "delete test apps" cleanup shows only when this build actually has test
-            // apps to remove, rendered as a quiet ghost button with the count.
-            if (a.id === 'cleanup_apps') {
-              const n = task.testApps?.length ?? 0;
-              if (!n) return null;
-              return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => onConfirm(a)}>🗑 {tAction(a.label)} ({n})</button>;
-            }
-            if (a.kind === 'reply') {
-              return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => setReplying(true)}><I.message />{tAction(a.label)}</button>;
-            }
-            if (a.kind === 'cancel') {
-              return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => onCancel(a)}>{tAction(a.label)}</button>;
-            }
-            return (
-              <button key={a.id} className={'btn ' + btnClass(a)} disabled={busy} onClick={() => onConfirm(a)}>
-                {task.gate?.flag === 'awaiting_import' && a.id === 'import' ? <I.external /> : <I.check />}{tAction(a.label)}
-              </button>
-            );
-          })}
-        </div>
+      ) : docked ? null : actions.length > 0 ? (
+        <GateActions task={task} busy={busy} onConfirm={onConfirm} onArmChange={onArmChange} onCancel={onCancel} />
       ) : null}
     </div>
   );
@@ -378,19 +483,22 @@ function SettingSelect({ icon, label, value, options, onChange, mono, shrink, di
  *  built from the shared constants so it can't drift from the validator. */
 const ACCEPT_ATTR = [...ACCEPTED_IMAGE_MIME, ...[...ACCEPTED_EXT].map((e) => `.${e}`)].join(',');
 
-export function Composer({ value, onChange, onSend, settings, onSettings, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile }: {
+export function Composer({ value, onChange, onSend, settings, onSettings, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken }: {
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
-  settings: Settings;
-  onSettings: (patch: Partial<Settings>) => void;
+  /** spec 034 D3: optional — a terminal (done/cancelled) Ask composer omits both so the settings row
+   *  (workflow/confirm/fast — spec 036 dropped deploy/test) does not render; it becomes a plain question box. */
+  settings?: Settings;
+  onSettings?: (patch: Partial<Settings>) => void;
   /** spec 030: existing workflows from /api/tree as `{ v: 'project/workflow', l: 'Project / Workflow' }`
    *  (project-qualified — the same name can exist in several projects). Lists in the Workflow dropdown (AC #14). */
   workflows?: { v: string; l: string }[];
   placeholder: string;
   disabled?: boolean;
-  /** F2 (spec 010): conversation view — Workflow + Deploy are start-bound (read-only); only Confirm is
-   *  live-patchable. In the empty view all three are editable (they feed the next build). */
+  /** F2 (spec 010): conversation view — Workflow is start-bound (read-only); only Confirm is
+   *  live-patchable. In the empty view both are editable (they feed the next build). (spec 036: Deploy
+   *  is no longer a chip — deploy is decided at the test gate from reachable creds.) */
   lockStartBound?: boolean;
   /** F2 (spec 010): also freeze the Confirm chip while the live build's turn is RUNNING — a patch then
    *  would 409 (the backend rejects it; the in-memory orchestrator can't honor it). Editable once parked. */
@@ -399,10 +507,17 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
   files?: ComposerAttachment[];
   onAddFiles?: (files: File[]) => void;
   onRemoveFile?: (id: string) => void;
+  /** spec 033 FIX-J: bump this (any changing value) to focus the textarea — used when arming the
+   *  composer's change-mode from a gate's reply-kind action, so typing the change starts immediately. */
+  focusToken?: number;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  useEffect(() => {
+    if (focusToken !== undefined) ref.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusToken]);
   // Auto-grow the textarea to fit its content. `autosize` resets height then reads scrollHeight.
   // We call it on every `input` (live — incl. mid-IME composition) so the box grows AS you wrap,
   // AND on value/resize changes, since soft-wrapping (line count → height) depends on width.
@@ -481,6 +596,9 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
         onKeyDown={onKeyDown} onPaste={onPaste}
       />
       <div className="composer-row">
+        {/* spec 034 D3: the settings row is optional — a terminal Ask composer omits settings/onSettings,
+            so this whole block disappears and only the spacer + attach + send remain. */}
+        {settings && onSettings && (<>
         <SettingSelect mono shrink icon={<I.sliders style={{ width: 12, height: 12 }} />} label={tr('workflow')}
           value={settings.workflow} options={workflowOpts} onChange={(v) => onSettings({ workflow: v })}
           disabled={lockStartBound} title={tr('workflowFixed')} />
@@ -488,21 +606,15 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
           options={[{ v: 'each step', l: tr('eachStep') }, { v: 'spec only', l: tr('specOnly') }, { v: 'auto', l: tr('auto') }]}
           onChange={(v) => onSettings({ confirm: v })}
           disabled={lockConfirm} title={tr('confirmModeHint')} />
-        <SettingSelect label={tr('deploy')} value={settings.deploy}
-          options={[{ v: 'none', l: tr('none') }, { v: 'selfhost', l: tr('selfhost') }, { v: 'cloud', l: tr('cloud') }]}
-          onChange={(v) => onSettings({ deploy: v })}
-          disabled={lockStartBound} title={tr('deployFixed')} />
-        {/* spec 028: ⚡ Fast build — start-bound (like deploy) and only for a from-scratch build
-            (disabled when an existing workflow is chosen; the backend also force-offs on seed/slug). */}
+        {/* spec 028: ⚡ Fast build — start-bound, from-scratch only (disabled when an existing workflow is
+            chosen; the backend also force-offs on seed/slug). spec 036: the Deploy + Test chips were
+            removed here — deploy/test are decided at the test gate from reachable creds (difyTargets),
+            not declared up front. Row is now Workflow · Confirm · Fast build. */}
         <SettingSelect label={tr('fast')} value={settings.fast ? 'on' : 'off'}
           options={[{ v: 'off', l: tr('fastOff') }, { v: 'on', l: tr('fastOn') }]}
           onChange={(v) => onSettings({ fast: v === 'on' })}
           disabled={lockStartBound || settings.workflow !== 'none'} title={tr('fastHint')} />
-        {/* spec 032: ④ test mode — start-bound, selfhost-only (backend force-offs to static otherwise). */}
-        <SettingSelect label={tr('testMode')} value={settings.deploy === 'selfhost' ? (settings.test ?? 'static') : 'static'}
-          options={[{ v: 'static', l: tr('testStatic') }, { v: 'live', l: tr('testLive') }]}
-          onChange={(v) => onSettings({ test: v })}
-          disabled={lockStartBound || settings.deploy !== 'selfhost'} title={tr('testHint')} />
+        </>)}
         <span className="spacer" />
         {onAddFiles && (
           <>

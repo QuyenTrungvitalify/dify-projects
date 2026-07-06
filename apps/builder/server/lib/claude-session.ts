@@ -40,6 +40,10 @@ export interface SessionOptions {
   log: SessionLogger;
   /** --resume <session_id>; kept for Lát 3 in-phase /reply. Must precede the prompt. */
   resumeSessionId?: string;
+  /** Spec 033 D3 layer 1: sets `BUILDER_ASK_MODE=1` on the child env so the PreToolUse permission
+   *  hook (permission-gate.ts `decide()`) denies every Write/Edit/MultiEdit/NotebookEdit outright —
+   *  an Ask turn may resume a phase session but must never mutate its artifact. */
+  askMode?: boolean;
 }
 
 export interface ClaudeStreamEvent {
@@ -116,6 +120,10 @@ export class ClaudeSession {
     // knows which run dir is "self" (the turn's own `.runs/<taskId>/` stays writable; another task's
     // does not). Set AFTER the strip loop so it survives. Harmless when the hook isn't loaded.
     env.BUILDER_TASK_ID = this.taskId;
+    // Spec 033 D3 layer 1: an Ask turn's structural write-deny — read by permission-gate.ts `main()`
+    // the same way BUILDER_TASK_ID is. A normal phase/reply/judge turn never sets this, so the hook's
+    // existing decide() branch is untouched byte-for-byte for every other turn.
+    if (this.options.askMode) env.BUILDER_ASK_MODE = '1';
 
     try {
       this.process = spawn('claude', args, {

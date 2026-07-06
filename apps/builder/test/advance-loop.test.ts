@@ -47,6 +47,24 @@ interface Harness {
   calls: { runTurn: number; runReport: number; runPython: number; postTurnCheck: number };
   /** every `task:update` emission, in order. */
   events: Array<{ phase: string; status: string; flag?: string; actions: string[] }>;
+  /** spec 036 AC #9: the `task.deploy` the (stubbed) report SAW on each call — proves the Import/Skip
+   *  re-report labels `selfhost` after the static→park deploy stamp (D4 Rev-A). */
+  reportDeploys: string[];
+}
+
+/** Spec 036: set the self-host console env for the (async) body, then restore it (node --test = one
+ *  process). ASYNC so the finally runs AFTER the awaited work — the Option A Import park triggers on
+ *  `difyTargets()` (env creds) DURING the orchestrator dispatch, NOT on `task.deploy`. */
+async function withDifyEnv<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = { url: process.env.DIFY_CONSOLE_URL, tok: process.env.DIFY_CONSOLE_TOKEN };
+  process.env.DIFY_CONSOLE_URL = 'http://localhost/console/api';
+  process.env.DIFY_CONSOLE_TOKEN = 'tok-test';
+  try {
+    return await fn();
+  } finally {
+    if (prev.url === undefined) delete process.env.DIFY_CONSOLE_URL; else process.env.DIFY_CONSOLE_URL = prev.url;
+    if (prev.tok === undefined) delete process.env.DIFY_CONSOLE_TOKEN; else process.env.DIFY_CONSOLE_TOKEN = prev.tok;
+  }
 }
 
 /** Write the artifact a real turn would produce for the task's CURRENT phase, so the (real) ①/②
@@ -64,6 +82,7 @@ function writeArtifact(task: Task, dir: string): void {
 function harness(dir: string, task: Task, o: Overrides = {}): Harness {
   const calls = { runTurn: 0, runReport: 0, runPython: 0, postTurnCheck: 0 };
   const events: Harness['events'] = [];
+  const reportDeploys: string[] = [];
 
   const runTurn = async (
     _session: ClaudeSession,
@@ -107,6 +126,7 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
     _opts?: ReportOpts
   ): Promise<ReportResult> => {
     calls.runReport++;
+    reportDeploys.push(t.deploy); // spec 036 AC #9: capture what deploy the report labels
     return {
       ok: true,
       reasons: [],
@@ -131,7 +151,7 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
     },
     runners: { runTurn, runPython, runReport, postTurnCheck },
   };
-  return { ctx, calls, events };
+  return { ctx, calls, events, reportDeploys };
 }
 
 function fixtureDir(): string {
@@ -223,40 +243,85 @@ describe('advance-loop integration (013 D3)', () => {
     assert.deepEqual(task.gate?.actions ?? [], [], 'terminal gate after accept');
   });
 
-  test('D1 — auto + clean selfhost PARKS at the Import gate (never auto-deploys)', async () => {
+  test('spec 036 D4/D5 (Option A + S4) — auto + clean + creds: live button OFFERED but auto stays STATIC → DONE (AC #4)', async () => {
     const dir = fixtureDir();
-    const task = await createTask(dir, { requirement: 'selfhost clean auto', confirmMode: 'auto', deploy: 'selfhost' });
+    // Creds present via withDifyEnv → the OLD (014 D1) behavior parked `auto` at Import. Option A finishes
+    // `done` static instead (auto reaches Dify only via the D5 done-state action). `deploy:'none'` — the
+    // park now keys off `difyTargets()` (creds), not the removed deploy declaration.
+    const task = await createTask(dir, { requirement: 'selfhost clean auto', confirmMode: 'auto', deploy: 'none' });
     const h = harness(dir, task, { reportLintClean: true });
 
-    await withTurn(task.taskId, () => startTask(task, h.ctx));
+    await withDifyEnv(() => withTurn(task.taskId, () => startTask(task, h.ctx)));
 
-    assert.equal(task.status, 'awaiting_confirm', 'auto runs ①→④ but PARKS at the deploy decision (spec 014 D1)');
+    assert.equal(task.status, 'done', 'auto + clean + creds finishes done — no Import park (AC #4)');
     assert.equal(task.phase, 'test');
-    assert.equal(task.gate?.flag, 'awaiting_import');
-    assert.deepEqual(task.gate?.actions.map((a) => a.id), ['import', 'skip_import', 'discard']);
-    assert.equal(h.calls.runReport, 1, 'the report ran; the import did NOT auto-fire');
+    assert.deepEqual(task.gate?.actions ?? [], [], 'terminal ④ — no actions');
+    assert.notEqual(task.gate?.flag, 'awaiting_import', 'auto NEVER parks at Import under Option A');
+    assert.equal(h.calls.runReport, 1, 'the report ran once; the import did NOT auto-fire');
+    // S4: the implement gate DID offer the live `test_live` button (creds present) — proving auto ignored
+    // it and took `continue` (static). maybeAutoAdvance no longer auto-picks test_live (D5 branch deleted).
+    assert.ok(
+      h.events.some((e) => e.phase === 'implement' && e.actions.includes('test_live')),
+      'the implement gate offered the live button (creds present)'
+    );
+    assert.ok(
+      !h.events.some((e) => e.flag === 'test_result' || e.flag === 'infra_degraded'),
+      'auto never entered the live path — it stayed static (S4)'
+    );
   });
 
-  test('a clean selfhost build PARKS at the Import gate (auto-confirm would push) but not past it here', async () => {
+  test('spec 036 D4 (Option A) — spec_only + clean + creds finishes DONE past the Spec gate (AC #4)', async () => {
     const dir = fixtureDir();
-    const task = await createTask(dir, { requirement: 'selfhost clean', confirmMode: 'each_step', deploy: 'selfhost' });
+    const task = await createTask(dir, { requirement: 'selfhost clean spec_only', confirmMode: 'spec_only', deploy: 'none' });
     const h = harness(dir, task, { reportLintClean: true });
 
-    // each_step: drive analyze→spec→implement→test by hand, then assert the ④ Import gate appears.
-    await withTurn(task.taskId, () => startTask(task, h.ctx)); // ① analyze → parks
-    assert.equal(task.status, 'awaiting_confirm');
-    assert.equal(task.phase, 'analyze');
-    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // → ② spec
-    assert.equal(task.phase, 'spec');
-    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // scaffold → ③ implement
-    assert.equal(task.phase, 'implement');
-    assert.equal(task.status, 'awaiting_confirm');
-    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // → ④ test (clean selfhost)
+    await withDifyEnv(async () => {
+      await withTurn(task.taskId, () => startTask(task, h.ctx)); // auto ①, PAUSE at ② Spec
+      assert.equal(task.phase, 'spec');
+      assert.equal(task.status, 'awaiting_confirm', 'spec_only pauses only at Spec');
+      // human confirms Spec → implement then auto ④; isAutonomous(spec_only) → no Import park.
+      await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx));
+    });
 
+    assert.equal(task.status, 'done', 'spec_only + clean + creds finishes done after the Spec confirm (AC #4)');
     assert.equal(task.phase, 'test');
-    assert.equal(task.status, 'awaiting_confirm', 'clean selfhost ④ parks behind the Import button');
-    assert.equal(task.gate?.flag, 'awaiting_import');
-    assert.deepEqual(task.gate?.actions.map((a) => a.id), ['import', 'skip_import', 'discard']);
+    assert.notEqual(task.gate?.flag, 'awaiting_import', 'spec_only never parks at Import under Option A');
+  });
+
+  test('spec 036 D4 (Option A) — each_step + clean + creds PARKS at Import, stamps deploy=selfhost, re-report labels selfhost (AC #9)', async () => {
+    const dir = fixtureDir();
+    // deploy:'none' at create — the park + the deploy STAMP come from creds now, not the declaration.
+    const task = await createTask(dir, { requirement: 'selfhost clean', confirmMode: 'each_step', deploy: 'none' });
+    const h = harness(dir, task, { reportLintClean: true });
+
+    await withDifyEnv(async () => {
+      // each_step: drive analyze→spec→implement→test by hand, then assert the ④ Import gate appears.
+      await withTurn(task.taskId, () => startTask(task, h.ctx)); // ① analyze → parks
+      assert.equal(task.status, 'awaiting_confirm');
+      assert.equal(task.phase, 'analyze');
+      await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // → ② spec
+      assert.equal(task.phase, 'spec');
+      await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // scaffold → ③ implement
+      assert.equal(task.phase, 'implement');
+      assert.equal(task.status, 'awaiting_confirm');
+      await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // → ④ test (clean, human, creds)
+
+      assert.equal(task.phase, 'test');
+      assert.equal(task.status, 'awaiting_confirm', 'clean human ④ with creds parks behind the Import button');
+      assert.equal(task.gate?.flag, 'awaiting_import');
+      assert.deepEqual(task.gate?.actions.map((a) => a.id), ['import', 'skip_import', 'discard']);
+      // AC #9: the static→park deploy STAMP fired — report.ts branches on task.deploy, so this is what
+      // makes the Import/Skip re-report label `selfhost` instead of the `DEPLOYED · none` contradiction.
+      assert.equal(task.deploy, 'selfhost', 'the static→park stamped deploy=selfhost (before the re-report)');
+
+      // Faked import: skip_import re-runs the (stubbed) report WITHOUT shelling sync.py — assert the
+      // report SAW deploy=selfhost (the initial ④ report saw the pre-stamp 'none'; the re-report sees 'selfhost').
+      await withTurn(task.taskId, () => confirmAdvance(task, 'skip_import', h.ctx));
+    });
+
+    assert.equal(task.status, 'done', 'skip_import finishes done');
+    assert.equal(h.reportDeploys.at(-1), 'selfhost', 'the Import/Skip re-report labels selfhost (AC #9)');
+    assert.equal(task.deploy, 'selfhost', 'deploy stays selfhost through the terminal report');
   });
 
   test('/reply at ④ re-runs the REPORT, not a turn', async () => {
@@ -272,6 +337,79 @@ describe('advance-loop integration (013 D3)', () => {
 
     assert.equal(h.calls.runTurn, turnsBefore, '/reply at ④ spawned NO turn');
     assert.equal(h.calls.runReport, reportsBefore + 1, '/reply at ④ re-ran the report');
+  });
+
+  test('spec 036 fix — "Request changes" at the LIVE ④ gate re-runs IMPLEMENT (edits main.yml), not a bare re-test', async () => {
+    // The reported 032 defect: a /reply at the live test-result gate dropped the change text and just
+    // re-ran runLiveTest on the UNCHANGED workflow, so "make it uppercase" silently no-op'd. The fix
+    // routes it back through Implement so the edit actually happens; the human re-tests from that gate.
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'live reply edits the workflow', confirmMode: 'each_step', deploy: 'none' });
+    // Place it AT a live test_result gate (as after a `test_live` run): phase=test, testMode=live, an
+    // implement session to resume, and a scaffolded workflow on disk (with a pre-edit main.yml to diff).
+    task.phase = 'test';
+    task.testMode = 'live';
+    task.status = 'awaiting_confirm';
+    task.project = 'p';
+    task.workflowSlug = 'wf';
+    task.workflowFile = 'main.yml';
+    task.sessionIds.implement = 'sess-impl';
+    mkdirSync(join(dir, 'projects', 'p', 'wf', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects', 'p', 'wf', 'workflows', 'main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(join(dir, 'projects', 'p', 'wf', 'SPEC.md'), '# spec\nmake it.\n');
+    const h = harness(dir, task, { reportLintClean: true });
+    const turnsBefore = h.calls.runTurn;
+    const reportsBefore = h.calls.runReport;
+
+    await withTurn(task.taskId, () => replyWithin(task, 'make the output UPPERCASE', h.ctx));
+
+    assert.equal(h.calls.runTurn, turnsBefore + 1, 'the /reply re-ran the IMPLEMENT turn → main.yml is actually edited (was: silently re-ran the unchanged workflow)');
+    assert.equal(h.calls.runReport, reportsBefore, 'it did NOT re-run the report/live-test on the unchanged workflow');
+    assert.equal(task.phase, 'implement', 're-parked at the Implement gate — the human re-tests from there');
+    assert.equal(task.status, 'awaiting_confirm');
+    assert.ok(task.gate?.actions.some((a) => a.id === 'continue'), 'the Implement gate offers "Continue to Test"');
+  });
+
+  test('spec 036 fix — a /reply RESUME prompt carries the "revise the artifact" header (so the model EDITS, not chats)', async () => {
+    // Root cause of "Request changes didn't change the workflow": on a SUCCESSFUL resume the prompt used to
+    // be the bare change text, so a terse request ("make it uppercase") read as conversational and the
+    // model answered instead of editing main.yml. The prompt must now frame it as a file revision.
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'x', confirmMode: 'each_step', deploy: 'none' });
+    task.phase = 'implement';
+    task.project = 'p';
+    task.workflowSlug = 'wf';
+    task.workflowFile = 'main.yml';
+    task.sessionIds.implement = 'sess-impl';
+    task.status = 'awaiting_confirm';
+    mkdirSync(join(dir, 'projects', 'p', 'wf', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects', 'p', 'wf', 'workflows', 'main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(join(dir, 'projects', 'p', 'wf', 'SPEC.md'), '# spec\n');
+    let seenPrompt = '';
+    const ctx: OrchestratorCtx = {
+      projectsDir: dir,
+      settingsPath: '',
+      log,
+      runners: {
+        runTurn: async (_s, prompt) => {
+          seenPrompt = prompt; // capture the RESUME prompt runPhase built
+          return { sessionId: 'sess-impl', result: { type: 'result', is_error: false }, isError: false };
+        },
+        runPython: async () => ({ code: 0, stdout: '', stderr: '' }),
+        runReport: async () => ({ ok: true, reasons: [], reportRel: 'r', lintClean: true }),
+        postTurnCheck: async () => ({
+          ok: true,
+          status: 'done',
+          reasons: [],
+          detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 }, idsOk: true, confinementBreaches: [] },
+        }),
+      },
+    };
+
+    await withTurn(task.taskId, () => replyWithin(task, 'make the output uppercase', ctx));
+
+    assert.match(seenPrompt, /Change request \(revise the existing artifact/, 'the resume prompt frames the change as a FILE revision (not a chat)');
+    assert.match(seenPrompt, /make the output uppercase/, 'and still carries the user request');
   });
 
   test('D4 — a /reply that TIMES OUT does not re-run a second full turn (spec 014)', async () => {

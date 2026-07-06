@@ -26,7 +26,7 @@ beforeEach(() => {
   createProjectMock.mockReset();
   treeMock.mockClear();
   treeMock.mockResolvedValue({ projects: [] });
-  settings.value = { workflow: 'grammar', confirm: 'auto', deploy: 'cloud', seed: 's1', fast: true, test: 'static', targetProject: null };
+  settings.value = { workflow: 'grammar', confirm: 'auto', seed: 's1', fast: true, targetProject: null };
 });
 
 describe('createProject — success (D5)', () => {
@@ -37,9 +37,8 @@ describe('createProject — success (D5)', () => {
     expect(settings.value.targetProject).toBe('eiken_grammar');
     expect(settings.value.workflow).toBe('none');
     expect(settings.value.seed).toBe(null);
-    // general prefs untouched
+    // general prefs untouched (spec 036: deploy is no longer a setting)
     expect(settings.value.confirm).toBe('auto');
-    expect(settings.value.deploy).toBe('cloud');
     expect(treeMock).toHaveBeenCalledOnce();
   });
 });

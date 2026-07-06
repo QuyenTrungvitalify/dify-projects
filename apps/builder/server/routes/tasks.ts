@@ -24,9 +24,12 @@ import {
   normalizeConfirmMode,
   restoreTargetPhaseFor,
   saveTask,
+  toWireTask,
   type Task,
 } from '../state/task.js';
 import { computeGate } from '../lib/gate.js';
+import { difyTargets } from '../lib/dify-io.js';
+import { runLiveTest } from '../lib/live-test.js';
 import {
   confirmAdvance,
   replyWithin,
@@ -34,7 +37,8 @@ import {
   type ConfirmPayload,
   type OrchestratorCtx,
 } from '../lib/orchestrator.js';
-import { acquireTurn, evictCancelled, isCancelled, liveSession, markCancelled, releaseTurn, turnBusy, turnHolderId, unmarkCancelled } from '../lib/lock.js';
+import { askWithin, askTestWithin } from '../lib/ask.js';
+import { acquireTurn, evictCancelled, isCancelled, liveKind, liveSession, markCancelled, releaseTurn, requestAskCancel, turnBusy, turnHolderId, unmarkCancelled } from '../lib/lock.js';
 import { readArtifactContents } from '../lib/artifacts.js';
 import { saveAttachments, validateAttachments } from '../lib/attachments.js';
 
@@ -202,9 +206,11 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     } catch {
       return reply.code(404).send({ error: `no such task: ${id}` });
     }
-    // The artifact panel reads SPEC.md / main.yml / report from here (spec Endpoints :532).
+    // The artifact panel reads SPEC.md / main.yml / report from here (spec Endpoints :532). Spec 036 S5:
+    // toWireTask adds the computed `liveTargets` capability bit so a reconnect GET (the authoritative
+    // re-fetch) carries it — the done-state "Run test with workflow" foot needs it on every snapshot.
     const artifactContents = await readArtifactContents(projectsDir, task);
-    return { ...task, artifactContents };
+    return { ...toWireTask(task), artifactContents };
   });
 
   // ── POST /api/tasks/:id/confirm — advance one boundary (the gate) ──
@@ -233,8 +239,9 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     const payload: ConfirmPayload = {};
     if (typeof body.slug === 'string') payload.slug = body.slug;
     if (typeof body.name === 'string') payload.name = body.name;
-    // Spec 032 Q3: the "🗑 delete old test app" checkbox on a live re-test confirm.
-    if (body.delete_old_app === true || body.deleteOldApp === true) payload.deleteOldApp = true;
+    // Spec 036: on a `cleanup_apps` confirm, keep_current deletes only the OLD test apps (keep the current
+    // one — "Delete old apps"); absent → delete ALL ("Delete test apps").
+    if (body.keep_current === true || body.keepCurrent === true) payload.keepCurrent = true;
 
     // Acquire the turn LAST, right before dispatch. Strict + synchronous, so it also closes the
     // double-dispatch race directly: a 2nd concurrent /confirm for THIS build → the loser 409s here
@@ -317,6 +324,16 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
         .send({ error: `task is ${task.status}; /reply needs awaiting_confirm or error` });
     }
 
+    // Spec 033 FIX-M audit (2nd site, alongside PUT /spec): a live Ask keeps status==='awaiting_confirm'
+    // while holding the turn lock, so a concurrent /reply here would pass its status check and — CRUCIALLY
+    // — run `saveAttachments` (which writes into `apps/builder/.runs/<id>/uploads/`, one of the roots the
+    // live Ask snapshots) BEFORE its own `acquireTurn` 409s below. Those fresh files would then be seen by
+    // the Ask's byte-compare as `created` → deleted (the user's reply attachments lost) + a false anomaly.
+    // Reject BEFORE any write when this task already has a turn running. (Normal /reply at a parked gate
+    // has no turn running for this id, so turnHolderId()!==id and this passes; a DIFFERENT task's turn
+    // writes to a different root, unaffected. acquireTurn below still handles the general collision 409.)
+    if (turnHolderId() === id) return reply.code(409).send(turnBusyError());
+
     // Save the reply-turn files APPENDED after any earlier ones (D6: never overwrite), BEFORE
     // acquireTurn (a disk failure → 500 with no lock held). `replyWithin` reads `task.attachments`
     // from this in-memory object, so the just-saved paths reach the resumed turn's prompt.
@@ -342,6 +359,46 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     return reply.send(optimisticRunning(task));
   });
 
+  // ── POST /api/tasks/:id/ask — conversational Q&A at a parked gate (spec 033): resume, answer-only,
+  //    artifact-immutable turn — no phase re-run, no gate/status touch (D3/D4). ──
+  app.post('/api/tasks/:id/ask', async (req, reply) => {
+    const id = idOf(req);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const text = String(body.text ?? '').trim();
+    if (!text) return reply.code(400).send({ error: 'text is required' });
+
+    let task;
+    try {
+      task = await loadTask(projectsDir, id);
+    } catch {
+      return reply.code(404).send({ error: `no such task: ${id}` });
+    }
+    // Spec 034 §1: ONE endpoint, branch server-side on phase/status.
+    //   - analyze/spec/implement + awaiting_confirm → askWithin        (033: resume sessionIds[phase])
+    //   - test + awaiting_confirm (any of the four ④ flags)  ┐
+    //   - done | cancelled (terminal, D3)                    ┘→ askTestWithin (034: fresh-seeded turn)
+    // `error` matches none of these → 409 (033's own carve-out — no live parked gate to Ask against there).
+    const isPhaseAsk =
+      task.status === 'awaiting_confirm' &&
+      (task.phase === 'analyze' || task.phase === 'spec' || task.phase === 'implement');
+    const isTestGateAsk = task.status === 'awaiting_confirm' && task.phase === 'test';
+    const isTerminalAsk = task.status === 'done' || task.status === 'cancelled';
+    if (!isPhaseAsk && !isTestGateAsk && !isTerminalAsk) {
+      const where = task.status === 'awaiting_confirm' ? `phase '${task.phase}'` : `status '${task.status}'`;
+      return reply.code(409).send({ error: `/ask is not available at ${where}` });
+    }
+
+    // acquireTurn(id, 'ask') tags the holder so /cancel can scope its abort (D9); the lock is a single
+    // GLOBAL slot, so at most one turn — phase OR Ask — runs anywhere at a time (§1). Both ask kinds are
+    // tagged 'ask' so /cancel force-kills the child without markCancelled (scoped abort), same as 033.
+    if (!acquireTurn(id, 'ask')) return reply.code(409).send(turnBusyError());
+
+    // No optimisticRunning(task)-style snapshot — status/gate are genuinely unchanged (FIX-B). The FE
+    // sets its own `asking` signal true synchronously on issuing the POST, then relies on SSE.
+    dispatch(id, isPhaseAsk ? askWithin(task, text, ctx) : askTestWithin(task, text, ctx));
+    return reply.send({ ok: true });
+  });
+
   // ── POST /api/tasks/:id/cancel — kill the live turn if one is running, else just flip the parked gate ──
   app.post('/api/tasks/:id/cancel', async (req, reply) => {
     const id = idOf(req);
@@ -349,6 +406,28 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       await loadTask(projectsDir, id); // existence check — 404 if missing (re-loaded as `fresh` below)
     } catch {
       return reply.code(404).send({ error: `no such task: ${id}` });
+    }
+
+    // D9: an Ask's abort is SCOPED — force-kill the child but never converge task.status/gate (D3 keeps
+    // the gate parked throughout an Ask). Skip markCancelled entirely: this must NOT set the shared
+    // `cancelledTasks` flag a phase turn's cancel uses, or a stale isCancelled(taskId)===true would
+    // permanently block every FUTURE phase turn for this task (there is no terminal settle here to evict
+    // it — Ask never converges to done/error/cancelled).
+    if (liveKind(id) === 'ask') {
+      const sess = liveSession(id);
+      if (sess) {
+        try {
+          sess.forceKill();
+        } catch {
+          // already exited
+        }
+      } else {
+        // Review #2: no live child yet — the Ask is in its pre-spawn snapshot window (the lock is held
+        // but `askTurn`'s setSession hasn't run). Flag it so `askWithin` bails before spawning, instead of
+        // this /cancel returning 200 as if it stopped something while the Ask runs on for its full budget.
+        requestAskCancel(id);
+      }
+      return reply.send(await loadTask(projectsDir, id));
     }
 
     // Mark first (survives the turn-lock release; the orchestrator's in-flight bail checks this).
@@ -400,6 +479,12 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     if (task.status !== 'cancelled') {
       return reply.code(409).send({ error: `task is ${task.status} — only a cancelled build can be restored` });
     }
+    // Spec 034: a cancelled build is now askable (askTestWithin holds the turn lock while streaming, with
+    // an in-memory task snapshot still at status='cancelled'). A /restore racing that live Ask would set
+    // status='awaiting_confirm' + save, only for the Ask's own turn-end saveTask to clobber it back to
+    // 'cancelled' on disk. Reject BEFORE any write when THIS task has a turn running (mirrors /reply's own
+    // turnHolderId()===id guard, tasks.ts). The UI also disables Restore during a live Ask (busy||asking).
+    if (turnHolderId() === id) return reply.code(409).send(turnBusyError());
     unmarkCancelled(id); // clear the in-flight flag so the next /confirm or /reply can actually run a turn
     // Spec 028: fast-aware rewind. A fast build cancelled AT the merged Spec turn (phase='spec', slug
     // still null) has NO prior gate → target=null (reopen retryable; Retry re-runs the merged draft),
@@ -424,6 +509,46 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     await saveTask(projectsDir, task);
     broadcast?.(id, 'task:update', task);
     return reply.send(task);
+  });
+
+  // ── POST /api/tasks/:id/live-test — run a LIVE workflow test from a terminal `done` build (spec 036 D5) ──
+  // `done` is NOT awaiting_confirm, so this CANNOT go through /confirm (confirmAdvance hard-guards
+  // status==='awaiting_confirm' → 409, and a done build has no gate.actions to match). Dedicated route,
+  // like /restore: re-check the done-state live gate SERVER-SIDE (never trust the FE), take the turn lock,
+  // stamp the target, flip done→running, and dispatch runLiveTest. The done→running→test_result→done
+  // transition is the D5 re-entry risk verified end-to-end on real Dify (S5 VERIFY).
+  app.post('/api/tasks/:id/live-test', async (req, reply) => {
+    const id = idOf(req);
+    let task;
+    try {
+      task = await loadTask(projectsDir, id);
+    } catch {
+      return reply.code(404).send({ error: `no such task: ${id}` });
+    }
+    // Server-side re-check of the SAME predicate the FE gate-foot evaluates (spec 036 D5): a done,
+    // AUTONOMOUS build with an on-disk workflow and self-host reachable NOW. `each_step` already saw the
+    // implement-gate live button (excluded); a null/corrupt confirmMode fails safe to excluded. The FE
+    // hides the button in these cases too, but the route must not trust it (a stale/forged POST → 409).
+    const isAutonomous = task.confirmMode === 'auto' || task.confirmMode === 'spec_only';
+    if (task.status !== 'done' || !task.workflowSlug || !difyTargets().selfhost || !isAutonomous) {
+      return reply.code(409).send({ error: 'live test is not available for this build' });
+    }
+    // A live Ask (askTestWithin over a done build) can hold the turn lock with an in-memory done snapshot —
+    // reject a racing live-test BEFORE any write when THIS task already has a turn running (mirrors /reply,
+    // /restore). acquireTurn below still handles the general cross-build collision 409 (with a holder).
+    if (turnHolderId() === id) return reply.code(409).send(turnBusyError());
+    if (!acquireTurn(id)) return reply.code(409).send(turnBusyError());
+    // Stamp the target (D5 — symmetric to the implement-gate test_live dispatch) so report.ts + the
+    // /reply-re-runs-live path label a real self-host live test, then flip done→running and dispatch.
+    task.deploy = 'selfhost';
+    task.testMode = 'live';
+    task.status = 'running';
+    task.gate = undefined;
+    task.error = undefined;
+    bumpRev(task); // this pre-dispatch write bypasses emit — bump so a stale GET can't resurrect the done gate
+    await saveTask(projectsDir, task);
+    dispatch(id, runLiveTest(task, ctx));
+    return reply.send(optimisticRunning(task));
   });
 };
 

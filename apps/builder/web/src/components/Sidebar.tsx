@@ -5,7 +5,7 @@
    the active task gets the highlight pill. Breadcrumb is static
    (not auto-updated mid-run) — handled in App.
    ============================================================ */
-import { useState } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import type { JSX } from 'preact';
 import { I } from './Icon';
 import { t as tr, tf } from '../lib/i18n';
@@ -34,19 +34,30 @@ function TaskRow({ task, activeTask, onOpen }: {
   );
 }
 
-function WorkflowRow({ wf, projectId, activeTask, defaultOpen, onOpen, onNewTask }: {
+function WorkflowRow({ wf, projectId, activeTask, active, defaultOpen, onOpen, onNewTask }: {
   wf: WireTreeWorkflow;
   projectId: string;
   activeTask: string | null;
+  /** UX: this workflow is the active/selected menu node (open build's workflow, or the pre-selected
+   *  edit target). Adds the highlight + reveals it in the scroll region. */
+  active: boolean;
   defaultOpen: boolean;
   onOpen: (taskId: string) => void;
   onNewTask: (opts?: NewTaskOpts) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const rowRef = useRef<HTMLDivElement>(null);
+  // Reveal the selected workflow when it becomes active (block:'nearest' → a no-op when already visible).
+  useEffect(() => {
+    if (active) rowRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [active]);
+  // Clicking the row SELECTS this workflow: open a new task that edits it (menu-style), and expand it so
+  // its tasks show. The twist chevron alone toggles collapse (stopPropagation below).
+  const select = (): void => { setOpen(true); onNewTask({ baseWorkflow: { project: projectId, workflow: wf.id } }); };
   return (
     <div>
-      <div className="tree-row tree-workflow" onClick={() => setOpen((o) => !o)}>
-        <Twist open={open} />
+      <div ref={rowRef} className={'tree-row tree-workflow' + (active ? ' active' : '')} onClick={select}>
+        <Twist open={open} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} />
         <span className="tw-name">{wf.name}</span>
         <span className="row-actions" onClick={(e) => e.stopPropagation()}>
           {/* spec 030: workflow "+" = new task that EDITS this workflow → pre-select the COMPOUND
@@ -65,34 +76,54 @@ function WorkflowRow({ wf, projectId, activeTask, defaultOpen, onOpen, onNewTask
   );
 }
 
-function ProjectRow({ project, activeTask, defaultOpen, onOpen, onNewTask }: {
+function ProjectRow({ project, activeTask, activeProject, activeWorkflow, defaultOpen, onOpen, onNewTask }: {
   project: WireTreeProject;
   activeTask: string | null;
+  /** UX: the active/selected project folder — the open build's project or the pre-selected target. */
+  activeProject: string | null;
+  /** UX: the active/selected workflow as the compound `project/workflow` key (null when none). */
+  activeWorkflow: string | null;
   defaultOpen: boolean;
   onOpen: (taskId: string) => void;
   onNewTask: (opts?: NewTaskOpts) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const active = project.id === activeProject;
+  const isDrafts = project.id === '_drafts';
+  // Reveal the selected project when it becomes active — this is what makes a freshly-CREATED project
+  // scroll into view + light up the moment createProject pre-targets it (req #2).
+  useEffect(() => {
+    if (active) rowRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [active]);
+  // Clicking the row SELECTS this project: a from-scratch new task targeting it (menu-style, "start
+  // right away"), and expand it. `_drafts` is not a real target → degrade to a plain new task. The twist
+  // chevron alone toggles collapse (stopPropagation below).
+  const select = (): void => { setOpen(true); onNewTask(isDrafts ? undefined : { targetProject: project.id }); };
   return (
     <div>
-      <div className="tree-row tree-project" onClick={() => setOpen((o) => !o)}>
-        <Twist open={open} />
+      <div ref={rowRef} className={'tree-row tree-project' + (active ? ' active' : '')} onClick={select}>
+        <Twist open={open} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} />
         <span className="tw-ic"><I.folder /></span>
         <span className="tw-name">{project.name}</span>
         {/* AC #13: project hover shows ONLY "+" (New task) — no gear.
             spec 030: project "+" = from-scratch build that lands in THIS project folder (project.id ===
             the folder). The reserved `_drafts` project is not a real target → degrade to a plain new task. */}
         <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-          <button className="icon-btn" title={tr('newTask')} onClick={() => onNewTask(project.id !== '_drafts' ? { targetProject: project.id } : undefined)}><I.plus /></button>
+          <button className="icon-btn" title={tr('newTask')} onClick={() => onNewTask(isDrafts ? undefined : { targetProject: project.id })}><I.plus /></button>
         </span>
       </div>
       {open && (
         <div className="tree-children">
           {/* spec 031 S4: a freshly-created project with no workflows just shows an empty tree (no hint row). */}
-          {project.workflows.map((wf) => (
-            <WorkflowRow key={wf.id} wf={wf} projectId={project.id} activeTask={activeTask} defaultOpen={defaultOpen}
-              onOpen={onOpen} onNewTask={onNewTask} />
-          ))}
+          {project.workflows.map((wf) => {
+            const compound = `${project.id}/${wf.id}`;
+            return (
+              <WorkflowRow key={wf.id} wf={wf} projectId={project.id} activeTask={activeTask}
+                active={activeWorkflow === compound} defaultOpen={defaultOpen || activeWorkflow === compound}
+                onOpen={onOpen} onNewTask={onNewTask} />
+            );
+          })}
         </div>
       )}
     </div>
@@ -147,9 +178,13 @@ function ActiveSection({ active, activeTask, onOpen, onCancel }: {
   );
 }
 
-export function Sidebar({ collapsed, activeTask, tree, active, onOpen, onCancel, onNewTask, onNewProject }: {
+export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, tree, active, onOpen, onCancel, onNewTask, onNewProject }: {
   collapsed: boolean;
   activeTask: string | null;
+  /** The active/selected project folder (open build's project, or the pre-selected target). */
+  activeProject: string | null;
+  /** The active/selected workflow as the compound `project/workflow` key. */
+  activeWorkflow: string | null;
   tree: WireTreeProject[];
   active: WireTreeTask[];
   onOpen: (taskId: string) => void;
@@ -158,10 +193,12 @@ export function Sidebar({ collapsed, activeTask, tree, active, onOpen, onCancel,
   onNewProject: () => void;
   onToggle: () => void;
 }) {
-  // Default-open the project that holds the active task (or the first project).
-  const activeProjectId = tree.find((p) =>
+  // Default-open the SELECTED project (menu highlight / new-project target), else the one holding the
+  // active task, else the first project.
+  const taskProjectId = tree.find((p) =>
     p.workflows.some((w) => w.tasks.some((t) => t.id === activeTask))
-  )?.id ?? tree[0]?.id;
+  )?.id;
+  const openProjectId = activeProject ?? taskProjectId ?? tree[0]?.id;
 
   return (
     <aside className={'sidebar' + (collapsed ? ' collapsed' : '')}>
@@ -180,7 +217,9 @@ export function Sidebar({ collapsed, activeTask, tree, active, onOpen, onCancel,
         <ActiveSection active={active} activeTask={activeTask} onOpen={onOpen} onCancel={onCancel} />
         {tree.length === 0 && <div className="tree-row"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noProjectsYet')}</span></div>}
         {tree.map((p) => (
-          <ProjectRow key={p.id} project={p} activeTask={activeTask} defaultOpen={p.id === activeProjectId}
+          <ProjectRow key={p.id} project={p} activeTask={activeTask}
+            activeProject={activeProject} activeWorkflow={activeWorkflow}
+            defaultOpen={p.id === openProjectId}
             onOpen={onOpen} onNewTask={onNewTask} />
         ))}
       </div>

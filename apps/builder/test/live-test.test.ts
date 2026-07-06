@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runLiveTest, resolveInput, extractJson, parseJudgeVerdict, cleanupTestApps } from '../server/lib/live-test.js';
+import { runLiveTest, finishLiveAccepted, resolveInput, extractJson, parseJudgeVerdict, cleanupTestApps } from '../server/lib/live-test.js';
 import { createTask, loadTask, type Task } from '../server/state/task.js';
 import type { OrchestratorCtx, LiveOps } from '../server/lib/orchestrator-shared.js';
 import type { SessionLogger } from '../server/lib/claude-session.js';
@@ -124,6 +124,29 @@ describe('runLiveTest verdict → gate', () => {
     // persisted, not just in-memory
     const reloaded = await loadTask(dir, task.taskId);
     assert.equal(reloaded.liveTest?.verdict, 'passed');
+  }));
+
+  // spec 036 D5 (S5) — the done-state re-entry, flagged as the biggest integration risk: the live
+  // sub-orchestrator is entered from a TERMINAL `done` build (via POST /api/tasks/:id/live-test), NOT the
+  // implement→test gate. Confirm done → running → awaiting_confirm(test_result) → (accept) → done is legal.
+  test('re-entered from a `done` build → running → test_result → accept → done (D5 re-entry)', withCreds(async () => {
+    const { task, ctx, dir } = await harness({});
+    // Simulate the state the route hands to runLiveTest: a finished autonomous build with deploy/testMode
+    // stamped and the terminal ④-success gate a done build carries.
+    task.status = 'done';
+    task.deploy = 'selfhost';
+    task.testMode = 'live';
+    task.gate = { actions: [] };
+
+    await runLiveTest(task, ctx); // the route dispatches exactly this
+    assert.equal(task.status, 'awaiting_confirm', 'done → running → parks at the live verdict gate');
+    assert.equal(task.gate?.flag, 'test_result');
+    assert.equal(task.liveTest?.verdict, 'passed');
+
+    await finishLiveAccepted(task, ctx); // the human clicks Accept at the test_result gate
+    assert.equal(task.status, 'done', 'accept closes the re-entered build back to done');
+    assert.deepEqual(task.gate?.actions, [], 'terminal ④ — no actions');
+    assert.equal((await loadTask(dir, task.taskId)).status, 'done', 'persisted done');
   }));
 
   test('run fails → workflow_fail / live-verified-fail, parked at test_result (NOT hidden)', withCreds(async () => {
@@ -244,5 +267,48 @@ describe('cleanupTestApps (S6)', () => {
     assert.deepEqual(task.testApps, ['app-123']); // delete failed → left in the list
     assert.equal(task.appId, 'app-123'); // review #1: current app NOT deleted → pointer kept (no dead link)
     assert.ok(task.appUrl?.includes('app-123'));
+  }));
+
+  test('spec 036: cleanupTestApps keepCurrent deletes only the OLD apps; default deletes all', async () => {
+    const deletedIds: string[] = [];
+    const { task, ctx } = await harness({ deleteApp: async (_d, id) => { deletedIds.push(id); return true; } });
+    // Simulate 3 accumulated test apps (current = app-3), parked at the live verdict gate.
+    task.testApps = ['app-1', 'app-2', 'app-3'];
+    task.appId = 'app-3';
+    task.appUrl = 'http://x/app/app-3/workflow';
+    task.status = 'awaiting_confirm';
+    task.gate = { actions: [], flag: 'test_result' };
+    task.liveTest = { verdict: 'passed', label: 'live-verified', appId: 'app-3', appUrl: 'http://x/app/app-3/workflow' };
+
+    // keepCurrent → delete every app EXCEPT the current one ("Delete old apps").
+    await cleanupTestApps(task, ctx, true);
+    assert.deepEqual(deletedIds.sort(), ['app-1', 'app-2'], 'only the OLD apps were deleted');
+    assert.deepEqual(task.testApps, ['app-3'], 'the current app is kept');
+    assert.equal(task.appId, 'app-3', 'current pointer untouched');
+    assert.equal(task.gate?.flag, 'test_result', 're-parked the same live gate');
+
+    // default (no keepCurrent) → delete ALL, incl. the current one (its pointer nulls → no dead link).
+    deletedIds.length = 0;
+    await cleanupTestApps(task, ctx);
+    assert.deepEqual(deletedIds, ['app-3']);
+    assert.deepEqual(task.testApps, []);
+    assert.equal(task.appId, null, 'deleting the current app nulls appId');
+  });
+
+  test('spec 036: a re-test AUTO-DELETES the prior test apps (no accumulation)', withCreds(async () => {
+    let n = 0;
+    const deletedIds: string[] = [];
+    const { task, ctx } = await harness({
+      importForTest: async () => ({ ok: true, appId: `app-${++n}`, stderr: '' }), // a fresh id per run
+      deleteApp: async (_d, id) => { deletedIds.push(id); return true; },
+    });
+    await runLiveTest(task, ctx); // 1st run → app-1 (no prior to delete)
+    assert.deepEqual(task.testApps, ['app-1']);
+    assert.deepEqual(deletedIds, []);
+
+    await runLiveTest(task, ctx); // 2nd run → app-2, auto-deletes the prior app-1
+    assert.deepEqual(deletedIds, ['app-1'], 'the prior app was auto-deleted on the re-test');
+    assert.deepEqual(task.testApps, ['app-2'], 'only the current app remains — apps never accumulate');
+    assert.equal(task.appId, 'app-2');
   }));
 });
