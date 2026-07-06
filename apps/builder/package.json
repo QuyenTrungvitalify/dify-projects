@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Spec 009 Builder backend — Lát 1 SKELETON (spawn 1 Implement phase + post-turn verify)",
+  "engines": {
+    "node": ">=22.6"
+  },
   "scripts": {
     "dev": "tsx server/index.ts",
     "build": "tsc -p tsconfig.json",

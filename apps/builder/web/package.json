@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Spec 009 Builder web SPA — Lát 4 (Preact + Vite + TS, dark-only 3-region shell)",
+  "engines": {
+    "node": ">=22.6"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
