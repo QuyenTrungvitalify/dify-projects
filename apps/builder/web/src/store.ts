@@ -266,7 +266,21 @@ export function applyTask(t: WireTask): void {
       }
     }
     if (!refreshed) {
-      items.push({ id: uid(), kind: 'gate', phase: t.phase, snapshot: t });
+      // Terminal echo of a just-resolved gate: a TERMINAL confirm at ④ (e.g. "Accept result",
+      // "Skip import") returns an optimistic `running` snapshot (optimisticAdvance pushes NO run item)
+      // and the backend then emits the authoritative `done` with NO intervening running phase. The scan
+      // above can't reuse the gate the user just resolved, so a naive push spawns a SECOND, identical
+      // terminal card BELOW it — the visible "duplicate Test passed" report. When the trailing item is
+      // already a RESOLVED gate for THIS phase and the snapshot is terminal, refresh that card in place
+      // (keep it resolved) instead of duplicating. A genuine re-run always emits an intermediate
+      // `running` first (→ a run item sits between), so this never suppresses a legitimately-new card.
+      const tail = items[items.length - 1];
+      const terminal = t.status === 'done' || t.status === 'cancelled' || t.status === 'error';
+      if (terminal && tail && tail.kind === 'gate' && tail.resolved && tail.phase === t.phase) {
+        items[items.length - 1] = { ...tail, snapshot: t };
+      } else {
+        items.push({ id: uid(), kind: 'gate', phase: t.phase, snapshot: t });
+      }
     }
     // SSE task:update carries no artifact contents — re-fetch once at a gate so the panel is fresh.
     if (!t.artifactContents) {

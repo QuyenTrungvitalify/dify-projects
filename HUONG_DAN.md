@@ -86,7 +86,7 @@ Mở trình duyệt: **http://127.0.0.1:4123**
 - **Import luôn tạo app MỚI.** Chạy lại cùng một workflow sẽ tạo app trùng tên → xóa bản cũ trong Dify nếu cần.
 - **Bảo mật token**: token Dify chỉ nằm ở backend, không lọt vào chat/log. Nếu dùng Admin key, giữ kín và đổi key khi cần.
 - **Dừng Builder**: `lsof -ti:4123 | xargs kill`.
-- Kết quả build được lưu ở `projects/<tên>/workflows/main.yml` — có thể import thủ công vào Dify Studio nếu không dùng auto-import.
+- Kết quả build được lưu ở `projects/<project>/<workflow>/workflows/main.yml` (cấu trúc 2 tầng, spec 030) — có thể import thủ công vào Dify Studio nếu không dùng auto-import.
 
 ---
 

@@ -5,11 +5,12 @@
 Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 
 - Reference skills + corpus + node-type schema để build YAML workflow nhanh
-- CLI search ~46 template theo feature/complexity/plugin
-- Cấu trúc folder thống nhất cho từng project con (`projects/<name>/`)
+- CLI search ~41 template theo feature/complexity/plugin
+- Cấu trúc folder 2 tầng cho từng dự án (`projects/<project>/<workflow>/`, spec 030)
 - GitOps sync (pull/push/diff giữa Dify workspace ↔ git)
 - pytest harness + pre-commit hooks
 - Auto-generated JSON Schema cho Dify DSL (envelope-validated; 29 NodeData reference defs — node bodies not schema-enforced)
+- **Builder app** ([apps/builder/](apps/builder/)) — web UI local điều khiển build 4 phase có gate (Analyze → Spec → Implement → Test) bằng Claude Code; hướng dẫn cài đặt: [HUONG_DAN.md](HUONG_DAN.md)
 
 > 📖 **Quick start**: [docs/GUIDE.md](docs/GUIDE.md) — operations guide (quy trình build YAML, decision tree, troubleshooting).
 > 🏛️ **Architecture**: [docs/architecture.md](docs/architecture.md) — 4 trụ cột, workflow end-to-end, tradeoffs.
@@ -80,7 +81,10 @@ dify-projects/
 ├── examples/                  # Fully-worked projects (importable as-is)
 │   └── md_en2ja/              # Markdown EN→JA translator w/ code-block masking
 │
-
+├── apps/
+│   └── builder/               # Builder app: Fastify backend + Preact SPA, gated 4-phase
+│                              # AI build (specs 009–035). Own Node toolchain; see HUONG_DAN.md
+│
 ├── schemas/                   # Auto-generated JSON Schema for Dify DSL (Phase 1.A done)
 │   ├── gen_schema.py          # Reverse-engineer schema from dify pydantic models
 │   └── dify-dsl-0.6.0.json    # Generated schema (DSL v0.6.0; envelope-validated, 29 NodeData reference defs — node bodies not enforced)
@@ -94,9 +98,10 @@ dify-projects/
 │   ├── requirements.txt       # pytest + syrupy + python-dotenv + requests
 │   └── README.md              # How to test deployed workflows
 │
-├── projects/                  # Mỗi dự án 1 folder con (workflows/, prompts/, tests/...)
+├── projects/                  # 2 tầng (spec 030): projects/<project>/<workflow>/{workflows/,SPEC.md,...}
 │
-└── docs/                      # GUIDE.md + (planned) architecture.md, conventions.md
+└── docs/                      # GUIDE.md, architecture.md, specs/ (001–039), plugin-capabilities.md
+
 ```
 
 ## Skills hiện có
@@ -177,7 +182,7 @@ cp templates/patterns/file-iteration.yml projects/<your_project>/workflows/main.
 ## Quy trình build workflow mới (5 bước)
 
 1. **Phân rã task** → trả lời: input/output/loop/branching/external-API
-2. **Tìm pattern** tương tự bằng `find.py` → ưu tiên `patterns/` > `corpus/` > `skill-assets/`
+2. **Tìm pattern** tương tự bằng `find.py` → ưu tiên `patterns/` > `library/` > `project` > `corpus/` > `skill-assets/`
 3. **Generate IDs**: `python3 skills/mango-svip/scripts/generate_id.py <N>`
 4. **Build YAML**: copy skeleton, customize. Schema reference: [skills/mango-svip/references/node_types.md](skills/mango-svip/references/node_types.md)
 5. **Validate**: `python3 tools/dify_base/validate_workflow.py <file>`
@@ -213,10 +218,12 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **Phase 1.D** — pytest harness ([tests/](tests/)) — minimal `DifyWorkflowClient` + env-loading fixtures + syrupy snapshot example. Skips cleanly without creds.
 - ✅ **Phase 2.A** — GitOps sync ([tools/dify_base/sync.py](tools/dify_base/sync.py)) — `list/pull/diff/push` workflow apps via Console API. 8 tests passing (mocked HTTP, no real Dify needed). Polish: clean error messages for connection/timeout/HTTP failures.
 - ✅ **Phase 2.B** — pre-commit hooks ([.pre-commit-config.yaml](.pre-commit-config.yaml), 12 hooks: yamllint + check-jsonschema + skill validator + DSL version guard + agents-md-refs + dify-lint-refs + dify-lint-plugin-hashes + 5 built-in) + bootstrap script ([scripts/setup.sh](scripts/setup.sh))
+- ✅ **Builder app** (specs [009](docs/specs/009-browser-workflow-builder.md)–036) — web UI local cho build 4 phase có gate; đã ship: turn sandbox (015/018), linter gates + graph reachability (020), template library (022), file attachments (025), live workflow test trên Dify thật (032 S1–S5), Ask mode tại gate (033–035), capability-aware test targets (036)
+- ✅ **Curated template library** ([templates/library/](templates/library/), spec 022) — promote qua `/template-promote`, provenance-stamped
 - ⏳ **Polish 1.A** — `http_request` schema-dump currently **fails** (`_error: SchemaSerializer` on `dify_config.HTTP_REQUEST_MAX_*` defaults); 25/25 node modules import and 29 schemas generate, but this one ships with an `_error` marker rather than a clean dump. Tracked as spec 024 **S1** (make a dump-fail fatal in `gen_schema.py`, then fix the stub).
-- ⏳ **Phase 2.C** — `.devcontainer/` for VS Code
+- ⏳ **Specs 037–039** (đã author 2026-07-06, chưa implement) — runnability preflight + workspace facts (037), node-body schema linter (038), post-turn multi-file lint (039). Index: [docs/specs/README.md](docs/specs/README.md)
 
-Chi tiết design: xem [docs/architecture.md](docs/architecture.md) (planned).
+Chi tiết design: xem [docs/architecture.md](docs/architecture.md).
 
 ## Limitations
 

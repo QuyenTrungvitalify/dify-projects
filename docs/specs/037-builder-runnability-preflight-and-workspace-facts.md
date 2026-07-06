@@ -14,9 +14,9 @@ tensions the analysis surfaced are resolved as D1–D8; D1–D8 recommended lock
   `deployWithModel` (`dify-io.ts` — inject into a TEMP `deploy.yml`, source untouched), the no-creds
   `degradeStatic` precedent (`live-test.ts`), and the creds-gated shape-pin test discipline (`parseModels`,
   "Verified real shape (self-host 2026-07-03)"). **B5 is preserved, not overturned** (D7).
-- [036](036-builder-capability-aware-test-targets.md) — `difyTargets()` capability set (036 D1/D2, **not yet
-  implemented** — zero grep hits in `apps/builder/server`). *(sibling, not a prerequisite — D8 makes the two specs
-  land in either order without collision.)*
+- [036](036-builder-capability-aware-test-targets.md) — `difyTargets()` capability set (036 D1/D2 —
+  **implemented 2026-07-06**, commit `1b98136`; `difyTargets()` in `dify-io.ts`). *(sibling — D8 was written
+  for either landing order; 036 landed first, so the harvester rides the retained `difyCreds()` alias per D8.)*
 - [019](019-builder-output-quality-and-lean-roadmap.md) — the **task-level advisory channel**: `patternAdvisory`
   is an optional string on `Task` ([task.ts:151-152](../../apps/builder/server/state/task.ts#L151-L152)), set
   backend-side (`analysis.ts` `applyAnalysisToTask`), rendered on the gate card

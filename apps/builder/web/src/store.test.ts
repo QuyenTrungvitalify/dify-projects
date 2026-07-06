@@ -475,3 +475,39 @@ describe('reconnect after an Ask does not duplicate the parked gate (033/034 rev
     expect(thread.value[thread.value.length - 1].kind).toBe('qa'); // the Q&A is preserved below the gate
   });
 });
+
+// ── A TERMINAL confirm at ④ (e.g. "Accept result") returns an optimistic `running` snapshot with no run
+// item, then the backend emits the authoritative `done` with NO intervening running phase. The gate branch
+// couldn't reuse the just-resolved gate and pushed a SECOND identical terminal card — the visible
+// "duplicate Test passed" report. The fix refreshes the resolved gate in place for a terminal echo. ──
+describe('a terminal confirm echo does not duplicate the resolved ④ gate', () => {
+  afterEach(() => {
+    resetToNew();
+    thread.value = [];
+  });
+
+  it('a done echo of a just-resolved gate refreshes in place (no 2nd card)', () => {
+    resetToNew();
+    const gate = { ...mk('TERM1', 1, 'test'), status: 'awaiting_confirm', artifactContents: {} } as unknown as WireTask;
+    applyTask(gate); // one ④ gate card
+    // optimisticAdvance resolves it with "Accept result" (pushes NO run item)
+    thread.value = thread.value.map((i) => (i.kind === 'gate' ? { ...i, resolved: 'Accept result' } : i));
+    // the authoritative `done` arrives with no intervening running phase
+    applyTask({ ...gate, status: 'done', rev: 2, artifactContents: {} } as unknown as WireTask);
+    const gates = thread.value.filter((i) => i.kind === 'gate') as (LiveThreadItem & { kind: 'gate' })[];
+    expect(gates.length).toBe(1); // refreshed in place, NOT duplicated
+    expect(gates[0].resolved).toBe('Accept result'); // history preserved
+    expect(gates[0].snapshot.status).toBe('done'); // snapshot refreshed to the terminal state
+  });
+
+  it('still opens a NEW card for a genuine re-run (an intervening running run item)', () => {
+    resetToNew();
+    const gate = { ...mk('TERM2', 1, 'test'), status: 'awaiting_confirm', artifactContents: {} } as unknown as WireTask;
+    applyTask(gate);
+    thread.value = thread.value.map((i) => (i.kind === 'gate' ? { ...i, resolved: 'Run test with workflow' } : i));
+    // a re-run emits an intermediate `running` (→ a run item), THEN done
+    applyTask({ ...mk('TERM2', 2, 'test'), status: 'running', artifactContents: {} } as unknown as WireTask);
+    applyTask({ ...gate, status: 'done', rev: 3, artifactContents: {} } as unknown as WireTask);
+    expect(thread.value.filter((i) => i.kind === 'gate').length).toBe(2); // new card for the new run
+  });
+});
