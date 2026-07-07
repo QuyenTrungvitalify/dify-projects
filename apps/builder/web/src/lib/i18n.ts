@@ -654,6 +654,12 @@ const NOTE_JA: [RegExp, string][] = [
   ],
   [/workflow ran but FAILED: /g, 'ワークフローは実行されましたが失敗しました: '],
   [/workflow ran but produced no output/g, 'ワークフローは実行されましたが出力がありませんでした'],
+  // spec 032 D8: the `need_input` park — the start-node has a variable whose type could not be
+  // auto-filled. `$1` = the variable name(s), kept literal; `/reply` is a command, kept literal.
+  [
+    /need sample input for: (.+?) — provide it via \/reply then test again/g,
+    'サンプル入力が必要です: $1 — /reply で入力してから再テストしてください',
+  ],
 ];
 
 /** Localize a backend-built report `notes` string to the current language (spec 030 P2). EN passes
