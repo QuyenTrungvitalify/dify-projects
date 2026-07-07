@@ -98,6 +98,10 @@ export const PHASES: PhaseDef[] = [
         WORKFLOW_SLUG: t.workflowSlug ?? '',
         WORKFLOW_FILE: t.workflowFile,
         SEED_PATH: t.seedPath ?? '', // Dify-seed builds let Implement reference the pulled seed too
+        // Spec 046 D2: implement.md's language banner/Output-language reference {{REQUIREMENT}} —
+        // without this injection the token rendered as '' (a broken empty-token sentence, even for
+        // Japanese builds). SPEC.md carries the requirement too, but the banner needs the raw string.
+        REQUIREMENT: t.requirement,
 
         // the *current* SPEC.md path (projects/<project>/<workflowSlug>/SPEC.md after scaffold);
         // implement.md re-reads it fresh so a manual edit wins (last-writer).

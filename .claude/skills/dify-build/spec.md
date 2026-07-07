@@ -42,7 +42,7 @@ Write all **human-facing prose** in the **same language as the requirement** (`{
 3. Draft the **target spec**: intended behavior, chosen pattern, the nodes to add/modify/keep
    (with roles), the variable-flow you intend (`{{#id.field#}}` chains), and the plugins
    needed (note: real plugin hashes are added later from the target workspace — never invent).
-4. **If `{{WORKFLOW_SLUG}}` is empty, propose a `slug` + human `name`** (slug = lowercase, `[a-z0-9_-]`,
+4. **If `{{WORKFLOW_SLUG}}` is empty, propose a `slug` + human `name`** (slug = lowercase, `[a-z0-9_]` — the backend's deriveSlugName never emits hyphens,
    from the app's purpose). The backend scaffolds `projects/{{PROJECT}}/<slug>/` on the gate confirm — do
    **not** run `init_project.py` yourself.
 5. Prefer a **single-file branched** design (if-else + variable-aggregator) over multiple

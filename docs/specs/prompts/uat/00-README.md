@@ -86,7 +86,8 @@ cd apps/builder && npm start                     # phục vụ UI tại http://1
 
 Chế độ **Confirm**: `each step` (dừng mỗi gate) · `spec only` (chỉ dừng ở Spec) · `auto` (tự chạy —
 nhưng **import/chạy-thật luôn chờ người bấm**). Chế độ **Fast build**: gộp Analyze+Spec, chỉ dùng khi
-làm mới từ đầu, luôn dừng ở Spec để duyệt.
+làm mới từ đầu; ở `each step`/`spec only` luôn dừng ở Spec để duyệt (riêng `auto` chỉ dừng khi
+guard phát hiện shape không phải single-LLM — spec 028 §5, sửa mô tả theo spec 046 D4).
 
 ## 6. Các journey
 

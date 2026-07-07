@@ -64,6 +64,7 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 | [041](041-builder-request-changes-everywhere.md) | "Request changes" available at every parked gate from Spec onward (fixable at any ④ gate incl. LIVE ⚠) | Implemented | S |
 | [042](042-foreign-residue-preflight.md) | Foreign-residue preflight: demo/seed values (URLs, tool params, stale dataset/plugin ids) surviving into a build — 4 new advisory classes on the 037 machinery | Draft | S–M |
 | [045](045-turn-failure-triage.md) | Turn-failure triage: classify claude-CLI deaths (usage limit / login / network / not installed) into actionable, JA-localized gate notes | Implemented | S |
+| [046](046-phase-latency-and-drift.md) | Phase latency & drift: skip the constant Analyze turn (−1 turn/gate per from-scratch build), fix ③'s empty `{{REQUIREMENT}}`, no 3rd pattern pick, docs↔contract pin | Implemented | S–M |
 | [043](043-builder-live-test-model-optional-for-llm-less-workflows.md) | Live-test needs no workspace LLM model when the workflow has no LLM node (0-model gate conditional on `llm_count`) | Implemented | S |
 
 \* Spec 001 + 006 have 2 minor Q awaiting confirm; can proceed with defaults.

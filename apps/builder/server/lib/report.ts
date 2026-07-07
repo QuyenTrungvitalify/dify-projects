@@ -1,7 +1,7 @@
 /**
  * report.ts — Phase ④ Test&Report BACKEND (no claude turn), spec 009 Lát 2 + Lát 5.
  *
- * Re-runs the 3 linters on the produced workflow and synthesizes
+ * Re-runs the 4 linters (LINTERS — the shared 013 contract) on the produced workflow and synthesizes
  * `apps/builder/.runs/<taskId>/report.json` (shape per test.md :36–44). Deploy-aware (Lát 5):
  *   - `none`     → local only; `app_url`/`duplicate_warning` null.
  *   - `cloud`    → skip import (CSRF blocks auto); the notes carry the copyable-YAML + Studio steps.
@@ -22,7 +22,7 @@ export interface ReportResult {
   ok: boolean;
   reasons: string[];
   reportRel: string;
-  /** all 3 linters exited 0 — gates whether a selfhost build may show the Import button (AC #25). */
+  /** all 4 linters exited 0 — gates whether a selfhost build may show the Import button (AC #25). */
   lintClean: boolean;
 }
 
@@ -75,7 +75,7 @@ export async function runReport(
 ): Promise<ReportResult> {
   const wfRel = `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`;
 
-  // 1. Re-run the 3 linters (relative .venv/bin/python, cwd = projectsDir); capture exit codes.
+  // 1. Re-run the 4 linters (relative .venv/bin/python, cwd = projectsDir); capture exit codes.
   //    The list + clean-test come from the shared linter contract (013 D1) — the ③ gate and this ④
   //    report provably run the identical set, so a verdict can never drift between the two phases.
   const lint: LintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 };

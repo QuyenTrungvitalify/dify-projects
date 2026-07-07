@@ -17,6 +17,7 @@ importing into Dify. Read [SKILL.md](SKILL.md) ground rules first.
    .venv/bin/python tools/dify_base/validate_workflow.py projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
    .venv/bin/python tools/dify_base/lint_refs.py            projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
    .venv/bin/python tools/dify_base/lint_plugin_hashes.py  projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
+   .venv/bin/python tools/dify_base/lint_node_bodies.py    projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
    ```
    **If any linter exits ≠ 0, the workflow did NOT pass.** Do **not** write a `done`-shaped
    `report.json` and do **not** import — surface the failing linter output and STOP, *unless* the user
@@ -46,7 +47,7 @@ importing into Dify. Read [SKILL.md](SKILL.md) ground rules first.
 Write `.runs/{{TASK_ID}}/report.json`:
 ```json
 { "workflow_file": "projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}",
-  "lint": { "validate": 0, "lint_refs": 0, "lint_plugin_hashes": 0 },
+  "lint": { "validate": 0, "lint_refs": 0, "lint_plugin_hashes": 0, "lint_node_bodies": 0 },
   "deploy": "{{DEPLOY}}",
   "app_url": "<selfhost only, else null>",
   "duplicate_warning": "<set when selfhost + edit-existing>",

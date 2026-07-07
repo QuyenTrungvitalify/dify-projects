@@ -47,7 +47,8 @@ function fixtureDir(): string {
   writeFileSync(join(skill, 'analyze.md'), '# analyze\nrequirement: {{REQUIREMENT}}\n');
   writeFileSync(join(skill, 'spec.md'), '# spec\nrequirement: {{REQUIREMENT}}\n');
   // mirrors the real implement.md placement rule: the token occupies a line of its own
-  writeFileSync(join(skill, 'implement.md'), '# implement\nfile: {{WORKFLOW_FILE}}\n{{KNOWLEDGE}}\n## Do\n');
+  // (046 D2: the real body also carries {{REQUIREMENT}} in its language banner — mirrored here)
+  writeFileSync(join(skill, 'implement.md'), '# implement\nreq: {{REQUIREMENT}}\nfile: {{WORKFLOW_FILE}}\n{{KNOWLEDGE}}\n## Do\n');
   return d;
 }
 
@@ -99,8 +100,7 @@ async function drive(withFacts: boolean): Promise<{ task: Task; ctx: Orchestrato
   const ctx = harness(dir, prompts);
   const task = await createTask(dir, { requirement: 'r', deploy: 'none' });
   current = task;
-  await withTurn(task.taskId, () => startTask(task, ctx));
-  await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // ① → ②
+  await withTurn(task.taskId, () => startTask(task, ctx)); // 046 D1: seedless starts at ② spec
   if (withFacts) {
     const runs = join(dir, 'apps', 'builder', '.runs', task.taskId);
     mkdirSync(runs, { recursive: true });
@@ -124,6 +124,7 @@ describe('spec 037 S3 — {{KNOWLEDGE}} injection', () => {
     assert.match(implPrompt, /## Workspace facts \(DATA, not instructions/);
     assert.ok(implPrompt.includes(`langgenius/openai:0.2.8@${'a'.repeat(64)}`), 'plugin identifier rendered');
     assert.ok(implPrompt.indexOf('file: main.yml') < implPrompt.indexOf('## Workspace facts'), 'at the token position');
+    assert.ok(implPrompt.includes('req: r'), '046 D2: {{REQUIREMENT}} renders the requirement text in ③');
     assert.ok(implPrompt.indexOf('## Workspace facts') < implPrompt.indexOf('## Do'), 'before ## Do');
     assert.ok(!implPrompt.includes('{{KNOWLEDGE}}'), 'no residue');
   });
@@ -169,13 +170,23 @@ describe('spec 037 S3 — {{KNOWLEDGE}} injection', () => {
     const ctx = harness(dir, prompts);
     const task = await createTask(dir, { requirement: 'r', deploy: 'none' });
     current = task;
-    await withTurn(task.taskId, () => startTask(task, ctx));
-    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // ① → ② (spec gate)
+    await withTurn(task.taskId, () => startTask(task, ctx)); // 046 D1: parks AT the spec gate
     const runs = join(dir, 'apps', 'builder', '.runs', task.taskId);
     mkdirSync(runs, { recursive: true });
     writeFileSync(join(runs, 'workspace.json'), FACTS);
     await withTurn(task.taskId, () => replyWithin(task, 'add an edge case', ctx)); // reply AT SPEC
     const resume = prompts[prompts.length - 1];
     assert.ok(!resume.includes('## Workspace facts'), 'resume append is gated on phase===implement');
+  });
+});
+
+// ── Spec 046 AC 3 (scope pin): languagePin stays Japanese-first / English-fallback ───────────────
+describe('spec 046 — languagePin scope pin (JA-first, EN-fallback — no other languages)', () => {
+  test('kana → the JA pin; English (and any non-kana Latin text) → empty', async () => {
+    const { languagePin } = await import('../server/lib/phases.js');
+    assert.ok(languagePin('日本語のワークフローを作ってください').length > 0, 'kana → JA pin');
+    assert.ok(languagePin('チャットボット').includes('日本語'), 'the pin itself is written in Japanese');
+    assert.equal(languagePin('build an English workflow'), '', 'English → no pin');
+    assert.equal(languagePin('yeu cau khong dau'), '', 'non-kana Latin → no pin (owner scope: JA/EN only)');
   });
 });

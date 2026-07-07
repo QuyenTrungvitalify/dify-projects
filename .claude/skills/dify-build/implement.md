@@ -39,8 +39,11 @@ ground rules first — every non-negotiable below comes from [AGENTS.md](../../.
    > hand — top-level `kind: app` · `version` · `app` · `workflow.graph` nodes+edges · `start`+`end`
    > (or `answer`) · `dependencies: []`.)
    >
-   > **Otherwise** (standard build): pick/confirm the closest vetted pattern with the real tool —
-   > `.venv/bin/python tools/dify_base/find.py --json --has <feature>`.
+   > **Otherwise** (standard build): use the pattern `SPEC.md` names in its **Chosen pattern**
+   > section — the human approved it at the Spec gate; do NOT re-run the search (spec 046 D3: the
+   > pick was measured at ~40% of a phase's tool calls, and re-picking can silently diverge from the
+   > approved contract). Run `.venv/bin/python tools/dify_base/find.py --json --has <feature>` ONLY
+   > if `SPEC.md` names no usable pattern (or `custom` with no structural base to seed from).
 3. **Mint node IDs — MANDATORY:**
    ```
    .venv/bin/python skills/mango-svip/scripts/generate_id.py <count>

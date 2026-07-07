@@ -24,10 +24,11 @@ import type { ShellResult } from '../server/lib/shell.js';
 
 const log = { info() {}, warn() {}, error() {} } as unknown as SessionLogger;
 
-/** The committed baseline — a deploy=none each_step build's exact (phase/status/actions) emissions. */
+/** The committed baseline — a deploy=none each_step build's exact (phase/status/actions) emissions.
+ *  Spec 046 D1 (REVIEWED ladder change): a from-scratch STANDARD build no longer emits the analyze
+ *  phase — the backend authors the constant analyze.json and the build STARTS at Spec. Analyze rows
+ *  now exist only for seeded builds (pinned separately in advance-loop's seeded test). */
 const GOLDEN: Array<{ phase: string; status: string; actions: string[] }> = [
-  { phase: 'analyze', status: 'running', actions: [] },
-  { phase: 'analyze', status: 'awaiting_confirm', actions: ['continue', 'changes', 'discard'] },
   { phase: 'spec', status: 'running', actions: [] },
   { phase: 'spec', status: 'awaiting_confirm', actions: ['continue', 'changes', 'discard'] },
   { phase: 'implement', status: 'running', actions: [] },
@@ -91,8 +92,7 @@ describe('golden build (013 D4 — behavior preservation)', () => {
     const task = await createTask(dir, { requirement: 'golden path', confirmMode: 'each_step', deploy: 'none' });
     const { ctx, events } = stubs(dir, task);
 
-    await withTurn(task.taskId, () => startTask(task, ctx)); // ① analyze, parks
-    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // ② spec
+    await withTurn(task.taskId, () => startTask(task, ctx)); // 046 D1: constant analyze.json → ② spec, parks
     await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // scaffold → ③ implement
     await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // ④ test → done
 
