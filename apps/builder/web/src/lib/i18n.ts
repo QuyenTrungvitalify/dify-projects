@@ -660,6 +660,15 @@ const NOTE_JA: [RegExp, string][] = [
     /need sample input for: (.+?) — provide it via \/reply then test again/g,
     'サンプル入力が必要です: $1 — /reply で入力してから再テストしてください',
   ],
+  // spec 032: the `infra_degraded` reason (live run couldn't reach Dify). Two backend prefixes wrap a
+  // sync.py `_fmt_request_error` variant; translate the fixed phrases, keep the exception class name.
+  [/run could not complete: /g, 'ライブ実行を完了できませんでした: '],
+  [/run failed: /g, '実行失敗: '],
+  [
+    /connection failed \(DNS \/ unreachable \/ refused\) — (\w+)/g,
+    '接続失敗（DNS 解決不可 / 到達不可 / 接続拒否）— $1',
+  ],
+  [/timeout after (.+?)s/g, 'タイムアウト（$1 秒）'],
 ];
 
 /** Localize a backend-built report `notes` string to the current language (spec 030 P2). EN passes
