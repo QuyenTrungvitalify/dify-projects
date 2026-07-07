@@ -33,23 +33,28 @@ const log = { info() {}, warn() {}, error() {} } as unknown as SessionLogger;
 
 describe('lintClean truth table', () => {
   test('all-zero → clean; any non-zero / null / undefined → not clean', () => {
-    assert.equal(lintClean({ validate: 0, lint_refs: 0, lint_plugin_hashes: 0 }), true);
-    assert.equal(lintClean({ validate: 1, lint_refs: 0, lint_plugin_hashes: 0 }), false);
-    assert.equal(lintClean({ validate: 0, lint_refs: 2, lint_plugin_hashes: 0 }), false);
-    assert.equal(lintClean({ validate: 0, lint_refs: 0, lint_plugin_hashes: 3 }), false);
+    assert.equal(lintClean({ validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 }), true);
+    assert.equal(lintClean({ validate: 1, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 }), false);
+    assert.equal(lintClean({ validate: 0, lint_refs: 2, lint_plugin_hashes: 0, lint_node_bodies: 0 }), false);
+    assert.equal(lintClean({ validate: 0, lint_refs: 0, lint_plugin_hashes: 3, lint_node_bodies: 0 }), false);
+    // Spec 038 AC 8/8b — the promotion is the CONJUNCTION, not the array entry: an implementation
+    // that adds the 4th LINTERS row but forgets lintClean would pass an entries-count test yet
+    // never gate. This assertion is specifically the conjunction rejecting a non-zero 4th code.
+    assert.equal(lintClean({ validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 1 }), false);
     assert.equal(lintClean(null), false);
     assert.equal(lintClean(undefined), false);
   });
 });
 
 describe('LINTERS contract', () => {
-  test('exactly the 3 linters, in order, with the canonical keys + paths', () => {
+  test('exactly the 4 linters, in order, with the canonical keys + paths', () => {
     assert.deepEqual(
       LINTERS.map((l) => [l.key, l.script]),
       [
         ['validate', 'tools/dify_base/validate_workflow.py'],
         ['lint_refs', 'tools/dify_base/lint_refs.py'],
         ['lint_plugin_hashes', 'tools/dify_base/lint_plugin_hashes.py'],
+        ['lint_node_bodies', 'tools/dify_base/lint_node_bodies.py'], // spec 038 P3 (038-fp-report.md: 0 FP)
       ]
     );
   });
@@ -171,7 +176,7 @@ describe('D5 — parallel linters: behavior-equivalent codes + reason order', ()
     const idxs = LINTERS.map((l) => res.reasons.findIndex((r) => r.startsWith(`${l.name} exit`)));
     assert.ok(idxs.every((i) => i >= 0), `all 3 linter reasons present: ${res.reasons.join(' | ')}`);
     assert.deepEqual(idxs, [...idxs].sort((a, b) => a - b), 'reasons follow LINTERS order despite concurrency');
-    assert.deepEqual(res.detail.lintCodes, { validate: 1, lint_refs: 1, lint_plugin_hashes: 1 });
+    assert.deepEqual(res.detail.lintCodes, { validate: 1, lint_refs: 1, lint_plugin_hashes: 1, lint_node_bodies: 1 });
   });
 
   test('④ report: notes list the failing linters in LINTERS key order (codes intact)', async () => {
@@ -183,7 +188,7 @@ describe('D5 — parallel linters: behavior-equivalent codes + reason order', ()
     const order = LINTERS.map((l) => String(report.notes).indexOf(`${l.key} exit 1`));
     assert.ok(order.every((i) => i >= 0), report.notes);
     assert.deepEqual(order, [...order].sort((a, b) => a - b), 'notes follow LINTERS key order');
-    assert.deepEqual(report.lint, { validate: 1, lint_refs: 1, lint_plugin_hashes: 1 });
+    assert.deepEqual(report.lint, { validate: 1, lint_refs: 1, lint_plugin_hashes: 1, lint_node_bodies: 1 });
   });
 });
 
@@ -211,5 +216,5 @@ describe('report.ts notes provenance (013 D1 / Q2)', () => {
 });
 
 // keep the LintCodes import referenced (it types the shared shape these tests assert against)
-const _typecheck: LintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 };
+const _typecheck: LintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 };
 void _typecheck;

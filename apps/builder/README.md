@@ -93,7 +93,7 @@ The real `.env` is gitignored; only `.env.example` is committed.
 1. **Analyze ①** — read the seed (a Dify-workspace app, a local workflow, or none) and summarize it.
    A Dify-seed is scaffolded + pulled by the backend first; the turn reads the local file only.
 2. **Spec ②** — draft `SPEC.md` (editable in place at the gate; last write wins).
-3. **Implement ③** — generate `main.yml`, self-correcting against the 3 linters (capped). The
+3. **Implement ③** — generate `main.yml`, self-correcting against the 4 linters (capped). The
    post-turn gate lints **every** turn-touched `workflows/*.ya?ml` (spec 039), and an extension
    twin of the declared file (`main.yaml` beside `main.yml`) hard-errors.
 4. **Test ④** — re-run the linters + write `report.json`. Then by **deploy**:

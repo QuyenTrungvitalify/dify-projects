@@ -108,7 +108,7 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
 
   const postTurnCheck = async (_p: PostTurnParams): Promise<PostTurnResult> => {
     calls.postTurnCheck++;
-    const lintCodes: LintCodes = o.lintCodes ?? { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 };
+    const lintCodes: LintCodes = o.lintCodes ?? { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 };
     const clean = lintCodes.validate === 0 && lintCodes.lint_refs === 0 && lintCodes.lint_plugin_hashes === 0;
     const reasons = clean ? [] : ['lint≠0 (cap-5 reached)'];
     return {
@@ -204,7 +204,7 @@ describe('advance-loop integration (013 D3)', () => {
   test('AC #25 — a still_failing Implement HARD-STOPS auto (parks at the gate, never reaches ④)', async () => {
     const dir = fixtureDir();
     const task = await createTask(dir, { requirement: 'build a flaky one', confirmMode: 'auto', deploy: 'none' });
-    const h = harness(dir, task, { lintCodes: { validate: 1, lint_refs: 0, lint_plugin_hashes: 0 } });
+    const h = harness(dir, task, { lintCodes: { validate: 1, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 } });
 
     await withTurn(task.taskId, () => startTask(task, h.ctx));
 
@@ -401,7 +401,7 @@ describe('advance-loop integration (013 D3)', () => {
           ok: true,
           status: 'done',
           reasons: [],
-          detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 }, idsOk: true, confinementBreaches: [], extraFiles: [] },
+          detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 }, idsOk: true, confinementBreaches: [], extraFiles: [] },
         }),
       },
     };
@@ -442,7 +442,7 @@ describe('advance-loop integration (013 D3)', () => {
           ok: true,
           status: 'done',
           reasons: [],
-          detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 }, idsOk: true, confinementBreaches: [], extraFiles: [] },
+          detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 }, idsOk: true, confinementBreaches: [], extraFiles: [] },
         }),
       },
     };

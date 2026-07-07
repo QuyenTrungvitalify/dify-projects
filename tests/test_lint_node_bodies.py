@@ -28,6 +28,8 @@ EXPECTED: dict[str, int] = {
     "skip_defless_and_error.yml": 0,  # AC 3: assigner (no def) + http-request (_error stub) warn-skip
     "demoted_required.yml": 1,  # AC 2: required missing → gates by default (see demote test below)
     "bad_malformed_node.yml": 2,  # AC 4: non-dict node → structured error
+    "escape_hatch.yml": 0,  # AC 9: column-0 allow-marker suppresses the node's findings
+    "escape_forged.yml": 1,  # AC 9: the same marker INDENTED inside a block scalar must NOT suppress
 }
 
 
@@ -124,6 +126,19 @@ def test_malformed_input_never_tracebacks() -> None:
 def test_usage_error_without_args() -> None:
     result = run_tool()
     assert result.returncode == 2
+
+
+def test_escape_hatch_suppresses_with_note_and_forgery_fails() -> None:
+    """AC 9 (P3): the column-0 marker suppresses (stderr notes it, stdout empty); the identical
+    marker text indented inside a block scalar is DATA and must not suppress."""
+    ok = run_tool(str(FIXTURES_DIR / "escape_hatch.yml"))
+    assert ok.returncode == 0
+    assert "suppressed" in ok.stderr and "1700000000002" in ok.stderr
+    assert ok.stdout.strip() == ""
+
+    forged = run_tool(str(FIXTURES_DIR / "escape_forged.yml"))
+    assert forged.returncode == 1
+    assert "prompt_template" in forged.stdout
 
 
 # ── drift tests (spec 038 D2 / AC 5 / AC 6) ─────────────────────────────────────────────────────

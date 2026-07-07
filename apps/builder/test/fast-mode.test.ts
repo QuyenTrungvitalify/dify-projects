@@ -126,7 +126,7 @@ function harness(dir: string, task: Task, features: string[] | undefined): Harne
     ok: true,
     status: 'done',
     reasons: [],
-    detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 }, idsOk: true, confinementBreaches: [], extraFiles: [] },
+    detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 }, idsOk: true, confinementBreaches: [], extraFiles: [] },
   });
   const runReport = async (_d: string, t: Task): Promise<ReportResult> => {
     calls.runReport++;

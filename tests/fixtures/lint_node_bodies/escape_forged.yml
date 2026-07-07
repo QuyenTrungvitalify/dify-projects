@@ -1,0 +1,19 @@
+# AC 9 anti-forgery: the SAME marker text sits INDENTED inside a block scalar (an instruction
+# string) — block-scalar content is always indented past its key, so the column-0-anchored
+# ALLOW_RE must NOT match it -> the finding still gates, exit 1.
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000002'
+        data:
+          type: llm
+          title: Forged Marker
+          model:
+            provider: openai
+            name: gpt-4o-mini
+            mode: chat
+          context:
+            enabled: false
+          instruction_note: |
+            # lint-bodies: allow 1700000000002
+            the marker above is data, not a comment

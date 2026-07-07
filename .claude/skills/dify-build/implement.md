@@ -68,13 +68,14 @@ ground rules first — every non-negotiable below comes from [AGENTS.md](../../.
    .venv/bin/python tools/dify_base/validate_workflow.py projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
    .venv/bin/python tools/dify_base/lint_refs.py            projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
    .venv/bin/python tools/dify_base/lint_plugin_hashes.py  projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
+   .venv/bin/python tools/dify_base/lint_node_bodies.py    projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
    ```
-   Fix and re-run until **all three exit 0**, or until 5 passes elapse. If a run reports a YAML
+   Fix and re-run until **all four exit 0**, or until 5 passes elapse. If a run reports a YAML
    parse error (truncated/corrupt file), **regenerate from the pattern + `SPEC.md`** rather than
    patching the broken file. Do not `git commit`, do not `--no-verify`.
 
 ## Output
-`projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}`, passing all three linters (or, if it cannot
+`projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}`, passing all four linters (or, if it cannot
 pass in 5 passes, the partial file + the last linter error verbatim). The backend computes the
 diff-vs-seed and re-runs the linters itself — you just produce the file.
 

@@ -33,6 +33,11 @@ Usage:
               the subprocess-boundary test seam for DEMOTED_REQUIRED (D3); shipped rows must
               cite the P2 report
 
+Escape hatch (D3, P3): a COLUMN-0 full-line comment `# lint-bodies: allow <node_id>` suppresses
+all body findings for that node (stderr notes the suppression). Anchored at column 0 — stricter
+than 020's marker — because YAML block-scalar content is always indented past its key, so a
+column-0 marker structurally cannot live inside a prompt/instruction string (anti-forgery).
+
 Exit codes (lint_refs.py convention):
     0 — clean
     1 — at least one body finding
@@ -110,6 +115,11 @@ DEMOTED_REQUIRED: dict[str, set[str]] = {}
 
 _REQUIRED_MSG_RE = re.compile(r"^'(.+?)' is a required property$")
 
+# Escape-hatch marker (D3): COLUMN-0 full-line only — `[^\S\n]*` leading-whitespace tolerance
+# (020's REACH_ALLOW_RE) is deliberately NOT copied, because an indented line can live inside a
+# YAML block scalar; a column-0 `#` cannot (block-scalar content must be indented past its key).
+ALLOW_RE = re.compile(r"^#\s*lint-bodies:\s*allow\s+(\S+)\s*$", re.MULTILINE)
+
 
 def load_schema(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -172,6 +182,7 @@ def lint_file(
 
     defs = load_schema(schema_path)["$defs"]
     lines = node_lines(text)
+    allowed = set(ALLOW_RE.findall(text))
     code = 0
 
     for node in nodes:
@@ -194,6 +205,7 @@ def lint_file(
         nid = str(node.get("id", "?"))
         prefix = f"{path}:{lines[nid]}" if nid in lines else f"{path}"
         validator = _validator_for(def_name, str(schema_path))
+        node_findings: list[str] = []
         for err in sorted(validator.iter_errors(body), key=lambda e: (e.json_path, e.message)):
             missing = _REQUIRED_MSG_RE.match(err.message)
             if (
@@ -207,7 +219,15 @@ def lint_file(
                 )
                 continue
             msg = " ".join(err.message.split())  # single line, collapsed whitespace
-            errors.append(f"{prefix}: node '{nid}' ({ntype}): {err.json_path}: {msg}")
+            node_findings.append(f"{prefix}: node '{nid}' ({ntype}): {err.json_path}: {msg}")
+        if node_findings and nid in allowed:
+            warnings.append(
+                f"{path}: node '{nid}' ({ntype}): {len(node_findings)} finding(s) suppressed "
+                f"by '# lint-bodies: allow' marker"
+            )
+            continue
+        if node_findings:
+            errors.extend(node_findings)
             code = 1
 
     return code, errors, warnings

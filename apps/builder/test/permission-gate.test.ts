@@ -32,6 +32,7 @@ describe('analyzeBashCommand — allow the fixed phase command set', () => {
     assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/validate_workflow.py projects/wf_x/workflows/main.yml').decision, 'allow');
     assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/lint_refs.py projects/wf_x/workflows/main.yml').decision, 'allow');
     assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/lint_plugin_hashes.py projects/wf_x/workflows/main.yaml').decision, 'allow');
+    assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/lint_node_bodies.py projects/wf_x/workflows/main.yml').decision, 'allow'); // spec 038 P3
   });
 
   test('an absolute path to the venv python is also recognized', () => {
@@ -45,10 +46,10 @@ describe('analyzeBashCommand — allow the fixed phase command set', () => {
     assert.equal(analyzeBashCommand('cat projects/wf_x/SPEC.md').decision, 'allow');
   });
 
-  test('the allow-set is exactly the 5 phase scripts (sync.py / init_project.py absent)', () => {
+  test('the allow-set is exactly the 6 phase scripts (sync.py / init_project.py absent)', () => {
     assert.equal(ALLOWED_PYTHON_SCRIPTS.has('tools/dify_base/sync.py'), false);
     assert.equal(ALLOWED_PYTHON_SCRIPTS.has('tools/dify_base/init_project.py'), false);
-    assert.equal(ALLOWED_PYTHON_SCRIPTS.size, 5);
+    assert.equal(ALLOWED_PYTHON_SCRIPTS.size, 6); // +lint_node_bodies.py (spec 038 P3)
   });
 });
 

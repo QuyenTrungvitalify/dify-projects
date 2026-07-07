@@ -98,7 +98,7 @@ export async function runReport(
   // 1. Re-run the 3 linters (relative .venv/bin/python, cwd = projectsDir); capture exit codes.
   //    The list + clean-test come from the shared linter contract (013 D1) — the ③ gate and this ④
   //    report provably run the identical set, so a verdict can never drift between the two phases.
-  const lint: LintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 };
+  const lint: LintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 };
   const lintNotes: string[] = [];
   // D5 (spec 017): linters run concurrently, then folded in LINTERS order → the keyed exit codes and
   // the note order are identical to the former sequential loop. The ④ Import precondition (lintClean,
@@ -166,6 +166,7 @@ export async function runReport(
       validate: lint.validate,
       lint_refs: lint.lint_refs,
       lint_plugin_hashes: lint.lint_plugin_hashes,
+      lint_node_bodies: lint.lint_node_bodies, // spec 038 P3 — the 4th LINTERS entry
     },
     deploy: task.deploy,
     app_url: appUrl,

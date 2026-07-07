@@ -5,7 +5,7 @@
 Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 
 - Reference skills + corpus + node-type schema để build YAML workflow nhanh
-- CLI search ~41 template theo feature/complexity/plugin
+- CLI search ~42 template theo feature/complexity/plugin
 - Cấu trúc folder 2 tầng cho từng dự án (`projects/<project>/<workflow>/`, spec 030)
 - GitOps sync (pull/push/diff giữa Dify workspace ↔ git)
 - pytest harness + pre-commit hooks
@@ -44,7 +44,7 @@ cp templates/patterns/file-to-llm.yml projects/my_first/workflows/main.yml
 
 # 4. Validate locally before importing
 .venv/bin/pre-commit run --files projects/my_first/workflows/main.yml
-# Runs 12 hooks in <1s. Failures explain exactly what's wrong.
+# Runs 13 hooks in <1s. Failures explain exactly what's wrong.
 
 # 5. Import into Dify
 #    Studio → top-right "+" → Import DSL file → upload main.yml → run it.
@@ -217,7 +217,7 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **Phase 1.C** — 6 reusable patterns in `templates/patterns/`: file-to-llm, file-iteration, multi-step-llm, rag-qa, agent-with-tools, meta-workflow-builder (all validate against schema + skill validator)
 - ✅ **Phase 1.D** — pytest harness ([tests/](tests/)) — minimal `DifyWorkflowClient` + env-loading fixtures + syrupy snapshot example. Skips cleanly without creds.
 - ✅ **Phase 2.A** — GitOps sync ([tools/dify_base/sync.py](tools/dify_base/sync.py)) — `list/pull/diff/push` workflow apps via Console API. 8 tests passing (mocked HTTP, no real Dify needed). Polish: clean error messages for connection/timeout/HTTP failures.
-- ✅ **Phase 2.B** — pre-commit hooks ([.pre-commit-config.yaml](.pre-commit-config.yaml), 12 hooks: yamllint + check-jsonschema + skill validator + DSL version guard + agents-md-refs + dify-lint-refs + dify-lint-plugin-hashes + 5 built-in) + bootstrap script ([scripts/setup.sh](scripts/setup.sh))
+- ✅ **Phase 2.B** — pre-commit hooks ([.pre-commit-config.yaml](.pre-commit-config.yaml), 13 hooks: yamllint + check-jsonschema + skill validator + DSL version guard + agents-md-refs + dify-lint-refs + dify-lint-node-bodies (spec 038) + dify-lint-plugin-hashes + 5 built-in) + bootstrap script ([scripts/setup.sh](scripts/setup.sh))
 - ✅ **Builder app** (specs [009](docs/specs/009-browser-workflow-builder.md)–036) — web UI local cho build 4 phase có gate; đã ship: turn sandbox (015/018), linter gates + graph reachability (020), template library (022), file attachments (025), live workflow test trên Dify thật (032 S1–S5), Ask mode tại gate (033–035), capability-aware test targets (036)
 - ✅ **Curated template library** ([templates/library/](templates/library/), spec 022) — promote qua `/template-promote`, provenance-stamped
 - ⏳ **Polish 1.A** — `http_request` schema-dump currently **fails** (`_error: SchemaSerializer` on `dify_config.HTTP_REQUEST_MAX_*` defaults); 25/25 node modules import and 29 schemas generate, but this one ships with an `_error` marker rather than a clean dump. Tracked as spec 024 **S1** (make a dump-fail fatal in `gen_schema.py`, then fix the stub).

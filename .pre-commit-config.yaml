@@ -98,6 +98,16 @@ repos:
         files: ^(templates/(patterns|probes|library)/.*\.ya?ml|projects/.*/workflows/.*\.ya?ml)$
         require_serial: false
 
+      - id: dify-lint-node-bodies
+        name: node-body schema linter
+        # Validate each node's `data` block against its generated NodeData_* schema (spec 038;
+        # promoted after the measured 0-FP report docs/specs/038-fp-report.md). Catches wrong-shaped
+        # bodies (missing required fields, scalar-where-object) that only surfaced at Dify runtime.
+        entry: scripts/py.sh tools/dify_base/lint_node_bodies.py
+        language: system
+        files: ^(templates/(patterns|probes|library)/.*\.ya?ml|projects/.*/workflows/.*\.ya?ml)$
+        require_serial: false
+
       - id: dify-lint-plugin-hashes
         name: plugin hash format
         # Validates marketplace_plugin_unique_identifier matches

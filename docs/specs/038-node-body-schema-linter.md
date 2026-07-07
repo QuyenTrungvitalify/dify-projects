@@ -1,10 +1,11 @@
 # Spec 038 — Node-body schema linter: wire the 29 dormant `NodeData_*` $defs (`lint_node_bodies.py`)
 
-**Status**: Partially implemented — P1 shipped 2026-07-07 (r3) and P2 MEASURED CLEAN the same day (r4:
-[038-fp-report.md](038-fp-report.md) — 378 bodies validated across the rebuilt 42-file surface, **0 FP on the
-gate surface**, zero demotions; the 13 agent findings were TRUE positives — `agent-with-tools.yml` fixed against
-the vendored `AgentNodeData` source). Only P3 (promotion: 4th `LINTERS` entry + pre-commit hook + escape hatch)
-remains. D1–D8 locked.
+**Status**: **Implemented** (P1–P3 complete 2026-07-07 — r3/r4/r5). P1: tool + tests, unwired. P2:
+[038-fp-report.md](038-fp-report.md) — 378 bodies validated, **0 FP on the gate surface**, zero demotions; the
+13 agent findings were TRUE positives (`agent-with-tools.yml` fixed against the vendored `AgentNodeData`).
+P3: promoted — 4th `LINTERS` entry (③ gate + ④ report + Import precondition), `dify-lint-node-bodies`
+pre-commit hook (13 hooks total), column-0 escape hatch, hook allowlist + `implement.md` self-correct loop
+updated so turns run the 4th linter themselves. D1–D8 locked.
 
 **Builds on**:
 - [020](020-builder-graph-reachability-linter.md) — the 3-phase rollout discipline (warn-only → measured
@@ -388,3 +389,14 @@ nothing enforces it. No flag-flip or default-exit change happens at promotion; p
   to all three linters + the envelope hook. Re-measure: gate surface 0 FP, `DEMOTED_REQUIRED` stays empty, the
   gitignored `_drafts` sweep (14 files) clean. OQ1 answered by measurement: `required[]` strictness produced zero
   FPs outside the (genuinely broken) agent pattern. Promotion condition met → P3 unblocked.
+- r5 (2026-07-07) — P3 PROMOTED: `LINTERS` gains the 4th entry (key union + array + `lintClean` conjunction +
+  `LintCodes`; AC 8/8b pinned in linters.test.ts — the conjunction test, not just the entry count); ③ post-turn,
+  ④ report (incl. the report.json `lint` object — an explicit 3-key literal the spec's "zero further edits"
+  claim missed), and the Import precondition pick it up via the shared contract; `dify-lint-node-bodies`
+  pre-commit hook cloned from the dify-lint-refs block (`\.ya?ml`, post-039 form). Escape hatch shipped
+  STRICTER than 020's marker: column-0-anchored (`ALLOW_RE`) — block-scalar content is always indented, so a
+  marker inside a prompt string structurally cannot forge it (both directions fixtured, AC 9). Two additions the
+  spec implied but did not enumerate: `ALLOWED_PYTHON_SCRIPTS` in permission-gate.ts (without it the hook DENIES
+  the turn's self-correct run of the new linter) and implement.md step 5 (4th command + "all four exit 0") so
+  the model self-corrects in-turn. Docs: AGENTS.md 4-linter line, builder README, root README hook count 12→13.
+  Suites: pytest 127, server 347/347, web 151/151, pre-commit 13/13 green.

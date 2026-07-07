@@ -1,0 +1,16 @@
+# AC 9 (spec 038 D3/P3): the COLUMN-0 full-line marker below suppresses the llm node's
+# missing-prompt_template finding -> exit 0 (with a stderr suppression note).
+# lint-bodies: allow 1700000000002
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000002'
+        data:
+          type: llm
+          title: Deliberately Incomplete
+          model:
+            provider: openai
+            name: gpt-4o-mini
+            mode: chat
+          context:
+            enabled: false

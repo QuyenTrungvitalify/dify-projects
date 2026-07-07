@@ -57,6 +57,9 @@ export const ALLOWED_PYTHON_SCRIPTS = new Set<string>([
   'tools/dify_base/validate_workflow.py',
   'tools/dify_base/lint_refs.py',
   'tools/dify_base/lint_plugin_hashes.py',
+  // Spec 038 P3 — the 4th LINTERS entry; without this the turn's self-correct loop (implement.md
+  // step 5 runs the linters itself) would be hook-DENIED on the new linter and park more builds.
+  'tools/dify_base/lint_node_bodies.py',
 ]);
 
 // Read-only inspectors a turn may shell harmlessly. They add NO capability over the (allowed) Read /

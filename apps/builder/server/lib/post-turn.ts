@@ -149,7 +149,7 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
   //    can tell a "clean" Implement (all 0) from a "still-failing" one (lint≠0) — §D variants.
   let lintCodes: LintCodes | null = null;
   if (size > 0) {
-    lintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 };
+    lintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 };
     // D5 (spec 017): run the 3 linters CONCURRENTLY — independent read-only python spawns (NOT gated
     // by the 015 turn hook), so ~3 cold spawns collapse to ~1 spawn's wall-clock. Behavior-equivalent:
     // fold the results in LINTERS order afterwards, so the keyed codes AND the reason ORDER are
@@ -254,7 +254,7 @@ async function checkExtraWorkflowFile(
         reasons.push(`${rel}: yaml probe returned non-JSON: ${probe.stdout.slice(0, 200)}`);
       }
     }
-    lintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0 };
+    lintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 };
     const results = await Promise.all(LINTERS.map((lint) => runPython(projectsDir, [lint.script, rel])));
     LINTERS.forEach((lint, i) => {
       const r = results[i];

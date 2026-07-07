@@ -18,24 +18,27 @@
  *  ④ note, and the repo-relative `script` path passed to `.venv/bin/python`. */
 export interface LinterDef {
   name: string;
-  key: 'validate' | 'lint_refs' | 'lint_plugin_hashes';
+  key: 'validate' | 'lint_refs' | 'lint_plugin_hashes' | 'lint_node_bodies';
   script: string;
 }
 
-/** The 3 linters, in run order. The ONLY place this list is written. */
+/** The 4 linters, in run order. The ONLY place this list is written. (4th entry = spec 038 P3
+ *  promotion, after the measured-0-FP report 038-fp-report.md — the first widening of this
+ *  contract since 013; the ③ gate and ④ report pick it up with zero further edits.) */
 export const LINTERS: LinterDef[] = [
   { name: 'validate_workflow.py', key: 'validate', script: 'tools/dify_base/validate_workflow.py' },
   { name: 'lint_refs.py', key: 'lint_refs', script: 'tools/dify_base/lint_refs.py' },
   { name: 'lint_plugin_hashes.py', key: 'lint_plugin_hashes', script: 'tools/dify_base/lint_plugin_hashes.py' },
+  { name: 'lint_node_bodies.py', key: 'lint_node_bodies', script: 'tools/dify_base/lint_node_bodies.py' },
 ];
 
 /** The per-linter exit codes (0 = clean). Keyed by {@link LinterDef.key}. */
 export type LintCodes = Record<LinterDef['key'], number>;
 
-/** All three linters exited 0. `null`/`undefined` (the linters never ran — missing/empty artifact)
+/** All four linters exited 0. `null`/`undefined` (the linters never ran — missing/empty artifact)
  *  is NOT clean. The single definition the ③ gate AND the ④ Import-precondition both consume. */
 export const lintClean = (c: LintCodes | null | undefined): boolean =>
-  c != null && c.validate === 0 && c.lint_refs === 0 && c.lint_plugin_hashes === 0;
+  c != null && c.validate === 0 && c.lint_refs === 0 && c.lint_plugin_hashes === 0 && c.lint_node_bodies === 0;
 
 /** Unified failure-detail slice depth: keep the last N lines of a failing linter's stdout+stderr in
  *  the surfaced reason/note (was -6 in post-turn, -4 in report — unified to 6; spec 013 Q2). */

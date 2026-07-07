@@ -233,3 +233,6 @@ the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.
   YAMLs). Don't commit them. Real projects live at `projects/<project>/<workflow>/` and are indexed.
 - **The ③ gate lints every turn-touched `workflows/*.ya?ml`** (spec 039), not just the declared
   file; an extension twin of the declared file (`main.yaml` beside `main.yml`) is a hard error.
+- **The gate runs 4 linters** (spec 038): `validate_workflow.py` + `lint_refs.py` +
+  `lint_plugin_hashes.py` + `lint_node_bodies.py` (node bodies vs the generated `NodeData_*`
+  schemas; escape hatch = a column-0 `# lint-bodies: allow <node_id>` line).
