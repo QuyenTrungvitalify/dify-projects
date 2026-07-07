@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { renderPrompt, PHASES } from '../server/lib/phases.js';
+import { renderPrompt, PHASES, languagePin } from '../server/lib/phases.js';
 import type { Task } from '../server/state/task.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -82,5 +82,28 @@ describe('030 · Output-language directive (drift + render guard)', () => {
         );
       });
     }
+  }
+});
+
+describe('Layer 1 · languagePin (native-language reply pin)', () => {
+  test('a kana-bearing (Japanese) requirement returns a Japanese pin', () => {
+    const pin = languagePin('Exel表からPDFのURLを抜き出して一覧にしたい。');
+    assert.ok(pin.includes('日本語'), 'pin instructs replying in Japanese');
+    assert.ok(pin.endsWith('\n\n'), 'pin ends with a blank-line separator so it leads cleanly');
+    assert.match(pin, /機械識別子/, 'pin still carves out ASCII machine identifiers');
+  });
+
+  test('a katakana-only requirement (still Japanese) is pinned', () => {
+    assert.notEqual(languagePin('ワークフロー'), '', 'katakana alone ⇒ Japanese');
+  });
+
+  for (const [label, requirement] of [
+    ['EN', 'create a simple text summarizer'],
+    ['VI', 'Tạo workflow tóm tắt văn bản tiếng Việt'],
+    ['ZH (kanji, no kana)', '从表格中提取数据'],
+  ] as const) {
+    test(`${label} requirement returns no pin (English-authored prompt reads as-is; no false-positive)`, () => {
+      assert.equal(languagePin(requirement), '');
+    });
   }
 });

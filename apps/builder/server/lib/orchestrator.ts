@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import { ClaudeSession } from './claude-session.js';
 import { confinementCheck, gitDirtyPaths, type PostTurnDetail } from './post-turn.js';
 import { type TurnResult } from './turn-runner.js';
-import { PHASES, renderPrompt, type PhaseDef } from './phases.js';
+import { PHASES, renderPrompt, languagePin, type PhaseDef } from './phases.js';
 import { attachmentBlock } from './attachments.js';
 import { snapshotDiffBase, writeDiffArtifact } from './diff.js';
 import { lintClean } from './linters.js';
@@ -357,13 +357,17 @@ async function runPhase(
   // observed bug where a live-gate "Request changes" re-ran Implement but left main.yml unchanged. Give the
   // resume prompt the SAME header as the fresh path so "revise the artifact" is unambiguous either way.
   const CHANGE_REQUEST = '## Change request (revise the existing artifact; do not restart from scratch)';
+  // Layer 1 reply-language guard: a native-language pin prepended at the TOP of every phase prompt (fresh
+  // AND /reply) so the model's user-facing prose follows the requirement's language from token one. '' for
+  // a Latin-script requirement. The single seam covering both prompts, like the attachment block below.
+  const langPin = languagePin(task.requirement);
   const freshPrompt =
-    (opts?.replyText ? `${renderedFresh}\n\n${CHANGE_REQUEST}\n${opts.replyText}` : renderedFresh) + block;
+    langPin + (opts?.replyText ? `${renderedFresh}\n\n${CHANGE_REQUEST}\n${opts.replyText}` : renderedFresh) + block;
   // Spec 037 D6(b): the RESUME prompt skips phases.ts injectVars entirely, so the facts ride the
   // same fresh+resume seam as the attachment block — appended on the replyText branch only (a fresh
   // turn already carries them via the token; appending here too would double them).
   const knowledgeTail = knowledge && opts?.replyText ? `\n\n${knowledge}` : '';
-  const resumePrompt = opts?.replyText ? `${CHANGE_REQUEST}\n${opts.replyText}${block}${knowledgeTail}` : freshPrompt;
+  const resumePrompt = opts?.replyText ? langPin + `${CHANGE_REQUEST}\n${opts.replyText}${block}${knowledgeTail}` : freshPrompt;
 
   // Snapshot the pre-edit workflow BEFORE Implement overwrites it, so an edit-existing diff has a
   // real base (idempotent: no-op on a no-seed new build, a Dify-seed, or a /reply re-run, Task 4).
