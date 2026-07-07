@@ -62,6 +62,7 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 | [039](039-post-turn-multi-workflow-lint.md) | Post-turn lint completeness: gate every turn-touched `workflows/*.ya?ml` + extension-twin hard error | Implemented | S |
 | [040](040-builder-uat-fixes.md) | UAT hardening: confinement false-positive revert (concurrent-edit data loss) + composer-draft/reload/sidebar fixes | Implemented (D1–D4; E1–E4 deferred) | S |
 | [041](041-builder-request-changes-everywhere.md) | "Request changes" available at every parked gate from Spec onward (fixable at any ④ gate incl. LIVE ⚠) | Implemented | S |
+| [042](042-foreign-residue-preflight.md) | Foreign-residue preflight: demo/seed values (URLs, tool params, stale dataset/plugin ids) surviving into a build — 4 new advisory classes on the 037 machinery | Draft | S–M |
 
 \* Spec 001 + 006 have 2 minor Q awaiting confirm; can proceed with defaults.
 
