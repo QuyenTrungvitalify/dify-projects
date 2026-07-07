@@ -117,9 +117,22 @@ async function runJudge(
 }
 
 /**
- * Build a sample run input from the start-node schema (D8). Fills REQUIRED text/paragraph/number with a
- * sample; a required select/file/… can't be safely guessed → `missing` (→ `need_input`, park). Optional
- * vars are left unset (Dify uses their default/empty). Pure.
+ * A publicly accessible 1-page PDF used as a placeholder for `file`/`file-list` inputs during the
+ * builder live-test. Chosen for: tiny size, stable URL (W3C sample document), plain PDF (no auth).
+ * Dify accepts a URL as a file value when the workflow's file-upload mode allows remote URLs.
+ */
+const SAMPLE_FILE_URL = 'https://www.w3.org/WAI/WCAG21/Techniques/pdf/img/table-word.pdf';
+
+/**
+ * Build a sample run input from the start-node schema (D8). Fills REQUIRED variables automatically:
+ * - text / paragraph / text-input → short sample string
+ * - number                        → 1
+ * - select                        → first option from `options[]` (or 'option_a' fallback)
+ * - file                          → SAMPLE_FILE_URL placeholder (a tiny W3C PDF)
+ * - file-list                     → [SAMPLE_FILE_URL]
+ * - boolean                       → true
+ * - truly unknown types           → `missing` (→ `need_input`, park)
+ * Optional vars are left unset (Dify uses their default/empty). Pure.
  */
 export function resolveInput(vars: InputVar[]): { inputs: Record<string, unknown>; missing: string[] } {
   const inputs: Record<string, unknown> = {};
@@ -131,8 +144,19 @@ export function resolveInput(vars: InputVar[]): { inputs: Record<string, unknown
       inputs[v.variable] = `Sample input for "${v.label || v.variable}" (builder live-test).`;
     } else if (t === 'number') {
       inputs[v.variable] = 1;
+    } else if (t === 'select') {
+      // Pick the first declared option; fall back to a generic string when options is absent/empty.
+      inputs[v.variable] = Array.isArray(v.options) && v.options.length > 0 ? v.options[0] : 'option_a';
+    } else if (t === 'file') {
+      // Dify accepts a URL string for file inputs when the app's upload mode allows remote URLs.
+      // Using a stable, tiny W3C PDF so the workflow can at least attempt to process it.
+      inputs[v.variable] = SAMPLE_FILE_URL;
+    } else if (t === 'file-list') {
+      inputs[v.variable] = [SAMPLE_FILE_URL];
+    } else if (t === 'boolean') {
+      inputs[v.variable] = true;
     } else {
-      missing.push(v.variable); // select / file / file-list / unknown → can't derive
+      missing.push(v.variable); // truly unknown type → can't derive a safe value
     }
   }
   return { inputs, missing };

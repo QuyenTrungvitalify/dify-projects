@@ -62,23 +62,52 @@ function withCreds(fn: () => Promise<void>): () => Promise<void> {
 }
 
 describe('resolveInput (D8)', () => {
-  test('fills required text/paragraph/number; select/file → missing; optional skipped', () => {
+  test('fills required text/paragraph/number; optional skipped', () => {
     const vars: InputVar[] = [
       { variable: 'q', type: 'text-input', required: true },
       { variable: 'body', type: 'paragraph', required: true },
       { variable: 'n', type: 'number', required: true },
       { variable: 'opt', type: 'text-input', required: false },
-      { variable: 'sel', type: 'select', required: true, options: ['a'] },
-      { variable: 'doc', type: 'file', required: true },
     ];
     const { inputs, missing } = resolveInput(vars);
     assert.equal(typeof inputs.q, 'string');
     assert.equal(typeof inputs.body, 'string');
     assert.equal(inputs.n, 1);
     assert.ok(!('opt' in inputs), 'optional not filled');
-    assert.deepEqual(missing.sort(), ['doc', 'sel']);
+    assert.deepEqual(missing, []);
+  });
+
+  test('select → picks first option; fallback when options absent', () => {
+    const { inputs: i1 } = resolveInput([{ variable: 'sel', type: 'select', required: true, options: ['a', 'b'] }]);
+    assert.equal(i1.sel, 'a');
+    const { inputs: i2 } = resolveInput([{ variable: 'sel', type: 'select', required: true }]);
+    assert.equal(i2.sel, 'option_a');
+  });
+
+  test('file → sample PDF URL; file-list → array of that URL', () => {
+    const { inputs } = resolveInput([
+      { variable: 'doc', type: 'file', required: true },
+      { variable: 'docs', type: 'file-list', required: true },
+    ]);
+    assert.ok(typeof inputs.doc === 'string' && (inputs.doc as string).startsWith('https://'), 'file gets URL');
+    assert.ok(Array.isArray(inputs.docs) && (inputs.docs as string[])[0].startsWith('https://'), 'file-list gets array');
+    assert.deepEqual([], []); // no missing
+  });
+
+  test('boolean → true', () => {
+    const { inputs } = resolveInput([{ variable: 'flag', type: 'boolean', required: true }]);
+    assert.equal(inputs.flag, true);
+  });
+
+  test('truly unknown type → missing (need_input)', () => {
+    const { inputs, missing } = resolveInput([
+      { variable: 'weird', type: 'custom-exotic-type', required: true },
+    ]);
+    assert.ok(!('weird' in inputs));
+    assert.deepEqual(missing, ['weird']);
   });
 });
+
 
 describe('extractJson / parseJudgeVerdict (T3)', () => {
   test('extracts fenced json, bare trailing json; no json → null', () => {
@@ -194,18 +223,20 @@ describe('runLiveTest verdict → gate', () => {
     assert.equal(task.liveTest?.verdict, 'infra_fail');
   }));
 
-  test('undrivable input → need_input, parked at test_result', withCreds(async () => {
+  test('undrivable input (truly unknown type) → need_input, parked at test_result', withCreds(async () => {
     const { task, ctx } = await harness({
       deployWithModel: async (_d, _s, outRel) => ({
         ok: true, nodeCount: 0, llmCount: 1, patched: [], outFile: outRel, mode: 'workflow',
-        inputs: [{ variable: 'sel', type: 'select', required: true, options: ['a'] }], stderr: '',
+        // 'custom-widget' is not a recognised type → resolveInput puts it in missing → need_input
+        inputs: [{ variable: 'widget', type: 'custom-widget', required: true }], stderr: '',
       }),
     });
     await runLiveTest(task, ctx);
     assert.equal(task.gate?.flag, 'test_result');
     assert.equal(task.liveTest?.verdict, 'need_input');
-    assert.deepEqual(task.liveTest?.needInputVars, ['sel']);
+    assert.deepEqual(task.liveTest?.needInputVars, ['widget']);
   }));
+
 
   test('advanced-chat app → runWorkflow gets mode+query, passes (chat via /chat-messages)', withCreds(async () => {
     let seenMode = '';
