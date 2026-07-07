@@ -196,4 +196,3 @@ Note stays ONE line (037 shape): `preflight: … — needs: …, foreign to this
   stops at `{{` (template-mixed corpus shape); `kr_nodes` widening is additive; AC 2 pins the env-scrub
   + plant-order harness rule; new-class fixtures must be parity-sweep-neutral; id-preservation is
   fail-open, stated not assumed.
-

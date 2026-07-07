@@ -11,12 +11,74 @@
  * turn, and `result.is_error:false` ≠ a correct workflow. post-turn.ts is the authoritative check.
  */
 import { ClaudeSession, type ClaudeStreamEvent } from './claude-session.js';
+import { redactSecrets } from './dify-io.js';
 
 export interface TurnResult {
   sessionId: string | null;
   result: ClaudeStreamEvent | null;
   isError: boolean;
   note?: string;
+  /** Spec 045 (review #8): the machine-readable failure class behind `note` — future consumers
+   *  (e.g. orchestrator's resume-fallback exclusion) can key on this instead of note-sniffing. */
+  failureCls?: 'usage_limit' | 'auth' | 'network' | 'spawn' | 'unknown';
+}
+
+/**
+ * Spec 045 D2 — classify a dead turn's stderr tail into an ACTIONABLE note. The field incident this
+ * fixes: the `claude` CLI ran out of usage quota, but the gate showed only "exit 1 / artifact
+ * missing" — the real cause lived in stderr and was discarded. First-match-wins, most-specific
+ * first; a wrong class is cosmetic by design (it never changes status/outcome routing, and the
+ * matched line is attached VERBATIM so the truth always shows).
+ *
+ * The EN note templates are WORDING-STABLE — web/src/lib/i18n.ts NOTE_JA keys off their prefixes
+ * (the 030a/043 exact-frame mechanism); reword them only together with the JA frames + tests.
+ */
+export function classifyTurnFailure(
+  stderrTail: string,
+  code: number | null,
+  ctx: 'exit' | 'spawn' = 'exit'
+): { cls: NonNullable<TurnResult['failureCls']>; note: string } {
+  // Review #3: embedded stderr must never smuggle the FE's `' | '` split marker (Chat.tsx errLines)
+  // or raw newlines into the note — sanitize every fragment before embedding.
+  const clean = (s: string): string => s.replace(/\s*\|\s*/g, ' ⏐ ').replace(/\s*\n\s*/g, ' ⏎ ').trim();
+  const lines = stderrTail.split('\n').map((l) => l.trim()).filter(Boolean);
+  const firstMatch = (re: RegExp): string | undefined => lines.find((l) => re.test(l));
+
+  let m = firstMatch(/usage limit|session limit|rate.?limit|credit balance|quota|\b429\b|overloaded/i);
+  if (m) {
+    return {
+      cls: 'usage_limit',
+      note: `Claude CLI usage limit reached — builds cannot run until the limit resets. (${clean(m)})`,
+    };
+  }
+  m = firstMatch(/logged in|log.?in\b|authentication|unauthorized|\b401\b|invalid api key|oauth/i);
+  if (m) {
+    return {
+      cls: 'auth',
+      note: `Claude CLI is not authenticated on this machine — run \`claude\` in a terminal and log in. (${clean(m)})`,
+    };
+  }
+  m = firstMatch(/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error/i);
+  if (m) {
+    return {
+      cls: 'network',
+      note: `Cannot reach the Anthropic API from this machine (network/proxy). (${clean(m)})`,
+    };
+  }
+  const tail = clean(lines.slice(-2).join('\n')) || '(empty)';
+  // Review blocker #1: a MISSING binary reaches here via the 'error'(ENOENT) event path — the ring
+  // then carries node's `spawn claude ENOENT` message; classify it as the install case regardless
+  // of ctx (the spawn-false branch only fires for sync argv edge cases).
+  if (ctx === 'spawn' || firstMatch(/ENOENT|command not found|no such file/i)) {
+    return {
+      cls: 'spawn',
+      note: `failed to spawn claude process — is the \`claude\` CLI installed? (stderr: ${tail})`,
+    };
+  }
+  return {
+    cls: 'unknown',
+    note: `process exited code ${code} before a result event — stderr tail: ${tail}`,
+  };
 }
 
 /**
@@ -87,25 +149,32 @@ export async function runTurn(
       }
     };
 
-    // process exited without a result event (nexus :208-220)
+    // process exited without a result event (nexus :208-220). Spec 045 D3: classify the stderr
+    // tail (redacted — D5 belt+braces; the turn env carries no DIFY_* anyway) into the note, so a
+    // quota/auth/network death self-describes at the gate instead of the bare exit code.
     session.onExit = (code) => {
       if (resultEvent) return;
+      const triage = classifyTurnFailure(redactSecrets(session.stderrTail?.() ?? ''), code, 'exit');
       finish({
         sessionId: capturedSessionId,
         result: null,
         isError: true,
-        note: `process exited code ${code} before a result event`,
+        note: triage.note,
+        failureCls: triage.cls,
       });
     };
 
-    // Guard the spawn-failure path so the promise can never hang.
+    // Guard the spawn-failure path so the promise can never hang. (045 D3: same triage — an ENOENT
+    // spawn usually means the CLI is not installed; stderr may still carry a shell-level hint.)
     void session.spawn(prompt).then((ok) => {
       if (!ok) {
+        const triage = classifyTurnFailure(redactSecrets(session.stderrTail?.() ?? ''), null, 'spawn');
         finish({
           sessionId: null,
           result: null,
           isError: true,
-          note: 'failed to spawn claude process',
+          note: triage.note,
+          failureCls: triage.cls,
         });
       }
     });

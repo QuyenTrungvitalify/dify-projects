@@ -154,7 +154,10 @@ interface GateView {
 function gateView(t: WireTask): GateView {
   const idx = phaseIndex(t.phase as PhaseKey);
   const meta = tf('phaseMeta', { idx });
-  const errLines = (t.error ?? '').split(' | ').map((s) => s.trim()).filter(Boolean);
+  // Spec 045 (review blocker #2): the error/still_failing cards render task.error lines RAW — run
+  // them through localizeNotes so the turn-failure triage notes (quota/login/network) reach a JA
+  // user in Japanese, exactly like the other gate-note surfaces above.
+  const errLines = (t.error ?? '').split(' | ').map((s) => localizeNotes(s.trim())).filter(Boolean);
 
   if (t.status === 'error') {
     return { tone: 'error', badge: tr('gateErrorBadge'), title: tf('gateErroredTitle', { phase: phaseLabel(phaseLabelAt(idx)) }), meta: tr('exit1'),

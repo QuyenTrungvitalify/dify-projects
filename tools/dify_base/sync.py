@@ -346,6 +346,23 @@ def _client_from_env() -> DifyConsoleClient:
 
 def _fmt_request_error(e: requests.RequestException) -> str:
     """Return a one-line user-friendly summary of a requests exception."""
+    try:  # DEBUG (temporary) — capture the real URL + env + root cause at failure time.
+        import datetime
+        req = getattr(e, "request", None)
+        with open("/tmp/sync-debug.log", "a") as _dbg:
+            _dbg.write(
+                f"[{datetime.datetime.now().isoformat()}] {e.__class__.__name__}\n"
+                f"  url         = {getattr(req, 'url', None)}\n"
+                f"  method      = {getattr(req, 'method', None)}\n"
+                f"  DIFY_API_URL     = {os.environ.get('DIFY_API_URL')}\n"
+                f"  DIFY_CONSOLE_URL = {os.environ.get('DIFY_CONSOLE_URL')}\n"
+                f"  HTTP_PROXY={os.environ.get('HTTP_PROXY')} HTTPS_PROXY={os.environ.get('HTTPS_PROXY')} "
+                f"ALL_PROXY={os.environ.get('ALL_PROXY')} NO_PROXY={os.environ.get('NO_PROXY')}\n"
+                f"  root_cause  = {repr(e.args)}\n"
+                f"  str         = {str(e)[:400]}\n"
+            )
+    except Exception:
+        pass
     if isinstance(e, requests.ConnectionError):
         return f"connection failed (DNS / unreachable / refused) — {e.__class__.__name__}"
     if isinstance(e, requests.Timeout):

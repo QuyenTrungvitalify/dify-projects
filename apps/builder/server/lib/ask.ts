@@ -293,8 +293,11 @@ export async function askWithin(task: Task, text: string, ctx: OrchestratorCtx):
     // on `!gotText` (not the never-produced `!note` shape turn-runner can't emit) so a turn that streamed
     // partial text before erroring keeps that text and finalizes ok:true.
     if (turn.isError && !gotText) {
+      // Spec 045 (review #4): append the classified turn-failure note — a quota/auth/network death
+      // during Ask must self-describe exactly like a phase turn's gate note does, not stay canned.
+      const cause = turn.note ? ` (${turn.note})` : '';
       ctx.broadcast?.(task.taskId, 'ask:answer', {
-        text: "couldn't get an answer for that — try again, or use Request changes to edit the artifact.",
+        text: `couldn't get an answer for that — try again, or use Request changes to edit the artifact.${cause}`,
       });
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
       return;

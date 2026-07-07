@@ -16,6 +16,7 @@
  * of the built SPA (`web/dist`) at `/`.
  */
 import Fastify from 'fastify';
+import { execFile } from 'node:child_process';
 import { existsSync, createReadStream, statSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve, normalize, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -200,6 +201,23 @@ async function start(): Promise<void> {
       'SEC1: PreToolUse hook unloadable but BUILDER_ALLOW_UNGUARDED=1 — starting UNGUARDED by operator override.'
     );
   }
+  // Spec 045 D4 — WARN-only claude CLI presence check (no auth/quota probe: both cost tokens and
+  // expire anyway; classifyTurnFailure covers them at the first failing turn). Unlike SEC1 nothing
+  // fails open here — builds just fail loudly, now with an actionable note — so this never gates boot.
+  await new Promise<void>((res) => {
+    execFile('claude', ['--version'], { timeout: 5000 }, (err, stdout) => {
+      if (err) {
+        app.log.warn(
+          { err: err.message },
+          '045: `claude` CLI not found or not runnable — every build will fail at its first turn. ' +
+            'Install it and run `claude` once to log in.'
+        );
+      } else {
+        app.log.info({ version: String(stdout).trim() }, 'claude CLI present');
+      }
+      res();
+    });
+  });
   // Boot reconcile BEFORE listening: a crash/restart left no live process, so any `running`/
   // `scaffolding` task → `error`; a paused `awaiting_confirm` build survives untouched (turn-level
   // lock — it holds nothing) and stays reachable. `turnHolder` starts null (in-memory) (AC #19/#24).

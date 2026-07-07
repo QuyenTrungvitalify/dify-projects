@@ -669,6 +669,31 @@ const NOTE_JA: [RegExp, string][] = [
     '接続失敗（DNS 解決不可 / 到達不可 / 接続拒否）— $1',
   ],
   [/timeout after (.+?)s/g, 'タイムアウト（$1 秒）'],
+  // ── spec 045: turn-failure triage notes (turn-runner.ts classifyTurnFailure — wording-stable) ──
+  [
+    /Claude CLI usage limit reached — builds cannot run until the limit resets\./g,
+    'Claude CLIの利用上限に達しました — 上限がリセットされるまでビルドを実行できません。',
+  ],
+  [
+    /Claude CLI is not authenticated on this machine — run `claude` in a terminal and log in\./g,
+    'このマシンのClaude CLIが未認証です — ターミナルで `claude` を実行してログインしてください。',
+  ],
+  [
+    /Cannot reach the Anthropic API from this machine \(network\/proxy\)\./g,
+    'このマシンからAnthropic APIに接続できません（ネットワーク／プロキシ）。',
+  ],
+  [
+    /failed to spawn claude process — is the `claude` CLI installed\?/g,
+    'claudeプロセスを起動できませんでした — `claude` CLIはインストールされていますか？',
+  ],
+  [
+    /process exited code (.+?) before a result event — stderr tail:/g,
+    'プロセスが結果イベントの前に終了しました（exit $1）— stderr末尾:',
+  ],
+  [
+    /phase timed out after (\d+)s — retry or simplify/g,
+    'フェーズが $1 秒でタイムアウトしました — 再試行するか、要件を簡素化してください',
+  ],
 ];
 
 /** Localize a backend-built report `notes` string to the current language (spec 030 P2). EN passes

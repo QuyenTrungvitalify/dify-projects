@@ -86,6 +86,10 @@ Mở trình duyệt: **http://127.0.0.1:4123**
 - **Import luôn tạo app MỚI.** Chạy lại cùng một workflow sẽ tạo app trùng tên → xóa bản cũ trong Dify nếu cần.
 - **Bảo mật token**: token Dify chỉ nằm ở backend, không lọt vào chat/log. Nếu dùng Admin key, giữ kín và đổi key khi cần.
 - **Dừng Builder**: `lsof -ti:4123 | xargs kill`.
+- **Build fail ngay lập tức (フェーズ失敗 / exit 1)**: đọc dòng lý do ĐẦU TIÊN trên gate card — từ spec
+  045 nó tự nói nguyên nhân: *usage limit* (Claude hết hạn mức — chờ reset), *not authenticated* (chạy
+  `claude` trong terminal để login), *cannot reach the Anthropic API* (mạng/proxy), *is the `claude`
+  CLI installed?* (chưa cài CLI). Server log lúc khởi động cũng cảnh báo sớm nếu thiếu `claude`.
 - Kết quả build được lưu ở `projects/<project>/<workflow>/workflows/main.yml` (cấu trúc 2 tầng, spec 030) — có thể import thủ công vào Dify Studio nếu không dùng auto-import.
 
 ---

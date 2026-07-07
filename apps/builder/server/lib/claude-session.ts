@@ -70,6 +70,13 @@ export class ClaudeSession {
   private onProcExit: ((code: number | null) => void) | null = null;
   private onProcError: ((err: Error) => void) | null = null;
 
+  // Spec 045 D1 — a BOUNDED ring of recent stderr lines (reset per spawn). When the CLI dies without
+  // a result event, the real cause (usage limit / not logged in / network) is on stderr and nowhere
+  // else; turn-runner's classifyTurnFailure reads this tail to surface it as the gate note. Bounded
+  // (24 lines / 2 KB) by construction — a chatty CLI cannot grow it; it is data, not a listener, so
+  // the detach discipline (011 R14) is untouched.
+  private stderrRing: string[] = [];
+
   // Callbacks
   onEvent: ((event: ClaudeStreamEvent) => void) | null = null;
   onExit: ((code: number | null) => void) | null = null;
@@ -84,7 +91,13 @@ export class ClaudeSession {
     this.log = options.log;
   }
 
+  /** Spec 045 D1 — the recent stderr tail (joined lines; '' when the CLI wrote nothing). */
+  stderrTail(): string {
+    return this.stderrRing.join('\n');
+  }
+
   async spawn(prompt: string): Promise<boolean> {
+    this.stderrRing = []; // 045 D1: per-spawn reset — the tail always belongs to THIS turn
     const args: string[] = [];
 
     // Resume must come before prompt.
@@ -155,6 +168,9 @@ export class ClaudeSession {
    * kill detaches — the leak the spec targets is the FORCE-KILLED child.
    */
   private attachListeners(): void {
+    // Spec 045 D1 (review #5): reset HERE, not only in spawn() — the attachTo test seam calls
+    // attachListeners without spawn(), and the ring must always belong to the current child.
+    this.stderrRing = [];
     const p = this.process;
     if (!p) return;
 
@@ -171,7 +187,17 @@ export class ClaudeSession {
 
     this.onStderrData = (data: Buffer): void => {
       const text = data.toString().trim();
-      if (text) this.log.error({ sessionId: this.id, stderr: text }, 'Claude CLI stderr');
+      if (text) {
+        this.log.error({ sessionId: this.id, stderr: text }, 'Claude CLI stderr');
+        // Spec 045 D1: keep the tail for failure triage (cap 24 lines / 2 KB, oldest dropped).
+        this.stderrRing.push(...text.split('\n'));
+        while (
+          this.stderrRing.length > 24 ||
+          (this.stderrRing.length > 1 && this.stderrRing.join('\n').length > 2048)
+        ) {
+          this.stderrRing.shift();
+        }
+      }
     };
     p.stderr!.on('data', this.onStderrData);
 
@@ -184,6 +210,12 @@ export class ClaudeSession {
     this.onProcError = (err: Error): void => {
       this.log.error({ sessionId: this.id, err: err.message }, 'Process error');
       this.alive = false;
+      // Spec 045 (review blocker #1): a MISSING `claude` binary emits ONLY 'error' (ENOENT) — never
+      // 'exit' — so without this the turn would strand until the 10-min timeout. Feed the message to
+      // the triage ring and fire the exit path; runTurn's finish() is settled-guarded, so a later
+      // real 'exit' (non-ENOENT error cases) cannot double-resolve.
+      this.stderrRing.push(err.message);
+      this.onExit?.(null);
     };
     p.on('error', this.onProcError);
   }
