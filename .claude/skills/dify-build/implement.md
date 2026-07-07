@@ -3,6 +3,12 @@
 > Body of ONE bounded step. Instantiate/edit the YAML, run the validate→fix loop, then
 > **STOP — do not begin Phase ④ (Test).** This is the engine's load-bearing phase.
 
+> 🌐 **LANGUAGE — obey before anything else.** Your ENTIRE chat reply, from the very first character, is
+> written in the language of `{{REQUIREMENT}}` (carried by `SPEC.md`). If it is Japanese, do **not** emit a
+> single English sentence — not even an orienting lead-in like "I'll start by re-reading…" or "Let me…".
+> There is NO English preamble; token one is already in the requirement's language. Everything written
+> into the YAML itself (ids, `type`, keys, refs, code) stays ASCII — see *Output language*.
+
 You are producing a valid Dify workflow YAML that satisfies `SPEC.md`. Read [SKILL.md](SKILL.md)
 ground rules first — every non-negotiable below comes from [AGENTS.md](../../../AGENTS.md)
 §3/§4/§9 and is enforced after this turn by the backend.

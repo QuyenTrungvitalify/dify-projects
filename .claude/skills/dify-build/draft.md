@@ -1,5 +1,11 @@
 # Phase ①+② (Fast build) — Merged Analyze + Spec for a single-LLM workflow
 
+> 🌐 **LANGUAGE — obey before anything else.** Your ENTIRE reply, from the very first character, is
+> written in the language of `{{REQUIREMENT}}`. If it is Japanese, do **not** emit a single English
+> sentence — not even an orienting lead-in like "This is a from-scratch build…" or "Let me…". There is NO
+> English preamble; token one is already in the requirement's language. Never write English then
+> translate. (Machine identifiers / slugs / YAML keys stay ASCII — see *Output language*.)
+
 > Body of ONE bounded step (spec 028 fast mode). This turn REPLACES the separate Analyze and Spec
 > turns for a **from-scratch, single-LLM** build: do the (trivial) from-scratch analysis AND author the
 > target spec, then **STOP — do not begin Phase ③ (Implement).**

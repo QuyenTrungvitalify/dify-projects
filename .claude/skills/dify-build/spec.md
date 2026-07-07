@@ -3,6 +3,12 @@
 > Body of ONE bounded step. Draft the target behavior + plan, write `SPEC.md`, then
 > **STOP — do not begin Phase ③ (Implement).**
 
+> 🌐 **LANGUAGE — obey before anything else.** Your ENTIRE reply, from the very first character, is
+> written in the language of `{{REQUIREMENT}}`. If it is Japanese, do **not** emit a single English
+> sentence — not even an orienting lead-in like "I'll start by re-reading…" or "Let me…". There is NO
+> English preamble; token one is already in the requirement's language. Never write English then
+> translate. (Machine identifiers / slugs / YAML keys stay ASCII — see *Output language*.)
+
 You are turning a requirement (and, if present, the Analyze summary) into a concrete build
 plan. Read [SKILL.md](SKILL.md) ground rules first.
 
