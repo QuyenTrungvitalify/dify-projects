@@ -1,11 +1,11 @@
 # Spec 041 — "Request changes" at every parked gate from Spec onward
 
 **Status**: **Implemented** (2026-07-07, same day as authored) — D1+D2 landed with tests. **Backend-only**
-(`gate.ts` + `orchestrator.ts` + their tests). No frontend change, no i18n change, no new deps, no
-Dify-contact change. Disjoint from the in-flight spec-038 work (which touches
-`linters.ts`/`post-turn.ts`/`report.ts` — not `gate.ts`/`orchestrator.ts`). Verified green: `gate.test.ts`
-(14), `advance-loop.test.ts` (14, incl. 2 new spec-041 routing tests), `live-test.test.ts` (19). (A repo-wide
-`tsc` currently trips on an unrelated spec-038 WIP compile error in `report.ts` — not touched by 041.)
+(`gate.ts` + `orchestrator.ts` + their tests). No frontend change, no i18n change (the `Request changes`
+label reuses the existing `変更を依頼` mapping), no new deps, no Dify-contact change. Landed riding commit
+`1984215` (the concurrent spec-037 batch). Post-landing verification (2026-07-07, after 037/038 completed):
+all 5 acceptance items re-checked against the tree — `gate.test.ts` + `advance-loop.test.ts` 28/28,
+repo-wide `tsc` clean, full server suite 376/376.
 
 Files touched: `server/lib/gate.ts` (D1) · `server/lib/orchestrator.ts` (D2) · `test/gate.test.ts` +
 `test/advance-loop.test.ts` (tests).
