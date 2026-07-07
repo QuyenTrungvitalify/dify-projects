@@ -177,6 +177,28 @@ class DifyConsoleClient:
         r.raise_for_status()
         return r.json()
 
+    def list_plugins(self) -> dict[str, Any]:
+        """Installed plugins (spec 037 D5 — endpoint + shape verified live 2026-07-06):
+        `{plugins: [{plugin_unique_identifier, name, version, checksum, …}], total}`; the
+        `plugin_unique_identifier` is EXACTLY the `dependencies:` form — bare hex64 after `@`,
+        no `sha256:` literal."""
+        r = requests.get(
+            f"{self.base_url}/workspaces/current/plugin/list",
+            headers=self._headers, timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def list_datasets(self, page: int = 1, limit: int = 100) -> dict[str, Any]:
+        """Knowledge-base datasets (spec 037 D5 — paged envelope `{data, has_more, limit, total,
+        page}`, verified live 2026-07-06)."""
+        r = requests.get(
+            f"{self.base_url}/datasets",
+            headers=self._headers, params={"page": page, "limit": limit}, timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()
+
     def default_model(self, model_type: str = "llm") -> dict[str, Any]:
         """The workspace system-default for a model type (may be an invalid/unavailable model)."""
         r = requests.get(
@@ -512,6 +534,31 @@ def cmd_models(args) -> int:
     return 0
 
 
+def cmd_plugins(args) -> int:
+    client = _client_from_env()
+    try:
+        res = client.list_plugins()
+    except requests.RequestException as e:
+        sys.exit(f"❌ plugins failed: {_fmt_request_error(e)}")
+    # spec 037 D5: emit only what the harvester needs — name + the dependencies-form identifier.
+    plugins = [{"name": p.get("name"), "identifier": p.get("plugin_unique_identifier")}
+               for p in (res.get("plugins") or []) if p.get("plugin_unique_identifier")]
+    print(json.dumps({"plugins": plugins}))
+    return 0
+
+
+def cmd_datasets(args) -> int:
+    client = _client_from_env()
+    try:
+        res = client.list_datasets()
+    except requests.RequestException as e:
+        sys.exit(f"❌ datasets failed: {_fmt_request_error(e)}")
+    datasets = [{"id": d.get("id"), "name": d.get("name")}
+                for d in (res.get("data") or []) if d.get("id")]
+    print(json.dumps({"datasets": datasets}))
+    return 0
+
+
 def cmd_api_key(args) -> int:
     client = _client_from_env()
     try:
@@ -689,6 +736,14 @@ def main() -> int:
     p_models = sub.add_parser("models", help="List enabled LLM models + the system default (JSON)")
     p_models.add_argument("--project", help="Load envs/dev.env from this project")
     p_models.set_defaults(func=cmd_models)
+
+    p_plugins = sub.add_parser("plugins", help="List installed plugins with dependencies-form identifiers (JSON; spec 037)")
+    p_plugins.add_argument("--project", help="Load envs/dev.env from this project")
+    p_plugins.set_defaults(func=cmd_plugins)
+
+    p_datasets = sub.add_parser("datasets", help="List knowledge-base datasets {id, name} (JSON; spec 037)")
+    p_datasets.add_argument("--project", help="Load envs/dev.env from this project")
+    p_datasets.set_defaults(func=cmd_datasets)
 
     p_key = sub.add_parser("api-key", help="Mint an app-level API key for an app (JSON {token})")
     p_key.add_argument("--app-id", required=True)

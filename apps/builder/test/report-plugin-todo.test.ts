@@ -90,3 +90,62 @@ describe('runReport — D2 advisory', () => {
     assert.doesNotMatch(report.notes, /unresolved_plugin_todo/);
   });
 });
+
+// ── Spec 037 S1 (AC 4/4b): the runnability preflight in the ④ report ────────────────────────────
+// ④ is backend (never the implement verify), so runReport RECOMPUTES the preflight on the same
+// workflow text — a human's ③-gate edit followed by Confirm must not ship a STALE note.
+
+const PREFLIGHT_SHIM = `#!/usr/bin/env bash
+if [ "$1" = "-c" ]; then
+  case "$2" in
+    *runnability_facts*)
+      [ -n "$PREFLIGHT_FACTS" ] && printf '%s' "$PREFLIGHT_FACTS" && exit 0
+      exit 1 ;;
+  esac
+fi
+exit 0
+`;
+
+describe('runReport — spec 037 preflight recompute (AC 4/4b)', () => {
+  test('blockers present → the note leads into report.json.notes; existing D2 note byte-unchanged', async () => {
+    writeFileSync(join(dir, '.venv', 'bin', 'python'), PREFLIGHT_SHIM, { mode: 0o755 });
+    process.env.PREFLIGHT_FACTS = JSON.stringify({
+      kind: 'runnability_facts',
+      model_nodes: [{ id: 'n1', type: 'llm', empty: true }],
+      code_nodes: [], kr_nodes: [],
+    });
+    try {
+      seedWorkflow('dependencies: []\n# TODO: add plugin hash from target workspace\n');
+      const task = await createTask(dir, { requirement: 'p', project: PROJECT, slug: SLUG, deploy: 'none' });
+      const rep = await runReport(dir, task, log);
+      const report = JSON.parse(readFileSync(join(dir, rep.reportRel), 'utf8'));
+      assert.match(report.notes, /preflight: not runnable out-of-the-box/);
+      assert.match(report.notes, /model fill \(llm n1/);
+      // the D2 note's exact phrasing survives alongside (spec 037 AC 4)
+      assert.match(report.notes, /unresolved_plugin_todo: dependencies are empty but a "# TODO add plugin hash" remains/);
+      assert.equal(rep.lintClean, true, 'preflight can never flip the lint verdict');
+    } finally {
+      delete process.env.PREFLIGHT_FACTS;
+    }
+  });
+
+  test('AC 4b: a STALE task.preflightNote is recomputed away when the workflow was fixed at the gate', async () => {
+    writeFileSync(join(dir, '.venv', 'bin', 'python'), PREFLIGHT_SHIM, { mode: 0o755 });
+    process.env.PREFLIGHT_FACTS = JSON.stringify({
+      kind: 'runnability_facts',
+      model_nodes: [{ id: 'n1', type: 'llm', empty: false }],
+      code_nodes: [], kr_nodes: [],
+    });
+    try {
+      seedWorkflow('workflow:\n  graph:\n    nodes: []\n'); // fixed at the gate: no TODO, model filled
+      const task = await createTask(dir, { requirement: 'q', project: PROJECT, slug: SLUG, deploy: 'none' });
+      task.preflightNote = 'preflight: not runnable out-of-the-box — needs: STALE. Advisory — does not block the build.';
+      const rep = await runReport(dir, task, log);
+      const report = JSON.parse(readFileSync(join(dir, rep.reportRel), 'utf8'));
+      assert.equal(task.preflightNote, undefined, 'stale note cleared by the ④ recompute');
+      assert.doesNotMatch(report.notes, /preflight:/);
+    } finally {
+      delete process.env.PREFLIGHT_FACTS;
+    }
+  });
+});

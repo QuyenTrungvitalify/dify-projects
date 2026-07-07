@@ -94,17 +94,36 @@ def analyze_file(path):
         "empty": (deps == [] or deps is None),
         "has_todo_marker": bool(re.search(r'#\s*TODO[^\n]*(plugin|hash)', raw, re.I)),
     }
-    # quick runnability rollup
+    # spec 037 D2 backport: knowledge-retrieval nodes with empty dataset_ids are a runnability
+    # blocker too (retrieval returns nothing) — mirrors the builder's runnability.ts detector.
+    out["kr_nodes"] = []
+    for n in nodes_of(doc):
+        d = n.get("data") or {}
+        if d.get("type") == "knowledge-retrieval":
+            out["kr_nodes"].append({"id": n.get("id"), "title": d.get("title"),
+                                    "dataset_empty": not d.get("dataset_ids")})
+    # quick runnability rollup — prose in `runnable_blockers` (human-facing, kept), plus the
+    # machine-readable `runnable_blocker_classes` (spec 037 r2: the AC 2 parity test between this
+    # file and apps/builder/server/lib/runnability.ts compares THIS field, never prose substrings).
     out["runnable_blockers"] = []
+    classes = set()
     empty_models = [m for m in out["model_nodes"] if m["model_empty"]]
     if empty_models:
+        classes.add("model_empty")
         out["runnable_blockers"].append(
             "model.provider/name empty on: " + ", ".join(f"{m['type']} {m['id']}" for m in empty_models))
     traps = [c["id"] for c in out["code_nodes"] if c["sandbox_trap"]]
     if traps:
+        classes.add("sandbox_trap")
         out["runnable_blockers"].append(f"code node(s) import non-stdlib (§4.5 trap): {traps}")
     if out["dependencies"]["empty"] and out["dependencies"]["has_todo_marker"]:
+        classes.add("plugin_todo")
         out["runnable_blockers"].append("unresolved plugin TODO (dependencies: [] + # TODO hash)")
+    kr_empty = [k["id"] for k in out["kr_nodes"] if k["dataset_empty"]]
+    if kr_empty:
+        classes.add("dataset_empty")
+        out["runnable_blockers"].append(f"dataset_ids empty on knowledge-retrieval: {kr_empty}")
+    out["runnable_blocker_classes"] = sorted(classes)
     return out
 
 

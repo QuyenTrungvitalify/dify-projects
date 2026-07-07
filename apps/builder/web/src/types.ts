@@ -105,6 +105,9 @@ export interface WireTask {
   analysisFeatures?: string[];
   analysisFindQuery?: string;
   patternAdvisory?: string;
+  /** Spec 037 S1: the runnability preflight advisory (backend-computed, set/cleared per implement
+   *  verify) — rendered leading the ③ gate card summary. Advisory only, never blocks. */
+  preflightNote?: string;
   /** spec 028 §5: set when an `auto`+fast build's merged draft found a non-single-LLM shape — the
    *  auto-advance hard-stopped at the Spec gate; shown (leading) on the Spec gate card. */
   fastReviewNote?: string;

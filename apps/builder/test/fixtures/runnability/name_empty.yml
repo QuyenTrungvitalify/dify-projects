@@ -1,0 +1,9 @@
+# Parity fixture (AC 1b): provider SET but name empty — the predicate is OR, not AND.
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000001'
+        data:
+          type: llm
+          title: Half Filled
+          model: { provider: openai, name: '', mode: chat }

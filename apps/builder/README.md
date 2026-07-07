@@ -95,7 +95,10 @@ The real `.env` is gitignored; only `.env.example` is committed.
 2. **Spec ②** — draft `SPEC.md` (editable in place at the gate; last write wins).
 3. **Implement ③** — generate `main.yml`, self-correcting against the 4 linters (capped). The
    post-turn gate lints **every** turn-touched `workflows/*.ya?ml` (spec 039), and an extension
-   twin of the declared file (`main.yaml` beside `main.yml`) hard-errors.
+   twin of the declared file (`main.yaml` beside `main.yml`) hard-errors. With console creds the
+   backend harvests **workspace facts** (real plugin identifiers + dataset ids + enabled models)
+   into the turn as data, and the ③ gate shows an advisory **runnability preflight** note when the
+   build still isn't runnable out-of-the-box (spec 037).
 4. **Test ④** — re-run the linters + write `report.json`. Then by **deploy**:
    - **`none`** — local only; reports the workflow path.
    - **`selfhost`** — an **Import** button pushes to Dify and reports a clickable `app_url`.

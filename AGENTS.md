@@ -236,3 +236,7 @@ the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.
 - **The gate runs 4 linters** (spec 038): `validate_workflow.py` + `lint_refs.py` +
   `lint_plugin_hashes.py` + `lint_node_bodies.py` (node bodies vs the generated `NodeData_*`
   schemas; escape hatch = a column-0 `# lint-bodies: allow <node_id>` line).
+- **Workspace facts are the ONLY sanctioned source of plugin hashes / dataset ids in a Builder
+  turn** (spec 037): the backend harvests them into the `{{KNOWLEDGE}}` block — copy verbatim;
+  no block → leave the documented TODO form (§4.3's never-fabricate rule is unchanged). The ③
+  gate shows an advisory `preflight:` note when a build is not runnable out-of-the-box.

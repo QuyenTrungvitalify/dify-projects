@@ -1,0 +1,26 @@
+# Parity fixture: zero blockers (model filled, stdlib-only code, real dep, dataset present).
+dependencies:
+  - type: marketplace
+    value:
+      marketplace_plugin_unique_identifier: langgenius/openai:0.2.8@aae2be0900000000000000000000000000000000000000000000000000000000
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000001'
+        data:
+          type: llm
+          title: Filled
+          model: { provider: openai, name: gpt-4o-mini, mode: chat }
+      - id: '1700000000002'
+        data:
+          type: code
+          title: Stdlib Only
+          code: |
+            import json, re
+            def main(x: str) -> dict:
+                return {"y": json.dumps(x)}
+      - id: '1700000000003'
+        data:
+          type: knowledge-retrieval
+          title: KR
+          dataset_ids: ['8aa20000-0000-0000-0000-000000000000']

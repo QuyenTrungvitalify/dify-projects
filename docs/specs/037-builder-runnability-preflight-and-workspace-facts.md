@@ -1,11 +1,9 @@
 # Spec 037 — Builder runnability preflight & workspace facts (advisory ③ note + harvested `{{KNOWLEDGE}}` data)
 
-**Status**: Draft — authored 2026-07-06 via multi-agent analysis, for implementation. Medium size, almost entirely
-backend (one new lib, two new `sync.py` subcommands, two orchestrator seams) plus a one-line FE render and docs.
-Two stages: **S1 detection** (a pure-local runnability preflight surfaced as a NON-blocking note at the ③ Implement
-gate) and **S2 facts** (a backend-side workspace harvest rendered into the Implement prompt as data). This spec is
-the "riêng spec" that 032 OQ3 explicitly deferred to ([032:267](032-builder-live-workflow-test.md#L267)). All
-tensions the analysis surfaced are resolved as D1–D8; D1–D8 recommended locked. Ready to implement S1→S4.
+**Status**: **Implemented** (S1–S4 complete 2026-07-07 — see r4). S1 preflight advisory live at the ③
+gate + ④ report; S2 harvest (`sync.py plugins|datasets` verified against the real workspace at implement
+time); S3 `{{KNOWLEDGE}}` injection on both the fresh and resume seams; S4 docs. Implementation deviations
+recorded in r4 (probe-not-TS-parse, `hasUnresolvedPluginTodo` relocation).
 
 **Builds on**:
 - [032](032-builder-live-workflow-test.md) — B5 ("main.yml on-disk giữ model-rỗng (portable)",
@@ -421,3 +419,20 @@ since DEPTH/028) is corrected to 10 in passing.
   at `GET /datasets` (paged envelope). Identifier form corrected everywhere: bare `@<hex64>`, no `sha256:`
   literal (AC 9 regex fixed accordingly); Risk 2 downgraded from does-it-exist to version-drift; Builds-on 036
   note updated — 036 landed 2026-07-06 (`1b98136`), harvester rides the retained `difyCreds()` alias per D8.
+- r4 (2026-07-07) — IMPLEMENTED S1→S4 (35 new tests: runnability 9 + preflight-gate 4 + report-recompute 2
+  + workspace-facts 6 + knowledge-inject 5 + parity fixtures; server suite 376/376, web 151/151, pre-commit
+  green). Deviations from the spec text, none touching a Decision's intent:
+  (a) §1's "same YAML dependency the backend already carries" was FALSE — the backend has NO yaml dep
+  (fastify only; YAML is read via inline python probes, cf. YAML_PROBE). Implemented per repo idiom: an
+  inline `RUNNABILITY_PROBE` (python, extracts FACTS as JSON, marker `runnability_facts` for test shims) +
+  a PURE TS `classifyRunnability` — D1's TS-owns-the-semantics intent preserved; the probe rides the
+  013-D2 `runPython` runner seam so the gate tests inject planted facts.
+  (b) `hasUnresolvedPluginTodo` MOVED report.ts → runnability.ts (re-exported from report.ts, consumers
+  unchanged) — importing it per D1 as written would have made a report↔runnability cycle.
+  (c) AC 2 parity compares `runnable_blocker_classes` (the r2 machine field, backported to
+  report_structure.py together with the D2 `dataset_empty` class); CI builder job gains
+  setup-python + pyyaml and the parity test HARD-FAILS under CI without python.
+  (d) AC 9 ran live at implement time (plugins identifier matched `/@[0-9a-f]{64}$/`, datasets paged
+  envelope) and ships as the creds-gated pin in workspace-facts.test.ts.
+  (e) The `{{KNOWLEDGE}}` placement rule holds against the real implement.md (byte-identity test is
+  line-anchored — the D7 prose mentions the header name in backticks, which is text, not a block).

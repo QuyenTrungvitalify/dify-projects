@@ -29,8 +29,11 @@ const runArtifact = (task: Task, file: string): string =>
 /** Spec 028: `trivial` on the fast path (the merged draft turn), else `standard`. */
 const depth = (task: Task): string => (task.fastMode ? 'trivial' : 'standard');
 
-/** Full 8-token map; unused tokens default to "" (DEPTH defaults to 'standard') so the render leaves
- *  no `{{...}}` behind — the "every known token is always substituted" contract (SKILL.md :42–51). */
+/** Full 10-token map (was mislabeled "8" — DEPTH/028 and KNOWLEDGE/037 joined later); unused tokens
+ *  default to "" (DEPTH to 'standard') so the render leaves no `{{...}}` behind — the "every known
+ *  token is always substituted" contract (SKILL.md token table). KNOWLEDGE stays '' HERE — phases.ts
+ *  is pure/io-free; the orchestrator (which owns the render seam) overrides it for Implement from
+ *  `.runs/<taskId>/workspace.json` (spec 037 S3, r2). */
 const vars = (partial: Partial<Record<string, string>>): Record<string, string> => ({
   TASK_ID: '',
   // Spec 030: the flat `{{SLUG}}` is replaced by the two-level `{{PROJECT}}` + `{{WORKFLOW_SLUG}}` —
@@ -43,6 +46,7 @@ const vars = (partial: Partial<Record<string, string>>): Record<string, string> 
   PRIOR_ARTIFACT: '',
   DEPLOY: '',
   DEPTH: 'standard',
+  KNOWLEDGE: '',
   ...partial,
 });
 

@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { stat, writeFile, readFile } from 'node:fs/promises';
 import { runPython } from './shell.js';
 import { LINTERS, LINT_DETAIL_LINES, lintClean, type LintCodes } from './linters.js';
+import { checkRunnability, preflightNote, hasUnresolvedPluginTodo } from './runnability.js';
 import type { Task } from '../state/task.js';
 import type { SessionLogger } from './claude-session.js';
 
@@ -52,31 +53,10 @@ export function editExistingDuplicateWarning(task: Task): string | null {
   );
 }
 
-/**
- * D2 (spec 017): does the produced workflow still carry an UNRESOLVED plugin TODO? PURE.
- *
- * The documented authoring convention (AGENTS.md §4.3) is: a workflow that needs a marketplace
- * plugin leaves `dependencies: []` and a `# TODO: add plugin hash from target workspace` marker.
- * The three linters PASS that (an empty `dependencies` is valid format — `lint_plugin_hashes` only
- * rejects a malformed *present* hash), so a `selfhost`/`cloud` import would later fail for the
- * missing plugin with no earlier signal. This textual check is that signal. It is ADVISORY: the
- * caller records it as a NOTE and never lets it flip `lintClean` or block a build.
- *
- * Detection (conservative, no YAML dep): a comment line carrying TODO + "plugin" + "hash" AND an
- * empty inline `dependencies: []` (optionally with a trailing inline `# comment`; a populated
- * block-style `dependencies:` means the hash was filled in, so the marker is stale text, not a
- * live gap → not flagged).
- */
-export function hasUnresolvedPluginTodo(yamlText: string): boolean {
-  const todoMarker = yamlText
-    .split('\n')
-    .some((line) => /#\s*todo\b/i.test(line) && /plugin/i.test(line) && /hash/i.test(line));
-  if (!todoMarker) return false;
-  // `(#.*)?` tolerates a trailing inline comment, e.g. `dependencies: []  # TODO add plugin hash`
-  // — the form an authoring turn often emits. Without it the `$` anchored right after `]`, so the
-  // inline-comment form slipped past the check (false negative). (spec 017 D2 hardening)
-  return /^[ \t]*dependencies:[ \t]*\[[ \t]*\][ \t]*(#.*)?$/m.test(yamlText);
-}
+// D2 (spec 017): hasUnresolvedPluginTodo MOVED to runnability.ts (spec 037 S1 — runnability.ts
+// uses it as its `plugin_todo` class predicate; keeping it here would make a report↔runnability
+// import cycle). Re-exported so every existing consumer keeps importing it from report.ts.
+export { hasUnresolvedPluginTodo };
 
 /** The Dify Studio manual-import steps for the cloud path (AC #9) — copyable YAML lives in main.yml. */
 function cloudStudioNote(wfRel: string): string {
@@ -123,6 +103,15 @@ export async function runReport(
     /* unreadable workflow → the lint gate above already recorded the real failure; not our concern */
   }
 
+  // Spec 037 S1 (r2) — RECOMPUTE the runnability preflight on the same workflow text: ④ is backend
+  // (never the implement verify), so a human's ③-gate edit of main.yml followed by Confirm must not
+  // ship a STALE preflightNote into report.json. Advisory only — a probe failure changes nothing.
+  try {
+    task.preflightNote = preflightNote(await checkRunnability(projectsDir, wfRel)) ?? undefined;
+  } catch {
+    /* advisory — the lint gate above already surfaced any real unreadability */
+  }
+
   // 2. Synthesize report.json. `accepted_lint_failure` marks the still-failing "Accept anyway"
   //    human override (§D / AC #25). Deploy drives app_url / duplicate_warning / notes.
   const accepted = !!opts?.acceptedLintFailure;
@@ -141,6 +130,9 @@ export async function runReport(
   // O2 (spec 019): carry the pattern-coverage advisory into the report too (an `auto` run never shows
   // the Analyze gate where it first appears). Advisory only — it never fails the build.
   if (task.patternAdvisory) noteParts.push(task.patternAdvisory);
+  // Spec 037 S1: the runnability preflight line — an `auto` run never shows the ③ gate where it
+  // first appears, so the report carries it too (the patternAdvisory precedent). Advisory only.
+  if (task.preflightNote) noteParts.push(task.preflightNote);
   if (accepted) noteParts.unshift('ACCEPTED with failing linters (human "Accept anyway" override).');
   if (task.deploy === 'none') noteParts.push('deploy=none (no Dify contact).');
   if (task.deploy === 'cloud') noteParts.push(cloudStudioNote(wfRel));

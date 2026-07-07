@@ -47,9 +47,10 @@ describe('computeGate', () => {
     assert.ok(!g.actions.some((a) => a.id === 'discard'));
   });
 
-  test('test awaiting_import (selfhost ④) → Import / Skip / Discard, flagged', () => {
+  test('test awaiting_import (selfhost ④) → Import / Skip / Request changes / Discard, flagged (spec 041)', () => {
     const g = computeGate('test', { outcome: 'awaiting_import' }, 'selfhost');
-    assert.deepEqual(g.actions.map((a) => a.id), ['import', 'skip_import', 'discard']);
+    assert.deepEqual(g.actions.map((a) => a.id), ['import', 'skip_import', 'changes', 'discard']);
+    assert.deepEqual(g.actions.map((a) => a.kind), ['confirm', 'confirm', 'reply', 'cancel']);
     // both import paths are /confirm so `auto` auto-confirms the FIRST (import)
     assert.equal(g.actions[0].kind, 'confirm');
     assert.equal(g.actions[1].kind, 'confirm');
@@ -86,11 +87,18 @@ describe('computeGate', () => {
     assert.equal(g.flag, 'test_result');
   });
 
-  test('test infra_degraded → Retry live / Accept static / Delete apps / Discard, flagged', () => {
+  test('test infra_degraded → Retry live / Accept static / Request changes / Delete apps / Discard, flagged (spec 041)', () => {
     const g = computeGate('test', { outcome: 'infra_degraded' }, 'selfhost');
-    assert.deepEqual(g.actions.map((a) => a.id), ['retry_live', 'accept_static', 'cleanup_apps', 'discard']);
-    assert.deepEqual(g.actions.map((a) => a.kind), ['confirm', 'confirm', 'confirm', 'cancel']);
+    assert.deepEqual(g.actions.map((a) => a.id), ['retry_live', 'accept_static', 'changes', 'cleanup_apps', 'discard']);
+    assert.deepEqual(g.actions.map((a) => a.kind), ['confirm', 'confirm', 'reply', 'confirm', 'cancel']);
     assert.equal(g.flag, 'infra_degraded');
+  });
+
+  test('spec 041: test still_failing → Accept / Request changes / Discard (fixable, not just accept/discard)', () => {
+    const g = computeGate('test', { outcome: 'still_failing' }, 'none');
+    assert.deepEqual(g.actions.map((a) => a.id), ['accept', 'changes', 'discard']);
+    assert.deepEqual(g.actions.map((a) => a.kind), ['confirm', 'reply', 'cancel']);
+    assert.equal(g.flag, 'still_failing');
   });
 
   test('test success is terminal (no actions) regardless of deploy target', () => {

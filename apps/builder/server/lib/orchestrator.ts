@@ -14,7 +14,7 @@
  * artifact-exists/non-empty + confinement-with-revert. The scaffold (`init_project.py` + SPEC.md
  * move) is re-homed from Lát 2's raw advance to the ②→③ `/confirm` (AC #18).
  */
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ClaudeSession } from './claude-session.js';
 import { confinementCheck, gitDirtyPaths, type PostTurnDetail } from './post-turn.js';
@@ -30,8 +30,9 @@ import { deriveSlugName, firstFreeSlug } from './slug.js';
 import { difySeedScaffoldAndPull, localEditSeed, scaffoldAtSpecGate, relocateRunArtifacts } from './scaffold.js';
 import { runImportAndFinish, finishWithoutImport } from './import.js';
 import { runLiveTest, finishLiveAccepted, cleanupTestApps } from './live-test.js';
-import { difyTargets } from './dify-io.js';
+import { difyTargets, harvestWorkspaceFacts, knowledgeBlock, loadWorkspaceFacts } from './dify-io.js';
 import { applyAnalysisToTask } from './analysis.js';
+import { checkRunnability, preflightNote } from './runnability.js';
 import { persistCriteria } from './criteria.js';
 import { saveTask, type Task } from '../state/task.js';
 
@@ -197,19 +198,26 @@ export async function confirmAdvance(
  */
 export async function replyWithin(task: Task, text: string, ctx: OrchestratorCtx): Promise<void> {
   if (task.phase === 'test') {
-    // FIX (a spec-032 defect, corrected during 036): "Request changes" at the LIVE test-result gate is a
-    // REVISION request — the human wants the WORKFLOW changed per their feedback. 032 dropped `text` and
-    // just re-ran runLiveTest on the UNCHANGED main.yml, so the edit silently no-op'd (the output never
-    // changed — the reported bug). Route it back through the IMPLEMENT phase instead: resume the implement
-    // session and edit main.yml with the change request, then re-park at the Implement gate — the human
-    // re-tests from there via "Test with workflow". (A bare re-run with NO edit stays the separate
-    // "Re-test" button, `test_live`, which still calls runLiveTest on the current workflow.)
+    // Spec 041 (generalizes the spec-032→036 fix): a "Request changes" at ANY ④ gate is a REVISION —
+    // the human wants the WORKFLOW changed per their feedback. Route it back through the IMPLEMENT phase
+    // (resume the implement session, edit main.yml with the change request), then re-park at the Implement
+    // gate — the human re-tests from there via "Test with workflow". This holds for the LIVE gates
+    // (test_result/infra_degraded) AND the STATIC gates (awaiting_import/still_failing): a ④ revision is
+    // `status==='awaiting_confirm'`. The signal is `status`, NOT `testMode`, so the static gates now edit
+    // the workflow instead of silently re-running the report on the UNCHANGED main.yml.
+    //   (History: 032 dropped `text` and re-ran runLiveTest on the unchanged workflow → the edit no-op'd;
+    //    036 fixed it for the live path only; 041 extends the same correct routing to every ④ gate.)
+    if (task.status === 'awaiting_confirm' && task.sessionIds.implement) {
+      await runPhaseAndGate(task, 'implement', ctx, { resumeId: task.sessionIds.implement, replyText: text });
+      return;
+    }
+    // Retry OUT OF ERROR (status==='error'), or no implement session to resume: re-run ④ itself, exactly
+    // as before — a live turn on the live path, else the backend static report (no turn/session).
     if (task.testMode === 'live') {
       const resumeId = task.sessionIds.implement;
       await runPhaseAndGate(task, 'implement', ctx, { resumeId, replyText: text });
       return;
     }
-    // Static ④ is backend (no turn/session) — a reply there just re-runs the report, exactly as before.
     await runTestAndFinish(task, ctx, false);
     return;
   }
@@ -327,7 +335,16 @@ async function runPhase(
   await emit(task, ctx);
 
   const body = await readFile(join(projectsDir, phase.promptFile!(task)), 'utf8');
-  const renderedFresh = renderPrompt(body, phase.injectVars(task));
+  // Spec 037 S2+S3 (Implement only): harvest the workspace facts (D5 — degrades to nothing without
+  // creds/Dify; never blocks), then render them into the {{KNOWLEDGE}} token. The orchestrator owns
+  // this — phases.ts stays pure/io-free (r2); the vars() default '' keeps every other phase (and a
+  // facts-less Implement) byte-identical.
+  let knowledge = '';
+  if (phaseId === 'implement') {
+    await harvestWorkspaceFacts(projectsDir, task.taskId, log);
+    knowledge = knowledgeBlock(await loadWorkspaceFacts(projectsDir, task.taskId));
+  }
+  const renderedFresh = renderPrompt(body, { ...phase.injectVars(task), KNOWLEDGE: knowledge });
   // Spec 012: the trailing `添付画像:` path block (empty string when no images). Appended ONCE to
   // whichever prompt string is finally sent — this is the single seam BOTH the fresh render and the
   // /reply resume prompt pass through (the resume prompt skips phases.ts injectVars entirely), so it is
@@ -342,7 +359,11 @@ async function runPhase(
   const CHANGE_REQUEST = '## Change request (revise the existing artifact; do not restart from scratch)';
   const freshPrompt =
     (opts?.replyText ? `${renderedFresh}\n\n${CHANGE_REQUEST}\n${opts.replyText}` : renderedFresh) + block;
-  const resumePrompt = opts?.replyText ? `${CHANGE_REQUEST}\n${opts.replyText}${block}` : freshPrompt;
+  // Spec 037 D6(b): the RESUME prompt skips phases.ts injectVars entirely, so the facts ride the
+  // same fresh+resume seam as the attachment block — appended on the replyText branch only (a fresh
+  // turn already carries them via the token; appending here too would double them).
+  const knowledgeTail = knowledge && opts?.replyText ? `\n\n${knowledge}` : '';
+  const resumePrompt = opts?.replyText ? `${CHANGE_REQUEST}\n${opts.replyText}${block}${knowledgeTail}` : freshPrompt;
 
   // Snapshot the pre-edit workflow BEFORE Implement overwrites it, so an edit-existing diff has a
   // real base (idempotent: no-op on a no-seed new build, a Dify-seed, or a /reply re-run, Task 4).
@@ -499,6 +520,23 @@ async function verifyPhase(
     });
     const reasons = [...check.reasons];
     if (turnNote) reasons.unshift(turnNote);
+
+    // Spec 037 S1 — the runnability preflight (D3/D4): recomputed on EVERY implement verify (fresh,
+    // /reply revise) so a fix clears the note and a regression re-raises it; persisted to
+    // .runs/<id>/preflight.json (the criteria.json convention) for the report/tests; NON-FATAL —
+    // a detector throw (unparseable artifact etc.) logs and never fails the phase. Deliberately
+    // NOT in gateAfterPhase (036's seam) — the two specs edit disjoint code (D4/D8).
+    try {
+      const pf = await checkRunnability(projectsDir, phase.artifactRel(task), resolveRunners(ctx).runPython);
+      await writeFile(
+        join(projectsDir, `apps/builder/.runs/${task.taskId}/preflight.json`),
+        JSON.stringify(pf, null, 2)
+      );
+      task.preflightNote = preflightNote(pf) ?? undefined;
+    } catch (e) {
+      log.warn({ taskId: task.taskId, err: errMsg(e) }, 'runnability preflight failed (advisory, non-fatal)');
+    }
+
     const outcome = resolveImplementOutcome(check.detail, turnNote);
     return { outcome, reasons: outcome === 'success' ? [] : reasons };
   }

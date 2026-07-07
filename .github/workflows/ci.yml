@@ -68,6 +68,15 @@ jobs:
             apps/builder/package-lock.json
             apps/builder/web/package-lock.json
 
+      # Spec 037 AC 2 — the runnability parity test spawns real python (the probe AND the /report
+      # skill's report_structure.py both need pyyaml) and HARD-FAILS (never skips) when CI is set,
+      # so the Python↔TS detector-drift guard can't silently rot. This job was Node-only before 037.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install python deps for the runnability parity test (spec 037)
+        run: pip install pyyaml
+
       - name: Install server deps
         working-directory: apps/builder
         run: npm ci

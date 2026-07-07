@@ -228,9 +228,14 @@ function gateView(t: WireTask): GateView {
       return { tone: t.fastReviewNote ? 'warn' : '', badge: tr('gateSpecBadge'), title: tr('gateSpecTitle'), meta,
         summary: lines, showSpecLink: true };
     }
-    case 'implement':
+    case 'implement': {
+      // Spec 037 S1: surface the runnability preflight advisory at the ③ gate (the patternAdvisory
+      // precedent at the Analyze gate above) — backend-computed string, rendered as-is.
+      const implLines = slugLine([tr('gateImplSummary1')]);
+      if (t.preflightNote) implLines.unshift(t.preflightNote);
       return { tone: '', badge: tr('gateImplBadge'), title: tr('gateImplTitle'), meta,
-        summary: slugLine([tr('gateImplSummary1')]), showDiffLink: true };
+        summary: implLines, showDiffLink: true };
+    }
     default:
       return { tone: '', badge: tr('gateReadyBadge'), title: tr('gateReadyTitle'), meta, summary: [] };
   }

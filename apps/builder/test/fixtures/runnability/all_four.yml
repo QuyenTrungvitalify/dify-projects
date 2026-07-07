@@ -1,0 +1,24 @@
+# Parity fixture (spec 037 AC 2): all FOUR blocker classes present.
+dependencies: []  # TODO: add plugin hash from target workspace
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000001'
+        data:
+          type: llm
+          title: Empty Model
+          model: { provider: '', name: '', mode: chat }
+      - id: '1700000000002'
+        data:
+          type: code
+          title: Trap
+          code: |
+            import requests
+            import json
+            def main(x: str) -> dict:
+                return {"y": x}
+      - id: '1700000000003'
+        data:
+          type: knowledge-retrieval
+          title: KR
+          dataset_ids: []

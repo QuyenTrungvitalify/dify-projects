@@ -226,7 +226,7 @@ describe('advance-loop integration (013 D3)', () => {
     assert.equal(task.status, 'awaiting_confirm', 'lint≠0 ④ is never silently done — it parks (spec 014 D2)');
     assert.equal(task.phase, 'test');
     assert.equal(task.gate?.flag, 'still_failing', 'auto HARD-STOPS on the still_failing flag — no auto-accept/import');
-    assert.deepEqual(task.gate?.actions.map((a) => a.id), ['accept', 'discard']);
+    assert.deepEqual(task.gate?.actions.map((a) => a.id), ['accept', 'changes', 'discard']); // spec 041: + Request changes
     assert.equal(h.calls.runReport, 1, 'the report ran once and decided dirty → parked, not shipped');
   });
 
@@ -309,7 +309,7 @@ describe('advance-loop integration (013 D3)', () => {
       assert.equal(task.phase, 'test');
       assert.equal(task.status, 'awaiting_confirm', 'clean human ④ with creds parks behind the Import button');
       assert.equal(task.gate?.flag, 'awaiting_import');
-      assert.deepEqual(task.gate?.actions.map((a) => a.id), ['import', 'skip_import', 'discard']);
+      assert.deepEqual(task.gate?.actions.map((a) => a.id), ['import', 'skip_import', 'changes', 'discard']); // spec 041: + Request changes
       // AC #9: the static→park deploy STAMP fired — report.ts branches on task.deploy, so this is what
       // makes the Import/Skip re-report label `selfhost` instead of the `DEPLOYED · none` contradiction.
       assert.equal(task.deploy, 'selfhost', 'the static→park stamped deploy=selfhost (before the re-report)');
@@ -368,6 +368,58 @@ describe('advance-loop integration (013 D3)', () => {
     assert.equal(task.phase, 'implement', 're-parked at the Implement gate — the human re-tests from there');
     assert.equal(task.status, 'awaiting_confirm');
     assert.ok(task.gate?.actions.some((a) => a.id === 'continue'), 'the Implement gate offers "Continue to Test"');
+  });
+
+  test('spec 041 — "Request changes" at a STATIC ④ gate also re-runs IMPLEMENT (edits main.yml), not a report re-run', async () => {
+    // spec 041 generalizes the 036 fix: a ④ revision (status awaiting_confirm) routes through Implement
+    // for EVERY gate — including the STATIC ones (awaiting_import / still_failing), where the pre-041 code
+    // re-ran the report on the UNCHANGED workflow and dropped the edit. Signal is `status`, not `testMode`.
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'static reply edits the workflow', confirmMode: 'each_step', deploy: 'none' });
+    task.phase = 'test';
+    task.testMode = 'static'; // ← the static path (NOT live) — the case 036 left re-running the report
+    task.status = 'awaiting_confirm';
+    task.project = 'p';
+    task.workflowSlug = 'wf';
+    task.workflowFile = 'main.yml';
+    task.sessionIds.implement = 'sess-impl';
+    mkdirSync(join(dir, 'projects', 'p', 'wf', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects', 'p', 'wf', 'workflows', 'main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(join(dir, 'projects', 'p', 'wf', 'SPEC.md'), '# spec\nmake it.\n');
+    const h = harness(dir, task, { reportLintClean: true });
+    const turnsBefore = h.calls.runTurn;
+    const reportsBefore = h.calls.runReport;
+
+    await withTurn(task.taskId, () => replyWithin(task, 'add a translation step', h.ctx));
+
+    assert.equal(h.calls.runTurn, turnsBefore + 1, 'the static-gate /reply re-ran the IMPLEMENT turn → main.yml is edited');
+    assert.equal(h.calls.runReport, reportsBefore, 'it did NOT re-run the report on the unchanged workflow');
+    assert.equal(task.phase, 'implement', 're-parked at the Implement gate — the human re-tests/imports from there');
+    assert.equal(task.status, 'awaiting_confirm');
+  });
+
+  test('spec 041 — a Retry OUT OF ERROR at a STATIC ④ (status error) still re-runs the report, NOT implement', async () => {
+    // The status signal must NOT misroute an error-retry: a ④ that errored (status 'error') re-runs ④
+    // itself (the static report), exactly as before 041 — only an awaiting_confirm revision goes to Implement.
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'error retry stays on report', confirmMode: 'each_step', deploy: 'none' });
+    task.phase = 'test';
+    task.testMode = 'static';
+    task.status = 'error'; // ← Retry-out-of-error, not a gate revision
+    task.project = 'p';
+    task.workflowSlug = 'wf';
+    task.workflowFile = 'main.yml';
+    task.sessionIds.implement = 'sess-impl';
+    mkdirSync(join(dir, 'projects', 'p', 'wf', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects', 'p', 'wf', 'workflows', 'main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    const h = harness(dir, task, { reportLintClean: true });
+    const turnsBefore = h.calls.runTurn;
+    const reportsBefore = h.calls.runReport;
+
+    await withTurn(task.taskId, () => replyWithin(task, 'retry please', h.ctx));
+
+    assert.equal(h.calls.runTurn, turnsBefore, 'no IMPLEMENT turn — an error-retry is not a revision');
+    assert.equal(h.calls.runReport, reportsBefore + 1, 'it re-ran the ④ report, exactly as before 041');
   });
 
   test('spec 036 fix — a /reply RESUME prompt carries the "revise the artifact" header (so the model EDITS, not chats)', async () => {

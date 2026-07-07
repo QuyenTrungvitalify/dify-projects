@@ -153,6 +153,10 @@ export interface Task {
   analysisFindQuery?: string;
   // O2 advisory (NOT a hard-fail): set when the chosen pattern lacks a feature the analysis needs.
   patternAdvisory?: string;
+  // Spec 037 S1 advisory (NOT a hard-fail): the runnability preflight line — set (or cleared) on
+  // EVERY implement verify and recomputed by the ④ report; itemizes what keeps the build from
+  // running out-of-the-box (model fill / plugin hash / dataset_ids / sandbox trap).
+  preflightNote?: string;
   // Spec 028 §5: set when an `auto`+fast build's merged draft found a NON-single-LLM shape (features
   // ⊄ {llm}, or absent) — the auto-advance hard-stops at the Spec gate and surfaces this note.
   fastReviewNote?: string;

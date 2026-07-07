@@ -116,6 +116,7 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy, t
         return {
           actions: [
             CONFIRM('accept', 'Accept anyway'),
+            REPLY('changes', 'Request changes'), // spec 041: fix the lint-failing workflow (→ re-run Implement)
             DISCARD(),
           ],
           flag: 'still_failing',
@@ -131,6 +132,7 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy, t
           actions: [
             CONFIRM('import', 'Import to Dify'),
             CONFIRM('skip_import', 'Skip import'),
+            REPLY('changes', 'Request changes'), // spec 041: edit the workflow before importing (→ re-run Implement)
             DISCARD(), // F1: dismiss a build parked at the selfhost Import gate (the linted .yml stays on disk)
           ],
           flag: 'awaiting_import',
@@ -160,6 +162,7 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy, t
           actions: [
             CONFIRM('retry_live', 'Retry live'),
             CONFIRM('accept_static', 'Accept static'),
+            REPLY('changes', 'Request changes'), // spec 041: fix the workflow even though live couldn't run (→ re-run Implement)
             CONFIRM('cleanup_apps', 'Delete test apps'), // S6 — FE shows it only when testApps>0
             DISCARD(),
           ],

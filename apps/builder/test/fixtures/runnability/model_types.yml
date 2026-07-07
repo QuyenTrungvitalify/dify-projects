@@ -1,0 +1,15 @@
+# Parity fixture (AC 1c): parameter-extractor + question-classifier are MODEL_NODE_TYPES too —
+# a port that hardcodes 'llm' fails this fixture.
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000001'
+        data:
+          type: parameter-extractor
+          title: PE
+          model: { provider: '', name: '' }
+      - id: '1700000000002'
+        data:
+          type: question-classifier
+          title: QC
+          model: { provider: '', name: '' }
