@@ -211,6 +211,9 @@ function graftStaleArtifacts(t: WireTask): void {
 
 /** Apply an authoritative task snapshot: set the signal, then extend the chat thread on transition. */
 export function applyTask(t: WireTask): void {
+  // spec 040 D4: remember the active task's prior status so we can refresh the sidebar "In progress"
+  // list on a genuine transition (captured BEFORE setTaskValue below overwrites it).
+  const prevStatus = task.value?.taskId === t.taskId ? task.value.status : undefined;
   // 017 D6: drain any buffered streaming fragments onto the still-running run item BEFORE this
   // snapshot mutates the thread (a gate transition finalizes the run → unflushed text would be lost).
   flushPendingOutput();
@@ -224,6 +227,10 @@ export function applyTask(t: WireTask): void {
   _appliedTaskId = t.taskId;
   _appliedRev = t.rev ?? 0;
   setTaskValue(t);
+  // spec 040 D4: on a real status transition (running→gate arrives via SSE with no user action; or
+  // →done/cancelled), refresh the sidebar list so its hint isn't stale and a finished build leaves it.
+  // Gated on the change so it fires a handful of times per build, not on every streaming rev.
+  if (prevStatus !== t.status) void loadActive();
   const items = thread.value.slice();
   const last = items[items.length - 1];
 
@@ -469,6 +476,7 @@ export function applyAskDone(d: { ok: boolean; anomaly?: { files: AskAnomalyFile
 const THREAD_KEY = (id: string): string => `builder.thread.${id}`;
 const THREAD_INDEX = 'builder.thread.index';
 const THREAD_MAX = 20; // LRU cap across builds
+const LAST_TASK_KEY = 'builder.lastTask'; // spec 040 D3: the build under view, reopened on a hard reload
 let _persistTimer: ReturnType<typeof setTimeout> | null = null;
 let _lastPersisted = ''; // dedupe: skip a write when the slim serialization is unchanged (stream churn)
 
@@ -520,12 +528,47 @@ if (typeof localStorage !== 'undefined') {
     if (_persistTimer) clearTimeout(_persistTimer);
     _persistTimer = setTimeout(persistThreadNow, 500);
   });
+
+  void restoreLastTask();
+}
+
+/**
+ * spec 040 D3 — reopen the build under view after a hard reload. Pre-CHECK existence via getTask so a
+ * stale/deleted id degrades SILENTLY to the empty view — calling openTask() directly would run its own
+ * `catch → surfaceError`, flashing an error banner on every load. openTask then restores the persisted
+ * thread + re-subscribes SSE (a still-running build resumes live). Exported for the store unit test.
+ */
+export async function restoreLastTask(): Promise<void> {
+  let last: string | null = null;
+  try {
+    last = localStorage.getItem(LAST_TASK_KEY);
+  } catch {
+    return;
+  }
+  if (!last) return;
+  try {
+    await api.getTask(last); // exists? (throws on 404) — only THEN reopen, so a missing build is silent
+    await openTask(last);
+  } catch {
+    try {
+      localStorage.removeItem(LAST_TASK_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 // ───────────────────────────── SSE lifecycle ─────────────────────────────
 let teardown: (() => void) | null = null;
 
 function openStream(taskId: string): void {
+  // spec 040 D3: remember the build under view so a hard reload can reopen it. Written at the ONE choke
+  // point both entry paths (start / openTask) share; cleared in resetToNew. Guarded for no-localStorage envs.
+  try {
+    localStorage.setItem(LAST_TASK_KEY, taskId);
+  } catch {
+    /* ignore */
+  }
   teardown?.();
   teardown = connectSSE(taskId, {
     // On (re)connect, re-fetch the authoritative state so a missed gate is restored (AC #22).
@@ -631,7 +674,7 @@ export function splitWorkflowSetting(workflow: string | null | undefined): { pro
 
 /** Start a new build from the composer (AC #14 settings feed the body; turn-collision 409 → startError
  *  + busyHolder, AC #21). A parked build no longer blocks — only a running turn does. */
-export async function start(requirement: string, files?: Attachment[]): Promise<void> {
+export async function start(requirement: string, files?: Attachment[]): Promise<boolean> {
   clearErrors();
   _lastPersisted = ''; // fresh build — reset the persistence dedupe so the new task.json persists cleanly
   const s = settings.value;
@@ -663,8 +706,10 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
     openStream(t.taskId);
     void loadTree();
     void loadActive();
+    return true; // spec 040 D2: signal success so the composer clears (a 409 returns false → draft kept)
   } catch (e) {
     surfaceError(e);
+    return false;
   }
 }
 
@@ -685,9 +730,9 @@ export async function confirm(action: WireGateAction, extra?: { slug?: string; n
 /** Within-phase change request (kind:'reply') or Retry-out-of-error (+ optional images, AC3). `label`
  *  is the chosen reply action's English label (spec 016 D4) so the resolved gate reads true (Edit spec /
  *  Keep trying); the free-form dock reply has no specific action → the generic 'Requested changes'. */
-export async function reply(text: string, label?: string, files?: Attachment[]): Promise<void> {
+export async function reply(text: string, label?: string, files?: Attachment[]): Promise<boolean> {
   const t = task.value;
-  if (!t || !text.trim()) return;
+  if (!t || !text.trim()) return false;
   const items = thread.value.slice();
   items.push({ id: uid(), kind: 'user', text: text.trim() });
   thread.value = items;
@@ -695,8 +740,10 @@ export async function reply(text: string, label?: string, files?: Attachment[]):
     // Optimistic: close the gate; SSE re-opens the current phase as a fresh run (no duplicate).
     optimisticAdvance(await api.reply(t.taskId, text.trim(), files), label ?? 'Requested changes');
     void loadActive();
+    return true; // spec 040 D2
   } catch (e) {
     surfaceError(e);
+    return false;
   }
 }
 
@@ -706,14 +753,14 @@ export async function reply(text: string, label?: string, files?: Attachment[]):
  * synchronously (before the POST even resolves — D3/§1: the response carries no status/gate snapshot to
  * key off), then relies entirely on the `ask:answer`/`ask:done` SSE events (§2) to stream + finalize it.
  */
-export async function ask(text: string): Promise<void> {
+export async function ask(text: string): Promise<boolean> {
   const t = task.value;
-  if (!t || !text.trim()) return;
+  if (!t || !text.trim()) return false;
   // FIX-C/H defense-in-depth: never open a 2nd qa item while one is already in flight. The composer is
   // disabled during a live Ask (App: disabled={asking}), so this is belt-and-suspenders — but it also
   // guarantees the single-open-qa invariant `findOpenAskIdx` relies on, regardless of how ask() is
   // reached. A concurrent Ask would 409 on the global turn lock anyway.
-  if (asking.value) return;
+  if (asking.value) return false;
   const items = thread.value.slice();
   items.push({ id: uid(), kind: 'user', text: text.trim() });
   const qaId = uid();
@@ -722,6 +769,7 @@ export async function ask(text: string): Promise<void> {
   asking.value = true;
   try {
     await api.ask(t.taskId, text.trim());
+    return true; // spec 040 D2
   } catch (e) {
     // The POST itself failed (400/409/500) — no turn was ever dispatched, so no ask:done will ever
     // arrive to settle this. Finalize the qa item locally with the error, matching surfaceError's shape.
@@ -733,6 +781,7 @@ export async function ask(text: string): Promise<void> {
       thread.value = cur;
     }
     surfaceError(e);
+    return false;
   }
 }
 
@@ -902,6 +951,12 @@ export async function openTask(taskId: string): Promise<void> {
 export function resetToNew(): void {
   teardown?.();
   teardown = null;
+  // spec 040 D3: the empty/new-task surface has no build under view — forget the persisted one.
+  try {
+    localStorage.removeItem(LAST_TASK_KEY);
+  } catch {
+    /* ignore */
+  }
   task.value = null;
   thread.value = [];
   // spec 033 FIX-I: same reset as openTask — a new/empty view must never inherit a stuck `asking`.

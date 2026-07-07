@@ -60,6 +60,7 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 | [037](037-builder-runnability-preflight-and-workspace-facts.md) | Runnability preflight (③ advisory note) + workspace facts (`{{KNOWLEDGE}}`) | Draft | M |
 | [038](038-node-body-schema-linter.md) | Node-body schema linter: wire the 29 dormant `NodeData_*` $defs (`lint_node_bodies.py`) | Partially implemented (P1 tool+tests; P2 report + P3 promote open) | M |
 | [039](039-post-turn-multi-workflow-lint.md) | Post-turn lint completeness: gate every turn-touched `workflows/*.ya?ml` + extension-twin hard error | Implemented | S |
+| [040](040-builder-uat-fixes.md) | UAT hardening: confinement false-positive revert (concurrent-edit data loss) + composer-draft/reload/sidebar fixes | Implemented (D1–D4; E1–E4 deferred) | S |
 
 \* Spec 001 + 006 have 2 minor Q awaiting confirm; can proceed with defaults.
 

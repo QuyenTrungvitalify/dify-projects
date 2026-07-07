@@ -102,6 +102,11 @@ describe('checkForbiddenPath — hard deny of secrets + protected writes', () =>
     assert.ok(checkForbiddenPath('Write', { file_path: 'tools/dify_base/sync.py' }, TASK));
     assert.ok(checkForbiddenPath('Write', { file_path: 'skills/mango-svip/scripts/generate_id.py' }, TASK));
     assert.ok(checkForbiddenPath('Write', { file_path: '/home/u/.zshrc' }, TASK));
+    // spec 040 D1: bare root files (INDEX.md), docs/, and templates/ are now defended SOLELY by this hook
+    // (post-turn confinement no longer reverts out-of-projects/ dirt — it may be a concurrent edit). Lock it.
+    assert.ok(checkForbiddenPath('Write', { file_path: 'INDEX.md' }, TASK));
+    assert.ok(checkForbiddenPath('Write', { file_path: 'docs/specs/038-fp-report.md' }, TASK));
+    assert.ok(checkForbiddenPath('Write', { file_path: 'templates/patterns/agent-with-tools.yml' }, TASK));
     assert.equal(checkForbiddenPath('Write', { file_path: 'projects/x/workflows/main.yml' }, TASK), null);
     assert.equal(checkForbiddenPath('Write', { file_path: `apps/builder/.runs/${TASK}/task.json` }, TASK), null);
     assert.equal(checkForbiddenPath('Write', { file_path: `.runs/${TASK}/analyze.json` }, TASK), null);

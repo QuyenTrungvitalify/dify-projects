@@ -319,7 +319,21 @@ export async function confinementCheck(p: ConfinementParams): Promise<Confinemen
     path.startsWith(`.runs/${p.taskId}/`) ||
     path === '.vscode/settings.json';
 
-  const breaches = turnTouched.filter((path) => !isWhitelisted(path));
+  // Spec 040 D1 — revert ONLY the class the PreToolUse hook defers here. The hook (spec 015/018) denies
+  // every out-of-scope write pre-execution EXCEPT its one deliberate breadth: it blanket-allows all of
+  // `projects/` (permission-gate.ts:247) and defers cross-project / cross-workflow policing to this pass.
+  // So a turn-touched path OUTSIDE `projects/` (root files, docs/, templates/, tools/, skills/, apps/, or
+  // a SIBLING `.runs/<other>/` — own `.runs/` is whitelisted above, a sibling is hook-denied) can NOT be
+  // this turn's doing: it is a CONCURRENT external edit. Reverting it (git checkout/clean) would destroy
+  // unrelated work AND fail an innocent build (the UAT J5 blocker). Ignore it (log for observability).
+  const inWriteZone = (path: string): boolean => path.startsWith('projects/');
+  const nonWhitelisted = turnTouched.filter((path) => !isWhitelisted(path));
+  for (const path of nonWhitelisted) {
+    if (!inWriteZone(path)) {
+      p.log.warn({ path }, 'out-of-scope dirty path ignored (not turn-reachable — likely concurrent external edit)');
+    }
+  }
+  const breaches = nonWhitelisted.filter(inWriteZone);
   for (const breach of breaches) {
     await revertPath(p.projectsDir, breach, p.log);
     reasons.push(`confinement breach (reverted): ${breach}`);

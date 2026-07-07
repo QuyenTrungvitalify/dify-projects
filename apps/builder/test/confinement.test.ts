@@ -1,11 +1,14 @@
 /**
- * 013 D3 + spec 030 §2 — confinementCheck baseline-delta + REVERT, now confined to the WORKFLOW
- * subtree `projects/<project>/<workflowSlug>/`. Over a REAL throwaway git repo this proves the
+ * 013 D3 + spec 030 §2 + spec 040 D1 — confinementCheck baseline-delta + REVERT, confined to the
+ * WORKFLOW subtree `projects/<project>/<workflowSlug>/`. Over a REAL throwaway git repo this proves the
  * security-critical AC #23 behavior end-to-end:
- *   • a turn-introduced write OUTSIDE the whitelist is REVERTED (untracked → git clean; tracked-
- *     modified → git checkout) and reported as a breach;
- *   • a SIBLING workflow (same project) and a SIBLING project are reverted — nesting makes them
- *     disjoint subtrees, so the trailing-slash prefix rejects them by construction (§2);
+ *   • a turn-introduced write to a SIBLING workflow (same project) or a SIBLING project — both under
+ *     `projects/`, the class the PreToolUse hook blanket-allows and defers here — is REVERTED (untracked
+ *     → git clean; tracked-modified → git checkout) and reported as a breach;
+ *   • spec 040 D1: a turn-delta path OUTSIDE `projects/` (root files, docs/, templates/, a sibling
+ *     `.runs/`) is IGNORED — it is hook-denied pre-execution, so a dirty one is a CONCURRENT external
+ *     edit, and reverting it would destroy unrelated work + fail an innocent build. Root-write defense
+ *     lives entirely in the hook now (see permission-gate.test.ts).
  *   • baseline-dirty work (already dirty before the turn) is NEVER touched;
  *   • whitelisted writes (the workflow subtree, the task's .runs dirs, .vscode/settings.json) survive.
  *
@@ -60,7 +63,7 @@ function makeRepo(): string {
 }
 
 describe('confinementCheck (013 D3 + spec 030 §2 — per-workflow subtree)', () => {
-  test('reverts out-of-confinement writes; leaves baseline-dirty + whitelisted untouched', async () => {
+  test('reverts projects/ cross-scope writes; ignores out-of-projects/ dirt; leaves baseline + whitelisted untouched', async () => {
     const dir = makeRepo();
 
     // Baseline-dirty work that PRE-DATES the turn (already dirty when the turn starts).
@@ -68,11 +71,18 @@ describe('confinementCheck (013 D3 + spec 030 §2 — per-workflow subtree)', ()
     const baseline = await gitDirtyPaths(dir);
     assert.ok(baseline.has('baseline-dirty.txt'), 'baseline captured the pre-existing dirty file');
 
-    // The "turn" now writes: several BREACHES and several WHITELISTED paths.
-    put(dir, 'evil.txt', 'escaped the confinement\n'); // breach (untracked, outside whitelist)
-    writeFileSync(join(dir, 'tracked.txt'), 'v2 (tampered)\n'); // breach (tracked-modified)
+    // The "turn" delta now includes: the two BREACHES the hook defers here (projects/ cross-scope),
+    // several out-of-projects/ paths that spec 040 D1 IGNORES (hook-denied → concurrent external), and
+    // several WHITELISTED paths.
     put(dir, `projects/${PROJECT}/other/main.yml`, 'sibling workflow\n'); // breach (sibling workflow)
     put(dir, `projects/other/${WF}/main.yml`, 'sibling project\n'); // breach (sibling project)
+    // ── spec 040 D1: out-of-projects/ dirt = concurrent external edit → ignored, NOT reverted ──
+    put(dir, 'evil.txt', 'concurrent external edit\n'); // ignored (untracked, root)
+    writeFileSync(join(dir, 'tracked.txt'), 'v2 (concurrent)\n'); // ignored (tracked-modified, root)
+    put(dir, 'INDEX.md', 'concurrent index rebuild\n'); // ignored (root)
+    put(dir, 'docs/specs/x-fp-report.md', 'concurrent spec work\n'); // ignored (docs/)
+    put(dir, 'apps/builder/.runs/9999999999999/task.json', '{}'); // ignored (SIBLING .runs — hook-denied)
+    // ── whitelisted ──
     put(dir, `projects/${PROJECT}/${WF}/workflows/main.yml`, 'workflow: {}\n'); // whitelisted
     put(dir, `apps/builder/.runs/${TASK}/task.json`, '{}'); // whitelisted
     put(dir, `.runs/${TASK}/scratch.txt`, 'shorthand run dir\n'); // whitelisted
@@ -80,19 +90,23 @@ describe('confinementCheck (013 D3 + spec 030 §2 — per-workflow subtree)', ()
 
     const { breaches: reasons } = await confinementCheck({ projectsDir: dir, project: PROJECT, workflowSlug: WF, taskId: TASK, baseline, log });
 
-    // Exactly the four breaches reverted, each reported.
-    assert.equal(reasons.length, 4, 'four breaches reported');
+    // EXACTLY the two projects/ cross-scope breaches reverted, each reported. No root/docs/sibling-.runs breach.
+    assert.equal(reasons.length, 2, 'two breaches reported (projects/ cross-scope only)');
     assert.ok(reasons.every((r) => r.startsWith('confinement breach (reverted):')));
-    assert.ok(reasons.some((r) => r.includes('evil.txt')));
-    assert.ok(reasons.some((r) => r.includes('tracked.txt')));
     assert.ok(reasons.some((r) => r.includes(`projects/${PROJECT}/other/main.yml`)), 'sibling workflow flagged');
     assert.ok(reasons.some((r) => r.includes(`projects/other/${WF}/main.yml`)), 'sibling project flagged');
+    assert.ok(!reasons.some((r) => /evil\.txt|tracked\.txt|INDEX\.md|docs\/|9999999999999/.test(r)), 'no out-of-projects/ breach');
 
-    // Breaches reverted.
-    assert.equal(existsSync(join(dir, 'evil.txt')), false, 'untracked breach removed (git clean)');
-    assert.equal(readFileSync(join(dir, 'tracked.txt'), 'utf8'), 'v1\n', 'tracked breach restored (git checkout)');
+    // The projects/ breaches were reverted.
     assert.equal(existsSync(join(dir, `projects/${PROJECT}/other/main.yml`)), false, 'sibling workflow reverted');
     assert.equal(existsSync(join(dir, `projects/other/${WF}/main.yml`)), false, 'sibling project reverted');
+
+    // spec 040 D1: out-of-projects/ dirt is NEVER touched (would be concurrent external work).
+    assert.equal(existsSync(join(dir, 'evil.txt')), true, 'root untracked ignored (not git clean-ed)');
+    assert.equal(readFileSync(join(dir, 'tracked.txt'), 'utf8'), 'v2 (concurrent)\n', 'root tracked-modified NOT reverted');
+    assert.equal(existsSync(join(dir, 'INDEX.md')), true, 'root INDEX.md ignored');
+    assert.equal(existsSync(join(dir, 'docs/specs/x-fp-report.md')), true, 'docs/ ignored');
+    assert.equal(existsSync(join(dir, 'apps/builder/.runs/9999999999999/task.json')), true, 'sibling .runs ignored (concurrent build state)');
 
     // Baseline-dirty work is NEVER touched.
     assert.equal(existsSync(join(dir, 'baseline-dirty.txt')), true);

@@ -149,8 +149,18 @@ export function App() {
     const msg = (text ?? draft).trim();
     if (!msg) return; // files augment, never replace, the text (spec 012 Q2)
     const atts = files.length ? toWire(files) : undefined;
+    const prevFiles = files;
     setDraft('');
     setFiles([]);
+    // spec 040 D2: the store dispatches CATCH internally and resolve (they never reject), so a 409 turn-busy
+    // is signalled by a `false` return — restore the composer so the user just re-sends. The guards
+    // (`d => d || msg`) never clobber text typed during the in-flight window.
+    const onDone = (ok: boolean): void => {
+      if (!ok) {
+        setDraft((d) => d || msg);
+        setFiles((f) => (f.length ? f : prevFiles));
+      }
+    };
     // Routing (spec 033 FIX-F + spec 034 D3/D5):
     //   empty-view                        → store.start()  (a brand-new build)
     //   done | cancelled  (034 D3)        → store.ask()    (ask about THIS finished/abandoned build;
@@ -160,13 +170,13 @@ export function App() {
     //   awaiting_confirm, mode==='ask'    → store.ask(text) — default at analyze/spec/implement AND ④ (034 D5)
     const st = store.task.value?.status;
     if (view === 'empty') {
-      void store.start(msg, atts); // a new build ignores `mode`; the next gate's useEffect resets it
+      void store.start(msg, atts).then(onDone); // a new build ignores `mode`; the next gate's useEffect resets it
       return;
     }
     // spec 034 D3: a terminal build's composer is Ask-only — no change-mode exists (nothing to resume or
     // re-run), attach is hidden (no files), and starting a new build moved to the sidebar "+".
     if (st === 'done' || st === 'cancelled') {
-      void store.ask(msg);
+      void store.ask(msg).then(onDone);
       setMode('ask');
       return;
     }
@@ -174,11 +184,11 @@ export function App() {
     // ask|change mode chip exactly like analyze/spec/implement — the `phase==='test'` carve-out is gone.
     // The armed `changeLabel` (FIX-G) carries through so the resolved gate reads the TRUE action.
     if (st === 'error') {
-      void store.reply(msg, mode === 'change' ? changeLabel : undefined, atts);
+      void store.reply(msg, mode === 'change' ? changeLabel : undefined, atts).then(onDone);
     } else if (mode === 'change') {
-      void store.reply(msg, changeLabel, atts); // Request-changes — re-run the phase, revise the artifact
+      void store.reply(msg, changeLabel, atts).then(onDone); // Request-changes — re-run the phase, revise the artifact
     } else {
-      void store.ask(msg); // default at analyze/spec/implement AND ④ (034 D5)
+      void store.ask(msg).then(onDone); // default at analyze/spec/implement AND ④ (034 D5)
     }
     // FIX-I: reset mode after EVERY send that could have armed change-mode — including the error-Retry path.
     setMode('ask');
