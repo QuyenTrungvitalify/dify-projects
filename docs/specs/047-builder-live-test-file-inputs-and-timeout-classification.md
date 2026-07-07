@@ -1,4 +1,4 @@
-# Spec 046 — Builder live-test: file inputs đúng contract + phân loại timeout/lỗi chính xác
+# Spec 047 — Builder live-test: file inputs đúng contract + phân loại timeout/lỗi chính xác
 
 **Status**: Draft — **root cause đã verify thật** trên Dify self-host `localhost:8090` (2026-07-08) bằng A/B/C/D matrix (xem §Verified). Fix là **additive**, không đổi gate FSM / permission-gate / validators. Tiền đề bắt buộc **S0** (plumbing khả-năng-file qua `cmd_inject_model` + `InputVar`) đã được nêu tường minh — không có blocker kiến trúc; còn **3 mục QA** (QA-1..3, xem §QA) cần xác nhận thật trong lúc implement.
 **Effort**: S — ba điểm sửa nhỏ, có test rõ ràng: (0) **plumbing**: `cmd_inject_model` + `InputVar` mang thêm 3 field khả-năng-file (load-bearing cho S1 — xem S0), (1) `resolveInput` sinh **file-object** đúng contract (thay chuỗi URL trần), (2) `sync.py` phân loại **ReadTimeout-khi-streaming** đúng thay vì dán nhãn "connection failed". Tuỳ chọn (3) preflight degrade khi không dựng nổi input hợp lệ.
@@ -90,7 +90,7 @@ S1 đọc `v.allowed_file_types` / `v.allowed_file_upload_methods`, nhưng luồ
        "required": bool(v.get("required")),
        "label": v.get("label"),
        "options": v.get("options") or [],
-       # spec 046: khả năng file — quyết định transfer_method / type khi dựng sample
+       # spec 047: khả năng file — quyết định transfer_method / type khi dựng sample
        "allowed_file_types": v.get("allowed_file_types") or [],
        "allowed_file_upload_methods": v.get("allowed_file_upload_methods") or [],
        "allowed_file_extensions": v.get("allowed_file_extensions") or [],
