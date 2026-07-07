@@ -188,17 +188,26 @@ export async function runLiveTest(
     return;
   }
 
-  // 1. resolve the workspace model (enabled set + D4 pick).
+  // 1. resolve the workspace model (enabled set + D4 pick). May be empty — do NOT bail yet (spec 043):
+  //    a model-agnostic workflow (0 llm nodes) needs no workspace model to run.
   const { enabled, pick } = await live.resolveLlmModels(projectsDir);
   if (bail()) return;
-  if (!pick) return degradeStatic('no enabled LLM model in the workspace (0-model)');
 
   // 2. inject the model into a TEMP deploy.yml (main.yml on disk stays model-agnostic, B5) + read inputs.
+  //    With no model available, pass a placeholder — a workflow with 0 llm nodes patches nothing, so the
+  //    copy is valid & model-free. The placeholder is only ever written into an llm node when llmCount>0,
+  //    and step 3's gate rejects that deploy.yml BEFORE it is imported, so a bad copy never reaches Dify.
   const srcRel = `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`;
   const outRel = `apps/builder/.runs/${task.taskId}/deploy.yml`;
-  const dep = await live.deployWithModel(projectsDir, srcRel, outRel, pick, enabled.map((m) => m.name));
+  const dep = await live.deployWithModel(projectsDir, srcRel, outRel, pick ?? { provider: '', name: '' }, enabled.map((m) => m.name));
   if (bail()) return;
-  if (!dep.ok || !dep.outFile) return degradeStatic(`model inject failed: ${lastLine(dep.stderr) || 'unknown'}`, { model: pick });
+  if (!dep.ok || !dep.outFile) return degradeStatic(`model inject failed: ${lastLine(dep.stderr) || 'unknown'}`, pick ? { model: pick } : {});
+
+  // 3. 0-model gate — CONDITIONAL (spec 043): only a workflow that CONTAINS an llm node needs a model.
+  //    llmCount === 0 (or a real pick) → proceed; a model-agnostic workflow runs model-free.
+  if (dep.llmCount > 0 && !pick) {
+    return degradeStatic('no enabled LLM model in the workspace (0-model)', { modelAutofilled: dep.nodeCount });
+  }
 
   // 3. sample input from the start-node schema (D8). Can't derive → honest park (not infra, not workflow).
   const { inputs, missing } = resolveInput(dep.inputs);
@@ -290,7 +299,7 @@ export async function runLiveTest(
     t1Pass,
     judge,
     reason: t1Pass
-      ? `ran OK (${dep.nodeCount > 0 ? `auto-filled ${dep.nodeCount} node(s) with ${pick.name}` : "workflow's own model"}, ${run.totalTokens ?? '?'} tokens) — review the output below`
+      ? `ran OK (${dep.nodeCount > 0 ? `auto-filled ${dep.nodeCount} node(s) with ${pick?.name}` : 'no model needed (deterministic)'}, ${run.totalTokens ?? '?'} tokens) — review the output below`
       : run.error
         ? `workflow ran but FAILED: ${run.error}`
         : 'workflow ran but produced no output',

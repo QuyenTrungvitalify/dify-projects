@@ -19,7 +19,7 @@ There is **no seed** and **no `{{PRIOR_ARTIFACT}}`** on this path — this turn 
 fresh; do not look for a prior analyze file.
 
 ## Output language
-Write all **human-facing prose** — chat narration, and in `SPEC.md` the app **name**, Goal, Chosen shape/pattern rationale, node **purpose** descriptions, and Open questions — in the **same language as the requirement** (`{{REQUIREMENT}}`). If the requirement is written in English, write English. Match the requirement's language; do not translate it to English first.
+Write all **human-facing prose** in the **same language as the requirement** (`{{REQUIREMENT}}`). This means **every word you write in chat — starting from your very first sentence** (do **not** open with an English lead-in such as "This is a from-scratch build…" / "I'll start by…" or any running commentary in English), and in `SPEC.md` the app **name**, Goal, Chosen shape/pattern rationale, node **purpose** descriptions, and Open questions. If the requirement is Japanese, the **entire** turn is Japanese from the first token; if English, write English. Do not narrate in English and translate afterward.
 
 **Keep these in English/ASCII exactly, regardless of the requirement's language** (localizing any of them breaks the build — the validators reject a translated identifier):
 - `slug` values (`[a-z0-9_]`), node **id-placeholders**, and minted 13-digit ids;

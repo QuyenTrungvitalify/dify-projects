@@ -694,6 +694,9 @@ export interface InputVar {
 export interface DeployResult {
   ok: boolean;
   nodeCount: number;
+  /** Spec 043: TOTAL llm nodes in the workflow (patched or not). `llmCount === 0` ⇒ model-agnostic ⇒
+   *  the live test needs no workspace model to run. Falls back to `nodeCount` for an older sync.py. */
+  llmCount: number;
   patched: string[];
   outFile: string | null;
   inputs: InputVar[];
@@ -719,14 +722,16 @@ export async function deployWithModel(
   const args = ['inject-model', '--src', srcRel, '--out', outRel, '--provider', model.provider, '--name', model.name];
   if (validNames.length) args.push('--valid-names', validNames.join(','));
   const r = await runSyncPy(projectsDir, args);
-  if (r.code !== 0) return { ok: false, nodeCount: 0, patched: [], outFile: null, inputs: [], mode: '', stderr: r.stderr };
+  if (r.code !== 0) return { ok: false, nodeCount: 0, llmCount: 0, patched: [], outFile: null, inputs: [], mode: '', stderr: r.stderr };
   const obj = lastJsonLine(r.stdout);
   const nodeCount = typeof obj?.node_count === 'number' ? obj.node_count : 0;
+  // Spec 043: fall back to nodeCount so an older sync.py (no llm_count) degrades gracefully.
+  const llmCount = typeof obj?.llm_count === 'number' ? obj.llm_count : nodeCount;
   const patched = Array.isArray(obj?.patched) ? (obj!.patched as unknown[]).map(String) : [];
   const outFile = typeof obj?.out === 'string' ? obj.out : outRel;
   const inputs = (Array.isArray(obj?.inputs) ? obj!.inputs : []) as InputVar[];
   const mode = typeof obj?.mode === 'string' ? obj.mode : '';
-  return { ok: true, nodeCount, patched, outFile, inputs, mode, stderr: r.stderr };
+  return { ok: true, nodeCount, llmCount, patched, outFile, inputs, mode, stderr: r.stderr };
 }
 
 /**

@@ -181,3 +181,47 @@ def test_pull_writes_yaml_files(tmp_path, monkeypatch, mock_apps_response, fake_
     files = sorted(f.name for f in workflows.glob("*.yml"))
     assert files == ["chat_demo.yml", "rag_bot.yml", "translation.yml"]
     assert (workflows / "rag_bot.yml").read_text() == fake_yaml
+
+
+# ---------------------------------------------------------------------------
+# inject-model — spec 032 (patch) + spec 043 (llm_count signal)
+# ---------------------------------------------------------------------------
+
+def _inject_yaml(nodes: list[dict]) -> str:
+    import yaml
+    return yaml.safe_dump({"app": {"mode": "workflow"}, "workflow": {"graph": {"nodes": nodes}}})
+
+
+def _run_inject(tmp_path, monkeypatch, capsys, src_yaml: str) -> dict:
+    from types import SimpleNamespace
+    monkeypatch.setattr(sync, "BASE", tmp_path)
+    (tmp_path / "src.yml").write_text(src_yaml, encoding="utf-8")
+    args = SimpleNamespace(src="src.yml", out="out.yml", provider="openai", name="gpt-4o-mini", valid_names=None)
+    rc = sync.cmd_inject_model(args)
+    assert rc == 0
+    return json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+
+def test_inject_model_llm_less_workflow_reports_zero(tmp_path, monkeypatch, capsys):
+    # spec 043: a model-agnostic workflow (start → code → end, no llm node) → llm_count:0, node_count:0.
+    yaml_src = _inject_yaml([
+        {"id": "start", "data": {"type": "start", "variables": []}},
+        {"id": "code", "data": {"type": "code"}},
+        {"id": "end", "data": {"type": "end"}},
+    ])
+    obj = _run_inject(tmp_path, monkeypatch, capsys, yaml_src)
+    assert obj["llm_count"] == 0
+    assert obj["node_count"] == 0
+    assert obj["patched"] == []
+
+
+def test_inject_model_empty_model_llm_reports_one(tmp_path, monkeypatch, capsys):
+    # spec 043: an llm node with an EMPTY model → both counts 1 (patched + needs a workspace model).
+    yaml_src = _inject_yaml([
+        {"id": "start", "data": {"type": "start", "variables": []}},
+        {"id": "llm1", "data": {"type": "llm", "model": {"name": ""}}},
+    ])
+    obj = _run_inject(tmp_path, monkeypatch, capsys, yaml_src)
+    assert obj["llm_count"] == 1
+    assert obj["node_count"] == 1
+    assert obj["patched"] == ["llm1"]

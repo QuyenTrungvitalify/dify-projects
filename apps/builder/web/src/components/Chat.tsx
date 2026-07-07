@@ -15,7 +15,7 @@ import { Twist } from './Sidebar';
 import { renderMarkdownHtml } from '../lib/markdown';
 import { PHASE_LABELS, phaseIndex, phaseLabelAt } from '../lib/phase';
 import { terminalFootActions } from '../lib/gate-foot';
-import { t as tr, tf, phaseLabel, tAction } from '../lib/i18n';
+import { t as tr, tf, phaseLabel, tAction, localizeNotes } from '../lib/i18n';
 import {
   type ComposerAttachment,
   ACCEPTED_IMAGE_MIME,
@@ -169,7 +169,7 @@ function gateView(t: WireTask): GateView {
   }
   // F4 (spec 010): the slug-collision note rides on the task from the Spec-gate scaffold → surface it
   // (once) at the Implement gate, leading the summary, so the user sees the rename before continuing.
-  const slugLine = (lines: string[]): string[] => (t.slugNote ? [t.slugNote, ...lines] : lines);
+  const slugLine = (lines: string[]): string[] => (t.slugNote ? [localizeNotes(t.slugNote), ...lines] : lines);
   // awaiting_confirm
   if (t.gate?.flag === 'still_failing') {
     return { tone: 'warn', badge: tr('gateFailBadge'), title: tr('gateFailTitle'), meta,
@@ -191,7 +191,7 @@ function gateView(t: WireTask): GateView {
     const lt = t.liveTest;
     const pass = lt?.verdict === 'passed';
     const summary: string[] = [];
-    if (lt?.reason) summary.push(lt.reason);
+    if (lt?.reason) summary.push(localizeNotes(lt.reason));
     if (lt?.model) summary.push(tf('gateLiveModel', { model: lt.model.name, n: String(lt.modelAutofilled ?? 0) }));
     if (lt?.output != null) {
       const out = typeof lt.output === 'string' ? lt.output : JSON.stringify(lt.output);
@@ -210,13 +210,13 @@ function gateView(t: WireTask): GateView {
   if (t.gate?.flag === 'infra_degraded') {
     const lt = t.liveTest;
     return { tone: 'warn', badge: tr('gateLiveInfraBadge'), title: tr('gateLiveInfraTitle'), meta,
-      summary: [lt?.reason ?? tr('gateLiveInfraSummary'), tr('gateLiveStaticStands')], showReportLink: true };
+      summary: [lt?.reason ? localizeNotes(lt.reason) : tr('gateLiveInfraSummary'), tr('gateLiveStaticStands')], showReportLink: true };
   }
   switch (t.phase) {
     case 'analyze': {
       // O2 (spec 019): surface the chosen pattern + any pattern-coverage advisory at the Analyze gate.
       const lines = [tr('gateAnalyzeSummary1'), tr('gateAnalyzeSummary2')];
-      if (t.patternAdvisory) lines.unshift(t.patternAdvisory);
+      if (t.patternAdvisory) lines.unshift(localizeNotes(t.patternAdvisory));
       if (t.analysisPattern) lines.unshift(tf('gatePattern', { pattern: t.analysisPattern }));
       return { tone: '', badge: tr('gateAnalyzeBadge'), title: tr('gateAnalyzeTitle'), meta, summary: lines };
     }
@@ -232,7 +232,7 @@ function gateView(t: WireTask): GateView {
       // Spec 037 S1: surface the runnability preflight advisory at the ③ gate (the patternAdvisory
       // precedent at the Analyze gate above) — backend-computed string, rendered as-is.
       const implLines = slugLine([tr('gateImplSummary1')]);
-      if (t.preflightNote) implLines.unshift(t.preflightNote);
+      if (t.preflightNote) implLines.unshift(localizeNotes(t.preflightNote));
       return { tone: '', badge: tr('gateImplBadge'), title: tr('gateImplTitle'), meta,
         summary: implLines, showDiffLink: true };
     }

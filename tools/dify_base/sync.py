@@ -615,6 +615,9 @@ def cmd_inject_model(args) -> int:
     valid = {v for v in (args.valid_names or "").split(",") if v} or None
     patched: list[str] = []
     nodes = (((data or {}).get("workflow") or {}).get("graph") or {}).get("nodes") or []
+    # Spec 043: TOTAL llm-node count (patched or not). The caller gates on "does this workflow use an
+    # LLM at all" — a hard-coded/unfilled llm node still needs a workspace model even at node_count:0.
+    llm_nodes = [n for n in nodes if (n.get("data") or {}).get("type") == "llm"]
     for n in nodes:
         nd = n.get("data") or {}
         if nd.get("type") != "llm":
@@ -651,7 +654,7 @@ def cmd_inject_model(args) -> int:
         types = {(n.get("data") or {}).get("type") for n in nodes}
         mode = "advanced-chat" if "answer" in types else "workflow"
     print(json.dumps({
-        "node_count": len(patched), "patched": patched,
+        "node_count": len(patched), "llm_count": len(llm_nodes), "patched": patched,
         "out": str(out.relative_to(BASE)), "inputs": inputs_schema, "mode": mode,
     }))
     return 0

@@ -382,11 +382,11 @@ const JA: Dict = {
   gateAnalyzeBadge: '分析完了',
   gateAnalyzeTitle: '仕様を書く準備ができました',
   gateAnalyzeSummary1: '要件を分析しました。',
-  gateAnalyzeSummary2: '続けて仕様を起草するか、変更を依頼してください。',
+  gateAnalyzeSummary2: '続けて仕様を作成するか、変更を依頼してください。',
   gatePattern: 'パターン: {pattern}',
   gateSpecBadge: '仕様準備完了',
-  gateSpecTitle: '仕様を起草しました — ビルド前にご確認ください',
-  gateSpecSummary1: 'SPEC.md はパネルで編集できます — 実装前に調整してください（後勝ち）。',
+  gateSpecTitle: '仕様を作成しました — ビルド前にご確認ください',
+  gateSpecSummary1: 'SPEC.md はパネルで編集できます — 実装前に調整してください（上書き保存）。',
   gateImplBadge: '実装完了',
   gateImplTitle: 'main.yml をビルドしリンターを実行しました',
   gateImplSummary1: 'ワークフロー YAML を生成、すべてのリンターが成功。',
@@ -611,8 +611,8 @@ const NOTE_JA: [RegExp, string][] = [
     'リンター失敗のまま承認（人間による「このまま承認」の上書き）。',
   ],
   [
-    /'([^']+)' already exists — using '([^']+)' to avoid overwriting it\./g,
-    "'$1' は既に存在するため、上書きを避けて '$2' を使用します。",
+    /'([^']+)' already exists in this project — using '([^']+)' to avoid overwriting it\./g,
+    "'$1' はこのプロジェクトに既に存在するため、上書きを避けて '$2' を使用します。",
   ],
   [
     /advisory: pattern '([^']+)' is missing feature\(s\) the analysis needs — (.+?)\. Verify the generated graph or pick a closer pattern \(this does not block the build\)\./g,
@@ -637,6 +637,23 @@ const NOTE_JA: [RegExp, string][] = [
     /editing "([^"]+)": a Dify import always creates a NEW app \(a duplicate of "([^"]+)"\), never an in-place update — delete\/replace the old app in Dify after importing\./g,
     '"$1" を編集中: Dify インポートは常に新規アプリ（"$2" の複製）を作成し、既存アプリをその場で更新しません — インポート後に Dify で旧アプリを削除/置換してください。',
   ],
+  // spec 037 S1: the runnability preflight advisory (report notes + phase ③ summary). `$1` = the raw
+  // `needs:` list (plugin hash / dataset ids …) — kept literal as it names technical fields.
+  [
+    /preflight: not runnable out-of-the-box — needs: (.+?)\. Advisory — does not block the build\./g,
+    'プリフライト: そのままでは実行できません — 必要: $1。アドバイザリ — ビルドはブロックされません。',
+  ],
+  // spec 032: the live-test `reason` line (phase ④ summary). Two success variants + two failure variants.
+  [
+    /ran OK \(no model needed \(deterministic\), (.+?) tokens\) — review the output below/g,
+    '実行成功（モデル不要（確定的）、$1 トークン）— 下記の出力を確認してください',
+  ],
+  [
+    /ran OK \(auto-filled (\d+) node\(s\) with (.+?), (.+?) tokens\) — review the output below/g,
+    '実行成功（$1 ノードを $2 で自動補完、$3 トークン）— 下記の出力を確認してください',
+  ],
+  [/workflow ran but FAILED: /g, 'ワークフローは実行されましたが失敗しました: '],
+  [/workflow ran but produced no output/g, 'ワークフローは実行されましたが出力がありませんでした'],
 ];
 
 /** Localize a backend-built report `notes` string to the current language (spec 030 P2). EN passes

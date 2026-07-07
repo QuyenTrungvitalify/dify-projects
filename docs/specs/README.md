@@ -63,6 +63,7 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 | [040](040-builder-uat-fixes.md) | UAT hardening: confinement false-positive revert (concurrent-edit data loss) + composer-draft/reload/sidebar fixes | Implemented (D1–D4; E1–E4 deferred) | S |
 | [041](041-builder-request-changes-everywhere.md) | "Request changes" available at every parked gate from Spec onward (fixable at any ④ gate incl. LIVE ⚠) | Implemented | S |
 | [042](042-foreign-residue-preflight.md) | Foreign-residue preflight: demo/seed values (URLs, tool params, stale dataset/plugin ids) surviving into a build — 4 new advisory classes on the 037 machinery | Draft | S–M |
+| [043](043-builder-live-test-model-optional-for-llm-less-workflows.md) | Live-test needs no workspace LLM model when the workflow has no LLM node (0-model gate conditional on `llm_count`) | Implemented | S |
 
 \* Spec 001 + 006 have 2 minor Q awaiting confirm; can proceed with defaults.
 

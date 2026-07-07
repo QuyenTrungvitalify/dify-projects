@@ -12,6 +12,11 @@ You are summarizing an existing Dify workflow so the next phase can plan changes
 - `{{REQUIREMENT}}` — what the user wants to end up with (context for "change points").
 - `{{TASK_ID}}` — for the artifact path.
 
+## Output language
+**Every word you write in chat — starting from your very first sentence — must be in the same language as the requirement (`{{REQUIREMENT}}`).** This is not limited to the final summary: it also covers any lead-in describing what you are about to do (do **not** open with an English line such as "This is a from-scratch build…" or "I'll start by…") and any running commentary while you work. If the requirement is Japanese, the **entire** turn is Japanese from the first token. Do not narrate in English and translate afterward.
+
+**Keep these in English/ASCII exactly, regardless of the requirement's language** (localizing any breaks the build — validators reject a translated identifier): node **id**s and 13-digit ids, node `type` values, all YAML keys, `{{#node.field#}}` refs, plugin hashes / `dependencies`, the `find.py --has` feature vocabulary, and the `pattern` name. `analyze.json` is machine-read: its `pattern`/`features`/`find_query` stay English; only its free-text `note`/`risks` may follow the requirement's language.
+
 If `{{SEED_PATH}}` is empty (from-scratch build, no seed): write an `analyze.json` with
 `"seed": null`, a one-line note that there is nothing to analyze, and `"pattern": "custom"`
 (no seed was classified). You **MAY** add `features` as a forward-looking hint, but you

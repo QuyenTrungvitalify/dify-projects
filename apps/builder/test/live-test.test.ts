@@ -23,7 +23,7 @@ const log = { info() {}, warn() {}, error() {} } as unknown as SessionLogger;
 /** liveOps that reach a clean pass; each test overrides one step to exercise a branch. */
 const okOps = (): Partial<LiveOps> => ({
   resolveLlmModels: async () => ({ enabled: [{ provider: 'p', name: 'gpt-mini' }], pick: { provider: 'p', name: 'gpt-mini' } }),
-  deployWithModel: async (_d, _s, outRel) => ({ ok: true, nodeCount: 1, patched: ['n1'], outFile: outRel, inputs: [], mode: 'workflow', stderr: '' }),
+  deployWithModel: async (_d, _s, outRel) => ({ ok: true, nodeCount: 1, llmCount: 1, patched: ['n1'], outFile: outRel, inputs: [], mode: 'workflow', stderr: '' }),
   importForTest: async () => ({ ok: true, appId: 'app-123', stderr: '' }),
   publishWorkflow: async () => ({ ok: true, stderr: '' }),
   mintAppKey: async () => 'app-secretkey',
@@ -160,12 +160,29 @@ describe('runLiveTest verdict → gate', () => {
     assert.match(task.liveTest?.reason ?? '', /Model not exist/);
   }));
 
-  test('0-model → infra_fail / static-only, parked at infra_degraded (degrade, not fail)', withCreds(async () => {
-    const { task, ctx } = await harness({ resolveLlmModels: async () => ({ enabled: [], pick: null }) });
+  // Spec 043: the 0-model gate is CONDITIONAL on the workflow actually containing an llm node.
+  test('0-model + LLM workflow → still degrades to static-only at infra_degraded (spec 043 acc#2)', withCreds(async () => {
+    const { task, ctx } = await harness({
+      resolveLlmModels: async () => ({ enabled: [], pick: null }),
+      deployWithModel: async (_d, _s, outRel) => ({ ok: true, nodeCount: 0, llmCount: 1, patched: [], outFile: outRel, inputs: [], mode: 'workflow', stderr: '' }),
+    });
     await runLiveTest(task, ctx);
     assert.equal(task.gate?.flag, 'infra_degraded');
     assert.equal(task.liveTest?.verdict, 'infra_fail');
     assert.equal(task.liveTest?.label, 'static-only');
+    assert.match(task.liveTest?.reason ?? '', /0-model/);
+  }));
+
+  test('0-model + LLM-less workflow → RUNS the live test model-free (spec 043 acc#1)', withCreds(async () => {
+    const { task, ctx } = await harness({
+      resolveLlmModels: async () => ({ enabled: [], pick: null }),
+      deployWithModel: async (_d, _s, outRel) => ({ ok: true, nodeCount: 0, llmCount: 0, patched: [], outFile: outRel, inputs: [], mode: 'workflow', stderr: '' }),
+    });
+    await runLiveTest(task, ctx);
+    assert.equal(task.gate?.flag, 'test_result', 'imports + runs instead of parking at infra_degraded');
+    assert.equal(task.liveTest?.verdict, 'passed');
+    assert.equal(task.liveTest?.model ?? null, null, 'no model shown for a model-agnostic run');
+    assert.match(task.liveTest?.reason ?? '', /no model needed/);
   }));
 
   test('transport error (status null) → infra_degraded (not workflow_fail)', withCreds(async () => {
@@ -180,7 +197,7 @@ describe('runLiveTest verdict → gate', () => {
   test('undrivable input → need_input, parked at test_result', withCreds(async () => {
     const { task, ctx } = await harness({
       deployWithModel: async (_d, _s, outRel) => ({
-        ok: true, nodeCount: 0, patched: [], outFile: outRel, mode: 'workflow',
+        ok: true, nodeCount: 0, llmCount: 1, patched: [], outFile: outRel, mode: 'workflow',
         inputs: [{ variable: 'sel', type: 'select', required: true, options: ['a'] }], stderr: '',
       }),
     });
@@ -194,7 +211,7 @@ describe('runLiveTest verdict → gate', () => {
     let seenMode = '';
     let seenQuery = '';
     const { task, ctx } = await harness({
-      deployWithModel: async (_d, _s, outRel) => ({ ok: true, nodeCount: 1, patched: ['llm'], outFile: outRel, inputs: [], mode: 'advanced-chat', stderr: '' }),
+      deployWithModel: async (_d, _s, outRel) => ({ ok: true, nodeCount: 1, llmCount: 1, patched: ['llm'], outFile: outRel, inputs: [], mode: 'advanced-chat', stderr: '' }),
       runWorkflow: async (_d, _k, mode, _inputs, q) => {
         seenMode = mode; seenQuery = q;
         return { ok: true, status: 'succeeded', outputs: { answer: 'hi there' }, error: null, totalTokens: 12 };
