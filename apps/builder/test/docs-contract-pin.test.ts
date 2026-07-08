@@ -28,4 +28,16 @@ describe('spec 046 D4 — docs↔contract drift pin', () => {
     assert.ok(!body.includes('[a-z0-9_-]'), 'spec.md must not re-grow the hyphen charset slug.ts never emits');
     assert.ok(body.includes('[a-z0-9_]'), 'the canonical charset stays documented');
   });
+
+  // Spec 048 D3: implement.md's de-accretion promises, pinned mechanically — before 048 NOTHING
+  // asserted the ③ language banner or the Output-language section of THIS file (review finding 3.3),
+  // and the structural checklist was enumerated twice (drift bait — each copy grew independently).
+  test('implement.md keeps the 🌐 banner + Output-language section, and ONE structural checklist', () => {
+    const body = readFileSync(join(SKILL, 'implement.md'), 'utf8');
+    assert.ok(body.includes('🌐 **LANGUAGE — obey before anything else.**'), 'the ③ language banner survives');
+    assert.match(body, /^## Output language$/m, 'the Output-language section survives');
+    const copies = body.match(/`kind: app`/g) ?? [];
+    assert.equal(copies.length, 1, 'the mandatory-elements checklist occurs exactly once (048 D3)');
+    assert.ok(body.includes('advanced-chat: `answer` instead'), 'the trivial-branch delta survived the merge (048 r2)');
+  });
 });

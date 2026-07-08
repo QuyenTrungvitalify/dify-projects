@@ -35,9 +35,9 @@ ground rules first — every non-negotiable below comes from [AGENTS.md](../../.
    > **If `{{DEPTH}}` is `trivial` (spec 028 fast build):** the shape is a fixed single-LLM transform
    > (`start → llm → end`, or `→ answer` for advanced-chat) with no plugins/branches/iteration — do
    > **NOT** run `find.py` or read `templates/patterns/*`; build directly from `SPEC.md`'s node table.
-   > (No single-LLM skeleton ships in the skill, so assemble the mandatory structural elements below by
-   > hand — top-level `kind: app` · `version` · `app` · `workflow.graph` nodes+edges · `start`+`end`
-   > (or `answer`) · `dependencies: []`.)
+   > (No single-LLM skeleton ships in the skill, so assemble step 4's **Mandatory structural
+   > elements** checklist by hand — its advanced-chat deltas (`answer` for `end`, the chat `mode`)
+   > are noted inline there.)
    >
    > **Otherwise** (standard build): use the pattern `SPEC.md` names in its **Chosen pattern**
    > section — the human approved it at the Spec gate; do NOT re-run the search (spec 046 D3: the
@@ -52,21 +52,25 @@ ground rules first — every non-negotiable below comes from [AGENTS.md](../../.
    from another workflow — hand IDs render as literal text, pass the validators, and break the
    app silently (§4.1/§9). Iteration-start child node id = `<iteration_id>start` (no separator).
 4. **Instantiate** `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}`:
-   - new, a pattern fits → copy the chosen `templates/patterns/*.yml` then customize every `# TODO:` marker;
-   - new, **no pattern fits** (`pattern: custom` from Analyze, the highest-risk path) → there is no
-     `main.yml` skeleton in `templates/_base` (it scaffolds the *project*, not a workflow), so seed
-     from the **closest** `templates/patterns/*.yml` as a structural base and strip what doesn't
-     apply. However you start, a custom build MUST still carry every mandatory structural element
-     before you validate — enumerate and confirm each: top-level `kind: app` · `version` · `app`
-     (`name` + `mode: workflow`) · `workflow.graph` with both `nodes` **and** `edges` · a `start`
-     node · an `end` node · `dependencies` (`[]` when none) · one edge per branch (no orphan nodes);
-   - edit-existing / dify-seed → modify `{{SEED_PATH}}`'s content per `SPEC.md`.
-   Set `app.name` / `app.description`, replace all node IDs, write prompts, wire variable
-   references `{{#<node_id>.<field>#}}` (field MUST exist in the source node's `outputs`,
-   source MUST be upstream — §4.2), give every edge an id `<source_id>-source-<target_id>-target`
-   (§4.1; on an if-else branch the case handle replaces `source`, e.g. `<id>-true-<id>-target`), and
-   set the top-level `version` to the project's `dsl_version` (`0.6.0` today — read it from
-   `projects/{{PROJECT}}/.dify-workspace.yaml`, never hardcode; §4.4).
+   - **Source — pick the ONE that matches this build:**
+     - new, a pattern fits → copy the chosen `templates/patterns/*.yml` then customize every `# TODO:` marker;
+     - new, **no pattern fits** (`pattern: custom` from Analyze, the highest-risk path) → there is no
+       `main.yml` skeleton in `templates/_base` (it scaffolds the *project*, not a workflow), so seed
+       from the **closest** `templates/patterns/*.yml` as a structural base and strip what doesn't apply;
+     - edit-existing / dify-seed → modify `{{SEED_PATH}}`'s content per `SPEC.md`.
+   - **Mandatory structural elements** (the one canonical checklist — step 2's trivial build assembles
+     the same set by hand): however you start, the build MUST still carry every mandatory structural
+     element before you validate — enumerate and confirm each: top-level `kind: app` · `version` ·
+     `app` (`name` + `mode: workflow`; a trivial advanced-chat build keeps its chat `mode`) ·
+     `workflow.graph` with both `nodes` **and** `edges` · a `start` node · an `end` node
+     (advanced-chat: `answer` instead) · `dependencies` (`[]` when none) · one edge per branch (no
+     orphan nodes).
+   - **Wire-up:** set `app.name` / `app.description`, replace all node IDs, write prompts, wire variable
+     references `{{#<node_id>.<field>#}}` (field MUST exist in the source node's `outputs`,
+     source MUST be upstream — §4.2), give every edge an id `<source_id>-source-<target_id>-target`
+     (§4.1; on an if-else branch the case handle replaces `source`, e.g. `<id>-true-<id>-target`), and
+     set the top-level `version` to the project's `dsl_version` (`0.6.0` today — read it from
+     `projects/{{PROJECT}}/.dify-workspace.yaml`, never hardcode; §4.4).
    - **Plugins & datasets (spec 037 D7 Class B):** if this prompt carries a `## Workspace facts`
      block listing the needed plugin dependency identifier or dataset ids, **COPY them verbatim**
      into `dependencies:` / `dataset_ids:` — harvested facts are the ONLY sanctioned source.
