@@ -154,6 +154,10 @@ export async function runReport(
   // Spec 037 S1: the runnability preflight line — an `auto` run never shows the ③ gate where it
   // first appears, so the report carries it too (the patternAdvisory precedent). Advisory only.
   if (task.preflightNote) noteParts.push(task.preflightNote);
+  // Spec 049 D2: the import-probe verdict (real-Dify oracle). Advisory only — never feeds lintClean.
+  // On FAILURE it carries Dify's verbatim (redacted) error: the exact input a "Request changes"
+  // fix-turn needs (D3 recovery path).
+  if (task.probeNote) noteParts.push(task.probeNote);
   if (accepted) noteParts.unshift('ACCEPTED with failing linters (human "Accept anyway" override).');
   if (task.deploy === 'none') noteParts.push('deploy=none (no Dify contact).');
   if (task.deploy === 'cloud') noteParts.push(cloudStudioNote(wfRel));

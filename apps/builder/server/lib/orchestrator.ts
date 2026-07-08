@@ -25,12 +25,12 @@ import { snapshotDiffBase, writeDiffArtifact } from './diff.js';
 import { lintClean, type LintCodes } from './linters.js';
 import { computeGate, type GateOutcome } from './gate.js';
 import { clearSession, isCancelled, setSession, turnHolderId } from './lock.js';
-import { emit, errMsg, httpError, resolveRunners, type OrchestratorCtx, type ConfirmPayload } from './orchestrator-shared.js';
+import { emit, errMsg, httpError, resolveLiveOps, resolveRunners, type OrchestratorCtx, type ConfirmPayload } from './orchestrator-shared.js';
 import { deriveSlugName, firstFreeSlug } from './slug.js';
 import { difySeedScaffoldAndPull, localEditSeed, scaffoldAtSpecGate, relocateRunArtifacts } from './scaffold.js';
 import { runImportAndFinish, finishWithoutImport } from './import.js';
 import { runLiveTest, finishLiveAccepted, cleanupTestApps } from './live-test.js';
-import { difyTargets, harvestWorkspaceFacts, knowledgeBlock, loadWorkspaceFacts } from './dify-io.js';
+import { difyTargets, harvestWorkspaceFacts, knowledgeBlock, loadWorkspaceFacts, redactSecrets } from './dify-io.js';
 import { applyAnalysisToTask } from './analysis.js';
 import { checkRunnability, preflightNote } from './runnability.js';
 import { persistCriteria } from './criteria.js';
@@ -663,6 +663,39 @@ async function verifyPhase(
  * the import entirely; its report carries the copyable-YAML + Studio steps (AC #9). The turn lock is
  * freed by the dispatch `finally` when this work settles (done or parked) — it is never held at a gate.
  */
+/**
+ * Spec 049 D2 — the ④ import-probe: push the produced YAML to the user's REAL Dify, capture the
+ * verdict, delete the probe app immediately. The one oracle that catches import blockers our
+ * linters have not met yet (the mimic-drift problem). ADVISORY ONLY in v1 (020: warn → measure →
+ * promote): the returned note NEVER feeds lintClean or a gate. Returns undefined (no note) when
+ * there is nothing to probe against: no selfhost creds, or the live path (whose real import IS the
+ * oracle — defensive: runTestAndFinish is not reachable with testMode==='live' today).
+ * Exported for direct unit tests (the resolveImplementOutcome precedent).
+ */
+export async function runImportProbe(task: Task, ctx: OrchestratorCtx): Promise<string | undefined> {
+  if (task.testMode === 'live') return undefined;
+  if (!difyTargets().selfhost) return undefined;
+  if (!task.project || !task.workflowSlug) return undefined; // nothing produced yet — defensive
+  const ops = resolveLiveOps(ctx);
+  const wfRel = `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`;
+  try {
+    const res = await ops.importForTest(
+      ctx.projectsDir, task.project, task.workflowSlug, wfRel, `[probe] ${task.workflowSlug}`
+    );
+    if (res.ok && res.appId) {
+      // Best-effort cleanup — a failed delete leaves one stray probe app, never fails the build.
+      const deleted = await ops.deleteApp(ctx.projectsDir, res.appId).catch(() => false);
+      return `import-probe: OK — Dify accepted this DSL${deleted ? ' (probe app deleted)' : ' (probe app cleanup failed — delete it in Dify)'}`;
+    }
+    // The VERBATIM (redacted) Dify error is deliberate: it is exactly what a ④ "Request changes"
+    // fix-turn needs (D3) — e.g. HTTP 400 "missing name" named the 2026-07-08 incident precisely.
+    const detail = redactSecrets(res.stderr ?? '').trim().split('\n').slice(-3).join(' ⏎ ');
+    return `import-probe FAILED: ${detail || 'import rejected (no detail captured)'}`;
+  } catch (e) {
+    return `import-probe: skipped (${redactSecrets(errMsg(e))})`;
+  }
+}
+
 async function runTestAndFinish(
   task: Task,
   ctx: OrchestratorCtx,
@@ -677,6 +710,11 @@ async function runTestAndFinish(
   task.gate = undefined;
   task.error = undefined;
   await emit(task, ctx);
+
+  // Spec 049 D2: probe BEFORE the report so the verdict lands in report.json. Set-or-cleared each
+  // static ④ run (a /reply retry re-probes the changed file); persisted on the Task so the
+  // Import/Skip re-report carries it too (the preflightNote precedent).
+  task.probeNote = await runImportProbe(task, ctx);
 
   const res = await runReport(projectsDir, task, log, { acceptedLintFailure, reuseLint });
   if (isCancelled(task.taskId)) return; // a /cancel raced the (childless) ④ step
