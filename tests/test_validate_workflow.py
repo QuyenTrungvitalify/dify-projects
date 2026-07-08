@@ -264,5 +264,106 @@ def test_unknown_mode_still_rejected(tmp_path: Path) -> None:
     assert _has(errors, "app mode"), errors
 
 
+# ── Spec 049 D1 — environment/conversation variables mirror Dify's import factory ────────────────
+# vendor/dify-src/api/factories/variable_factory.py hard-fails the WHOLE import (HTTP 400
+# "missing name" / "missing value type" / "missing value") — the 2026-07-08 field incident: an env
+# var written with the START-NODE INPUT key `variable:` passed all four linters and 400'd at import.
+
+
+def _wf_with_vars(env: list | None = None, conv: list | None = None) -> dict:
+    """A minimal valid workflow whose variables block is under test."""
+    wf: dict = {
+        "kind": "app", "version": "0.6.0", "app": {"name": "t", "mode": "workflow"},
+        "workflow": {"graph": {"nodes": [
+            {"id": "1000000000001", "data": {"type": "start", "variables": []}},
+            {"id": "1000000000003", "data": {"type": "end", "outputs": []}},
+        ], "edges": []}},
+    }
+    if env is not None:
+        wf["workflow"]["environment_variables"] = env
+    if conv is not None:
+        wf["workflow"]["conversation_variables"] = conv
+    return wf
+
+
+def test_env_var_variable_key_is_the_incident_red_fixture(tmp_path: Path) -> None:
+    """The exact 2026-07-08 shape: `variable:` instead of `name:` → error with the targeted hint."""
+    wf = _wf_with_vars(env=[{"variable": "CHATWORK_API_TOKEN", "value_type": "secret", "value": ""}])
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert not is_valid
+    assert _has(errors, "start-node input shape"), errors
+    assert _has(errors, "missing name"), errors
+
+
+def test_env_var_name_key_is_the_green_fixture(tmp_path: Path) -> None:
+    """The one-key fix that imported `status: completed` — `''` value is VALID (Dify checks None)."""
+    wf = _wf_with_vars(env=[{"name": "CHATWORK_API_TOKEN", "value_type": "secret", "value": ""}])
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert is_valid, errors
+
+
+def test_conversation_vars_validate_through_the_same_factory(tmp_path: Path) -> None:
+    wf = _wf_with_vars(conv=[{"variable": "history", "value_type": "string", "value": ""}])
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert not is_valid
+    assert _has(errors, "conversation_variables"), errors
+
+
+def test_env_var_null_value_fails_but_empty_string_passes(tmp_path: Path) -> None:
+    """Mirror `mapping.get('value') is None` exactly: YAML null → red, '' → green (above)."""
+    wf = _wf_with_vars(env=[{"name": "X", "value_type": "string", "value": None}])
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert not is_valid
+    assert _has(errors, "missing 'value'"), errors
+
+
+def test_env_var_missing_value_type_fails(tmp_path: Path) -> None:
+    wf = _wf_with_vars(env=[{"name": "X", "value": "v"}])
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert not is_valid
+    assert _has(errors, "missing 'value_type'"), errors
+
+
+def test_env_var_empty_name_fails_like_dify(tmp_path: Path) -> None:
+    """Dify's `if not mapping.get('name')` also rejects an EMPTY name — mirrored."""
+    wf = _wf_with_vars(env=[{"name": "", "value_type": "string", "value": "v"}])
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert not is_valid
+    assert _has(errors, "missing or empty 'name'"), errors
+
+
+def test_variables_block_malformed_entries_diagnose_not_crash(tmp_path: Path) -> None:
+    """V1 discipline (spec 026): non-list section / non-dict entry → structured error, no traceback."""
+    wf = _wf_with_vars(env=[{"name": "ok", "value_type": "string", "value": "v"}, "oops"])
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert not is_valid
+    assert _has(errors, "is not a mapping"), errors
+
+    wf2 = _wf_with_vars()
+    wf2["workflow"]["environment_variables"] = "not-a-list"
+    is_valid2, errors2, _ = _validate(tmp_path, wf2)
+    assert not is_valid2
+    assert _has(errors2, "must be a list"), errors2
+
+
+def test_absent_and_empty_variables_blocks_stay_green(tmp_path: Path) -> None:
+    """Regression guard (AC 2): the pre-049 corpus shape — absent or `[]` — is untouched."""
+    is_valid, errors, _ = _validate(tmp_path, _wf_with_vars())
+    assert is_valid, errors
+    is_valid2, errors2, _ = _validate(tmp_path, _wf_with_vars(env=[], conv=[]))
+    assert is_valid2, errors2
+
+
+def test_all_pattern_templates_still_lint_clean(tmp_path: Path) -> None:
+    """AC 2 sweep: every shipped pattern template stays green (meta-workflow-builder's correct
+    `name:` env vars are the natural green witness for the new check)."""
+    patterns = sorted((Path(__file__).parent.parent / "templates" / "patterns").glob("*.yml"))
+    assert patterns, "pattern templates missing?"
+    for p in patterns:
+        validator = WorkflowValidator()
+        is_valid, errors, _ = validator.validate(str(p))
+        assert is_valid, f"{p.name}: {errors}"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

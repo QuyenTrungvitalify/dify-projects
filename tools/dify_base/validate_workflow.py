@@ -100,6 +100,11 @@ class WorkflowValidator:
 
     def _validate_workflow(self, workflow: Dict):
         """Validate workflow section."""
+        # Spec 049 D1: the variables block validates FIRST (and unconditionally) — a broken entry
+        # hard-fails the whole Dify import even when the graph is perfect, so it must be reported
+        # even when the graph checks below early-return.
+        self._validate_variables_block(workflow)
+
         required_fields = ['graph']
         for field in required_fields:
             if field not in workflow:
@@ -226,6 +231,50 @@ class WorkflowValidator:
                 self.errors.append(f"Edge at index {i} missing 'target'")
             elif target not in node_ids:
                 self.errors.append(f"Edge references non-existent target node: {target}")
+
+    def _validate_variables_block(self, workflow: Dict):
+        """Spec 049 D1 — mirror Dify's import-time variable factory EXACTLY.
+
+        `vendor/dify-src/api/factories/variable_factory.py` builds every
+        `environment_variables` / `conversation_variables` entry via
+        `build_environment_variable_from_mapping` / `build_conversation_variable_from_mapping`
+        (both funnel into `_build_variable_from_mapping`), and each raises `VariableError` —
+        which surfaces as HTTP 400 `status:'failed'` for the WHOLE import — on:
+          * missing or empty `name`  → "missing name"   (the 2026-07-08 field incident: the model
+            wrote the START-NODE INPUT shape `variable:` for an env var; all four linters passed
+            and the import 400'd — this check is that incident's permanent red fixture);
+          * `value_type` that is None → "missing value type";
+          * `value` that is None      → "missing value"  (an EMPTY STRING is valid — Dify checks
+            `is None`, mirrored exactly; a missing key or YAML null fails).
+        """
+        for section in ('environment_variables', 'conversation_variables'):
+            entries = workflow.get(section)
+            if entries is None:
+                continue
+            if not isinstance(entries, list):
+                self.errors.append(f"'{section}' must be a list")
+                continue
+            for i, entry in enumerate(entries):
+                if not isinstance(entry, dict):
+                    self.errors.append(f"{section}[{i}] is not a mapping")
+                    continue
+                label = entry.get('name') or entry.get('variable') or f"[{i}]"
+                if not entry.get('name'):
+                    if 'variable' in entry and 'name' not in entry:
+                        self.errors.append(
+                            f"{section} entry '{entry.get('variable')}' uses 'variable:' — "
+                            f"{section} entries use 'name:' ('variable:' is the start-node input "
+                            f"shape; Dify import fails with \"missing name\")"
+                        )
+                    else:
+                        self.errors.append(f"{section} entry {label} missing or empty 'name'")
+                if entry.get('value_type') is None:
+                    self.errors.append(f"{section} entry '{label}' missing 'value_type'")
+                if entry.get('value') is None:
+                    self.errors.append(
+                        f"{section} entry '{label}' missing 'value' (empty string '' is valid; "
+                        f"a missing key or YAML null fails the Dify import)"
+                    )
 
     def _validate_start_node(self, node_id: str, data: Dict):
         """Validate start node."""
