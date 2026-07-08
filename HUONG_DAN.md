@@ -102,3 +102,4 @@ Mở trình duyệt: **http://127.0.0.1:4123**
 | Import bị **401** | Thiếu/sai `DIFY_WORKSPACE_ID`, hoặc chưa bật `ADMIN_API_KEY_ENABLE=true` + restart `api` trong Dify. |
 | Mở trang trắng / không cập nhật | Hard-refresh trình duyệt (`Cmd/Ctrl+Shift+R`). |
 | `claude` không chạy | Chạy `claude auth login` để đăng nhập lại. |
+| Hay bị *timeout* (phase dài / live-test chạy quá 2 phút) | Tăng `BUILDER_TURN_TIMEOUT_MS` / `BUILDER_LIVE_RUN_TIMEOUT_MS` trong `apps/builder/.env` (đơn vị ms — xem `.env.example`), rồi restart Builder. |

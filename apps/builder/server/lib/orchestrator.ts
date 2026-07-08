@@ -44,8 +44,9 @@ export type { OrchestratorCtx, OrchestratorRunners, ConfirmPayload } from './orc
 export { deriveSlugName, firstFreeSlug };
 export { localEditSeed };
 
-/** Per-turn wall-clock budget (spec §I default 10 min; per-phase config is a later refinement). */
-const TURN_TIMEOUT_MS = 10 * 60 * 1000;
+/** Per-turn wall-clock budget (spec §I default 10 min). Env-tunable (spec 048 D1, the
+ *  BUILDER_LIVE_RUN_TIMEOUT_MS idiom): read ONCE at module load, so a change needs a restart. */
+export const TURN_TIMEOUT_MS = Number(process.env.BUILDER_TURN_TIMEOUT_MS) || 10 * 60 * 1000;
 
 interface PhaseVerify {
   outcome: GateOutcome;

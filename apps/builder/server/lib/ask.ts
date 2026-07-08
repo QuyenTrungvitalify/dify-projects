@@ -24,8 +24,9 @@ import { errMsg, resolveRunners, type OrchestratorCtx } from './orchestrator-sha
 import { saveTask, workflowDir, type Task } from '../state/task.js';
 
 /** Pinned shorter than the phase default (10 min) — an Ask is a quick conversational reply, not a long
- *  agentic turn (matches the existing JUDGE_TIMEOUT_MS convention for a short data-turn, live-test.ts). */
-export const ASK_TIMEOUT_MS = 3 * 60 * 1000;
+ *  agentic turn (matches the existing JUDGE_TIMEOUT_MS convention for a short data-turn, live-test.ts).
+ *  Env-tunable (spec 048 D1): read ONCE at module load, so a change needs a restart. */
+export const ASK_TIMEOUT_MS = Number(process.env.BUILDER_ASK_TIMEOUT_MS) || 3 * 60 * 1000;
 
 /** One anomaly the layer-2 restore found + already reverted (FIX-M — a file OTHER than the phase's own
  *  gate artifact is just as reportable as the artifact itself). */
