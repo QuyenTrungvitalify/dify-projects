@@ -22,7 +22,7 @@ import { type TurnResult } from './turn-runner.js';
 import { PHASES, renderPrompt, languagePin, type PhaseDef } from './phases.js';
 import { attachmentBlock } from './attachments.js';
 import { snapshotDiffBase, writeDiffArtifact } from './diff.js';
-import { lintClean } from './linters.js';
+import { lintClean, type LintCodes } from './linters.js';
 import { computeGate, type GateOutcome } from './gate.js';
 import { clearSession, isCancelled, setSession, turnHolderId } from './lock.js';
 import { emit, errMsg, httpError, resolveRunners, type OrchestratorCtx, type ConfirmPayload } from './orchestrator-shared.js';
@@ -51,6 +51,10 @@ export const TURN_TIMEOUT_MS = Number(process.env.BUILDER_TURN_TIMEOUT_MS) || 10
 interface PhaseVerify {
   outcome: GateOutcome;
   reasons: string[];
+  /** ③'s lint exit codes (spec 048 D2) — threaded to ④ ONLY on the windowless maybeAutoAdvance
+   *  ③→④ hop (same dispatched request, turn lock held), so runReport skips the identical re-run.
+   *  Every path with a human window (each_step continue, ④ accept, /reply) re-runs (037 r2). */
+  lintCodes?: LintCodes;
 }
 
 // ───────────────────────────── entry points (one per HTTP request) ─────────────────────────────
@@ -126,7 +130,11 @@ export async function confirmAdvance(
   task: Task,
   actionId: string,
   ctx: OrchestratorCtx,
-  payload?: ConfirmPayload
+  payload?: ConfirmPayload,
+  // Spec 048 D2: INTERNAL-ONLY (maybeAutoAdvance's windowless hop) — deliberately NOT a ConfirmPayload
+  // field: payload is the HTTP request body, and a client-supplied reuseLint could skip the ④ lint
+  // re-run on a WINDOWED path (fabricated codes after a gate edit). routes/ never populates this.
+  internal?: { reuseLint?: LintCodes }
 ): Promise<void> {
   if (task.status !== 'awaiting_confirm') {
     throw httpError(409, `task ${task.taskId} is not awaiting confirmation (status: ${task.status})`);
@@ -137,6 +145,9 @@ export async function confirmAdvance(
   }
 
   const cur = task.phase;
+  // Spec 048 D2: the ③ verify captured here (spec branch) rides to the tail's maybeAutoAdvance — the
+  // ONLY consumer is the windowless ③→④ hop inside this same dispatched request (lock still held).
+  let implVerify: PhaseVerify | undefined;
   if (cur === 'analyze') {
     await runPhaseAndGate(task, 'spec', ctx);
   } else if (cur === 'spec') {
@@ -157,7 +168,7 @@ export async function confirmAdvance(
       await emit(task, ctx);
       return;
     }
-    await runPhaseAndGate(task, 'implement', ctx);
+    implVerify = await runPhaseAndGate(task, 'implement', ctx);
   } else if (cur === 'implement') {
     // Spec 032: `test_live` → the LIVE sub-orchestrator (import→run→verify). `continue`/`accept` → the
     // STATIC path exactly as before (`accept` = the still-failing human override, lint≠0).
@@ -171,7 +182,9 @@ export async function confirmAdvance(
       await runLiveTest(task, ctx);
       return; // ④ live parks at its own gate (test_result / infra_degraded) — never falls through
     }
-    await runTestAndFinish(task, ctx, actionId === 'accept');
+    // 048 D2: reuseLint applies to 'continue' only — 'accept' is always a human click at a
+    // still_failing gate (maybeAutoAdvance HARD-STOPS on that flag, so internal is never set there).
+    await runTestAndFinish(task, ctx, actionId === 'accept', actionId === 'continue' ? internal?.reuseLint : undefined);
     // deploy=none|cloud → ④ is terminal (status:done) unless lint failed (spec 014 D2 → a ④ accept
     // gate). selfhost-clean → runTestAndFinish parks at the Import gate. Either parked gate is a
     // `flag` that maybeAutoAdvance HARD-STOPS on (D1 deploy / D2 still-failing), so `auto`/`spec_only`
@@ -213,7 +226,9 @@ export async function confirmAdvance(
   }
 
   if (isCancelled(task.taskId)) return;
-  await maybeAutoAdvance(task, ctx);
+  // implVerify.lintCodes is set only when THIS request just ran the ③ verify (spec branch above) —
+  // for every other branch this is the plain no-reuse call it always was.
+  await maybeAutoAdvance(task, ctx, implVerify?.lintCodes ? { reuseLint: implVerify.lintCodes } : undefined);
 }
 
 /**
@@ -258,10 +273,13 @@ async function runPhaseAndGate(
   phaseId: 'analyze' | 'spec' | 'implement',
   ctx: OrchestratorCtx,
   opts?: { resumeId?: string; replyText?: string }
-): Promise<void> {
+): Promise<PhaseVerify | undefined> {
+  // 048 D2: returns the verify (additive — most callers ignore it) so confirmAdvance's spec branch
+  // can hand ③'s lintCodes to the windowless auto-hop. undefined on the cancel bail.
   const verify = await runPhase(task, phaseId, ctx, opts);
-  if (isCancelled(task.taskId)) return;
+  if (isCancelled(task.taskId)) return undefined;
   await gateAfterPhase(task, verify, ctx);
+  return verify;
 }
 
 /**
@@ -296,8 +314,15 @@ function featuresSubsetOfLlm(features: string[] | undefined): boolean {
   return Array.isArray(features) && features.length > 0 && features.every((f) => f === 'llm');
 }
 
-/** Decide per Confirm-mode whether THIS boundary auto-advances, then issue the primary confirm. */
-async function maybeAutoAdvance(task: Task, ctx: OrchestratorCtx): Promise<void> {
+/** Decide per Confirm-mode whether THIS boundary auto-advances, then issue the primary confirm.
+ *  `internal.reuseLint` (spec 048 D2) carries ③'s just-verified lint codes across the windowless
+ *  ③→④ hop — mode-agnostic on purpose: `auto` AND `spec_only` (AND the fast+auto path) all ride
+ *  this same seam, and all of them hop inside the one dispatched request that holds the turn lock. */
+async function maybeAutoAdvance(
+  task: Task,
+  ctx: OrchestratorCtx,
+  internal?: { reuseLint?: LintCodes }
+): Promise<void> {
   if (isCancelled(task.taskId)) return; // a /cancel mutates a separate object — re-check the live flag
   if (task.status !== 'awaiting_confirm') return; // error / done / cancelled never auto-advance
   if (task.gate?.flag === 'still_failing') return; // `auto` HARD-STOPS at still-failing (§D / AC #25)
@@ -323,7 +348,7 @@ async function maybeAutoAdvance(task: Task, ctx: OrchestratorCtx): Promise<void>
   // `test_live` button but auto takes `continue`, finishing `done` on the static test (AC #4).
   const primary = task.gate?.actions.find((a) => a.kind === 'confirm');
   if (!primary) return; // terminal (④) — nothing to advance
-  await confirmAdvance(task, primary.id, ctx);
+  await confirmAdvance(task, primary.id, ctx, undefined, internal);
 }
 
 /** auto → always; spec_only → pause only after Spec (② pauses, ①/③ auto); else (each_step OR any
@@ -569,7 +594,13 @@ async function verifyPhase(
     }
 
     const outcome = resolveImplementOutcome(check.detail, turnNote);
-    return { outcome, reasons: outcome === 'success' ? [] : reasons };
+    // 048 D2: expose ③'s lint codes for the windowless hop. `?? undefined` — detail.lintCodes is
+    // null when the artifact was missing/empty, but that maps to 'error' (never hops) anyway.
+    return {
+      outcome,
+      reasons: outcome === 'success' ? [] : reasons,
+      lintCodes: check.detail.lintCodes ?? undefined,
+    };
   }
 
   // ①/②: artifact exists + non-empty (+ analyze.json valid JSON) + confinement+revert.
@@ -635,7 +666,9 @@ async function verifyPhase(
 async function runTestAndFinish(
   task: Task,
   ctx: OrchestratorCtx,
-  acceptedLintFailure: boolean
+  acceptedLintFailure: boolean,
+  // 048 D2: ③'s codes from the SAME request's verify (windowless hop only) — see ReportOpts.reuseLint.
+  reuseLint?: LintCodes
 ): Promise<void> {
   const { projectsDir, log } = ctx;
   const { runReport } = resolveRunners(ctx); // 013 D2: real impl unless a test injects a fake
@@ -645,7 +678,7 @@ async function runTestAndFinish(
   task.error = undefined;
   await emit(task, ctx);
 
-  const res = await runReport(projectsDir, task, log, { acceptedLintFailure });
+  const res = await runReport(projectsDir, task, log, { acceptedLintFailure, reuseLint });
   if (isCancelled(task.taskId)) return; // a /cancel raced the (childless) ④ step
 
   if (!res.ok) {

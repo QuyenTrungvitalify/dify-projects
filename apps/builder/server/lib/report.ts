@@ -35,6 +35,14 @@ export interface ReportOpts {
   duplicateWarning?: string | null;
   /** selfhost: a note when the app id could not be captured ("push may have completed — check Dify"). */
   importNote?: string | null;
+  /** Spec 048 D2: ③'s lint exit codes from the SAME dispatched request — set ONLY by the windowless
+   *  maybeAutoAdvance ③→④ hop (auto/spec_only/fast; turn lock held, so no edit window exists between
+   *  the ③ verify and this report). When present AND clean, the report reuses the codes verbatim and
+   *  skips both the 4 linter spawns and the preflight recompute (one shared guard — task.preflightNote
+   *  is fresh from the same verify). Guarded by lintClean because a failing set would need the linters'
+   *  output lines for the notes — unreachable from the hop anyway (auto HARD-STOPS at still_failing).
+   *  NEVER populated from an HTTP payload (a client could otherwise skip a windowed re-run). */
+  reuseLint?: LintCodes;
 }
 
 /**
@@ -78,20 +86,29 @@ export async function runReport(
   // 1. Re-run the 4 linters (relative .venv/bin/python, cwd = projectsDir); capture exit codes.
   //    The list + clean-test come from the shared linter contract (013 D1) — the ③ gate and this ④
   //    report provably run the identical set, so a verdict can never drift between the two phases.
-  const lint: LintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 };
+  //    Spec 048 D2: on the WINDOWLESS hop (opts.reuseLint, clean) the codes are ③'s own verify over
+  //    the byte-identical file, so the re-run is skipped — and the preflight recompute below shares
+  //    THIS guard (one `reuse` branch, deliberately: the two skips are valid for exactly the same
+  //    no-edit-window reason and must never diverge). Every windowed path re-runs (037 r2).
+  const reuse = opts?.reuseLint && lintClean(opts.reuseLint) ? opts.reuseLint : undefined;
+  const lint: LintCodes = reuse
+    ? { ...reuse }
+    : { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 };
   const lintNotes: string[] = [];
-  // D5 (spec 017): linters run concurrently, then folded in LINTERS order → the keyed exit codes and
-  // the note order are identical to the former sequential loop. The ④ Import precondition (lintClean,
-  // AC #25) reads only the codes, so the verdict is unchanged — only the wall-clock shrinks.
-  const lintResults = await Promise.all(LINTERS.map((l) => runPython(projectsDir, [l.script, wfRel])));
-  LINTERS.forEach((l, i) => {
-    const r = lintResults[i];
-    lint[l.key] = r.code;
-    if (r.code !== 0) {
-      const detail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-LINT_DETAIL_LINES).join(' ⏎ ');
-      lintNotes.push(`${l.key} exit ${r.code}: ${detail}`);
-    }
-  });
+  if (!reuse) {
+    // D5 (spec 017): linters run concurrently, then folded in LINTERS order → the keyed exit codes and
+    // the note order are identical to the former sequential loop. The ④ Import precondition (lintClean,
+    // AC #25) reads only the codes, so the verdict is unchanged — only the wall-clock shrinks.
+    const lintResults = await Promise.all(LINTERS.map((l) => runPython(projectsDir, [l.script, wfRel])));
+    LINTERS.forEach((l, i) => {
+      const r = lintResults[i];
+      lint[l.key] = r.code;
+      if (r.code !== 0) {
+        const detail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-LINT_DETAIL_LINES).join(' ⏎ ');
+        lintNotes.push(`${l.key} exit ${r.code}: ${detail}`);
+      }
+    });
+  }
   const isLintClean = lintClean(lint);
 
   // D2 (spec 017): advisory — a left-over `dependencies: [] + # TODO plugin hash` lints clean but
@@ -106,10 +123,14 @@ export async function runReport(
   // Spec 037 S1 (r2) — RECOMPUTE the runnability preflight on the same workflow text: ④ is backend
   // (never the implement verify), so a human's ③-gate edit of main.yml followed by Confirm must not
   // ship a STALE preflightNote into report.json. Advisory only — a probe failure changes nothing.
-  try {
-    task.preflightNote = preflightNote(await checkRunnability(projectsDir, wfRel)) ?? undefined;
-  } catch {
-    /* advisory — the lint gate above already surfaced any real unreadability */
+  // Spec 048 D2: skipped under the SAME `reuse` guard as the linters — the windowless hop just set
+  // task.preflightNote in ③'s verify over this identical file; only a windowed path can go stale.
+  if (!reuse) {
+    try {
+      task.preflightNote = preflightNote(await checkRunnability(projectsDir, wfRel)) ?? undefined;
+    } catch {
+      /* advisory — the lint gate above already surfaced any real unreadability */
+    }
   }
 
   // 2. Synthesize report.json. `accepted_lint_failure` marks the still-failing "Accept anyway"
