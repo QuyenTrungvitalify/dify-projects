@@ -59,6 +59,15 @@ class WorkflowValidator:
             self.errors.append(f"YAML parsing error: {str(e)}")
             return False, self.errors, self.warnings
 
+        # Spec 049 D1b (import gap-matrix): Dify rejects a non-mapping document root with
+        # "Invalid YAML format: content must be a mapping" (app_dsl_service). Diagnose instead of
+        # crashing on data.get below (the V1 discipline, spec 026).
+        if not isinstance(data, dict):
+            self.errors.append(
+                "YAML root must be a mapping — a list/scalar document fails the Dify import "
+                "('Invalid YAML format: content must be a mapping')")
+            return False, self.errors, self.warnings
+
         # Validate top-level structure
         self._validate_top_level(data)
 
@@ -82,6 +91,22 @@ class WorkflowValidator:
 
         if data.get('kind') != 'app':
             self.errors.append(f"Invalid 'kind' value: expected 'app', got '{data.get('kind')}'")
+
+        # Spec 049 D1b (import gap-matrix, app_dsl_service): the top-level `version` must be a STRING
+        # — an unquoted `version: 0.4` parses as a YAML FLOAT and Dify raises
+        # "Invalid version type, expected str"; a non-numeric string ("banana") hits packaging's
+        # InvalidVersion, whose worst path 400s with an EMPTY error while leaving an orphaned app.
+        # (`0.6.0` is safe: three dots make YAML read it as a string already.)
+        version = data.get('version')
+        if version is not None and not isinstance(version, str):
+            self.errors.append(
+                f"'version' must be a quoted string, got {type(version).__name__} ({version!r}) — "
+                f"an unquoted 'version: 0.4' parses as a YAML float and fails the Dify import "
+                f"('Invalid version type, expected str')")
+        elif isinstance(version, str) and not re.match(r'^\d+(\.\d+)*$', version):
+            self.errors.append(
+                f"'version' must be dotted digits (e.g. '0.6.0'), got '{version}' — Dify's version "
+                f"parser rejects it (worst case: HTTP 400 with an EMPTY error plus an orphaned app)")
 
     def _validate_app(self, app: Dict):
         """Validate app section."""

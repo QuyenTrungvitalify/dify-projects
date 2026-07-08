@@ -354,6 +354,44 @@ def test_absent_and_empty_variables_blocks_stay_green(tmp_path: Path) -> None:
     assert is_valid2, errors2
 
 
+# ── Spec 049 D1b — import gap-matrix additions (root mapping + version type/format) ──────────────
+
+
+def test_list_root_diagnoses_not_crashes(tmp_path: Path) -> None:
+    """Dify: 'content must be a mapping'. Pre-049 the validator CRASHED on a list root (V1 gap)."""
+    p = tmp_path / "wf.yml"
+    p.write_text("- just\n- a list\n", encoding="utf-8")
+    is_valid, errors, _ = WorkflowValidator().validate(str(p))
+    assert not is_valid
+    assert _has(errors, "root must be a mapping"), errors
+
+
+def test_unquoted_two_part_version_is_a_yaml_float_and_fails(tmp_path: Path) -> None:
+    """The classic trap: `version: 0.4` (unquoted) parses as float → Dify 'expected str'."""
+    wf = _wf_with_vars()
+    wf["version"] = 0.4  # what yaml.safe_load produces for the unquoted form
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert not is_valid
+    assert _has(errors, "must be a quoted string"), errors
+
+
+def test_non_numeric_version_string_fails(tmp_path: Path) -> None:
+    """'banana' hits packaging InvalidVersion — worst path: 400 with EMPTY error + orphaned app."""
+    wf = _wf_with_vars()
+    wf["version"] = "banana"
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert not is_valid
+    assert _has(errors, "dotted digits"), errors
+
+
+def test_dotted_versions_stay_green(tmp_path: Path) -> None:
+    for v in ("0.6.0", "0.6", "1.0.0"):
+        wf = _wf_with_vars()
+        wf["version"] = v
+        is_valid, errors, _ = _validate(tmp_path, wf)
+        assert is_valid, f"version {v!r}: {errors}"
+
+
 def test_all_pattern_templates_still_lint_clean(tmp_path: Path) -> None:
     """AC 2 sweep: every shipped pattern template stays green (meta-workflow-builder's correct
     `name:` env vars are the natural green witness for the new check)."""

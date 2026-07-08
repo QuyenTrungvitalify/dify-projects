@@ -79,6 +79,11 @@ ground rules first — every non-negotiable below comes from [AGENTS.md](../../.
      so a `selfhost`/`cloud` deploy sees it before import (017 D2). The model `provider`/`name`
      stay EMPTY either way (B5: auto-injected at live test/deploy — the facts block lists models
      for reference only).
+   - **Environment variables:** entries under `workflow.environment_variables` (and
+     `conversation_variables`) use `name:` — plus `value_type` and a `value` key (`''` is fine,
+     a missing key is not). NEVER `variable:` there — that is the start-node input shape, and the
+     Dify import fails with "missing name" (field incident 2026-07-08; validate_workflow.py now
+     rejects it).
    - **Code nodes:** `code_language: python3`, `def main(...) -> dict`, stdlib-only, guard
      `None`/`""` from upstream (§4.5).
    - **if-else nodes:** emit BOTH legacy `conditions` AND modern `cases` (§9, validator quirk) —

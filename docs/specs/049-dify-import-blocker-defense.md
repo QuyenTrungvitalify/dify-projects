@@ -1,7 +1,6 @@
 # Spec 049 — Dify import-blocker defense: mirror-the-source linting, real-import probe, recovery UX
 
-**Status**: Draft — authored 2026-07-08 from a live field incident (same-day root-caused + empirically
-verified). **S–M** (~1–1.5 ngày). The theme: our linters are a MIMIC of Dify's rules and a mimic
+**Status**: Implemented (r2, 2026-07-08 — same day as the incident). **S–M**. The theme: our linters are a MIMIC of Dify's rules and a mimic
 drifts, so the guarantee has three layers — (L1) copy the rules from Dify's own source, (L2) ask the
 REAL Dify before calling a build done, (L3) give the field user a recovery path that actually edits.
 
@@ -61,10 +60,17 @@ Three structural lessons, one per decision below:
   null (empty string IS valid — Dify checks `is None`, mirrored exactly). Exit non-zero per the
   linter contract. Placement INSIDE `validate_workflow.py` — the LINTERS list, docs-contract-pin,
   and the 013 cross-consumer identity suite all stay byte-unchanged.
-  - D1b *(r2 fold-in)*: the `dify-import-gap-matrix` mining workflow (running at authoring time) will
-    enumerate the remaining hard-fails on the import path from `app_dsl_service.py` etc.; each
-    CONFIRMED rule lands as an additional check in the same style. Tracked as **OQ2** until the
-    matrix lands — S1 does NOT block on it.
+  - D1b *(r2 — the gap-matrix landed; 3 confirmed rules shipped)*: (i) a NON-MAPPING document root
+    (list/scalar) → error (Dify: "Invalid YAML format: content must be a mapping"; pre-049 the
+    validator CRASHED on it — a V1-discipline gap); (ii) `version` present but not a string →
+    error (the classic unquoted `version: 0.4` YAML-float trap — Dify raises "Invalid version type,
+    expected str"); (iii) a version string that is not dotted digits (`banana`) → error (packaging
+    `InvalidVersion`; the worst Dify path 400s with an EMPTY error while leaving an ORPHANED app).
+    Remaining matrix rows (dependencies' `PluginDependency` pydantic shape, the >current-version →
+    HTTP 202 `pending` flow, request-shape rules) stay in the matrix artifact — request-shape ones
+    are the importer's job (sync.py already conforms), and the probe (D2) covers the rest by
+    construction. The variables-family miner died mid-run (connection loss) — its ground was
+    already covered by the manual `variable_factory.py` mining that produced D1.
 - **D2 · ④ import-probe — ask the real Dify (locked; advisory in v1 per 020).** On the STATIC ④
   report, when `difyTargets().selfhost` is true and the build is NOT already on a real-import path
   (`task.testMode !== 'live'` and the flow won't push anyway): the backend does a real
@@ -76,10 +82,14 @@ Three structural lessons, one per decision below:
     error is deliberate: it is exactly what the `/reply` fix-turn needs;
   - no creds / network down / timeout → note `import-probe: skipped (<reason>)` — degrade, never
     block (the 037 probe-degrade precedent).
-  Mechanics: a new `runImportProbe` runner on the 013 D2 seam (`OrchestratorRunners`, real impl
-  wraps `pushApp` + `sync.py delete` via `runSyncPy`); `runTestAndFinish` invokes it and threads the
-  note into `runReport` via a new `ReportOpts.probeNote` (the `importNote` precedent). NEVER feeds
-  `lintClean`, never gates, never runs on the live path (the live test already IS the oracle).
+  Mechanics *(r2 — as shipped)*: NO new runner — the probe composes the EXISTING LiveOps seam
+  (`resolveLiveOps` → `importForTest` + `deleteApp`, spec 032's injectable ops), so every test-fake
+  pattern already exists; the verdict is a **`task.probeNote` Task field** (the `preflightNote`
+  precedent), not a `ReportOpts` — set-or-cleared per static ④ run, so the Import/Skip re-report
+  carries it with zero extra threading. `runTestAndFinish` probes BEFORE `runReport`. No-creds is a
+  SILENT skip (no note — a credless `deploy=none` build would otherwise carry noise on every run);
+  the `skipped (<reason>)` note fires only when creds exist but the probe itself threw. NEVER feeds
+  `lintClean`, never gates, never runs on the live path (defensive — the live import IS the oracle).
   v1 is warn-only; promotion to a gate is **OQ1** after field FP measurement (020 discipline).
 - **D3 · Recovery UX — point the user at the door that opens (locked).** HUONG_DAN §7 gains the row:
   *Import vào Dify báo lỗi* → copy NGUYÊN VĂN error → mở build → **"Request changes"** (KHÔNG phải
@@ -137,3 +147,12 @@ Three structural lessons, one per decision below:
 - r1 (2026-07-08) — initial draft, same day as the incident. Root cause empirically verified (API
   repro: 400 "missing name" → one-key fix → `status: completed`); Dify-source citation
   `api/factories/variable_factory.py`; incident YAML preserved as the S1 red fixture.
+- r2 (2026-07-08) — implemented S1→S3 + D1b. Deviations from r1, each toward less machinery:
+  D2 reuses the LiveOps seam instead of a new runner (importForTest/deleteApp already injectable);
+  the verdict is `task.probeNote` (preflightNote precedent) so re-reports carry it for free;
+  no-creds skips SILENTLY (r1's "skipped" note would have been per-build noise for credless
+  installs). D1b shipped the gap-matrix's three offline-checkable rules (root-mapping, version
+  type, version format); the rest is covered by the probe or the importer. Verification: pytest
+  29/29 in test_validate_workflow (142 total, 2 skipped), server suite 424→429/429 green, repo
+  sweep 31 workflow files + 7 patterns with zero NEW reds, docs pins byte-green. The incident file
+  itself: red pre-fix with the targeted hint, green post-fix — the exact field loop closed.
