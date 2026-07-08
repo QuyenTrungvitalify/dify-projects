@@ -64,6 +64,49 @@ const ERROR_GATE: Gate = { actions: [REPLY('retry', 'Retry phase')] };
  * the many 3-arg call sites (error/restore gates) keep compiling — those phases ignore `targets` anyway.
  * `_deploy` is retained positionally for those call sites but no longer read here.
  */
+/**
+ * Spec 052 — the `kind:'promote'` build's three parked gates (PURE, like {@link computeGate}). The
+ * promote flow never enters the phase FSM, so these are computed directly by lib/promote.ts, not by
+ * `computeGate`. The action ids are matched string-wise in `promoteConfirm`/`promoteReply`:
+ *   - `blocked`        → the B1 eligibility gate failed. Terminal-ish: only Discard (fix the source, re-promote).
+ *   - `distill_failed` → the distilled output failed the B2′ re-lint. Request-changes re-runs the turn; Discard.
+ *   - `review`         → a clean distill. Approve is the ONLY write to templates/patterns/; Request-changes
+ *                        re-runs the distill note-steered; Discard sweeps (nothing written). On a slug
+ *                        collision at Approve, `reviewCollision` swaps in Overwrite / Save-as-new + Discard.
+ */
+export type PromoteGateState = 'blocked' | 'distill_failed' | 'review' | 'reviewCollision';
+export function computePromoteGate(state: PromoteGateState): Gate {
+  switch (state) {
+    case 'blocked':
+      return { actions: [CANCEL('discard', 'Discard')], flag: 'promote_blocked' };
+    case 'distill_failed':
+      return {
+        actions: [REPLY('changes', 'Request changes'), CANCEL('discard', 'Discard')],
+        flag: 'promote_distill_failed',
+      };
+    case 'review':
+      return {
+        actions: [
+          CONFIRM('approve', 'Approve & promote'),
+          REPLY('changes', 'Request changes'),
+          CANCEL('discard', 'Discard'),
+        ],
+        flag: 'promote_review',
+      };
+    case 'reviewCollision':
+      // A pattern already exists at the target slug — never silently clobber (D6). Offer both explicit
+      // choices; both stay under the same `promote_review` flag so the review card renders unchanged.
+      return {
+        actions: [
+          CONFIRM('approve_overwrite', 'Overwrite existing'),
+          CONFIRM('approve_rename', 'Save as a new pattern'),
+          CANCEL('discard', 'Discard'),
+        ],
+        flag: 'promote_review',
+      };
+  }
+}
+
 export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy, targets: DifyTargets = {}): Gate {
   if (verify.outcome === 'error') return { actions: [...ERROR_GATE.actions] };
 

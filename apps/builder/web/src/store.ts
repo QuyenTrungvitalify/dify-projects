@@ -645,6 +645,23 @@ export async function createProject(
   }
 }
 
+/** spec 051 D5: import a standalone YAML as a local edit-existing base. On success, refresh the tree
+ *  FIRST (so the new workflow row exists before it is selected — the createProject precedent), then
+ *  return the resolved `{ project, workflow, slugNote? }` so the caller can auto-select it via
+ *  `newTask({ baseWorkflow })`. On failure the error shape is returned for the modal to render inline
+ *  (a 400 carries the linter's verbatim message; a size/extension reject its own). */
+export async function importBase(
+  body: { yaml: string; name?: string; project?: string; fileName?: string }
+): Promise<{ project: string; workflow: string; slugNote?: string; probeNote?: string } | { error: string }> {
+  try {
+    const r = await api.importBase(body);
+    await loadTree(); // the new base is now visible in the sidebar + the ワークフロー selector
+    return r;
+  } catch (e) {
+    return { error: e instanceof ApiError ? e.message : String(e) };
+  }
+}
+
 /** Fetch the in-progress builds for the sidebar (load-recovery + post-action refresh, Lát 6). */
 export async function loadActive(): Promise<void> {
   try {
@@ -707,6 +724,30 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
     void loadTree();
     void loadActive();
     return true; // spec 040 D2: signal success so the composer clears (a 409 returns false → draft kept)
+  } catch (e) {
+    surfaceError(e);
+    return false;
+  }
+}
+
+/** spec 052 — start a "Promote to pattern" build from a resolved on-disk workflow (the header pill). Opens
+ *  the promote build in the conversation view exactly like `start` (applyTask + SSE), so its B1/distill/
+ *  review gates render in the thread. A 400/404 (bad source) surfaces via the shared error banner. */
+export async function promote(project: string, workflow: string): Promise<boolean> {
+  clearErrors();
+  try {
+    // POST FIRST — a 400/404 (ineligible / bad source) must NOT wipe the current build's view (the pill is
+    // clicked from a done conversation view, not only the empty surface — unlike `start`). Reset + open the
+    // promote build only once the backend accepted it.
+    const t = await api.promote({ project, workflow });
+    _lastPersisted = '';
+    thread.value = [{ id: uid(), kind: 'user', text: tf('promoteThreadOpen', { project, workflow }) }];
+    task.value = null;
+    applyTask(t);
+    openStream(t.taskId);
+    void loadTree();
+    void loadActive();
+    return true;
   } catch (e) {
     surfaceError(e);
     return false;
@@ -835,6 +876,15 @@ export async function restore(): Promise<void> {
 export async function liveTest(): Promise<void> {
   const t = task.value;
   if (!t) return;
+  // Discoverability change: the "Run test with workflow" foot is always shown for a done autonomous build
+  // (gate-foot.ts no longer gates it on self-host creds), so the self-host target is validated HERE, on
+  // click. No creds → a specific, localized message telling the user to configure the self-host URL + key,
+  // instead of firing a request the server would 409 with a generic error. The server still re-guards.
+  if (!t.liveTargets?.selfhost) {
+    busyHolder.value = null;
+    startError.value = tr('liveTestNeedsSelfhost');
+    return;
+  }
   try {
     // The POST returns a running(④) snapshot; optimisticAdvance marks the trailing (done) gate resolved
     // WITHOUT pushing a run item — the authoritative SSE task:update opens the correct "Running ④ Test".

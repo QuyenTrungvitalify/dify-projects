@@ -1253,6 +1253,9 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* seed picker (new-task surface, AC #2) — label inline with the chips to stay compact */
 .seed-picker { margin-top: 14px; display: flex; align-items: baseline; column-gap: 10px; row-gap: 6px; flex-wrap: wrap; }
 .seed-picker .suggest-label { margin-bottom: 0; flex: 0 0 auto; }
+/* spec 051 D5: the "＋ Add YAML as base" affordance sits inline with the SEED FROM label. */
+.seed-label-row { display: inline-flex; align-items: baseline; gap: 10px; }
+.add-base-btn { font-size: 11px; padding: 2px 9px; letter-spacing: 0; }
 .seed-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 0; flex: 1 1 auto; }
 .seed-chip {
   padding: 5px 11px; border-radius: var(--r-pill); font-size: 12.5px;

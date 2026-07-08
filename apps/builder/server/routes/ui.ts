@@ -24,6 +24,7 @@ import { revealInFileManager } from '../lib/reveal.js';
 import { listSeeds } from '../lib/dify-io.js';
 import { runPython as realRunPython } from '../lib/shell.js';
 import { checkProjectName, scaffoldProjectTier } from '../lib/project-create.js';
+import { importYamlAsBase, probeImportedBase, type BaseProbe } from '../lib/base-import.js';
 import { turnHolderId } from '../lib/lock.js';
 
 export interface UiRoutesOptions {
@@ -32,11 +33,15 @@ export interface UiRoutesOptions {
   now: () => number;
   /** 013-D2 seam: tests inject a fake spawn; production uses the real `init_project.py` runner. */
   runPython?: typeof realRunPython;
+  /** spec 051 D2 seam: the optional import-probe. Tests inject a no-op/fake (hermetic — the real probe
+   *  would hit Dify when the dev has creds in their env); production uses the real `probeImportedBase`. */
+  importProbe?: BaseProbe;
 }
 
 const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
   const { projectsDir, now } = opts;
   const runPython = opts.runPython ?? realRunPython;
+  const importProbe = opts.importProbe ?? probeImportedBase;
 
   // taskId is a 13+-digit ms timestamp (mintTaskId). Reject anything else BEFORE it reaches
   // loadTask → join(.runs, id, …): a crafted id like `../../..` would otherwise path-traverse off
@@ -69,6 +74,30 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
       return reply.code(500).send({ error: `scaffold failed: ${(r.stderr || r.stdout).trim().slice(0, 300)}` });
     }
     return reply.send({ project: slug, name });
+  });
+
+  // ── POST /api/bases — import ONE standalone YAML as a local edit-existing base (spec 051 D1). A raw
+  //    `.yml` a field user hands over reaches neither base door today; this validates it (D2: the same
+  //    4-linter gate the ③ build gate runs), derives a folder slug (JP `app.name` preserved for the
+  //    chip label — the slug is a separate ASCII concern), scaffolds the workflow tier, and writes the
+  //    file verbatim to projects/<project>/<slug>/workflows/main.yml — whence /api/tree lists it as a
+  //    base for free (D4). NOT a build turn → no gate/turn interaction (like POST /api/projects). Origin
+  //    is checked on this mutating POST by the global onRequest hook (index.ts). ──
+  app.post('/api/bases', async (req, reply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const r = await importYamlAsBase(
+      projectsDir,
+      { yaml: body.yaml, name: body.name, project: body.project, fileName: body.fileName },
+      runPython,
+      importProbe
+    );
+    if (!r.ok) return reply.code(r.status).send({ error: r.error });
+    return reply.send({
+      project: r.project,
+      workflow: r.workflow,
+      ...(r.slugNote ? { slugNote: r.slugNote } : {}),
+      ...(r.probeNote ? { probeNote: r.probeNote } : {}),
+    });
   });
 
   // ── GET /api/active — the in-progress builds (non-terminal), newest first (Lát 6). With the

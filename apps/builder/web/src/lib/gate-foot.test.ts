@@ -54,7 +54,7 @@ describe('terminalFootActions (spec 035 — independent Restore / Edit-again gua
   });
 });
 
-describe('terminalFootActions — runTest (spec 036 D5: done autonomous + self-host reachable)', () => {
+describe('terminalFootActions — runTest (done autonomous; self-host checked on click, not as a display gate)', () => {
   const qualified = (over: Partial<WireTask>): Partial<WireTask> =>
     ({ status: 'done', project: 'p', workflowSlug: 'wf', liveTargets: { selfhost: true }, ...over });
 
@@ -74,12 +74,14 @@ describe('terminalFootActions — runTest (spec 036 D5: done autonomous + self-h
     expect(terminalFootActions(t(qualified({ confirmMode: null as never })), all).runTest).toBe(false);
   });
 
-  it('done + auto but NO self-host target (liveTargets.selfhost false) → HIDDEN', () => {
-    expect(terminalFootActions(t(qualified({ confirmMode: 'auto', liveTargets: { selfhost: false } })), all).runTest).toBe(false);
+  // Discoverability change: self-host reachability is NO LONGER a display gate — the foot shows for a done
+  // autonomous build even without creds (creds are checked on click in store.liveTest, and server-side).
+  it('done + auto but NO self-host target (liveTargets.selfhost false) → SHOWN (creds checked on click)', () => {
+    expect(terminalFootActions(t(qualified({ confirmMode: 'auto', liveTargets: { selfhost: false } })), all).runTest).toBe(true);
   });
 
-  it('done + auto + creds but liveTargets ABSENT (pre-036 snapshot) → HIDDEN', () => {
-    expect(terminalFootActions(t(qualified({ confirmMode: 'auto', liveTargets: undefined })), all).runTest).toBe(false);
+  it('done + auto but liveTargets ABSENT (pre-036 snapshot) → SHOWN (creds checked on click)', () => {
+    expect(terminalFootActions(t(qualified({ confirmMode: 'auto', liveTargets: undefined })), all).runTest).toBe(true);
   });
 
   it('done + auto + creds but NO on-disk workflow → HIDDEN', () => {

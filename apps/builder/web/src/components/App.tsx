@@ -10,7 +10,7 @@ import { useState, useRef, useEffect } from 'preact/hooks';
 import { Sidebar } from './Sidebar';
 import { PhaseTrack, Disclosure, GateCard, GateActions, QaAnswer, Composer } from './Chat';
 import { ArtifactPanel } from './ArtifactPanel';
-import { CreateProjectModal, ConfirmModal } from './Modal';
+import { CreateProjectModal, ImportBaseModal, ConfirmModal } from './Modal';
 import { I } from './Icon';
 import { suggestions } from '../data';
 import { t as tr, tf, lang, toggleLang } from '../lib/i18n';
@@ -24,6 +24,9 @@ const attUid = (): string => 'att' + ++_attUid;
 
 /** Which artifact tabs are available for a task (contents-driven, with a phase fallback). */
 function availableTabs(task: WireTask): ArtifactTab[] {
+  // spec 052: a promote build has only its distilled pattern (no SPEC.md / report / diff) — show the yaml
+  // tab alone (the phase='test' fallback would otherwise offer empty Spec/Report panes).
+  if (task.kind === 'promote') return task.artifactContents?.yaml ? ['yaml'] : [];
   const order: ('analyze' | 'spec' | 'implement' | 'test')[] = ['analyze', 'spec', 'implement', 'test'];
   const reached = (p: string): boolean => order.indexOf(task.phase) >= order.indexOf(p as never);
   const a = task.artifactContents;
@@ -58,6 +61,7 @@ export function App() {
   const [focusToken, setFocusToken] = useState(0);
   const asking = store.asking.value;
   const [createOpen, setCreateOpen] = useState(false);
+  const [importBaseOpen, setImportBaseOpen] = useState(false); // spec 051 D5
   const [artifactOpen, setArtifactOpen] = useState(false);
   const [artifactTab, setArtifactTab] = useState<ArtifactTab>('spec');
   const threadRef = useRef<HTMLDivElement>(null);
@@ -173,6 +177,14 @@ export function App() {
       void store.start(msg, atts).then(onDone); // a new build ignores `mode`; the next gate's useEffect resets it
       return;
     }
+    // spec 052: a promote build has no Ask surface — a typed message at a promote gate is always a
+    // "Request changes" reply (re-run the distill, note-steered). The server rejects it at the blocked gate
+    // (no reply action); here it routes to /reply, not /ask (which would 409 for a promote task).
+    if (store.task.value?.kind === 'promote') {
+      void store.reply(msg, 'Request changes', atts).then(onDone);
+      setMode('ask');
+      return;
+    }
     // spec 034 D3: a terminal build's composer is Ask-only — no change-mode exists (nothing to resume or
     // re-run), attach is hidden (no files), and starting a new build moved to the sidebar "+".
     if (st === 'done' || st === 'cancelled') {
@@ -266,7 +278,9 @@ export function App() {
   // placeholder) DOES extend to ④ — Ask works at all four ④ gates now. This is a DIFFERENT predicate from
   // `dockedGate` (which drives the docked action BAR, deliberately NOT wanted at ④): decoupling them lets
   // the chip render at ④ while ④'s gate actions stay inline.
-  const askableGate = !!task && task.status === 'awaiting_confirm' &&
+  // spec 052: a promote task is pinned to phase='test' for inline gate rendering but has NO Ask surface —
+  // exclude it so the composer stays reply-oriented (its typed text is a "Request changes", not an Ask).
+  const askableGate = !!task && task.status === 'awaiting_confirm' && task.kind !== 'promote' &&
     (task.phase === 'analyze' || task.phase === 'spec' || task.phase === 'implement' || task.phase === 'test');
   // spec 033 FIX-L / 034 D5: the parked placeholder no longer says "Reply" once Ask is the default — split
   // by mode; only `error` keeps the original wording (Ask isn't offered there — no live parked gate).
@@ -327,7 +341,10 @@ export function App() {
                     {runCtx.leaf && <span className="run-crumb-seg run-crumb-leaf">{runCtx.leaf}</span>}
                   </span>
                 )}
-                <PhaseTrack phaseStates={phaseStates} current={current} />
+                {/* spec 052: a promote build is not a ①②③④ pipeline — show its name in place of the phase track. */}
+                {task?.kind === 'promote'
+                  ? <span style={{ fontSize: 13, color: 'var(--tx-muted)' }}>{tr('promoteToPattern')}</span>
+                  : <PhaseTrack phaseStates={phaseStates} current={current} />}
               </>
             ) : <span style={{ fontSize: 13, color: 'var(--tx-muted)' }}>{crumb.label}</span>}
             <div className="chat-top-right">
@@ -355,6 +372,20 @@ export function App() {
                   <I.panel />{tr('artifact')}
                 </button>
               )}
+              {/* spec 052 D1: "Promote to pattern" — always-visible when the view has a RESOLVED on-disk
+                  workflow. In the conversation view: a proven/done build (not itself a promote). On the
+                  new-task surface: a base pre-selected from the sidebar workflow row (editingSel). Absent on
+                  a from-scratch new task. Click → POST /api/promote and opens the promote build. */}
+              {view === 'conversation' && task && task.kind !== 'promote' && task.status === 'done' && task.project && task.workflowSlug && (
+                <button className="ghost-pill" onClick={() => void store.promote(task.project!, task.workflowSlug!)} title={tr('promoteToPatternHint')}>
+                  <I.spark />{tr('promoteToPattern')}
+                </button>
+              )}
+              {view === 'empty' && editingSel?.project && editingSel.workflow && (
+                <button className="ghost-pill" onClick={() => void store.promote(editingSel.project!, editingSel.workflow)} title={tr('promoteToPatternHint')}>
+                  <I.spark />{tr('promoteToPattern')}
+                </button>
+              )}
             </div>
           </div>
 
@@ -364,6 +395,7 @@ export function App() {
               crumb={crumb} onClearCrumb={clearNewTaskCrumb}
               seeds={seeds} selectedSeed={settings.seed}
               onSeed={(id) => { store.settings.value = { ...store.settings.value, seed: id }; }}
+              onAddBase={() => setImportBaseOpen(true)}
               startError={startError} busyHolder={busyHolder}
               files={files} onAddFiles={(f) => void addFiles(f)} onRemoveFile={removeFile}
             />
@@ -442,8 +474,10 @@ export function App() {
                         </div>
                       )}
                       <Composer value={draft} onChange={setDraft} onSend={() => send()}
-                        settings={{ workflow: task.workflow ?? 'none', confirm: store.confirmModeLabel(task.confirmMode), fast: task.fastMode ?? false }}
-                        onSettings={(patch) => { if (patch.confirm) void store.patchConfirmMode(task.taskId, patch.confirm); }}
+                        /* spec 052: a promote build has no ①②③④ run-settings — omit the Workflow/Confirm/Fast
+                           chips (and their confirm_mode PATCH) so the promote-gate composer is a plain reply box. */
+                        settings={task.kind === 'promote' ? undefined : { workflow: task.workflow ?? 'none', confirm: store.confirmModeLabel(task.confirmMode), fast: task.fastMode ?? false }}
+                        onSettings={task.kind === 'promote' ? undefined : (patch) => { if (patch.confirm) void store.patchConfirmMode(task.taskId, patch.confirm); }}
                         workflows={workflows} lockStartBound lockConfirm={busy}
                         placeholder={livePlaceholder} focusToken={focusToken}
                         /* FIX-H: send-readiness is disabled while a phase/Reply turn runs (busy) OR a
@@ -496,6 +530,15 @@ export function App() {
         />
       )}
 
+      {/* spec 051 D5: import a standalone YAML → a local edit-existing base, then auto-select it via the
+          SAME newTask({baseWorkflow}) the sidebar "+" / "Edit this workflow" use. */}
+      {importBaseOpen && (
+        <ImportBaseModal
+          onClose={() => setImportBaseOpen(false)}
+          onImported={({ project, workflow }) => { setImportBaseOpen(false); newTask({ baseWorkflow: { project, workflow } }); }}
+        />
+      )}
+
       {/* The single mounted ConfirmModal — driven by store.askConfirm() from anywhere (replaces confirm()). */}
       {confirmReq && (
         <ConfirmModal
@@ -537,7 +580,7 @@ function StartErrorBanner({ startError, busyHolder, onOpen = (id) => void store.
 }
 
 /* ---------- empty / new-task surface ---------- */
-function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, crumb, onClearCrumb, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile }: {
+function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, crumb, onClearCrumb, seeds, selectedSeed, onSeed, onAddBase, startError, busyHolder, files, onAddFiles, onRemoveFile }: {
   draft: string;
   setDraft: (s: string) => void;
   send: (text?: string) => void;
@@ -549,6 +592,7 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, cr
   seeds: Seed[];
   selectedSeed: string | null;
   onSeed: (id: string | null) => void;
+  onAddBase: () => void;
   startError: string | null;
   busyHolder: string | null;
   files: ComposerAttachment[];
@@ -577,7 +621,11 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, cr
 
         {/* Seed picker (AC #2): lists /api/seeds; degrades to an empty list until Lát 5. */}
         <div className="seed-picker">
-          <div className="suggest-label">{tr('seedFrom')}</div>
+          <div className="suggest-label seed-label-row">
+            <span>{tr('seedFrom')}</span>
+            {/* spec 051 D5: the third base door — import a standalone YAML on disk as a local base. */}
+            <button className="gs-link add-base-btn" onClick={onAddBase}>{tr('addYamlAsBase')}</button>
+          </div>
           {seeds.length === 0 ? (
             <div className="secret-note" style={{ padding: '6px 0' }}>
               {tr('noSeedApps')}

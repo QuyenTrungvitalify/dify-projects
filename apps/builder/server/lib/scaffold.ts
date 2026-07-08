@@ -14,7 +14,7 @@ import type { SessionLogger } from './claude-session.js';
 import { pullApp } from './dify-io.js';
 import { emit, resolveRunners, type OrchestratorCtx, type ConfirmPayload } from './orchestrator-shared.js';
 import { deriveSlugName, firstFreeSlug, titleCaseSlug } from './slug.js';
-import { scaffoldProjectTier } from './project-create.js';
+import { scaffoldProjectTier, scaffoldWorkflowTier } from './project-create.js';
 import { DRAFTS_PROJECT, sanitizeSlug, saveTask, type Task } from '../state/task.js';
 
 /**
@@ -45,13 +45,10 @@ async function ensureScaffold(
     log.info({ taskId: task.taskId, project }, 'scaffolded project tier');
   }
 
-  // Workflow tier — created per workflow (skip when the workflow dir already exists).
+  // Workflow tier — created per workflow (skip when the workflow dir already exists). Shares the argv
+  // with the POST /api/bases importer via scaffoldWorkflowTier (spec 051 — one source of truth).
   if (!existsSync(wfDirAbs)) {
-    const r = await runPython(projectsDir, [
-      'tools/dify_base/init_project.py', '--non-interactive', '--kind', 'workflow',
-      '--project', project, '--name', task.name ?? workflowSlug, '--slug', workflowSlug,
-      '--app-type', 'workflow', '--primary-lang', 'en',
-    ]);
+    const r = await scaffoldWorkflowTier(projectsDir, project, workflowSlug, task.name ?? workflowSlug, runPython);
     if (r.code !== 0) {
       throw new Error(`init_project.py --kind workflow exit ${r.code}: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
     }

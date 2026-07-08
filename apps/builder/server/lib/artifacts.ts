@@ -57,6 +57,16 @@ export async function readArtifactContents(
   projectsDir: string,
   task: Task
 ): Promise<ArtifactContents> {
+  // Spec 052: a promote build surfaces its distilled pattern (not the source workflow) in the `yaml` pane —
+  // that is what the review gate asks the human to inspect before Approve. Read the STAGED file first (it
+  // exists from the distill turn through the review gate — `target` is only the PROPOSED path there, not yet
+  // on disk); after Approve the staged file is moved, so fall back to the finalized `target`.
+  if (task.kind === 'promote') {
+    const p = task.promote;
+    let yaml = p?.staged ? await readMaybe(join(projectsDir, p.staged)) : null;
+    if (yaml == null && p?.target) yaml = await readMaybe(join(projectsDir, p.target));
+    return { spec: null, yaml, report: null, diff: null };
+  }
   const spec = await readMaybe(specPathFor(projectsDir, task));
   const wfPath = workflowPathFor(projectsDir, task);
   const yaml = wfPath ? await readMaybe(wfPath) : null;
@@ -111,7 +121,7 @@ export interface TreeProjectNode {
  * indentation, so a scoped block read is sufficient and avoids a YAML dependency. Returns null when
  * the parent block or the key is absent. Read-only — it NEVER writes.
  */
-function readNestedScalar(yamlText: string, parent: string, key: string): string | null {
+export function readNestedScalar(yamlText: string, parent: string, key: string): string | null {
   const lines = yamlText.split('\n');
   let inBlock = false;
   for (const line of lines) {

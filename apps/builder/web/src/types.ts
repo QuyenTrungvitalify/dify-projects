@@ -27,7 +27,28 @@ export interface WireGateAction {
 export interface WireGate {
   actions: WireGateAction[];
   // spec 032: `test_result` = live-test verdict gate; `infra_degraded` = live couldn't run (degrade).
-  flag?: 'still_failing' | 'awaiting_import' | 'test_result' | 'infra_degraded';
+  // spec 052: the promote build's three parked gates (blocked / distill-failed / review-before-Approve).
+  flag?:
+    | 'still_failing'
+    | 'awaiting_import'
+    | 'test_result'
+    | 'infra_degraded'
+    | 'promote_blocked'
+    | 'promote_distill_failed'
+    | 'promote_review';
+}
+
+/** spec 052 — the promotion state on a `kind:'promote'` Task (mirrors server PromoteState). */
+export interface WirePromote {
+  sourceFile: string;
+  project: string;
+  workflow: string;
+  slug: string;
+  staged?: string;
+  target?: string;
+  verdict?: { eligible: boolean; reasons: string[]; probe: string; probeDetail?: string; knownGoodDify?: string | null };
+  rules?: string[];
+  note?: string;
 }
 
 /** spec 032 — the live workflow-test result surfaced at the Test-result gate (mirrors the server). */
@@ -59,6 +80,10 @@ export interface WireArtifacts {
 
 export interface WireTask {
   taskId: string;
+  /** spec 052: the build kind. Absent ⇒ 'build' (the ①②③④ pipeline). 'promote' = the gated distill flow. */
+  kind?: 'build' | 'promote';
+  /** spec 052: promotion state (present only on a `kind:'promote'` task). */
+  promote?: WirePromote;
   project: string | null;
   workflow: string | null;
   workflowFile: string;

@@ -117,6 +117,16 @@ export const api = {
    *  ApiError.status===409 with `existing` set; 400 name_charset/name_required is a plain message. */
   createProject: (name: string): Promise<{ project: string; name: string }> =>
     request('POST', '/api/projects', { name }),
+  /** POST /api/bases → import one standalone YAML as a local edit-existing base (spec 051 D1). Returns
+   *  the resolved `{ project, workflow }` (+ an optional `slugNote` when a collision was auto-suffixed);
+   *  400 (bad YAML / limits / linter reject) surfaces as ApiError with the verbatim message. */
+  importBase: (body: { yaml: string; name?: string; project?: string; fileName?: string }): Promise<{ project: string; workflow: string; slugNote?: string; probeNote?: string }> =>
+    request('POST', '/api/bases', body),
+  /** spec 052: POST /api/promote → start a `kind:'promote'` build (distill a proven build into a
+   *  templates/patterns/ pattern behind the B1 gate → distill turn → review → Approve pipeline). Returns
+   *  the promote Task (opened in the conversation view like a build); 400/404 (bad source) → ApiError. */
+  promote: (body: { project: string; workflow: string }): Promise<WireTask> =>
+    request('POST', '/api/promote', body),
   /** GET /api/tree → the Project ▸ Workflow ▸ Task sidebar tree (AC #13). */
   tree: (): Promise<{ projects: WireTreeProject[] }> => request('GET', '/api/tree'),
   /** GET /api/active → the in-progress (non-terminal) builds, newest first (Lát 6 load-recovery). */

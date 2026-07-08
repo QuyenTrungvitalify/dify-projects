@@ -28,14 +28,15 @@ export function terminalFootActions(
       !!task.project &&
       !!task.workflowSlug &&
       has.editAgain,
-    // spec 036 D5: a done AUTONOMOUS build with an on-disk workflow + self-host reachable NOW can run a
-    // live test from the foot. Excluded for each_step/null (they saw the implement-gate live button) and
-    // when no self-host target is configured. The server re-checks this same predicate (never trusts us).
+    // spec 036 D5 + discoverability change: a done AUTONOMOUS build with an on-disk workflow can offer the
+    // "Run test with workflow" foot REGARDLESS of whether self-host is configured — so the user discovers
+    // the feature exists. Self-host reachability is NO LONGER a display gate; it is checked on click
+    // (store.liveTest → a localized "configure self-host + key" message) and re-checked server-side (409).
+    // Still excluded for each_step/null (they saw the implement-gate live button).
     runTest:
       task.status === 'done' &&
       !!task.project &&
       !!task.workflowSlug &&
-      !!task.liveTargets?.selfhost &&
       isAutonomous(task.confirmMode) &&
       has.runTest,
   };

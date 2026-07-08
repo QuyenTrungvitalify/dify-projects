@@ -18,6 +18,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import {
   bumpRev,
+  createPromoteTask,
   createTask,
   isValidWorkflowFile,
   loadTask,
@@ -30,6 +31,7 @@ import {
 import { computeGate } from '../lib/gate.js';
 import { difyTargets } from '../lib/dify-io.js';
 import { runLiveTest } from '../lib/live-test.js';
+import { promoteConfirm, promoteReply, resolvePromoteSource, startPromote } from '../lib/promote.js';
 import {
   confirmAdvance,
   replyWithin,
@@ -197,6 +199,29 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     return reply.send(task);
   });
 
+  // ── POST /api/promote — start a `kind:'promote'` build (spec 052 D1): distill a PROVEN build into a
+  //    reusable templates/patterns/ pattern, behind the B1 gate → distill turn → B2′ re-gate → human
+  //    Approve pipeline. A turn-bearing build like POST /api/tasks (takes the turn lock + dispatches), but
+  //    NOT the ①②③④ FSM — startPromote/promoteConfirm/promoteReply drive it. Origin-checked (index.ts). ──
+  app.post('/api/promote', async (req, reply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const project = String(body.project ?? '').trim();
+    const workflow = String(body.workflow ?? '').trim();
+    const src = resolvePromoteSource(projectsDir, project, workflow);
+    if (!src.ok) return reply.code(src.status).send({ error: src.error });
+
+    if (turnBusy()) return reply.code(409).send(turnBusyError());
+    const task = await createPromoteTask(projectsDir, { project, workflow, sourceFile: src.sourceFile, slug: src.slug });
+    if (!acquireTurn(task.taskId)) {
+      task.status = 'error';
+      task.error = 'rejected — another turn is running';
+      await saveTask(projectsDir, task);
+      return reply.code(409).send(turnBusyError());
+    }
+    dispatch(task.taskId, startPromote(task, ctx));
+    return reply.send(task);
+  });
+
   // ── GET /api/tasks/:id — authoritative state (phase/status/gate) + artifact contents (Endpoints) ──
   app.get('/api/tasks/:id', async (req, reply) => {
     const id = idOf(req);
@@ -249,6 +274,12 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // merely parked at a gate never blocks; the `holder` lets the UI offer "open it".
     if (!acquireTurn(id)) return reply.code(409).send(turnBusyError());
 
+    // Spec 052: a promote build's gate actions are dispatched to lib/promote.ts (the ①②③④ FSM in
+    // confirmAdvance is never entered for `kind==='promote'`, keeping it untouched — AC7).
+    if (task.kind === 'promote') {
+      dispatch(id, promoteConfirm(task, actionId, ctx, payload));
+      return reply.send(optimisticRunning(task));
+    }
     // Dispatch the advance in the background; SSE carries the next phase/gate (Lát 4). The dispatch
     // `finally` releases the turn when this work settles (the next gate / terminal).
     dispatch(id, confirmAdvance(task, actionId, ctx, payload));
@@ -323,6 +354,13 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
         .code(409)
         .send({ error: `task is ${task.status}; /reply needs awaiting_confirm or error` });
     }
+    // Spec 052: a promote build accepts a "Request changes" reply ONLY at a gate that offers one
+    // (promote_review / promote_distill_failed). At the promote_blocked gate (B1: ineligible → NO turn,
+    // nothing written) there is no reply action — reject rather than spawn a distill turn on the ineligible
+    // source (defends the B1 guarantee against a crafted POST the UI never issues).
+    if (task.kind === 'promote' && !task.gate?.actions.some((a) => a.kind === 'reply')) {
+      return reply.code(409).send({ error: 'this promote gate has no change action' });
+    }
 
     // Spec 033 FIX-M audit (2nd site, alongside PUT /spec): a live Ask keeps status==='awaiting_confirm'
     // while holding the turn lock, so a concurrent /reply here would pass its status check and — CRUCIALLY
@@ -355,6 +393,12 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // inside the dispatched work lands in failSafe + the dispatch `finally` releases, so it never leaks.
     if (!acquireTurn(id)) return reply.code(409).send(turnBusyError());
 
+    // Spec 052: "Request changes" at a promote gate re-runs the distill turn (note-steered), never the
+    // ①②③④ replyWithin path.
+    if (task.kind === 'promote') {
+      dispatch(id, promoteReply(task, text, ctx));
+      return reply.send(optimisticRunning(task));
+    }
     dispatch(id, replyWithin(task, text, ctx));
     return reply.send(optimisticRunning(task));
   });
@@ -373,6 +417,9 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     } catch {
       return reply.code(404).send({ error: `no such task: ${id}` });
     }
+    // Spec 052: a promote build has no conversational Ask surface (its gates are blocked/distill/review) —
+    // reject rather than mis-route to askTestWithin (which seeds from ①②③④ build artifacts).
+    if (task.kind === 'promote') return reply.code(409).send({ error: '/ask is not available for a promote build' });
     // Spec 034 §1: ONE endpoint, branch server-side on phase/status.
     //   - analyze/spec/implement + awaiting_confirm → askWithin        (033: resume sessionIds[phase])
     //   - test + awaiting_confirm (any of the four ④ flags)  ┐

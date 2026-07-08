@@ -91,12 +91,64 @@ export interface Gate {
   /** `still_failing` = the cap-5 lint≠0 Implement gate (`auto` HARD-STOPS, §D); `awaiting_import` =
    *  the selfhost ④ Import gate (lint clean, import pending — `auto` auto-confirms it, AC #16). Spec 032:
    *  `test_result` = the live-test verdict gate (auto HARD-STOPS on a fail/subjective result, B4);
-   *  `infra_degraded` = live couldn't run for an infra reason → degrade-to-static confirm (D1c). */
-  flag?: 'still_failing' | 'awaiting_import' | 'test_result' | 'infra_degraded';
+   *  `infra_degraded` = live couldn't run for an infra reason → degrade-to-static confirm (D1c). Spec 052
+   *  (the `kind:'promote'` build's three parked gates): `promote_blocked` = the B1 eligibility gate failed
+   *  (no turn spawned); `promote_distill_failed` = the distilled output failed the B2′ re-lint; `promote_review`
+   *  = a clean distill parked for the human 1-click Approve (the ONLY write to `templates/patterns/`). */
+  flag?:
+    | 'still_failing'
+    | 'awaiting_import'
+    | 'test_result'
+    | 'infra_degraded'
+    | 'promote_blocked'
+    | 'promote_distill_failed'
+    | 'promote_review';
+}
+
+/** Spec 052 — the verbatim `promote_gate.py check --json` verdict (B1 before the turn, B2′ re-gate after).
+ *  Mirrors the Python dict: `eligible`/`reasons` decide the gate; `probe` is 'ok'|'failed'|'skipped'
+ *  (always 'skipped' from the Builder — `runPython` strips DIFY_* so the button never contacts Dify);
+ *  `knownGoodDify` is non-null only on a probe 'ok' (stamped into `x-provenance` at finalize). */
+export interface PromoteVerdict {
+  eligible: boolean;
+  reasons: string[];
+  probe: string;
+  probeDetail?: string;
+  knownGoodDify?: string | null;
+}
+
+/** Spec 052 — the promotion source + staged outputs carried on a `kind:'promote'` Task. `source` is the
+ *  proven build being distilled; `staged` is the run-dir pattern the distill turn writes (NEVER
+ *  templates/); `target` is the proposed `templates/patterns/<slug>.yml` the human Approve finalizes to. */
+export interface PromoteState {
+  /** repo-relative source workflow file (the proven build being promoted). */
+  sourceFile: string;
+  /** the source `{project, workflow}` (for the header pill + provenance narration). */
+  project: string;
+  workflow: string;
+  /** house-style pattern slug (hyphenated, matches the templates/patterns/ convention). */
+  slug: string;
+  /** repo-relative staged pattern path (`apps/builder/.runs/<taskId>/promote/<slug>.yml`). */
+  staged?: string;
+  /** repo-relative finalize target (`templates/patterns/<slug>.yml`), set on Approve. */
+  target?: string;
+  /** the B1 (pre-turn) then B2′ (post-turn re-gate) verdict, whichever ran last. */
+  verdict?: PromoteVerdict;
+  /** mechanical linter-rule candidates the distill surfaced + recorded via `promote_gate.py candidate`. */
+  rules?: string[];
+  /** a one-line human-facing note (a blocked reason summary, a slug collision, an index-rebuild warning). */
+  note?: string;
 }
 
 export interface Task {
   taskId: string; // 13-digit ms-timestamp string
+  // Spec 052: the build KIND. Absent ⇒ 'build' (the standard ①②③④ pipeline — back-compat: every existing
+  // task.json loads as a build). 'promote' is the gated distill flow (B1 gate → distill turn → B2′ re-gate
+  // → human Approve → templates/patterns/) — it NEVER runs the ①②③④ state machine; the routes delegate its
+  // gate actions to lib/promote.ts on `kind==='promote'`, so the phase FSM is literally untouched (AC7).
+  kind?: 'build' | 'promote';
+  // Spec 052: the promotion state for a `kind:'promote'` Task (absent on a build).
+  promote?: PromoteState;
   // Spec 030: the on-disk hierarchy is REAL — a build lives at `projects/<project>/<workflowSlug>/`.
   project: string | null; // the PROJECT folder (projects/<project>/); null pre-scaffold
   workflowSlug: string | null; // the WORKFLOW subfolder (…/<workflowSlug>/); null pre-scaffold
@@ -386,6 +438,50 @@ export async function createTask(projectsDir: string, input: CreateTaskInput): P
     phase: 'analyze',
     status: 'running',
     name: input.name && input.name.trim() ? input.name.trim() : null,
+    sessionIds: {},
+    artifacts: {},
+  };
+  await mkdir(taskDir(projectsDir, taskId), { recursive: true });
+  await saveTask(projectsDir, task);
+  return task;
+}
+
+/** Spec 052 — mint a `kind:'promote'` Task: mint the id, create `.runs/<taskId>/`, write the initial
+ *  task.json. Distinct from {@link createTask} (which defaults the ①②③④ build fields) — a promote task
+ *  carries the {@link PromoteState} and pins `phase:'test'` so its parked gate renders INLINE (the phase
+ *  is otherwise unused; the promote flow never runs the phase FSM). `slug` is the house-style pattern name. */
+export async function createPromoteTask(
+  projectsDir: string,
+  input: { project: string; workflow: string; sourceFile: string; slug: string }
+): Promise<Task> {
+  const taskId = mintTaskId();
+  const task: Task = {
+    taskId,
+    kind: 'promote',
+    promote: {
+      sourceFile: input.sourceFile,
+      project: input.project,
+      workflow: input.workflow,
+      slug: input.slug,
+    },
+    project: input.project,
+    workflowSlug: input.workflow,
+    workflow: input.workflow,
+    workflowFile: 'main.yml',
+    requirement: `Promote projects/${input.project}/${input.workflow} to a reusable pattern`,
+    seedPath: null,
+    seedAppId: null,
+    deploy: 'none',
+    testMode: 'static',
+    appId: null,
+    appUrl: null,
+    confirmMode: 'each_step',
+    fastMode: false,
+    // pinned so the parked gate renders inline (Chat.tsx `docked` is false for 'test'); the phase FSM is
+    // never entered for a promote task — the routes delegate on `kind` before confirmAdvance is reached.
+    phase: 'test',
+    status: 'running',
+    name: null,
     sessionIds: {},
     artifacts: {},
   };

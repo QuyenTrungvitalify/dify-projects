@@ -8,7 +8,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { I } from './Icon';
 import { richText } from './Chat';
 import { t as tr, tf } from '../lib/i18n';
-import { createProject } from '../store';
+import { createProject, importBase, tree } from '../store';
 import { isValidProjectName, projectSlug } from '../lib/slug';
 
 /**
@@ -80,6 +80,143 @@ export function CreateProjectModal({ onClose, onSkip, onOpenProject }: {
           <button className="modal-skip" onClick={onSkip}>{tr('skip')}</button>
           <button className="btn primary modal-create" disabled={!canCreate} onClick={() => void submit()}>
             <I.check />{tr('createProjectBtn')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * ImportBaseModal (spec 051 D5) — upload or paste a standalone workflow YAML → POST /api/bases validates
+ * it (the same 4-linter gate the ③ build gate runs), lands it as a local edit-existing base under
+ * `projects/`, and `onImported({project, workflow})` auto-selects it (the caller's `newTask({baseWorkflow})`).
+ * The Japanese `app.name` is preserved as the display label (the folder slug is a separate ASCII concern,
+ * derived server-side). A validation reject returns the linter's verbatim message, shown inline.
+ *
+ * The optional project override is a select of EXISTING projects (blank = the `_drafts` staging default,
+ * which is gitignored/throwaway — surfaced in the hint); creating a brand-new project for a base uses the
+ * sidebar project-"+" first, then upload into it.
+ */
+export function ImportBaseModal({ onClose, onImported }: {
+  onClose: () => void;
+  onImported: (r: { project: string; workflow: string }) => void;
+}) {
+  const [yaml, setYaml] = useState('');
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [project, setProject] = useState(''); // '' = _drafts default
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  // spec 051: on success with an advisory note (a slug auto-suffix and/or an import-probe verdict) we
+  // pause on a notice step instead of auto-advancing, so the message isn't lost when the modal closes.
+  const [notice, setNotice] = useState<{ project: string; workflow: string; notes: string[] } | null>(null);
+
+  // Existing projects for the override select, minus the reserved `_drafts` (it IS the blank default).
+  const projects = tree.value.filter((p) => p.id !== '_drafts');
+  const canSubmit = yaml.trim().length > 0 && !submitting;
+
+  function onFile(e: Event): void {
+    const f = (e.currentTarget as HTMLInputElement).files?.[0];
+    if (!f) return;
+    setFileName(f.name);
+    const reader = new FileReader();
+    reader.onload = () => { setYaml(String(reader.result ?? '')); if (error) setError(null); };
+    reader.readAsText(f);
+  }
+
+  async function submit(): Promise<void> {
+    if (!yaml.trim()) { setError(tr('importBaseEmpty')); return; }
+    setSubmitting(true);
+    setError(null);
+    const r = await importBase({
+      yaml,
+      ...(name.trim() ? { name: name.trim() } : {}),
+      ...(project ? { project } : {}),
+      // Only send fileName when the source was a file pick — it drives the .yml/.yaml server check;
+      // a paste has no filename and must not be blocked by one.
+      ...(fileName ? { fileName } : {}),
+    });
+    if ('workflow' in r) {
+      const notes = [r.slugNote, r.probeNote].filter((n): n is string => !!n);
+      if (notes.length) { setNotice({ project: r.project, workflow: r.workflow, notes }); return; } // pause on the note
+      onImported({ project: r.project, workflow: r.workflow }); // clean success → auto-advance (AC7)
+      return;
+    }
+    setSubmitting(false);
+    setError(r.error);
+  }
+
+  // Advisory-note step: the base HAS landed; show the note(s) with an explicit "use this base" continue.
+  if (notice) {
+    return (
+      <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onImported(notice); }}>
+        <div className="modal" role="dialog" aria-modal="true" aria-label={tr('importBaseTitle')}>
+          <div className="modal-head">
+            <span className="modal-title">{tr('importBaseTitle')}</span>
+            <button className="icon-btn modal-x" onClick={() => onImported(notice)} aria-label={tr('close')}><I.close /></button>
+          </div>
+          <div className="modal-field">
+            <div className="modal-hint" style={{ marginBottom: 8 }}>{tf('importBaseLanded', { workflow: notice.workflow, project: notice.project })}</div>
+            {notice.notes.map((n, i) => (
+              <div key={i} className="modal-hint" style={{ whiteSpace: 'pre-wrap', padding: '6px 0' }}>{n}</div>
+            ))}
+          </div>
+          <div className="modal-foot">
+            <button className="btn primary modal-create" onClick={() => onImported(notice)}>
+              <I.check />{tr('importBaseUse')}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={tr('importBaseTitle')}>
+        <div className="modal-head">
+          <span className="modal-title">{tr('importBaseTitle')}</span>
+          <button className="icon-btn modal-x" onClick={onClose} aria-label={tr('close')}><I.close /></button>
+        </div>
+
+        <div className="modal-field">
+          <div className="modal-hint" style={{ marginBottom: 10 }}>{tr('importBaseHint')}</div>
+
+          <label className="btn ghost" style={{ display: 'inline-flex', cursor: 'pointer' }}>
+            <I.paperclip />{tr('importBaseFile')}
+            <input type="file" accept=".yml,.yaml" style={{ display: 'none' }} onChange={onFile} />
+          </label>
+          {fileName && <span className="modal-hint" style={{ marginLeft: 8 }}>{fileName}</span>}
+
+          <div className="modal-label" style={{ marginTop: 12 }}>{tr('importBasePaste')}</div>
+          <textarea className="modal-input" rows={7} value={yaml} spellcheck={false}
+            style={{ fontFamily: 'var(--mono, monospace)', resize: 'vertical' }}
+            placeholder={tr('phPasteYaml')}
+            onInput={(e) => { setYaml(e.currentTarget.value); setFileName(null); if (error) setError(null); }}
+          />
+
+          <div className="modal-label" style={{ marginTop: 12 }}>{tr('importBaseName')}</div>
+          <input className="modal-input" value={name} placeholder={tr('phImportBaseName')}
+            onInput={(e) => setName(e.currentTarget.value)} />
+
+          <div className="modal-label" style={{ marginTop: 12 }}>{tr('importBaseProject')}</div>
+          <select className="modal-input" value={project} onChange={(e) => setProject(e.currentTarget.value)}>
+            <option value="">{tr('importBaseDrafts')}</option>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+
+          {error && (
+            <div className="modal-error" role="alert" style={{ whiteSpace: 'pre-wrap', maxHeight: 160, overflowY: 'auto' }}>
+              <span>{error}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="modal-foot">
+          <button className="modal-skip" onClick={onClose}>{tr('cancel')}</button>
+          <button className="btn primary modal-create" disabled={!canSubmit} onClick={() => void submit()}>
+            <I.check />{tr('importBaseSubmit')}
           </button>
         </div>
       </div>

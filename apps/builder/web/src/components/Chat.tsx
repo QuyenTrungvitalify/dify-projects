@@ -148,10 +148,53 @@ interface GateView {
   showSpecLink?: boolean;
   showReportLink?: boolean;
   showDiffLink?: boolean;
+  /** spec 052: open the staged/promoted pattern YAML (the review gate's "view pattern" link). */
+  showYamlLink?: boolean;
+}
+
+/** spec 052 — the `kind:'promote'` build's gate copy (blocked / distill-failed / review / done / error).
+ *  Fully owns rendering for a promote task (dispatched at the top of gateView) — the ①②③④ phase FSM is
+ *  never entered, so `phase` is meaningless here and `meta` is blank. */
+function promoteGateView(t: WireTask): GateView {
+  const p = t.promote;
+  const reasons = (p?.verdict?.reasons ?? []).map((s) => s.trim()).filter(Boolean);
+  const note = p?.note ? localizeNotes(p.note) : '';
+  if (t.status === 'error') {
+    const errLines = (t.error ?? '').split(' | ').map((s) => localizeNotes(s.trim())).filter(Boolean);
+    return { tone: 'error', badge: tr('gateErrorBadge'), title: tr('promoteErrorTitle'), meta: '',
+      summary: errLines.length ? errLines : [tr('gateErrorSummary')] };
+  }
+  if (t.status === 'cancelled') {
+    return { tone: 'error', badge: tr('gateCancelledBadge'), title: tr('promoteCancelledTitle'), meta: '',
+      summary: [tr('promoteCancelledSummary')] };
+  }
+  if (t.status === 'done') {
+    return { tone: 'done', badge: tr('promoteDoneBadge'), title: tr('promoteDoneTitle'), meta: '',
+      summary: [p?.target ? tf('promoteTargetLine', { target: p.target }) : tr('promoteDoneSummary'), ...(note ? [note] : [])],
+      showYamlLink: true };
+  }
+  // awaiting_confirm — keyed on the promote gate flag.
+  if (t.gate?.flag === 'promote_blocked') {
+    return { tone: 'warn', badge: tr('promoteBlockedBadge'), title: tr('promoteBlockedTitle'), meta: '',
+      summary: reasons.length ? reasons : [note || tr('promoteBlockedSummary')] };
+  }
+  if (t.gate?.flag === 'promote_distill_failed') {
+    return { tone: 'warn', badge: tr('promoteDistillFailedBadge'), title: tr('promoteDistillFailedTitle'), meta: '',
+      summary: reasons.length ? reasons : [note || tr('promoteDistillFailedSummary')] };
+  }
+  // promote_review (incl. the collision variant, which carries `note`).
+  const summary = [tr('promoteReviewSummary')];
+  if (note) summary.unshift(note);
+  if (p?.target) summary.push(tf('promoteTargetLine', { target: p.target }));
+  summary.push(tf('promoteProbeLine', { probe: p?.verdict?.probe ?? 'skipped' }));
+  if (p?.rules && p.rules.length) summary.push(tf('promoteRulesLine', { n: String(p.rules.length) }));
+  return { tone: 'deploy', badge: tr('promoteReviewBadge'), title: tr('promoteReviewTitle'), meta: '',
+    summary, showYamlLink: true };
 }
 
 /** Synthesize the gate's presentational copy from the live task (the backend sends only actions). */
 function gateView(t: WireTask): GateView {
+  if (t.kind === 'promote') return promoteGateView(t); // spec 052 — promote owns its whole render
   const idx = phaseIndex(t.phase as PhaseKey);
   const meta = tf('phaseMeta', { idx });
   // Spec 045 (review blocker #2): the error/still_failing cards render task.error lines RAW — run
@@ -366,10 +409,14 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
   // spec 035 D2: two INDEPENDENT terminal-foot actions (Restore cancelled-only, NOT gated on
   // project/workflowSlug so a pre-scaffold cancel keeps it; Edit-again needs an on-disk target). Extracted
   // to a pure helper (gate-foot.ts) with the four regression-guard cases in gate-foot.test.ts (§S1).
+  // spec 052: a promote build reuses none of the ①②③④ terminal-foot actions (Edit-this-workflow /
+  // Run-test / Restore) — its source project/workflowSlug would otherwise wrongly light Edit-again on a
+  // done promotion. Suppress them so only the promote gate's own actions render.
+  const isPromote = task.kind === 'promote';
   const { restore: canRestore, editAgain: canEditAgain, runTest: canRunTest } = terminalFootActions(task, {
-    restore: !!onRestore,
-    editAgain: !!onEditAgain,
-    runTest: !!onRunTest,
+    restore: !!onRestore && !isPromote,
+    editAgain: !!onEditAgain && !isPromote,
+    runTest: !!onRunTest && !isPromote,
   });
 
   return (
@@ -388,10 +435,13 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
         </div>
       )}
 
-      {(v.showSpecLink || v.showReportLink || v.showDiffLink) && (
+      {(v.showSpecLink || v.showReportLink || v.showDiffLink || v.showYamlLink) && (
         <div className="gate-strip" style={{ background: 'transparent', border: 'none', paddingTop: 0 }}>
           {v.showSpecLink && (
             <button className="gs-link" style={{ marginLeft: 0 }} onClick={() => onOpenArtifact('spec')}><I.doc />{tr('openSpec')}</button>
+          )}
+          {v.showYamlLink && (
+            <button className="gs-link" style={{ marginLeft: 0 }} onClick={() => onOpenArtifact('yaml')}><I.yaml />{tr('openPattern')}</button>
           )}
           {v.showDiffLink && (
             <>

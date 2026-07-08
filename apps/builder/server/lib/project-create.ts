@@ -48,3 +48,24 @@ export function scaffoldProjectTier(
     '--name', name, '--slug', slug, '--primary-lang', 'en',
   ]);
 }
+
+/**
+ * Scaffold the WORKFLOW tier only — `projects/<project>/<slug>/` (workflows/ SPEC.md prompts/ inputs/
+ * tests/) with a placeholder `workflows/main.yml`. The exact `init_project.py --kind workflow` argv that
+ * was inline in `scaffold.ts`'s `ensureScaffold`, factored out (spec 051 D1) so the Spec-gate scaffold
+ * and the `POST /api/bases` importer stay on ONE argv — the `scaffoldProjectTier` precedent, one tier
+ * down. The caller ensures the PROJECT tier exists first and owns idempotency (skip-if-exists).
+ */
+export function scaffoldWorkflowTier(
+  projectsDir: string,
+  project: string,
+  slug: string,
+  name: string,
+  runPython: typeof realRunPython
+): Promise<ShellResult> {
+  return runPython(projectsDir, [
+    'tools/dify_base/init_project.py', '--non-interactive', '--kind', 'workflow',
+    '--project', project, '--name', name, '--slug', slug,
+    '--app-type', 'workflow', '--primary-lang', 'en',
+  ]);
+}
