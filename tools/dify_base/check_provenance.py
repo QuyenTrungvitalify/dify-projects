@@ -22,7 +22,11 @@ import provenance  # noqa: E402
 
 BASE = Path(__file__).parent.parent.parent
 LIBRARY = BASE / "templates" / "library"
+# Spec 050 D5: pattern promotions (proven build → templates/patterns/) carry provenance too —
+# find_templates() keys on the x-provenance header, so header-less archetype patterns are ignored.
+PATTERNS = BASE / "templates" / "patterns"
 THIRD_PARTY = BASE / "THIRD_PARTY.md"
+DIFY_TAG = BASE / ".dify-tag"
 
 
 def _rel(p):
@@ -33,8 +37,19 @@ def _rel(p):
         return Path(p)
 
 
-def classify(fields, sources_by_name):
-    """Return (status, detail) for one template's provenance fields."""
+def classify(fields, sources_by_name, dify_tag=None):
+    """Return (status, detail) for one template's provenance fields.
+
+    Spec 050 D5 — a SECOND staleness axis, checked first and independent of 022's content axis:
+    `known_good_dify` (the Dify version the promotion's import-probe last passed against) vs the
+    current `.dify-tag` pin. 049 r3 proved import behavior shifts between versions (orphan-on-
+    commit, HTTP 202 pending) — a pattern good today can rot silently on a version bump.
+    `dify_tag=None` (the default) skips the axis, so existing callers/tests are unchanged;
+    main() passes the real pin.
+    """
+    kg = fields.get("known_good_dify")
+    if dify_tag and kg and kg != dify_tag:
+        return ("stale", f"known_good_dify {kg} behind Dify pin {dify_tag} — re-probe the source (spec 050 D5)")
     src = fields.get("source")
     if src == "original":
         return ("current", "hand-authored (no upstream)")
@@ -107,22 +122,25 @@ def write_third_party(records, sources_by_name):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Check promoted-template provenance + license (spec 022)")
     ap.add_argument("--strict", action="store_true", help="exit non-zero on stale/orphan/license issues")
-    ap.add_argument("--dir", default=str(LIBRARY), help="curated dir to scan (default: templates/library)")
+    ap.add_argument("--dir", default=None, help="curated dir to scan (default: templates/library + templates/patterns)")
     ap.add_argument("--write-third-party", action="store_true", help="(re)generate THIRD_PARTY.md")
     args = ap.parse_args(argv)
 
     sources_by_name = {s["name"]: s for s in load_sources()}
-    root = Path(args.dir)
-    templates = find_templates(root) if root.exists() else []
+    # Spec 050 D5: the default scan covers BOTH curated dirs; an explicit --dir narrows to one.
+    roots = [Path(args.dir)] if args.dir else [LIBRARY, PATTERNS]
+    templates = [t for r in roots if r.exists() for t in find_templates(r)]
+    dify_tag = DIFY_TAG.read_text(encoding="utf-8").strip() if DIFY_TAG.exists() else None
 
     records = []
     bad = False
-    print(f"Provenance check — {len(templates)} promoted template(s) in {_rel(root)}:\n")
+    shown = ", ".join(str(_rel(r)) for r in roots)
+    print(f"Provenance check — {len(templates)} promoted template(s) in {shown}:\n")
     for t in templates:
         f = provenance.parse_header(t)
         rel = _rel(t)
         records.append((rel, f))
-        status, detail = classify(f, sources_by_name)
+        status, detail = classify(f, sources_by_name, dify_tag=dify_tag)
         lp = license_problems(f, sources_by_name)
         mark = {"current": "✓", "stale": "•", "orphan": "✗"}.get(status, "?")
         print(f"  {mark} [{status:7}] {rel}  ← {f.get('source')} ({f.get('license')}) — {detail}")

@@ -11,7 +11,7 @@
 ## 1. What this repo is — and is NOT
 
 This is a **base workspace** for authoring Dify workflow YAML across multiple projects. It
-provides: a JSON Schema for Dify DSL, scaffolding tools, 6 vetted workflow patterns, a
+provides: a JSON Schema for Dify DSL, scaffolding tools, 7 vetted workflow patterns, a
 ~46-example corpus, pytest harness, and pre-commit hooks.
 
 **It is NOT** a fork of Dify, a Dify plugin, or a runtime. We only produce DSL YAML that gets
@@ -192,6 +192,7 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 - 2026-05-19: Discovered the bowenliang123 md_exporter plugin collapses consecutive whitespace in Markdown table cells → 10-space placeholder became 1-space in output CSV. Functionally OK for human reviewers, but breaks byte-exact downstream parsers. → When CSV output requires exact whitespace, don't pipe through md_exporter — see [constraints.md §5](skills/mango-svip/references/constraints.md) for workarounds.
 - 2026-05-21: Used string node IDs (`node-code-1`) in a workflow → downstream `{{#node-code-1.text#}}` rendered as literal template string in output, no error, no warning. → Dify template engine only resolves numeric-timestamp IDs. Always generate via `skills/mango-svip/scripts/generate_id.py` per §4.1.
 - 2026-05-22: Proposed LanguageTool free tier for production proofread → ToS prohibits automated/non-interactive use. → For any tiered third-party API, read ToS for "automated requests" clause before designing free-tier production path. Tracker (project removed from the tree 2026-07-03): `git show 565480c^:projects/eiken_stem_proofread/spec_todo/api_alternatives.md`.
+- 2026-07-08: ChatWork per-row reminder (spec 050's worked example) — two design gotchas worth reusing: (a) date-boundary judgments computed inside a code node silently shift with the sandbox timezone → inject the run date (`today`) as a START input from the caller; (b) services with a custom auth header (X-ChatWorkToken 等) need `authorization: {type: no-auth}` + the token in `headers:` via an env-var secret (`name:` form) — api-key auth types rewrite headers. Distilled into `templates/patterns/per-row-notify.yml` (`# GOTCHA:` header).
 
 ## 10. The builder app (apps/builder)
 

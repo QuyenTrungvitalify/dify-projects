@@ -58,10 +58,53 @@ it does not fork them.
 7. **Report**: the new template path, its `current` provenance status, and that lint/validate passed.
    Stop for review (one file per run).
 
+## Pattern distillation target (spec 050 D1 — proven build → generic `templates/patterns/`)
+
+The higher-leverage target: distill **one proven `projects/` build** into a **generic pattern** that
+helps every future build of the same shape (patterns rank highest in retrieval precedence). Same
+one-file-per-run, human-gated discipline. Procedure:
+
+1. **Gate FIRST (D3 — eligibility, not promotion):**
+   ```bash
+   .venv/bin/python tools/dify_base/promote_gate.py check <source.yml> --json
+   ```
+   Blocks on: any linter failure, an EMPTY `model.provider/name` in the source (an unwired LLM =
+   the build never actually ran = not "proven"), or an import-probe FAILURE against the real Dify
+   (push→capture→delete; no creds → degrades to lint-only with `probe: skipped`). Record the
+   verdict's `known_good_dify` for step 4.
+2. **Distill** — skeleton stays, instance goes: replace domain specifics (service URL, auth-header
+   name, judge rule, prompts) with placeholders + `# TODO:` customization points; **blank the
+   model** back to the `''` + `# TODO:` template convention; keep the structural lessons. Header
+   follows the existing pattern convention (`# Pattern:` / `# Use case:` / `# Flow:` /
+   `# Customization points`) **plus `# GOTCHA:` lines** for the non-enumerable lessons (D2b — the
+   *why* teaches better than the shape alone). Re-run the gate WITH the output:
+   ```bash
+   .venv/bin/python tools/dify_base/promote_gate.py check <source.yml> --distilled templates/patterns/<name>.yml --json
+   ```
+3. **Route the gotchas (D2):** a MECHANICAL rule → the linter-candidate channel
+   (`promote_gate.py candidate --rule "…" --citation "vendor/dify-src/…"` — deduped on the rule
+   statement); a DESIGN gotcha → the `# GOTCHA:` header lines AND one dated line in the
+   [AGENTS.md §9 pitfall log](../../../AGENTS.md).
+4. **Stamp provenance** (comment header, LAST write — see step 4 above):
+   ```yaml
+   # x-provenance: source=original repo=
+   #   commit= file="<source path>" orig_sha256= promoted=<YYYY-MM-DD>
+   #   license=MIT spec=<driving spec/incident> known_good_dify=<from the gate verdict>
+   ```
+   (`license=MIT` — the repo's own license; the 022 hygiene check requires the field even for
+   `source=original`.)
+   `known_good_dify` is the second staleness axis (D5): on a Dify version bump,
+   `check_provenance.py` flags the pattern for a re-probe.
+5. **Retrievability (D4):** the `app.description` MUST name the *problem shape + trigger*, with the
+   keywords **front-loaded into the first ~50 chars** (the INDEX table truncates at 50 and keyword
+   search reads only the first 100). Then rebuild INDEX + provenance (step 6 above) — a pattern the
+   builder can't find is dead weight.
+
 ## Notes
 
 - Provenance + staleness machinery: [`tools/dify_base/provenance.py`](../../../tools/dify_base/provenance.py),
   [`check_provenance.py`](../../../tools/dify_base/check_provenance.py). Staleness compares the recorded
-  `orig_sha256` to the **local** clone file (no history/network).
+  `orig_sha256` to the **local** clone file (no history/network) — and, for pattern promotions,
+  `known_good_dify` to the current `.dify-tag` (spec 050 D5's import-behavior axis).
 - To later refresh a promoted template flagged `stale`, re-run this procedure on the same file (it's a
   re-promotion, never an auto-merge — see spec 022's core tension).

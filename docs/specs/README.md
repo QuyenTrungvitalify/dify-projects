@@ -68,6 +68,7 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 | [047](047-builder-live-test-file-inputs-and-timeout-classification.md) | Live-test: file inputs đúng contract (file-object thay URL trần) + phân loại ReadTimeout-khi-streaming | Draft (root cause verified) | S |
 | [048](048-timeout-knobs-and-auto-lint-reuse.md) | Timeout knobs (turn/ask/live-run env-configurable), ④ lint-reuse trên auto hop không cửa sổ sửa, implement.md de-accretion | Implemented (r2) | S |
 | [049](049-dify-import-blocker-defense.md) | Chống import-blocker: linter mirror variable_factory (env/conversation vars), ④ import-probe hỏi Dify thật (advisory + orphan sweep), HUONG_DAN recovery qua Edit-again/Request changes | Implemented (r3) | S–M |
+| [050](050-proven-build-to-reusable-pattern-promotion.md) | Proven build → pattern: promote_gate (lint+model-wiring+probe), kênh linter-candidate dedup, trục staleness known_good_dify, pattern per-row-notify đầu tiên | Implemented (r5) | M |
 | [043](043-builder-live-test-model-optional-for-llm-less-workflows.md) | Live-test needs no workspace LLM model when the workflow has no LLM node (0-model gate conditional on `llm_count`) | Implemented | S |
 
 \* Spec 001 + 006 have 2 minor Q awaiting confirm; can proceed with defaults.
