@@ -116,50 +116,86 @@ async function runJudge(
   return parseJudgeVerdict(text);
 }
 
-/**
- * A publicly accessible 1-page PDF used as a placeholder for `file`/`file-list` inputs during the
- * builder live-test. Chosen for: tiny size, stable URL (W3C sample document), plain PDF (no auth).
- * Dify accepts a URL as a file value when the workflow's file-upload mode allows remote URLs.
- */
-const SAMPLE_FILE_URL = 'https://www.w3.org/WAI/WCAG21/Techniques/pdf/img/table-word.pdf';
+// spec 047 S1 — scalar input builders as a REGISTRY (`type → builder`): adding a future type is one entry,
+// not another if-else branch. `file`/`file-list` are handled separately (two-phase: they need an uploaded
+// file id, see fileValue). Each builder returns a contract-valid value for its type. Pure.
+const INPUT_BUILDERS: Record<string, (v: InputVar) => unknown> = {
+  'text-input': (v) => `Sample input for "${v.label || v.variable}" (builder live-test).`,
+  paragraph: (v) => `Sample input for "${v.label || v.variable}" (builder live-test).`,
+  text: (v) => `Sample input for "${v.label || v.variable}" (builder live-test).`,
+  number: () => 1,
+  boolean: () => true,
+  select: (v) => (Array.isArray(v.options) && v.options.length > 0 ? v.options[0] : 'option_a'),
+};
+
+// Sentinels for a file var's outcome. NEEDS_UPLOAD = buildable once we upload a sample (the orchestrator
+// uploads with the app key, then re-resolves); CANT_BUILD = can NEVER be built (only remote_url — QA-5=(b):
+// live-test never fabricates an external URL) → degrade honestly (S4).
+const NEEDS_UPLOAD = Symbol('needs-upload');
+const CANT_BUILD = Symbol('cant-build');
+
+/** Context threaded into resolveInput so it stays PURE: the sample file id (from a prior S2 upload). */
+export interface ResolveCtx {
+  uploadedFileId?: string;
+}
+
+/** Build the Dify file-object for a `file`/`file-list` var (QA-5=(b): local_file + bundled upload only). */
+function fileValue(v: InputVar, ctx: ResolveCtx): Record<string, unknown> | typeof NEEDS_UPLOAD | typeof CANT_BUILD {
+  const type = v.allowed_file_types?.[0] ?? 'document'; // document|image|audio|video|custom
+  const methods = v.allowed_file_upload_methods ?? ['local_file'];
+  if (methods.includes('local_file')) {
+    return ctx.uploadedFileId
+      ? { transfer_method: 'local_file', upload_file_id: ctx.uploadedFileId, type }
+      : NEEDS_UPLOAD; // fixable: the orchestrator uploads a sample then re-resolves. Never send an empty id.
+  }
+  return CANT_BUILD; // only remote_url → never fabricate a URL → degrade (S4)
+}
 
 /**
- * Build a sample run input from the start-node schema (D8). Fills REQUIRED variables automatically:
- * - text / paragraph / text-input → short sample string
- * - number                        → 1
- * - select                        → first option from `options[]` (or 'option_a' fallback)
- * - file                          → SAMPLE_FILE_URL placeholder (a tiny W3C PDF)
- * - file-list                     → [SAMPLE_FILE_URL]
- * - boolean                       → true
- * - truly unknown types           → `missing` (→ `need_input`, park)
+ * Build a sample run input from the start-node schema (D8). Fills REQUIRED variables automatically via the
+ * builder registry; `file`/`file-list` become a valid Dify file-object using `ctx.uploadedFileId` (S2).
+ * Four outcomes per var: a value (→ inputs), NEEDS_UPLOAD (→ `needsUpload`, filled on a second pass after
+ * upload), CANT_BUILD (→ `cannotBuild`, degrade S4), or an unknown type (→ `missing`, `need_input` park).
  * Optional vars are left unset (Dify uses their default/empty). Pure.
  */
-export function resolveInput(vars: InputVar[]): { inputs: Record<string, unknown>; missing: string[] } {
+export function resolveInput(
+  vars: InputVar[],
+  ctx: ResolveCtx = {}
+): { inputs: Record<string, unknown>; missing: string[]; cannotBuild: string[]; needsUpload: boolean } {
   const inputs: Record<string, unknown> = {};
   const missing: string[] = [];
+  const cannotBuild: string[] = [];
+  let needsUpload = false;
   for (const v of vars) {
     if (!v.variable || !v.required) continue;
     const t = (v.type || '').toLowerCase();
-    if (t === 'text-input' || t === 'paragraph' || t === 'text') {
-      inputs[v.variable] = `Sample input for "${v.label || v.variable}" (builder live-test).`;
-    } else if (t === 'number') {
-      inputs[v.variable] = 1;
-    } else if (t === 'select') {
-      // Pick the first declared option; fall back to a generic string when options is absent/empty.
-      inputs[v.variable] = Array.isArray(v.options) && v.options.length > 0 ? v.options[0] : 'option_a';
-    } else if (t === 'file') {
-      // Dify accepts a URL string for file inputs when the app's upload mode allows remote URLs.
-      // Using a stable, tiny W3C PDF so the workflow can at least attempt to process it.
-      inputs[v.variable] = SAMPLE_FILE_URL;
-    } else if (t === 'file-list') {
-      inputs[v.variable] = [SAMPLE_FILE_URL];
-    } else if (t === 'boolean') {
-      inputs[v.variable] = true;
-    } else {
-      missing.push(v.variable); // truly unknown type → can't derive a safe value
+    if (t === 'file' || t === 'file-list') {
+      const fv = fileValue(v, ctx);
+      if (fv === NEEDS_UPLOAD) {
+        needsUpload = true;
+      } else if (fv === CANT_BUILD) {
+        cannotBuild.push(`${v.variable} (${v.type}: only remote_url)`);
+      } else {
+        inputs[v.variable] = t === 'file-list' ? [fv] : fv;
+      }
+      continue;
     }
+    const build = INPUT_BUILDERS[t];
+    if (build) inputs[v.variable] = build(v);
+    else missing.push(v.variable); // truly unknown type → can't derive a safe value
   }
-  return { inputs, missing };
+  return { inputs, missing, cannotBuild, needsUpload };
+}
+
+/** Find the first required `file`/`file-list` var that allows `local_file` (the one we upload a sample for
+ *  — S2). Used to pick the right-typed bundled sample by its allowed extensions/type. */
+export function firstUploadableFileVar(vars: InputVar[]): InputVar | undefined {
+  return vars.find((v) => {
+    if (!v.variable || !v.required) return false;
+    const t = (v.type || '').toLowerCase();
+    if (t !== 'file' && t !== 'file-list') return false;
+    return (v.allowed_file_upload_methods ?? ['local_file']).includes('local_file');
+  });
 }
 
 const lastLine = (s: string): string => s.trim().split('\n').slice(-1)[0] || '';
@@ -233,18 +269,25 @@ export async function runLiveTest(
     return degradeStatic('no enabled LLM model in the workspace (0-model)', { modelAutofilled: dep.nodeCount });
   }
 
-  // 3. sample input from the start-node schema (D8). Can't derive → honest park (not infra, not workflow).
-  const { inputs, missing } = resolveInput(dep.inputs);
-  if (missing.length) {
+  // 3. sample input from the start-node schema (D8). First pass (no uploaded file yet): unknown type →
+  //    honest need_input park; a file var we can NEVER build (only remote_url) → degrade (S4, QA-5=(b));
+  //    a local_file var → `needsUpload` (filled after we mint the key + upload a sample, step 6.5).
+  const first = resolveInput(dep.inputs);
+  if (first.missing.length) {
     return parkResult({
       verdict: 'need_input',
       label: 'live-verified-fail',
       model: pick,
       modelAutofilled: dep.nodeCount,
-      needInputVars: missing,
-      reason: `need sample input for: ${missing.join(', ')} — provide it via /reply then test again`,
+      needInputVars: first.missing,
+      reason: `need sample input for: ${first.missing.join(', ')} — provide it via /reply then test again`,
     });
   }
+  if (first.cannotBuild.length) {
+    // S4: live-test never sends an input it isn't sure is contract-valid → degrade with the reason, don't hang.
+    return degradeStatic(`can't build a valid sample for input: ${first.cannotBuild.join(', ')}`, { model: pick, modelAutofilled: dep.nodeCount });
+  }
+  let inputs = first.inputs; // finalized after the S2 upload (step 6.5) when needsUpload
 
   // 4. import the deploy.yml as a NEW app (A2 — no push_intent/reconcile).
   const appName = task.name ?? task.workflowSlug!;
@@ -274,8 +317,8 @@ export async function runLiveTest(
   // workflow apps run via /workflows/run with just inputs.
   const isChat = /chat/.test(dep.mode);
   const query = isChat ? 'Hello — this is a builder live-test message. Please reply.' : '';
-  const runInput = query ? { ...inputs, query } : inputs;
-  const base: Partial<LiveTestResult> = { model: pick, modelAutofilled: dep.nodeCount, appId, appUrl, input: runInput };
+  // `input` is set after the S2 upload finalizes `inputs` (step 6.5); the earlier degrades don't need it.
+  const base: Partial<LiveTestResult> = { model: pick, modelAutofilled: dep.nodeCount, appId, appUrl };
 
   // 5. publish (import does NOT auto-publish).
   const pub = await live.publishWorkflow(projectsDir, appId);
@@ -286,6 +329,22 @@ export async function runLiveTest(
   const key = await live.mintAppKey(projectsDir, appId);
   if (bail()) return;
   if (!key) return degradeStatic('could not mint an app API key', base);
+
+  // 6.5 (spec 047 S2): a local_file input needs a REAL upload_file_id — upload a bundled sample (chosen by
+  //     the input's allowed extensions/type) with the app key, then re-resolve to fill the file-object.
+  //     Never send an empty id (that hangs Dify — the bug this spec fixes).
+  if (first.needsUpload) {
+    const fv = firstUploadableFileVar(dep.inputs);
+    const uploadedFileId = await live.uploadSampleFile(projectsDir, key, fv?.allowed_file_extensions, fv?.allowed_file_types?.[0]);
+    if (bail()) { unregisterSecret(key); return; }
+    if (!uploadedFileId) {
+      unregisterSecret(key);
+      return degradeStatic('could not upload a sample file for the file input', base);
+    }
+    inputs = resolveInput(dep.inputs, { uploadedFileId }).inputs;
+  }
+  const runInput = query ? { ...inputs, query } : inputs;
+  base.input = runInput;
 
   // 7. run — mode-aware (workflow vs chat); retry only the transient (transport/timeout) case, never re-import.
   let run = await live.runWorkflow(projectsDir, key, dep.mode, inputs, query, RUN_TIMEOUT_MS);

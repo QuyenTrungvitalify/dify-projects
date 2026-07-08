@@ -20,6 +20,7 @@ import {
   mintAppKey as realMintAppKey,
   publishWorkflow as realPublishWorkflow,
   runWorkflow as realRunWorkflow,
+  uploadSampleFile as realUploadSampleFile,
   deleteApp as realDeleteApp,
 } from './dify-io.js';
 import { saveTask, toWireTask, type Task } from '../state/task.js';
@@ -52,6 +53,7 @@ export interface LiveOps {
   mintAppKey: typeof realMintAppKey;
   publishWorkflow: typeof realPublishWorkflow;
   runWorkflow: typeof realRunWorkflow;
+  uploadSampleFile: typeof realUploadSampleFile;
   deleteApp: typeof realDeleteApp;
 }
 
@@ -100,6 +102,7 @@ export function resolveLiveOps(ctx: OrchestratorCtx): LiveOps {
     mintAppKey: o.mintAppKey ?? realMintAppKey,
     publishWorkflow: o.publishWorkflow ?? realPublishWorkflow,
     runWorkflow: o.runWorkflow ?? realRunWorkflow,
+    uploadSampleFile: o.uploadSampleFile ?? realUploadSampleFile,
     deleteApp: o.deleteApp ?? realDeleteApp,
   };
 }

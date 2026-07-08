@@ -27,6 +27,7 @@ const okOps = (): Partial<LiveOps> => ({
   importForTest: async () => ({ ok: true, appId: 'app-123', stderr: '' }),
   publishWorkflow: async () => ({ ok: true, stderr: '' }),
   mintAppKey: async () => 'app-secretkey',
+  uploadSampleFile: async () => 'upload-file-id-1',
   runWorkflow: async () => ({ ok: true, status: 'succeeded', outputs: { summary: 'ok' }, error: null, totalTokens: 42 }),
   deleteApp: async () => true,
 });
@@ -84,14 +85,40 @@ describe('resolveInput (D8)', () => {
     assert.equal(i2.sel, 'option_a');
   });
 
-  test('file → sample PDF URL; file-list → array of that URL', () => {
-    const { inputs } = resolveInput([
-      { variable: 'doc', type: 'file', required: true },
-      { variable: 'docs', type: 'file-list', required: true },
+  test('file/file-list (local_file) → needsUpload, NOT in inputs until an id is provided (S1/QA-5=b)', () => {
+    const vars: InputVar[] = [
+      { variable: 'doc', type: 'file', required: true, allowed_file_upload_methods: ['local_file', 'remote_url'] },
+      { variable: 'docs', type: 'file-list', required: true, allowed_file_upload_methods: ['local_file'] },
+    ];
+    const first = resolveInput(vars);
+    assert.equal(first.needsUpload, true, 'flags an upload is needed');
+    assert.ok(!('doc' in first.inputs) && !('docs' in first.inputs), 'no bare string / empty id sent');
+    assert.deepEqual(first.cannotBuild, [], 'buildable once uploaded');
+    // second pass with an uploaded id → valid Dify file-objects, type from allowed_file_types[0].
+    const second = resolveInput(
+      [{ variable: 'doc', type: 'file', required: true, allowed_file_upload_methods: ['local_file'], allowed_file_types: ['image'] }],
+      { uploadedFileId: 'up-99' }
+    );
+    assert.deepEqual(second.inputs.doc, { transfer_method: 'local_file', upload_file_id: 'up-99', type: 'image' });
+    const listPass = resolveInput(vars, { uploadedFileId: 'up-1' });
+    assert.ok(Array.isArray(listPass.inputs.docs) && (listPass.inputs.docs as unknown[]).length === 1, 'file-list wraps in array');
+    assert.equal((listPass.inputs.docs as Record<string, unknown>[])[0].transfer_method, 'local_file');
+  });
+
+  test('file that allows ONLY remote_url → cannotBuild (degrade, never fabricate a URL — QA-5=b)', () => {
+    const { inputs, cannotBuild, needsUpload } = resolveInput([
+      { variable: 'onlyurl', type: 'file', required: true, allowed_file_upload_methods: ['remote_url'] },
     ]);
-    assert.ok(typeof inputs.doc === 'string' && (inputs.doc as string).startsWith('https://'), 'file gets URL');
-    assert.ok(Array.isArray(inputs.docs) && (inputs.docs as string[])[0].startsWith('https://'), 'file-list gets array');
-    assert.deepEqual([], []); // no missing
+    assert.ok(!('onlyurl' in inputs));
+    assert.equal(needsUpload, false);
+    assert.equal(cannotBuild.length, 1);
+    assert.match(cannotBuild[0], /onlyurl/);
+  });
+
+  test('default (no allowed_file_upload_methods) assumes local_file → needsUpload', () => {
+    const { needsUpload, cannotBuild } = resolveInput([{ variable: 'f', type: 'file', required: true }]);
+    assert.equal(needsUpload, true);
+    assert.deepEqual(cannotBuild, []);
   });
 
   test('boolean → true', () => {
@@ -235,6 +262,65 @@ describe('runLiveTest verdict → gate', () => {
     assert.equal(task.gate?.flag, 'test_result');
     assert.equal(task.liveTest?.verdict, 'need_input');
     assert.deepEqual(task.liveTest?.needInputVars, ['widget']);
+  }));
+
+  // spec 047 S2 — a local_file input uploads a bundled sample then runs with a real upload_file_id.
+  test('file-list (local_file) input → uploads a sample, runs with a file-object, passes', withCreds(async () => {
+    let uploadCalled = false;
+    let seenInputs: Record<string, unknown> = {};
+    const { task, ctx } = await harness({
+      deployWithModel: async (_d, _s, outRel) => ({
+        ok: true, nodeCount: 0, llmCount: 0, patched: [], outFile: outRel, mode: 'workflow',
+        inputs: [{ variable: 'input_file', type: 'file-list', required: true, allowed_file_upload_methods: ['local_file', 'remote_url'], allowed_file_types: ['document'], allowed_file_extensions: ['.xlsx'] }],
+        stderr: '',
+      }),
+      uploadSampleFile: async () => { uploadCalled = true; return 'up-xlsx-1'; },
+      runWorkflow: async (_d, _k, _m, inputs) => {
+        seenInputs = inputs;
+        return { ok: true, status: 'succeeded', outputs: { count: 2 }, error: null, totalTokens: 7 };
+      },
+    });
+    await runLiveTest(task, ctx);
+    assert.equal(uploadCalled, true, 'uploaded a bundled sample');
+    assert.deepEqual(seenInputs.input_file, [{ transfer_method: 'local_file', upload_file_id: 'up-xlsx-1', type: 'document' }]);
+    assert.equal(task.liveTest?.verdict, 'passed');
+    assert.equal(task.gate?.flag, 'test_result');
+  }));
+
+  // spec 047 S4 — a file input that ONLY allows remote_url can't be built → honest degrade, NEVER a run/hang.
+  test('file input (only remote_url) → degrade-static with the var name, no run', withCreds(async () => {
+    let ran = false;
+    const { task, ctx } = await harness({
+      deployWithModel: async (_d, _s, outRel) => ({
+        ok: true, nodeCount: 0, llmCount: 0, patched: [], outFile: outRel, mode: 'workflow',
+        inputs: [{ variable: 'remote_doc', type: 'file', required: true, allowed_file_upload_methods: ['remote_url'] }],
+        stderr: '',
+      }),
+      runWorkflow: async () => { ran = true; return { ok: true, status: 'succeeded', outputs: {}, error: null, totalTokens: 0 }; },
+    });
+    await runLiveTest(task, ctx);
+    assert.equal(ran, false, 'never issues a run for an unbuildable input');
+    assert.equal(task.gate?.flag, 'infra_degraded');
+    assert.equal(task.liveTest?.verdict, 'infra_fail');
+    assert.match(task.liveTest?.reason ?? '', /remote_doc/);
+  }));
+
+  // spec 047 S2 — upload failure is infra, not a workflow fault → degrade (never send an empty id / hang).
+  test('file input but upload fails → infra_degraded (not a run)', withCreds(async () => {
+    let ran = false;
+    const { task, ctx } = await harness({
+      deployWithModel: async (_d, _s, outRel) => ({
+        ok: true, nodeCount: 0, llmCount: 0, patched: [], outFile: outRel, mode: 'workflow',
+        inputs: [{ variable: 'f', type: 'file', required: true, allowed_file_upload_methods: ['local_file'] }],
+        stderr: '',
+      }),
+      uploadSampleFile: async () => null,
+      runWorkflow: async () => { ran = true; return { ok: true, status: 'succeeded', outputs: {}, error: null, totalTokens: 0 }; },
+    });
+    await runLiveTest(task, ctx);
+    assert.equal(ran, false);
+    assert.equal(task.gate?.flag, 'infra_degraded');
+    assert.match(task.liveTest?.reason ?? '', /upload a sample file/);
   }));
 
 

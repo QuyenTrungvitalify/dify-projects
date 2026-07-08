@@ -1,7 +1,7 @@
 # Spec 047 — Builder live-test: file inputs đúng contract + phân loại timeout/lỗi chính xác
 
-**Status**: Draft — **root cause đã verify thật** trên Dify self-host `localhost:8090` (2026-07-08) bằng A/B/C/D matrix (xem §Verified). Fix là **additive**, không đổi gate FSM / permission-gate / validators. Tiền đề bắt buộc **S0** (plumbing khả-năng-file qua `cmd_inject_model` + `InputVar`) đã được nêu tường minh — không có blocker kiến trúc; còn **3 mục QA** (QA-1..3, xem §QA) cần xác nhận thật trong lúc implement.
-**Effort**: S — ba điểm sửa nhỏ, có test rõ ràng: (0) **plumbing**: `cmd_inject_model` + `InputVar` mang thêm 3 field khả-năng-file (load-bearing cho S1 — xem S0), (1) `resolveInput` sinh **file-object** đúng contract (thay chuỗi URL trần), (2) `sync.py` phân loại **ReadTimeout-khi-streaming** đúng thay vì dán nhãn "connection failed". Tuỳ chọn (3) preflight degrade khi không dựng nổi input hợp lệ.
+**Status**: ✅ **Implemented (2026-07-08)** — S0–S5 code + unit tests xanh (builder suite 418/418; `_is_read_timeout`/`_collect_stream` verify bằng exception thật + fake stream). Xem §Implementation notes cuối file. — Gốc: **root cause + hướng fix đã verify thật** trên Dify self-host `localhost:8090` (2026-07-08) bằng matrix **A–F** (xem §Verified); riêng **E/F chạy qua chính `sync.py run`** — đường builder thật — và **Case F PASS** với input đã sửa. Fix là **additive**, không đổi gate FSM / permission-gate / validators. Tiền đề bắt buộc **S0** (plumbing khả-năng-file). **Đã POC-điều-chỉnh thiết kế + chốt 2 quyết định**: `SAMPLE_FILE_URL` cũ đã chết ⇒ **QA-5=(b): bỏ hẳn remote_url**, đường PASS duy nhất là **local_file + file bundled (S2)**; **QA-2 hạ xuống nice-to-have** (an toàn-by-construction qua S5 `RunHungNoStream` + string-arm + park-at-gate). Còn lại chủ yếu QA-1/QA-3 (đã xác nhận phần lớn qua POC) + QA-4 (chốt khi nâng Dify).
+**Effort**: S–M — các điểm sửa: (0) **plumbing** `cmd_inject_model` + `InputVar` mang 3 field khả-năng-file (tiền đề S1), (1) `resolveInput` → **registry** sinh **file-object** đúng contract (thay chuỗi trần), (2) `sync.py` phân loại **ReadTimeout-khi-streaming** đúng + (S5) first-event deadline, (3) **S2 upload file bundled** — **lõi để file-workflow chạy PASS** (không còn "optional"), (4) S4 preflight degrade khi không dựng nổi input.
 
 **Builds on**:
 - [032](032-builder-live-workflow-test.md) — Phase ④ live-run sub-orchestrator (import→publish→mint→run→verify). Spec này **sửa một khiếm khuyết trong bước run** của 032, không đổi kiến trúc.
@@ -74,9 +74,9 @@ Mục tiêu thật không phải "chạy được app có file" mà **live-test 
 **Bất biến chống-treo (áp cho mọi type, hiện tại và tương lai):** *live-test chỉ gửi input mà nó CHẮC hợp lệ với contract Dify; không chắc → degrade với reason đúng.* Lớp A bắt phần "lọt lưới", Lớp B thu hẹp phần "lọt lưới" theo thời gian.
 
 **Thứ tự đề xuất (phasing):**
-1. **Phase 1 (ship ngay, giá trị cao nhất/độc lập):** S3 + S5. Sửa chẩn đoán sai chí mạng cho *toàn bộ* workflow, kể cả chưa đụng tới file.
-2. **Phase 2:** S0 + S1(registry) + S4-degrade. File `remote_url` chạy thật; file chỉ-`local_file` **degrade trung thực** (chưa cần S2).
-3. **Phase 3 (khi cần chạy thật app local_file-only):** S2 (upload sample) — thay nhánh degrade của Phase 2 bằng chạy thật.
+1. **Phase 1 (ship ngay, giá trị cao nhất/độc lập):** S3 + S5. Sửa chẩn đoán sai chí mạng cho *toàn bộ* workflow, kể cả chưa đụng tới file. **Hết treo + hết nhãn "connection failed" sai** cho mọi workflow.
+2. **Phase 2 (trung thực hoá — không treo):** S0 + S1(registry) + S4-degrade, **chưa có S2**. Với QA-5=(b), mọi file input (đều cho `local_file`) chưa có `uploadedFileId` → `CANT_BUILD` → **degrade trung thực** (reason nêu tên var), **không treo, không nhãn sai**. *Ở phase này chưa có file-workflow nào PASS — chỉ đảm bảo trung thực.* (Có thể **gộp thẳng S2 vào Phase 2** nếu muốn PASS ngay; tách ra chỉ để ship phần trung-thực-hoá sớm hơn.)
+3. **Phase 3 = S2 (để file-workflow chạy PASS thật — LÕI, không optional):** bundle file mẫu + upload `local_file` + truyền `uploadedFileId`. Đường duy nhất đã chứng minh PASS (Case F). Vì QA-5=(b) bỏ remote_url, **mọi** file-workflow xanh đều đi qua S2 ⇒ muốn app repro (`Exel Pdf Url Excel`) PASS thì **bắt buộc** Phase 3.
 
 ### S0 — Plumbing: đưa khả-năng-file của start-var tới `resolveInput` (BẮT BUỘC, tiền đề của S1)
 
@@ -103,7 +103,7 @@ S1 đọc `v.allowed_file_types` / `v.allowed_file_upload_methods`, nhưng luồ
    allowed_file_extensions?: string[];      // ['.xlsx', …]
    ```
 
-Backward-safe: cả hai đều default rỗng, một `sync.py` cũ (không phát field) khiến `resolveInput` rơi về nhánh `remote_url` mặc định — đúng hành vi hiện tại. **⚠ QA-1**: xác nhận tên field trong start-var YAML của Dify đúng là `allowed_file_types` / `allowed_file_upload_methods` / `allowed_file_extensions` (đọc thẳng DSL của app `Exel Pdf Url Excel` để chắc — §Verified nêu các giá trị này nhưng chưa dán key gốc từ YAML).
+Backward-safe: cả ba default rỗng. Một `sync.py` cũ (không phát field) → `allowed_file_upload_methods` undefined → `fileValue` default `['local_file']` → cần `uploadedFileId` (S2), không có thì `CANT_BUILD` → degrade trung thực (không treo). Đúng tinh thần QA-5=(b). **QA-1** (đã xác nhận qua POC + template, xem §QA): key phẳng `allowed_file_types`/`allowed_file_upload_methods`/`allowed_file_extensions` ngay trong start-var.
 
 ### S1 — `resolveInput` thành registry `type → builder` (cơ động + load-bearing)
 
@@ -127,29 +127,32 @@ const INPUT_BUILDERS: Record<string, (v: InputVar, ctx: BuildCtx) => Built> = {
 
 function fileValue(v: InputVar, ctx: BuildCtx): Built {
   const type = v.allowed_file_types?.[0] ?? 'document';        // document|image|audio|video|custom
-  const methods = v.allowed_file_upload_methods ?? ['remote_url'];
-  if (methods.includes('remote_url')) {
-    return { transfer_method: 'remote_url', url: SAMPLE_FILE_URL, type };   // nhanh, không upload (Verified D 0.4s)
+  const methods = v.allowed_file_upload_methods ?? ['local_file'];
+  // QA-5 = (b) ĐÃ CHỐT: CHỈ đi đường local_file + file BUNDLED (đường duy nhất PASS thật — Case F 2.5s).
+  // remote_url bị BỎ HẲN: (1) một test LOCAL không nên phụ thuộc internet, (2) SAMPLE_FILE_URL cũ đã chết (Case E: 300).
+  if (methods.includes('local_file')) {
+    return ctx.uploadedFileId
+      ? { transfer_method: 'local_file', upload_file_id: ctx.uploadedFileId, type }
+      : CANT_BUILD;                    // cần S2 upload trước; KHÔNG gửi id rỗng
   }
-  if (ctx.uploadedFileId) {                                     // S2 đã upload sẵn
-    return { transfer_method: 'local_file', upload_file_id: ctx.uploadedFileId, type };
-  }
-  return CANT_BUILD;                                            // chỉ-local_file mà chưa có S2 → degrade, KHÔNG gửi id rỗng
+  return CANT_BUILD;                   // input CHỈ cho remote_url → degrade trung thực (S4), không đoán URL ngoài
 }
 ```
+> **Không còn hằng `STABLE_SAMPLE_URL`/`SAMPLE_FILE_URL`** — QA-5=(b) xóa hoàn toàn nhánh remote_url. Một input file **chỉ** cho `remote_url` (hiếm) → `CANT_BUILD` → degrade với reason "input `<name>` chỉ nhận remote_url — live-test không tự dựng URL ngoài".
 
 `resolveInput(vars, ctx)` duyệt required vars: builder trả giá trị → set; trả `CANT_BUILD` → đẩy var vào **`cannotBuild[]`**; không có builder cho type → `missing[]` (giữ nguyên `need_input`). Chữ ký trả về thêm `cannotBuild` để sub-orchestrator **degrade-static với reason nêu tên var + type** (S4) thay vì chạy-rồi-treo.
 
 - `type` map từ `allowed_file_types[0]` (không hard-code `document`).
-- Ưu tiên `remote_url` (không upload, nhanh). `local_file`-only → cần `ctx.uploadedFileId` (S2) hoặc → `CANT_BUILD` → degrade (S4). **Không còn đường nào gửi `upload_file_id: ''`.**
+- **Chỉ đi `local_file` + file mẫu bundled** (đường duy nhất đã chứng minh PASS — Case F). `remote_url` đã **bỏ hẳn** (QA-5=(b)). Input chỉ-remote_url hoặc dựng không nổi → `CANT_BUILD` → degrade (S4). **Không còn đường nào gửi `upload_file_id: ''`, chuỗi trần, hay URL ngoài.**
+- **Hệ quả phasing (quan trọng):** vì đường PASS duy nhất đòi `ctx.uploadedFileId`, **S2 là phần LÕI để một file-workflow chạy PASS**, không phải "nice-to-have Phase 3". ⇒ **Phase 2 phải gồm cả S2** (xem lại phasing ở cuối).
 
 ### S2 — Khi input chỉ nhận `local_file`: upload sample rồi truyền `upload_file_id`
 
 Thêm một live-op `uploadSampleFile(projectsDir, appKey)` gọi `POST {base}/v1/files/upload` (multipart, `user:"builder-live-test"`) với một file mẫu **bundled trong repo** (không phụ thuộc mạng ngoài), trả `upload_file_id`. Verified B chứng minh đường `local_file + upload_file_id` chạy (2.8s).
 
-**Chốt kiến trúc (không để "hoặc")**: **giữ `resolveInput` PURE/sync**. Sub-orchestrator ([`live-test.ts`](../../apps/builder/server/lib/live-test.ts)) quyết định *trước bước run*: nếu có ≥1 required var `file`/`file-list` mà **mọi** var đó không cho `remote_url` (chỉ `local_file`), gọi `uploadSampleFile` một lần, rồi truyền `uploadedFileId` **xuống** `resolveInput(vars, { uploadedFileId })` như tham số. `resolveInput` chỉ *dùng* id đã có, không tự upload → vẫn thuần, unit-test không cần mạng. Call-site hiện tại ([`live-test.ts:243-244`](../../apps/builder/server/lib/live-test.ts#L243-L244)) chỉ thêm một tham số optional, không đổi chữ ký thành async.
+**Chốt kiến trúc (không để "hoặc")**: **giữ `resolveInput` PURE/sync**. Sub-orchestrator ([`live-test.ts`](../../apps/builder/server/lib/live-test.ts)) quyết định *trước bước run*: nếu có ≥1 required var `file`/`file-list` **cho `local_file`** (QA-5=(b): đó là mọi file input trừ loại hiếm chỉ-remote_url), gọi `uploadSampleFile` **một lần** (chọn asset bundled theo `allowed_file_extensions`/`type` của var đầu — xem ghi chú), rồi truyền `uploadedFileId` **xuống** `resolveInput(vars, { uploadedFileId })` như tham số. `resolveInput` chỉ *dùng* id đã có, không tự upload → vẫn thuần, unit-test không cần mạng. Call-site hiện tại ([`live-test.ts:243-244`](../../apps/builder/server/lib/live-test.ts#L243-L244)) chỉ thêm một tham số optional, không đổi chữ ký thành async.
 
-*Ghi chú*: `SAMPLE_FILE_URL` hiện là PDF; đủ để `workflow_finished` (Verified D) nhưng output có thể vô nghĩa với workflow chờ `.xlsx`. **Nâng cấp tuỳ chọn**: bundle vài sample theo `type`/đuôi phổ biến (`.xlsx`, `.png`, `.txt`) và chọn theo `allowed_file_extensions` để T3-judge có output thật hơn. KHÔNG bắt buộc cho fix chính (T1 chỉ cần chạy xong).
+*Ghi chú (đã chỉnh theo POC)*: `SAMPLE_FILE_URL` cũ (W3C PDF) **ĐÃ CHẾT** — trả `300` (Case E), KHÔNG dùng được nữa. Đường tin cậy là **file mẫu bundled trong repo + upload `local_file`** (Case F: PASS thật 2.5s). Nên bundle **vài sample theo đuôi phổ biến** (`.xlsx`, `.png`, `.txt`, PDF hợp lệ) và chọn theo `allowed_file_extensions` để: (a) tránh sai loại làm node fail, (b) T3-judge chấm output có nghĩa. Với app repro (`.xlsx`), một sample `.xlsx` bundled là **bắt buộc để verdict = passed** (một PDF vẫn `workflow_finished` nhưng output rác → dễ workflow_fail).
 
 ### S3 — `sync.py` phân loại ReadTimeout đúng (bỏ nhãn "connection failed" sai)
 
@@ -182,8 +185,9 @@ def _fmt_request_error(e):
     if _is_read_timeout(e):
         # message TRUNG TÍNH: _fmt_request_error dùng chung cho list/pull/push/diff, KHÔNG chỉ `run`.
         # Đừng khẳng định "workflow treo" cho một lệnh không chạy workflow.
+        # TỰ-BÁO-CÁO: nhúng tên class exception thật → nếu phân loại có sai, người/logs vẫn thấy nguyên nhân gốc.
         return ("read timeout — server nhận kết nối nhưng KHÔNG stream phản hồi trong thời hạn "
-                "(với `run`: workflow treo, kiểm input bắt buộc / node kẹt) — KHÔNG phải lỗi mạng")
+                f"(với `run`: workflow treo, kiểm input bắt buộc / node kẹt) — KHÔNG phải lỗi mạng [{e.__class__.__name__}]")
     if isinstance(e, requests.ConnectionError):
         return f"connection failed (DNS / unreachable / refused) — {e.__class__.__name__}"
     ...
@@ -191,7 +195,18 @@ def _fmt_request_error(e):
 
 Đồng thời trong `live-test.ts`, một run **read-timeout** phải map sang một `LiveTestResult` reason **phân biệt** với connection-refused (vẫn là `infra`/degrade-static theo 032 D1c, nhưng reason text đúng bản chất). Xoá đoạn debug tạm đã chèn ở `_fmt_request_error`.
 
-**⚠ QA-2 (không thể chốt từ code)**: unit-test AC3 phải dùng **đúng exception thật** mà `requests` ném khi read-timeout giữa `iter_lines`, KHÔNG phải một `ConnectionError(ReadTimeoutError(...))` tự dựng theo giả định. Rủi ro: nếu shape thật bọc sâu hơn (`MaxRetryError`/`ProtocolError`), một test dựng nông sẽ **pass** trong khi production vẫn phân loại nhầm. Cách bắt: chạy `run` vào một app treo (tái lập Case C), `except requests.RequestException as e:` rồi `repr(e)` + duyệt `e.args`/`e.__cause__` để chốt cấu trúc, dùng chính nó làm fixture. Debug dump ở §Verified đã có `root_cause = ReadTimeoutError(...)` nhưng **chưa xác nhận** nó nằm trực tiếp ở `e.args[0]` hay sâu hơn.
+**QA-2 — xử lý bằng "an toàn-by-construction", KHÔNG cần đoán đúng shape (đã chốt cách làm).**
+
+Bản chất lo ngại cũ: phải soi đúng cấu trúc bọc của exception `requests` ném. Thay vì cược vào việc đoán đúng, **thiết kế để dù đoán sai vẫn KHÔNG hại** — 4 lớp:
+
+1. **Không phụ thuộc introspection cho ca chính (treo).** S5 first-event deadline là **timer của CHÍNH TA**: đặt deadline (vd 20s) **ngắn hơn** socket read-timeout (120s) ⇒ khi workflow treo, timer ta bắn **trước**, ta tự raise `RunHungNoStream` (exception mình định nghĩa, message rõ) — **không đụng tới exception mờ của `requests`**. Ca đúng-là-bug được bắt tất định.
+2. **Arm shape-độc-lập là chính, không phải phụ.** `'read timed out' in str(e).lower()` đúng **bất kể** bọc mấy tầng (mọi `ReadTimeoutError` đều render chuỗi "Read timed out." trong message của exception ngoài). Coi string-match là arm **chính**; isinstance-walk chỉ là bonus cho reason đẹp.
+3. **Tự-báo-cáo (chính là ý "đẩy lỗi quay lại confirm" của bạn, làm sẵn).** Message nhúng `[{e.__class__.__name__}]`. Nếu một exception lạ bị phân loại sai, **người/logs vẫn thấy class gốc** ngay trong reason → chẩn đoán được, không mù.
+4. **Đã sẵn park-at-gate — không bao giờ false-green.** Mọi read-timeout → `infra_fail` → degrade-static → **dừng ở human confirm gate** (032 D1c). Phân loại sai chỉ làm **reason chữ sai**, KHÔNG đổi verdict, KHÔNG tự động pass. Đây đúng là "đẩy lại confirm" — có sẵn trong FSM.
+
+⇒ **Hệ quả**: được phép dùng ngay, không chờ POC. Worst case của "đoán sai shape" = reason hiển thị hơi lệch (nhưng có class gốc kèm) + vẫn park cho người xem — **không phải một verdict sai**. Vì vậy QA-2 **hạ từ blocker xuống nice-to-have**.
+
+*Nice-to-have (không chặn):* khi nào tiện, chạy `run` vào một app treo (Case C), `except ... as e:` in `repr(e)`/`e.__cause__`, **dùng exception thật đó làm fixture** cho AC3 và thêm một isinstance-arm chính xác. Chỉ để reason đẹp hơn, không đổi tính đúng.
 
 ### S4 (preflight) — chặn sớm khi không dựng nổi input hợp lệ
 
@@ -205,6 +220,8 @@ Verified fact: input **hợp lệ** khiến Dify phát SSE gần như tức thì
 
 Trong `_collect_stream`, đặt một **first-event deadline** riêng (vd 20s): nếu tới hạn mà chưa đọc được event SSE nào → raise một lỗi phân loại rõ (`RunHungNoStream`) → `_fmt_request_error` cho reason "server nhận nhưng không phát event nào — workflow treo". Sau event đầu, chuyển sang read-timeout inter-chunk như hiện tại (LLM stream dài không bị cắt oan).
 
+> **Ràng buộc then chốt (nền tảng của QA-2 lớp 1): `first_event_deadline` (20s) < socket read-timeout (120s).** Nhờ đó, ở ca treo, **timer của TA bắn trước** và ta raise `RunHungNoStream` tất định — không bao giờ phải trông chờ vào `ConnectionError(ReadTimeoutError)` mờ của `requests`. **Elegant**: cho `class RunHungNoStream(requests.Timeout)` — kế thừa `requests.Timeout` ⇒ (a) `cmd_run`'s `except requests.RequestException` **bắt được** nó, (b) dòng `isinstance(e, requests.Timeout)` **sẵn có** ở đầu `_is_read_timeout` **tự động** trả True → **không thêm một dòng phân loại nào**. Chỉ cần `_fmt_request_error` nhận diện `RunHungNoStream` cho reason "không phát event nào" (rõ hơn "read timeout"). Read-timeout gốc của `requests` chỉ còn là đường dự phòng hiếm (khi deadline bị tắt) — string-match arm ở S3 lo.
+
 - Giá trị: mọi input type **lọt lưới** Lớp B (type mới chưa có builder, builder sai contract) đều bị bắt trong ~20s với nhãn đúng — thay vì chờ 120s read-timeout rồi vẫn phải nhờ S3 phân loại. S5 làm live-test **nhanh và trung thực cho workflow lạ** ngay cả trước khi có builder cho type đó.
 - Rẻ & độc lập: chỉ đo thời gian tới `iter_lines` yield đầu tiên; không đụng S0/S1/S2.
 - **⚠ QA-4**: xác nhận build Dify đích **không** phát `ping`/keep-alive định kỳ khi treo (nếu có, first-event vẫn fine vì `ping` cũng là event — nhưng khi đó phải phân biệt `ping` với event thật; §Verified A/C cho thấy build này im hoàn toàn 15s ⇒ an toàn, nhưng chốt lại nếu đổi Dify version).
@@ -213,10 +230,10 @@ Trong `_collect_stream`, đặt một **first-event deadline** riêng (vd 20s): 
 
 ## Acceptance Criteria
 
-0. **AC0 (plumbing)** — `cmd_inject_model` phát mỗi start-var kèm `allowed_file_types`/`allowed_file_upload_methods`/`allowed_file_extensions`, và `InputVar` mang ba field đó tới `resolveInput`. Một app chỉ-`local_file` khiến `resolveInput` **không** chọn `remote_url`. (unit test cả hai phía)
+0. **AC0 (plumbing)** — `cmd_inject_model` phát mỗi start-var kèm `allowed_file_types`/`allowed_file_upload_methods`/`allowed_file_extensions`, và `InputVar` mang ba field đó tới `resolveInput`. `type` của file-value lấy từ `allowed_file_types[0]` (không hard-code `document`). (unit test cả hai phía)
 1. **AC1** — Workflow có `input_file` (file-list, required) live-test **chạy tới `workflow_finished`** và verdict là `passed`/`workflow_fail` (tuỳ output), **KHÔNG còn** `infra_fail`/ConnectionError. *(Repro: chính app `Exel Pdf Url Excel`.)*
-2. **AC2** — `resolveInput` cho `file`/`file-list` trả **object** `{transfer_method, url|upload_file_id, type}` với `type` lấy từ `allowed_file_types` và `transfer_method` hợp lệ theo `allowed_file_upload_methods`. (unit test)
-3. **AC3** — Một run bị **read-timeout** (server im lặng) cho ra reason chứa "timed out"/"treo", **KHÔNG** chứa "connection failed (DNS…)". Một run tới host **thật sự refused** vẫn cho "connection failed". (unit test cho `_fmt_request_error`/`_is_read_timeout` với `ConnectionError(ReadTimeoutError(...))` vs `ConnectionError` trần.)
+2. **AC2** — `resolveInput` cho `file`/`file-list` (khi có `ctx.uploadedFileId`) trả **object** `{transfer_method:'local_file', upload_file_id, type}` với `type` từ `allowed_file_types[0]`; **không** có `ctx.uploadedFileId` → `CANT_BUILD` (vào `cannotBuild[]`); input chỉ-remote_url → `CANT_BUILD`. Không đường nào trả chuỗi trần / URL ngoài. (unit test)
+3. **AC3** — Một run bị **read-timeout / treo** cho ra reason chứa "timed out"/"treo" + kèm `[<class>]`, **KHÔNG** chứa "connection failed (DNS…)". Một run tới host **thật sự refused** vẫn cho "connection failed". (unit test cho `_is_read_timeout` với các ca: `RunHungNoStream` (đường S5, `isinstance requests.Timeout` → True), `ConnectionError` chỉ-chuỗi `"Read timed out."` (string-arm), `ConnectionError(ReadTimeoutError)` (walk-arm), và `ConnectionError` trần → False.)
 4. **AC4** — Không có input `file`/`file-list` nào gửi tới Dify dưới dạng **chuỗi trần**. (guard/test)
 5. **AC5 (S4)** — `resolveInput` trả `cannotBuild` chứa var chỉ-`local_file` (khi chưa có `uploadedFileId`) hoặc `type` lạ; sub-orchestrator `degradeStatic` với reason nêu tên var + kiểu, **không phát request run**. (unit + orchestrator test)
 6. **AC6 (S5)** — Một run mà server **không phát event SSE nào** trong first-event deadline → phân loại "workflow treo / không stream", verdict `infra_fail` reason đúng, **trong ~deadline giây** (không chờ tới read-timeout 120s). Một run phát `workflow_started` rồi stream chậm **KHÔNG** bị cắt oan. (unit cho `_collect_stream` với stream giả: (a) im hoàn toàn, (b) event đầu trễ-nhưng-trong-hạn rồi chunk thưa.)
@@ -224,8 +241,8 @@ Trong `_collect_stream`, đặt một **first-event deadline** riêng (vd 20s): 
 ## Test plan
 
 - **Unit (S0)**: `cmd_inject_model` trên một YAML có start-var file → assert `inputs[].allowed_file_types|allowed_file_upload_methods|allowed_file_extensions` xuất hiện; `DeployResult.inputs` mang chúng qua `InputVar`.
-- **Unit**: `resolveInput` cho từng type (`file`, `file-list`, kèm biến thể `allowed_file_upload_methods`/`allowed_file_types`) → so object shape; đặc biệt ca **chỉ-`local_file`** phải KHÔNG sinh `remote_url` (mà dùng `uploadedFileId` truyền vào, hoặc → degrade nếu theo S4). `_is_read_timeout`/`_fmt_request_error` với các ca: `ConnectionError(ReadTimeoutError)` (một tầng), bọc **sâu** (`ConnectionError(...(ReadTimeoutError))`), `Timeout` trần, `ConnectionError` trần → assert message read-timeout KHÔNG chứa "connection failed".
-- **Live (opt-in, creds-gated — theo 021/032)**: chạy `Exel Pdf Url Excel` end-to-end, assert `workflow_finished` + verdict ≠ infra. Mở rộng: một workflow input `file` (single, remote_url); một workflow chỉ-`local_file` → Phase 2 assert **degrade với reason nêu tên var** (không treo), Phase 3 assert **chạy thật** qua S2.
+- **Unit**: `resolveInput(vars, ctx)` cho `file`/`file-list`: (a) có `ctx.uploadedFileId` → object `local_file`; (b) không có → `CANT_BUILD`/`cannotBuild[]`; (c) input chỉ-remote_url → `CANT_BUILD`; `type` từ `allowed_file_types[0]`. `_is_read_timeout` với các ca: `RunHungNoStream`, `ConnectionError` chỉ-chuỗi "Read timed out.", `ConnectionError(ReadTimeoutError)` (một tầng) + bọc **sâu**, `Timeout` trần → True; `ConnectionError` trần → False. `_fmt_request_error` assert read-timeout KHÔNG chứa "connection failed" và có `[<class>]`.
+- **Live (opt-in, creds-gated — theo 021/032)**: chạy `Exel Pdf Url Excel` end-to-end. **Phase 2** (chưa S2): assert **degrade với reason nêu tên var** (không treo, không nhãn infra sai). **Phase 3** (có S2): assert `workflow_finished` + verdict `passed` (cần sample `.xlsx` bundled). Mở rộng: một workflow input `file` single, một workflow chỉ-remote_url → assert degrade trung thực.
 - **Regression**: workflow **không** file-input vẫn chạy như cũ (043 llm-less + input text/number).
 
 ## Rollout / cleanup
@@ -237,13 +254,27 @@ Trong `_collect_stream`, đặt một **first-event deadline** riêng (vd 20s): 
 
 ## QA / Open items (phải xác nhận thật trước hoặc trong implement)
 
-- **QA-1 — tên field khả-năng-file trong start-var YAML.** S0 giả định key gốc là `allowed_file_types` / `allowed_file_upload_methods` / `allowed_file_extensions`. §Verified có *giá trị* nhưng chưa dán *key thô từ DSL*. Đọc thẳng export YAML của `Exel Pdf Url Excel` (start node → `variables[]`) để chốt; nếu Dify dùng tên khác (vd lồng trong `config`), sửa S0 theo đúng key. **Rủi ro nếu sai**: S0 phát rỗng → S1 luôn default → app local_file-only treo lại.
-- **QA-2 — shape exception read-timeout thật.** (chi tiết ở S3) Bắt exception thật từ một run treo, chốt cấu trúc bọc, dùng làm fixture AC3. Không dựng fixture theo giả định.
-- **QA-3 — `POST /v1/files/upload` contract (chỉ Phase 3 / S2).** Xác nhận field trả về mang `upload_file_id` (một số build trả `id`), header/`user` cần gì, và file bundled đọc được. Verified B chứng minh *đường chạy* nhưng chưa chốt *shape response của endpoint upload* từ builder.
+- **QA-1 — tên field khả-năng-file trong start-var YAML.** ✅ **Phần lớn đã xác nhận qua POC**: `GET /console/api/apps/<id>/workflows/draft` của `Exel Pdf Url Excel` trả start-var với đúng 3 key `allowed_file_types` / `allowed_file_upload_methods` / `allowed_file_extensions` (giá trị `["document"]` / `["local_file","remote_url"]` / `[".xlsx",".xls"]`). **Còn phải chốt**: bản **DSL export** mà `cmd_inject_model` đọc có dùng **cùng key phẳng** như draft-API không (có thể khác/lồng trong `config`). Đọc thẳng YAML export để xác nhận trước khi code S0. — *Corroboration từ repo*: [`templates/patterns/file-to-llm.yml:99-112`](../../templates/patterns/file-to-llm.yml#L99-L112) (đây là DSL export-shape) mang đúng 3 key **phẳng** ngay trong `graph.nodes[].data.variables[]`, cùng cấp `variable`/`type`/`required` — mạnh mẽ ủng hộ giả định S0; chỉ còn xác nhận một export runtime thật cho chắc.
+- **QA-2 — shape exception read-timeout thật. ✅ ĐÃ HẠ TỪ BLOCKER XUỐNG NICE-TO-HAVE** (xử lý an toàn-by-construction, chi tiết ở S3). Không cần đoán đúng shape để đúng: (1) S5 raise `RunHungNoStream(requests.Timeout)` tất định cho ca treo — không introspection; (2) arm string-match `'read timed out'` shape-độc-lập lo đường dự phòng; (3) message tự-nhúng `[{class}]`; (4) mọi read-timeout vẫn **park ở confirm gate** (032 D1c) ⇒ sai chỉ làm reason lệch, KHÔNG false-green. *Nice-to-have*: khi tiện, bắt exception thật từ run treo làm fixture AC3 để thêm isinstance-arm chính xác (chỉ đẹp reason).
+- **QA-3 — `POST /v1/files/upload` contract (Phase 3 / S2).** ✅ **Đã xác nhận qua POC**: endpoint trả JSON có field **`id`** (Case B/F dùng `resp.json()["id"]` làm `upload_file_id` → run PASS), multipart field name = `file`, cần form field `user`. Header chỉ cần `Authorization: Bearer <app-key>`. **Còn phải làm khi code S2**: bundle asset đọc được từ repo + map extension↔type. *(Lưu ý: field trả là `id`, KHÔNG phải `upload_file_id` — khi truyền vào `inputs` mới đặt tên `upload_file_id`.)*
 - **QA-4 — Dify có phát `ping`/keep-alive khi treo không (S5).** §Verified A/C cho thấy build hiện tại **im hoàn toàn** 15s ⇒ first-event deadline an toàn. Nếu đổi Dify version và nó phát `ping` định kỳ, phải loại `ping` khỏi "event đầu tiên hợp lệ". Chốt lại khi nâng cấp Dify.
-- **Phạm vi đã khuyến nghị (phasing ở đầu Design):** Phase 1 = S3+S5 (ship ngay, lợi ích phổ quát); Phase 2 = S0+S1(registry)+S4-degrade (file remote_url chạy, local_file-only degrade trung thực); Phase 3 = S2 khi cần chạy thật app local_file-only. Chủ spec chỉ cần xác nhận có đồng ý cắt Phase hay muốn gộp.
+- **QA-5 — ✅ ĐÃ CHỐT = (b): bỏ hẳn remote_url.** `fileValue` chỉ đi `local_file` + file bundled; input **chỉ** cho remote_url → `CANT_BUILD` → degrade (S4). Không còn `SAMPLE_FILE_URL`/`STABLE_SAMPLE_URL` (xóa khỏi code). Lý do: self-contained, không phụ thuộc internet cho một test *local*, khớp POC (Case F PASS / Case E URL chết). *Đánh đổi chấp nhận*: một workflow chỉ-remote_url không chạy PASS mà degrade — hiếm, và trung thực.
+- **Phạm vi đã chốt (phasing ở đầu Design):** Phase 1 = S3+S5 (ship ngay, lợi ích phổ quát, chỉ `sync.py`); Phase 2 = S0+S1(registry)+S4-degrade (mọi file input degrade trung thực, không treo); **Phase 3 = S2 (LÕI, bắt buộc để file-workflow PASS thật — không optional với QA-5=(b)).** Có thể gộp Phase 2+3 nếu muốn PASS ngay.
 
 ## Non-goals
 
 - Không đổi gate FSM / confirm-loop (032) / permission-gate / `claude-session.ts` strip `DIFY_*`.
 - Không tự suy đoán **giá trị nghiệp vụ** của input (vẫn là sample placeholder); mục tiêu là input **hợp lệ về contract** để run chạy được và verdict phản ánh đúng.
+
+## Implementation notes (2026-07-08)
+
+Đã code cả 3 phase một lượt (mục tiêu: file-workflow test PASS thật). Điểm khác/thêm so với spec:
+
+- **Thêm sentinel `NEEDS_UPLOAD` bên cạnh `CANT_BUILD`** (`live-test.ts`). Spec chỉ có `CANT_BUILD`, nhưng upload cần app-key (mint ở step 6) — sau `resolveInput` (step 3). Nên `resolveInput` phân biệt: file var cho `local_file` mà chưa có `uploadedFileId` → `NEEDS_UPLOAD` (fixable, sẽ upload rồi resolve lại), khác với chỉ-remote_url → `CANT_BUILD` (degrade). `resolveInput` trả `{ inputs, missing, cannotBuild, needsUpload }`. Vẫn PURE (ctx truyền vào), gọi 2 lần: pre-mint (bắt need_input + cannotBuild sớm) và post-upload (điền file-object).
+- **Luồng orchestrator**: chèn **step 6.5** sau mint-key: `if (first.needsUpload) → uploadSampleFile(key) → resolveInput(…, {uploadedFileId})`. Upload fail → `degradeStatic` (infra, không phát run). `base.input`/`runInput` dời xuống sau upload.
+- **S5 — sửa cách hiện thực sau khi test thật.** Bản đầu dùng **daemon-thread watchdog + `r.close()`** ⇒ **KHÔNG chạy** (verify trên Dify thật: hang treo tới 90s, `r.close()` từ thread khác **không interrupt được `iter_lines` đang block ở socket recv**). Đổi sang: **socket read-timeout per-recv = `FIRST_EVENT_DEADLINE_S`** (env `DIFY_FIRST_EVENT_DEADLINE_S`, mặc định 20) — đây là cơ chế deadline **duy nhất** thực sự interrupt. Trong `_collect_stream` phân biệt: chưa thấy **event có nghĩa** nào (bỏ qua `ping`/blank Dify gửi lúc đầu) → `RunHungNoStream` (message crisp); đã thấy event → re-raise (stall giữa chừng, S3 vẫn gắn nhãn read-timeout). Overall wall-clock vẫn do outer execFile timeout (`runWorkflow` truyền `timeoutMs+5000`) chặn. **Verify thật (Dify 8090)**: hang zero-SSE → `RunHungNoStream` ở **~11s** (thay vì 90s); xlsx hợp lệ → `succeeded` ở **2s**, KHÔNG bị deadline 10s cắt oan.
+  - Đánh đổi: read-timeout per-recv giờ = deadline (thay 120s), nên một node **im lặng > deadline** (không phát SSE) sẽ bị coi là stall. Với live-test input mẫu (workflow nhanh, Dify phát node-events đều) rủi ro thấp; env override nếu cần.
+- **Sample assets** bundled tại [`apps/builder/server/assets/live-test-samples/`](../../apps/builder/server/assets/live-test-samples/) (`.xlsx/.csv/.txt/.pdf/.png`), chọn theo `allowed_file_extensions` rồi `allowed_file_types[0]` (`chooseSample` trong `dify-io.ts`). Repo-root-relative nên `sync.py` đọc được bất kể server chạy từ `dist/`.
+- **QA-2 đóng thực nghiệm**: `_is_read_timeout` pass cả ca bọc sâu thật `ConnectionError(ProtocolError(ReadTimeoutError))` + ca chỉ-chuỗi — không cần fixture đoán.
+- **AC1 verify thật (Dify 8090, app `Exel Pdf Url Excel`)**: mint key → `sync.py upload` (bundled xlsx → field `id`) → run với file-object `local_file` → **`status: succeeded`**, output thật (`csv_table`/`markdown_table`/`count`). Đúng path builder step 6→6.5→7.
+- **Còn lại (tùy chọn)**: một lượt bấm qua **UI builder** (4123) end-to-end cho một build có file-input — backend đã verify đầy đủ; UI chỉ là lớp hiển thị (không đổi trong spec này).

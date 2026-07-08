@@ -679,6 +679,51 @@ export async function runWorkflow(
   return parseRunResult(r.stdout);
 }
 
+// spec 047 S2 — bundled sample assets (repo-root-relative so sync.py reads them regardless of where the
+// built server runs). QA-5=(b): live-test uploads a LOCAL bundled file — never depends on an external URL.
+const SAMPLE_DIR = 'apps/builder/server/assets/live-test-samples';
+const SAMPLES: Record<string, { file: string; mime: string }> = {
+  '.xlsx': { file: 'sample.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+  '.xls': { file: 'sample.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+  '.csv': { file: 'sample.csv', mime: 'text/csv' },
+  '.txt': { file: 'sample.txt', mime: 'text/plain' },
+  '.md': { file: 'sample.txt', mime: 'text/plain' },
+  '.pdf': { file: 'sample.pdf', mime: 'application/pdf' },
+  '.png': { file: 'sample.png', mime: 'image/png' },
+  '.jpg': { file: 'sample.png', mime: 'image/png' },
+  '.jpeg': { file: 'sample.png', mime: 'image/png' },
+};
+const TYPE_DEFAULT_EXT: Record<string, string> = { document: '.txt', image: '.png', audio: '.txt', video: '.txt', custom: '.txt' };
+
+/** Pick a bundled sample asset for a file input: prefer a file whose extension the input ALLOWS (so the
+ *  right-typed sample reaches the workflow — an `.xlsx` app needs a real xlsx, Verified F); else fall back
+ *  by `allowed_file_types[0]`; else a plain `.txt`. Pure. */
+export function chooseSample(allowedExtensions?: string[], type?: string): { path: string; mime: string } {
+  for (const e of (allowedExtensions ?? []).map((x) => x.toLowerCase())) {
+    const s = SAMPLES[e];
+    if (s) return { path: `${SAMPLE_DIR}/${s.file}`, mime: s.mime };
+  }
+  const ext = TYPE_DEFAULT_EXT[(type ?? 'document').toLowerCase()] ?? '.txt';
+  const pick = SAMPLES[ext] ?? SAMPLES['.txt'];
+  return { path: `${SAMPLE_DIR}/${pick.file}`, mime: pick.mime };
+}
+
+/** spec 047 S2 — upload a bundled sample file (chosen by the input's allowed extensions/type) so a
+ *  `local_file` input can carry a real `upload_file_id` (Verified F: local_file + upload_file_id → PASS).
+ *  App key rides the CHILD ENV (B3). Returns the file id (endpoint field is `id`), or null on failure. */
+export async function uploadSampleFile(
+  projectsDir: string,
+  appKey: string,
+  allowedExtensions?: string[],
+  type?: string
+): Promise<string | null> {
+  const { path, mime } = chooseSample(allowedExtensions, type);
+  const r = await runSyncPy(projectsDir, ['upload', '--file', path, '--mime', mime], { env: { DIFY_APP_KEY: appKey } });
+  if (r.code !== 0) return null;
+  const obj = lastJsonLine(r.stdout);
+  return obj && typeof obj.id === 'string' ? obj.id : null;
+}
+
 /** A start-node input variable (spec 032 D8) — enough to build a sample run input or decide `need_input`. */
 export interface InputVar {
   variable: string;
@@ -686,6 +731,12 @@ export interface InputVar {
   required: boolean;
   label?: string;
   options?: string[];
+  // spec 047 S0 — file-capability of a `file`/`file-list` var (emitted by sync.py inject-model). Lets
+  // resolveInput pick a valid transfer_method/type when building a sample, or degrade honestly. All optional
+  // so an older sync.py (no fields) degrades gracefully.
+  allowed_file_types?: string[]; // ['document'|'image'|'audio'|'video'|'custom']
+  allowed_file_upload_methods?: string[]; // ['local_file'|'remote_url']
+  allowed_file_extensions?: string[]; // ['.xlsx', …]
 }
 
 /** Result of `deployWithModel`: `nodeCount` llm nodes got a model filled (for the report's

@@ -58,6 +58,26 @@ except ImportError:
     sys.exit(1)
 
 try:
+    # spec 047 S3: read-timeout while streaming surfaces as ConnectionError WRAPPING this (not requests.Timeout).
+    from urllib3.exceptions import ReadTimeoutError
+except ImportError:  # pragma: no cover — urllib3 ships with requests, but degrade gracefully
+    ReadTimeoutError = ()  # type: ignore[assignment,misc]
+
+
+# spec 047 S5: raised when the server accepts the run but emits NO SSE event within the first-event
+# deadline (workflow hung on a bad/missing input). Subclasses requests.Timeout so (a) cmd_run's
+# `except requests.RequestException` catches it and (b) `_is_read_timeout`'s `isinstance(e, requests.Timeout)`
+# arm classifies it with ZERO extra code.
+class RunHungNoStream(requests.Timeout):
+    pass
+
+
+# First-event deadline (s): a valid input makes Dify emit `workflow_started` near-instantly (Verified 0.4–2.8s);
+# a hung run emits nothing until the socket read-timeout. Kept WELL BELOW the socket read-timeout (S5 constraint)
+# so OUR watchdog fires first and raises RunHungNoStream deterministically. Override via env for slow envs.
+FIRST_EVENT_DEADLINE_S = float(os.environ.get("DIFY_FIRST_EVENT_DEADLINE_S") or 20)
+
+try:
     from dotenv import load_dotenv
 except ImportError:
     load_dotenv = None  # type: ignore
@@ -248,10 +268,13 @@ class DifyConsoleClient:
 
     @staticmethod
     def _run_timeout(read: int | None):
-        # (connect, read): fail FAST on an unreachable service API (~5s); the read timeout applies BETWEEN
-        # streamed chunks, so a steadily-streaming LLM never trips it. (Blocking mode held the whole
-        # response and nginx reset it — spec 032; the Dify UI itself streams, verified working.)
-        return (5, read or 120)
+        # (connect, read): fail FAST on an unreachable service API (~5s). spec 047 S5: the read timeout is
+        # per-recv (resets on every streamed chunk), so it doubles as a STALL detector — a valid run streams
+        # a first line near-instantly then node events, so a gap longer than FIRST_EVENT_DEADLINE_S means the
+        # run is HUNG (bad/missing input) or a node is stuck. Kept well below the OVERALL cap (the outer
+        # execFile timeout in runWorkflow bounds total wall-clock). A background thread can NOT interrupt a
+        # blocked socket recv (verified), so the socket timeout itself is the only reliable deadline.
+        return (5, FIRST_EVENT_DEADLINE_S)
 
     def _run_headers(self, app_key: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {app_key}", "Content-Type": "application/json"}
@@ -259,34 +282,57 @@ class DifyConsoleClient:
     def _collect_stream(self, r: Any, chat: bool) -> dict[str, Any]:
         """Consume a Dify SSE run stream and NORMALIZE it into the blocking-response shape (so the TS
         parser is unchanged): chat → `{answer, metadata.usage.total_tokens}`; workflow → `{data:{status,
-        outputs, total_tokens, error}}`. Streaming avoids the long-held blocking connection nginx resets."""
+        outputs, total_tokens, error}}`. Streaming avoids the long-held blocking connection nginx resets.
+
+        spec 047 S5 — HANG DETECTION via the socket read-timeout (`_run_timeout` → FIRST_EVENT_DEADLINE_S).
+        A valid run streams a first SSE line near-instantly; a run hung on a bad/missing input streams
+        NOTHING. The per-recv read timeout trips at the deadline; we distinguish:
+          • NO line seen yet  → RunHungNoStream (fast, deterministic, self-describing) — the common bug.
+          • some lines seen   → re-raise (a mid-run stall; _is_read_timeout still labels it a read timeout).
+        (A background thread canNOT interrupt a blocked socket recv — verified against real Dify — so the
+        socket timeout itself is the only reliable deadline.)"""
         r.raise_for_status()
         answer_parts: list[str] = []
         total_tokens = None
         outputs = None
         status = None
         error = None
-        for raw in r.iter_lines(decode_unicode=True):
-            if not raw or not raw.startswith("data:"):
-                continue
-            payload = raw[len("data:"):].strip()
-            if not payload or payload == "[DONE]":
-                continue
-            try:
-                ev = json.loads(payload)
-            except json.JSONDecodeError:
-                continue
-            etype = ev.get("event")
-            if etype in ("message", "agent_message"):
-                answer_parts.append(ev.get("answer") or "")
-            elif etype == "message_end":
-                total_tokens = ((ev.get("metadata") or {}).get("usage") or {}).get("total_tokens", total_tokens)
-            elif etype == "workflow_finished":
-                data = ev.get("data") or {}
-                status, outputs, error = data.get("status"), data.get("outputs"), data.get("error")
-                total_tokens = data.get("total_tokens", total_tokens)
-            elif etype == "error":
-                error = ev.get("message") or ev.get("code") or "stream error"
+        event_seen = False
+        try:
+            for raw in r.iter_lines(decode_unicode=True):
+                if not raw or not raw.startswith("data:"):
+                    continue
+                payload = raw[len("data:"):].strip()
+                if not payload or payload == "[DONE]":
+                    continue
+                try:
+                    ev = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
+                etype = ev.get("event")
+                # A MEANINGFUL event (not a keep-alive ping) = the workflow really started streaming. Dify
+                # sends an initial ping even for a run it then hangs on, so pings must NOT count as progress.
+                if etype and etype != "ping":
+                    event_seen = True
+                if etype in ("message", "agent_message"):
+                    answer_parts.append(ev.get("answer") or "")
+                elif etype == "message_end":
+                    total_tokens = ((ev.get("metadata") or {}).get("usage") or {}).get("total_tokens", total_tokens)
+                elif etype == "workflow_finished":
+                    data = ev.get("data") or {}
+                    status, outputs, error = data.get("status"), data.get("outputs"), data.get("error")
+                    total_tokens = data.get("total_tokens", total_tokens)
+                elif etype == "error":
+                    error = ev.get("message") or ev.get("code") or "stream error"
+        except requests.RequestException as e:
+            # The read timeout tripped (per-recv). No MEANINGFUL event ever arrived ⇒ a zero-SSE hang → a
+            # crisp signal; otherwise it's a mid-run stall → re-raise (still labelled a read timeout by S3).
+            if not event_seen and _is_read_timeout(e):
+                raise RunHungNoStream(
+                    f"workflow hung — server emitted no SSE event within {FIRST_EVENT_DEADLINE_S:g}s "
+                    "(check required inputs / a stuck node), NOT a network error"
+                ) from e
+            raise
         if chat:
             out: dict[str, Any] = {"answer": "".join(answer_parts), "metadata": {"usage": {"total_tokens": total_tokens}}}
             if error:
@@ -328,6 +374,21 @@ class DifyConsoleClient:
         )
         return self._collect_stream(r, chat=False)
 
+    def upload_file(self, app_key: str, file_path: str, mime: str | None = None) -> dict[str, Any]:
+        """spec 047 S2 — upload a BUNDLED sample file to the Service API so a `local_file` input can carry a
+        real `upload_file_id` (Verified F: local_file + upload_file_id → run PASS). Returns the raw JSON;
+        the file id lives under `id` (Verified — NOT `upload_file_id`). Multipart, so we send a bare
+        Authorization header (requests sets the multipart Content-Type + boundary itself)."""
+        with open(file_path, "rb") as fh:
+            files = {"file": (os.path.basename(file_path), fh, mime or "application/octet-stream")}
+            r = requests.post(
+                f"{self._service_base()}/files/upload",
+                headers={"Authorization": f"Bearer {app_key}"},
+                files=files, data={"user": "builder-live-test"}, timeout=self.timeout,
+            )
+        r.raise_for_status()
+        return r.json()
+
 
 # ---------------------------------------------------------------------------
 # Commands
@@ -344,12 +405,47 @@ def _client_from_env() -> DifyConsoleClient:
     return DifyConsoleClient(url, token, workspace_id=(workspace_id.strip() or None) if workspace_id else None)
 
 
+def _is_read_timeout(e: BaseException) -> bool:
+    """spec 047 S3: True when `e` is (or wraps) a read-timeout. With `stream=True` a mid-stream read
+    timeout surfaces as a `requests.ConnectionError` WRAPPING a urllib3 `ReadTimeoutError` (NOT a
+    `requests.Timeout`) — and the wrapping can be several layers deep (ProtocolError / MaxRetryError).
+    Robust by design: (1) the `requests.Timeout` arm also catches our own RunHungNoStream (S5);
+    (2) a recursive walk over exception args; (3) a shape-INDEPENDENT string fallback that holds no
+    matter how deep the wrapping is."""
+    if isinstance(e, requests.Timeout):
+        return True
+    seen: set[int] = set()
+
+    def walk(x: Any, depth: int = 0) -> bool:
+        if x is None or id(x) in seen or depth > 6:
+            return False
+        seen.add(id(x))
+        if ReadTimeoutError and isinstance(x, ReadTimeoutError):
+            return True
+        for a in getattr(x, "args", ()) or ():
+            if isinstance(a, BaseException) and walk(a, depth + 1):
+                return True
+        return False
+
+    if walk(e):
+        return True
+    return "read timed out" in str(e).lower()
+
+
 def _fmt_request_error(e: requests.RequestException) -> str:
     """Return a one-line user-friendly summary of a requests exception."""
+    # Check read-timeout BEFORE ConnectionError: a mid-stream read timeout IS a ConnectionError (S3), and
+    # mislabelling it "connection failed" sends the operator chasing DNS/port when the real cause is a hung
+    # run. Message stays NEUTRAL (this helper is shared by list/pull/push/diff, not just `run`) and SELF-
+    # REPORTS the raw class so a rare misclassification is still diagnosable from the reason text.
+    if isinstance(e, RunHungNoStream):
+        return str(e)  # S5: already a crisp, self-describing hang message
+    if _is_read_timeout(e):
+        return ("read timeout — server accepted the connection but did NOT stream a response in time "
+                f"(for `run`: the workflow hung — check required inputs / a stuck node), NOT a network error "
+                f"[{e.__class__.__name__}]")
     if isinstance(e, requests.ConnectionError):
         return f"connection failed (DNS / unreachable / refused) — {e.__class__.__name__}"
-    if isinstance(e, requests.Timeout):
-        return f"timeout after {getattr(e.request, 'timeout', '?')}s"
     if isinstance(e, requests.HTTPError):
         resp = getattr(e, "response", None)
         code = resp.status_code if resp is not None else "?"
@@ -644,6 +740,12 @@ def cmd_inject_model(args) -> int:
                     "required": bool(v.get("required")),
                     "label": v.get("label"),
                     "options": v.get("options") or [],
+                    # spec 047 S0: file-capability of the var — lets resolveInput pick a valid transfer_method
+                    # / type when building a sample (or degrade honestly). Flat keys, live on the start-var
+                    # itself (verified: templates/patterns/file-to-llm.yml + Exel-Pdf draft API).
+                    "allowed_file_types": v.get("allowed_file_types") or [],
+                    "allowed_file_upload_methods": v.get("allowed_file_upload_methods") or [],
+                    "allowed_file_extensions": v.get("allowed_file_extensions") or [],
                 })
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
@@ -683,6 +785,24 @@ def cmd_run(args) -> int:
     except requests.RequestException as e:
         sys.exit(f"❌ run failed: {_fmt_request_error(e)}")
     print(json.dumps(res))
+    return 0
+
+
+def cmd_upload(args) -> int:
+    # spec 047 S2: upload a BUNDLED sample file for a `local_file` input. App key on the CHILD ENV (B3),
+    # never argv. `--file` is repo-root-relative (a repo-bundled asset). Prints `{id, …}` on one JSON line.
+    app_key = os.environ.get("DIFY_APP_KEY")
+    if not app_key:
+        sys.exit("❌ DIFY_APP_KEY not set (the app-level key; injected on the child env, never argv)")
+    client = _client_from_env()
+    path = BASE / args.file
+    if not path.exists():
+        sys.exit(f"❌ file not found: {path}")
+    try:
+        res = client.upload_file(app_key, str(path), args.mime)
+    except requests.RequestException as e:
+        sys.exit(f"❌ upload failed: {_fmt_request_error(e)}")
+    print(json.dumps(res))  # {id: "…", name, …} — caller reads `id`
     return 0
 
 
@@ -780,6 +900,12 @@ def main() -> int:
     p_run.add_argument("--timeout", type=int, help="Per-run HTTP timeout seconds")
     p_run.add_argument("--project", help="Load envs/dev.env from this project")
     p_run.set_defaults(func=cmd_run)
+
+    p_up = sub.add_parser("upload", help="Upload a bundled sample file for a local_file input (JSON {id}; spec 047)")
+    p_up.add_argument("--file", required=True, help="Repo-root-relative path to the bundled sample asset")
+    p_up.add_argument("--mime", help="MIME type of the file (optional; Dify infers from extension otherwise)")
+    p_up.add_argument("--project", help="Load envs/dev.env from this project")
+    p_up.set_defaults(func=cmd_upload)
 
     args = p.parse_args()
     if hasattr(args, "project"):
