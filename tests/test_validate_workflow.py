@@ -354,6 +354,57 @@ def test_absent_and_empty_variables_blocks_stay_green(tmp_path: Path) -> None:
     assert is_valid2, errors2
 
 
+# ── Spec 049 r3 (review 1.2/1.3) — the factory's remaining hard-fails, mirrored ─────────────────
+
+
+def test_null_variables_block_fails_like_dify(tmp_path: Path) -> None:
+    """`environment_variables:` (explicit YAML null) → Dify iterates None → import FAILED."""
+    wf = _wf_with_vars()
+    wf["workflow"]["environment_variables"] = None
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert not is_valid
+    assert _has(errors, "is null"), errors
+
+
+def test_unsupported_value_type_fails(tmp_path: Path) -> None:
+    """The factory's `case _: raise 'not supported value type'` — catches '' / 'text' / typos."""
+    for bad in ("text", ""):
+        wf = _wf_with_vars(env=[{"name": "X", "value_type": bad, "value": "v"}])
+        is_valid, errors, _ = _validate(tmp_path, wf)
+        assert not is_valid
+        assert _has(errors, "unsupported value_type"), (bad, errors)
+
+
+def test_value_shape_must_match_value_type(tmp_path: Path) -> None:
+    """string value_type with a non-string value (etc.) fails the factory's case guards."""
+    red = [
+        {"name": "A", "value_type": "string", "value": 42},
+        {"name": "B", "value_type": "number", "value": "42"},
+        {"name": "C", "value_type": "object", "value": "not-a-dict"},
+        {"name": "D", "value_type": "float", "value": 1},  # Dify: int does NOT satisfy FLOAT's guard
+    ]
+    for entry in red:
+        is_valid, errors, _ = _validate(tmp_path, _wf_with_vars(env=[entry]))
+        assert not is_valid, entry
+    green = [
+        {"name": "A", "value_type": "string", "value": ""},
+        {"name": "B", "value_type": "number", "value": 42},
+        {"name": "C", "value_type": "object", "value": {}},
+        {"name": "D", "value_type": "integer", "value": 7},
+        {"name": "E", "value_type": "array[string]", "value": []},
+        {"name": "F", "value_type": "boolean", "value": True},
+    ]
+    is_valid, errors, _ = _validate(tmp_path, _wf_with_vars(env=green))
+    assert is_valid, errors
+
+
+def test_whitespace_name_passes_like_dify(tmp_path: Path) -> None:
+    """Dify's check is FALSINESS (`not mapping.get('name')`) — '  ' imports fine; don't be stricter."""
+    wf = _wf_with_vars(env=[{"name": "  ", "value_type": "string", "value": "v"}])
+    is_valid, errors, _ = _validate(tmp_path, wf)
+    assert is_valid, errors
+
+
 # ── Spec 049 D1b — import gap-matrix additions (root mapping + version type/format) ──────────────
 
 

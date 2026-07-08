@@ -55,7 +55,10 @@ function fixtureDir(): string {
 interface ProbeCap {
   importCalls: { srcFileRel: string; appName: string }[];
   deleteCalls: string[];
-  importResult: { ok: boolean; appId: string | null; stderr: string };
+  reconcileCalls: string[];
+  importResult: { ok: boolean; appId: string | null; status?: string | null; stderr: string };
+  /** what the orphan-sweep reconcile finds (r3: Dify commits the app row BEFORE validating vars). */
+  reconcileResult?: { appId: string | null; ambiguous: boolean };
 }
 
 function harness(d: string, cap: ProbeCap) {
@@ -95,6 +98,10 @@ function harness(d: string, cap: ProbeCap) {
           cap.deleteCalls.push(appId);
           return true;
         },
+        reconcileAppIdByName: async (_pd, appName) => {
+          cap.reconcileCalls.push(appName);
+          return cap.reconcileResult ?? { appId: null, ambiguous: false };
+        },
       },
     },
   };
@@ -120,25 +127,27 @@ async function driveToTest(ctx: OrchestratorCtx, task: Task): Promise<void> {
 }
 
 describe('spec 049 D2 — the ④ import-probe (advisory oracle)', () => {
-  test('AC 3: creds present → probe once, [probe]-prefixed name, delete with the returned appId', async () => {
+  test('AC 3: creds present → probe once, unique [probe] <taskId> name, delete with the returned appId', async () => {
     dir = fixtureDir();
-    const cap: ProbeCap = { importCalls: [], deleteCalls: [], importResult: { ok: true, appId: 'app-777', stderr: '' } };
+    const cap: ProbeCap = { importCalls: [], deleteCalls: [], reconcileCalls: [], importResult: { ok: true, appId: 'app-777', stderr: '' } };
     const ctx = harness(dir, cap);
     const task = await createTask(dir, { requirement: 'r', confirmMode: 'each_step', deploy: 'none' });
     current = task;
     await driveToTest(ctx, task);
     assert.equal(cap.importCalls.length, 1);
-    assert.match(cap.importCalls[0].appName, /^\[probe\] /);
+    assert.equal(cap.importCalls[0].appName, `[probe] ${task.taskId}`, 'unique per task, stable across retries');
     assert.ok(cap.importCalls[0].srcFileRel.endsWith('/workflows/main.yml'));
     assert.deepEqual(cap.deleteCalls, ['app-777'], 'the probe app is deleted immediately');
+    assert.equal(cap.reconcileCalls.length, 0, 'no orphan sweep needed on success');
     assert.match(task.probeNote!, /^import-probe: OK/);
   });
 
-  test('AC 3/4: probe FAILURE → redacted verbatim error in the note, NO delete, verdict unchanged', async () => {
+  test('AC 3/4: probe FAILURE → redacted verbatim error, ORPHAN SWEEP (Dify commits the app row before validating vars), verdict unchanged', async () => {
     dir = fixtureDir();
     const cap: ProbeCap = {
-      importCalls: [], deleteCalls: [],
+      importCalls: [], deleteCalls: [], reconcileCalls: [],
       importResult: { ok: false, appId: null, stderr: 'HTTP 400 — {"error":"missing name"} token tok-probe-049' },
+      reconcileResult: { appId: 'orphan-1', ambiguous: false },
     };
     const ctx = harness(dir, cap);
     const task = await createTask(dir, { requirement: 'r', confirmMode: 'each_step', deploy: 'none' });
@@ -152,11 +161,30 @@ describe('spec 049 D2 — the ④ import-probe (advisory oracle)', () => {
     assert.match(task.probeNote!, /^import-probe FAILED:/);
     assert.ok(task.probeNote!.includes('missing name'), 'Dify error verbatim — the /reply fix-turn input');
     assert.ok(!task.probeNote!.includes('tok-probe-049'), 'secret redacted');
-    assert.equal(cap.deleteCalls.length, 0, 'a failed import creates no app — nothing to delete');
+    // r3 (review 3.1): a FAILED import can still have committed the app row — the probe reconciles
+    // its unique name and deletes the orphan (verified live: 8 orphans in one field workspace).
+    assert.deepEqual(cap.reconcileCalls, [`[probe] ${task.taskId}`], 'orphan sweep by the unique probe name');
+    assert.deepEqual(cap.deleteCalls, ['orphan-1'], 'the swept orphan is deleted');
     // ADVISORY: the ④ outcome is whatever the report says — with selfhost creds + lintClean the
     // each_step static path parks at the Import gate exactly as without the probe.
     assert.equal(task.status, 'awaiting_confirm');
     assert.equal(task.gate?.flag, 'awaiting_import');
+  });
+
+  test('AC 3 (r3): HTTP 202 pending (version mismatch) → inconclusive note, never FAILED, no sweep', async () => {
+    dir = fixtureDir();
+    const cap: ProbeCap = {
+      importCalls: [], deleteCalls: [], reconcileCalls: [],
+      importResult: { ok: true, appId: null, status: 'pending', stderr: '' },
+    };
+    const ctx = harness(dir, cap);
+    const task = await createTask(dir, { requirement: 'r', confirmMode: 'each_step', deploy: 'none' });
+    current = task;
+    await driveToTest(ctx, task);
+    assert.match(task.probeNote!, /^import-probe: skipped .*pending/);
+    assert.ok(!task.probeNote!.includes('FAILED'), 'a version park is not a DSL rejection');
+    assert.equal(cap.deleteCalls.length, 0);
+    assert.equal(cap.reconcileCalls.length, 0, 'pending creates no app — nothing to sweep');
   });
 
   test('AC 3: no creds → the probe is never attempted and no note is written', async () => {

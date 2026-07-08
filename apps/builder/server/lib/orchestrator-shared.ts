@@ -22,6 +22,7 @@ import {
   runWorkflow as realRunWorkflow,
   uploadSampleFile as realUploadSampleFile,
   deleteApp as realDeleteApp,
+  reconcileAppIdByName as realReconcileAppIdByName,
 } from './dify-io.js';
 import { saveTask, toWireTask, type Task } from '../state/task.js';
 
@@ -55,6 +56,10 @@ export interface LiveOps {
   runWorkflow: typeof realRunWorkflow;
   uploadSampleFile: typeof realUploadSampleFile;
   deleteApp: typeof realDeleteApp;
+  /** Spec 049 r3: the import-probe's orphan cleanup — Dify commits the app row BEFORE the variables
+   *  validation, so a FAILED import can still leave an app behind (verified live 2026-07-08: eight
+   *  orphans in one field workspace). The probe reconciles its unique per-task name → deleteApp. */
+  reconcileAppIdByName: typeof realReconcileAppIdByName;
 }
 
 export interface OrchestratorCtx {
@@ -104,6 +109,7 @@ export function resolveLiveOps(ctx: OrchestratorCtx): LiveOps {
     runWorkflow: o.runWorkflow ?? realRunWorkflow,
     uploadSampleFile: o.uploadSampleFile ?? realUploadSampleFile,
     deleteApp: o.deleteApp ?? realDeleteApp,
+    reconcileAppIdByName: o.reconcileAppIdByName ?? realReconcileAppIdByName,
   };
 }
 

@@ -798,7 +798,7 @@ export async function importForTest(
   workflowSlug: string,
   srcFileRel: string,
   appName: string
-): Promise<{ ok: boolean; appId: string | null; stderr: string }> {
+): Promise<{ ok: boolean; appId: string | null; status?: string | null; stderr: string }> {
   // `--src-file` (repo-relative) pushes the temp `.runs/<id>/deploy.yml` that lives OUTSIDE the workflow
   // folder. `--name` pins the app name; `--json-out` gives the id. NO push_intent / reconcile (A2).
   const r = await runSyncPy(projectsDir, [
@@ -815,5 +815,9 @@ export async function importForTest(
     '--json-out',
   ]);
   const appId = r.code === 0 ? appIdFromJsonOut(r.stdout) : null;
-  return { ok: r.code === 0, appId, stderr: r.stderr };
+  // Spec 049 r3: surface Dify's Import `status` — a DSL-version mismatch returns HTTP 202
+  // `status:'pending'` (app NOT created, needs /confirm), which exits 0 with NO app id; without the
+  // status the probe would mislabel it FAILED. OPTIONAL field so existing fakes stay assignable.
+  const status = r.code === 0 ? ((lastJsonLine(r.stdout)?.status as string | undefined) ?? null) : null;
+  return { ok: r.code === 0, appId, status, stderr: r.stderr };
 }

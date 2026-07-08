@@ -13,9 +13,9 @@ fresh `setup.sh` clone (e.g. CI) would not have. Vendoring it here makes the pre
 (`dify-skill-validate`) and the pinning tests (`tests/test_validate_workflow.py`) deterministic and
 durable. Sits alongside the other tracked gates (`lint_refs.py`, `lint_plugin_hashes.py`).
 
-NOTE: the builder (`apps/builder`, localhost-only) still invokes the skill-clone copy via its linter
-registry + permission allowlist + phase prompts. Repointing those to this file is a clean follow-up
-(see spec 026 revision log) — until then keep the two copies in sync.
+NOTE (updated spec 049 r3): the repointing is DONE — the builder's LINTERS registry
+(apps/builder/server/lib/linters.ts), the pre-commit gate, and both skill prompts all invoke THIS
+canonical copy. The gitignored skill-clone copy is dead; do not sync it.
 """
 
 import re
@@ -272,9 +272,30 @@ class WorkflowValidator:
           * `value` that is None      → "missing value"  (an EMPTY STRING is valid — Dify checks
             `is None`, mirrored exactly; a missing key or YAML null fails).
         """
+        # r3 (review 1.2): the factory's `match value_type` — an unknown type (or a type whose VALUE
+        # doesn't satisfy the case guard) falls to `case _: raise VariableError("not supported value
+        # type")`. Mirrored below. Python quirk kept faithfully: bool ⊂ int, so `number`/`integer`
+        # with a boolean value imports in Dify and passes here too.
+        allowed_types = {
+            'string', 'secret', 'number', 'integer', 'float', 'boolean',
+            'object', 'array[string]', 'array[number]', 'array[object]', 'array[boolean]',
+        }
+        value_shape = {
+            'string': str, 'secret': str, 'integer': int, 'float': float, 'boolean': bool,
+            'object': dict, 'array[string]': list, 'array[number]': list,
+            'array[object]': list, 'array[boolean]': list,
+        }
         for section in ('environment_variables', 'conversation_variables'):
-            entries = workflow.get(section)
+            if section not in workflow:
+                continue
+            entries = workflow[section]
             if entries is None:
+                # r3 (review 1.3): an EXPLICIT null block (`environment_variables:` with nothing
+                # after it) is itself an import blocker — Dify iterates the value (`for obj in
+                # None` → TypeError → status:'failed'). An ABSENT key is fine.
+                self.errors.append(
+                    f"'{section}' is null — write '{section}: []' (or omit the key); "
+                    f"a null block fails the Dify import")
                 continue
             if not isinstance(entries, list):
                 self.errors.append(f"'{section}' must be a list")
@@ -293,13 +314,30 @@ class WorkflowValidator:
                         )
                     else:
                         self.errors.append(f"{section} entry {label} missing or empty 'name'")
-                if entry.get('value_type') is None:
+                value_type = entry.get('value_type')
+                value = entry.get('value')
+                if value_type is None:
                     self.errors.append(f"{section} entry '{label}' missing 'value_type'")
-                if entry.get('value') is None:
+                elif value_type not in allowed_types:
+                    self.errors.append(
+                        f"{section} entry '{label}' has unsupported value_type '{value_type}' — "
+                        f"Dify import fails ('not supported value type'); "
+                        f"use one of: {', '.join(sorted(allowed_types))}")
+                if value is None:
                     self.errors.append(
                         f"{section} entry '{label}' missing 'value' (empty string '' is valid; "
                         f"a missing key or YAML null fails the Dify import)"
                     )
+                elif value_type == 'number':
+                    if not isinstance(value, (int, float)):
+                        self.errors.append(
+                            f"{section} entry '{label}': value_type 'number' needs a numeric "
+                            f"value, got {type(value).__name__} (Dify: 'invalid number value')")
+                elif value_type in value_shape and not isinstance(value, value_shape[value_type]):
+                    self.errors.append(
+                        f"{section} entry '{label}': value_type '{value_type}' needs a "
+                        f"{value_shape[value_type].__name__} value, got {type(value).__name__} "
+                        f"(the Dify import rejects the mismatch)")
 
     def _validate_start_node(self, node_id: str, data: Dict):
         """Validate start node."""

@@ -678,17 +678,28 @@ export async function runImportProbe(task: Task, ctx: OrchestratorCtx): Promise<
   if (!task.project || !task.workflowSlug) return undefined; // nothing produced yet — defensive
   const ops = resolveLiveOps(ctx);
   const wfRel = `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`;
+  // Unique per TASK and stable across its retries: Dify commits the app row BEFORE validating the
+  // variables block, so a failed import can still leave an app behind (r3, review 3.1 — verified
+  // live: eight orphans in one field workspace). A stable name lets THIS retry's reconcile sweep a
+  // leak the previous retry's cleanup missed.
+  const probeName = `[probe] ${task.taskId}`;
   try {
-    const res = await ops.importForTest(
-      ctx.projectsDir, task.project, task.workflowSlug, wfRel, `[probe] ${task.workflowSlug}`
-    );
+    const res = await ops.importForTest(ctx.projectsDir, task.project, task.workflowSlug, wfRel, probeName);
     if (res.ok && res.appId) {
       // Best-effort cleanup — a failed delete leaves one stray probe app, never fails the build.
       const deleted = await ops.deleteApp(ctx.projectsDir, res.appId).catch(() => false);
       return `import-probe: OK — Dify accepted this DSL${deleted ? ' (probe app deleted)' : ' (probe app cleanup failed — delete it in Dify)'}`;
     }
-    // The VERBATIM (redacted) Dify error is deliberate: it is exactly what a ④ "Request changes"
-    // fix-turn needs (D3) — e.g. HTTP 400 "missing name" named the 2026-07-08 incident precisely.
+    if (res.ok && res.status === 'pending') {
+      // HTTP 202: version-mismatch park (app NOT created; needs /confirm) — inconclusive, not a
+      // DSL rejection. Exit code 0 + no app id would otherwise mislabel it FAILED (r3, review 3.3).
+      return `import-probe: skipped (Dify parked the import as 'pending' — DSL version vs server mismatch; align the version or confirm manually)`;
+    }
+    // FAILED — sweep the possible orphan (see probeName note), then surface the VERBATIM (redacted)
+    // Dify error: it is exactly what a ④ "Request changes" fix-turn needs (D3) — e.g. HTTP 400
+    // "missing name" named the 2026-07-08 incident precisely.
+    const rec = await ops.reconcileAppIdByName(ctx.projectsDir, probeName).catch(() => ({ appId: null, ambiguous: false }));
+    if (rec.appId) await ops.deleteApp(ctx.projectsDir, rec.appId).catch(() => false);
     const detail = redactSecrets(res.stderr ?? '').trim().split('\n').slice(-3).join(' ⏎ ');
     return `import-probe FAILED: ${detail || 'import rejected (no detail captured)'}`;
   } catch (e) {

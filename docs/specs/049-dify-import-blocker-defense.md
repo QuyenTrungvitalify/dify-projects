@@ -1,6 +1,6 @@
 # Spec 049 — Dify import-blocker defense: mirror-the-source linting, real-import probe, recovery UX
 
-**Status**: Implemented (r2, 2026-07-08 — same day as the incident). **S–M**. The theme: our linters are a MIMIC of Dify's rules and a mimic
+**Status**: Implemented (r3, 2026-07-08 — same day as the incident). **S–M**. The theme: our linters are a MIMIC of Dify's rules and a mimic
 drifts, so the guarantee has three layers — (L1) copy the rules from Dify's own source, (L2) ask the
 REAL Dify before calling a build done, (L3) give the field user a recovery path that actually edits.
 
@@ -156,3 +156,32 @@ Three structural lessons, one per decision below:
   29/29 in test_validate_workflow (142 total, 2 skipped), server suite 424→429/429 green, repo
   sweep 31 workflow files + 7 patterns with zero NEW reds, docs pins byte-green. The incident file
   itself: red pre-fix with the targeted hint, green post-fix — the exact field loop closed.
+- r3 (2026-07-08) — the adversarial agent review landed post-implementation; two HIGH findings were
+  real and are now fixed, one was pre-empted:
+  * **3.1 (HIGH, CONFIRMED LIVE)** — Dify COMMITS the app row BEFORE the variables validation
+    (`_create_or_update_app`: `session.commit()` precedes the factory loop), so a FAILED import
+    leaves an ORPHANED app despite `app_id: null`. Field verification: EIGHT orphans found in the
+    incident workspace (six from the user's failed Studio attempts, two from the debug session) —
+    all cleaned, only the real fixed-import app remains. Fix shipped: the probe name is unique and
+    STABLE per task (`[probe] <taskId>` — a retry's sweep also catches the previous retry's leak),
+    and a FAILED probe reconciles that name → deletes the orphan (`reconcileAppIdByName` added to
+    the LiveOps seam). r2's "a failed import creates no app" test assertion was WRONG and now pins
+    the sweep instead.
+  * **3.3 (MEDIUM)** — HTTP 202 `status:'pending'` (DSL-version park; exit 0, no app id) would have
+    been mislabeled FAILED. `importForTest` now surfaces `status` (optional field — existing fakes
+    unaffected); the probe reports pending as `skipped (…version mismatch…)`.
+  * **3.2 (HIGH)** — probeNote loss on the Import/Skip re-report: pre-empted in r2 (task.probeNote).
+  * **1.2 (MEDIUM)** — D1 under-mirrored `_build_variable_from_mapping`: now also rejects an
+    unsupported `value_type` (the factory's `case _`) and a value whose shape violates the case
+    guards (string/secret→str, number→numeric, integer→int, float→float — an int does NOT satisfy
+    FLOAT, boolean→bool, object→dict, array[*]→list; bool⊂int kept faithfully). **1.3** — an
+    EXPLICIT null variables block errors (Dify iterates None → FAILED); whitespace-only names PASS
+    (Dify checks falsiness — being stricter would be a false positive). MAX_VARIABLE_SIZE left to
+    the probe (config-dependent).
+  * **4.1 (LOW)** — HUONG_DAN recovery row now routes the done-state user through
+    「このワークフローを編集」(Edit-again, spec 035) first — "Request changes" only exists at a
+    parked gate. **1.5** — validate_workflow.py's stale "keep the two copies in sync" header
+    corrected (the repoint is long done).
+  * Verification: pytest 146 passed (37 in test_validate_workflow), server suite 425/425, sweep
+    unchanged (the one red file is pre-existing and gains ZERO new variable errors — it is the
+    corpus's only real conversation-variables witness and stays that way).

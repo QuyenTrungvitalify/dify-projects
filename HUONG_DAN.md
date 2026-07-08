@@ -103,4 +103,4 @@ Mở trình duyệt: **http://127.0.0.1:4123**
 | Mở trang trắng / không cập nhật | Hard-refresh trình duyệt (`Cmd/Ctrl+Shift+R`). |
 | `claude` không chạy | Chạy `claude auth login` để đăng nhập lại. |
 | Hay bị *timeout* (phase dài / live-test chạy quá 2 phút) | Tăng `BUILDER_TURN_TIMEOUT_MS` / `BUILDER_LIVE_RUN_TIMEOUT_MS` trong `apps/builder/.env` (đơn vị ms — xem `.env.example`), rồi restart Builder. |
-| Import YAML vào Dify báo lỗi | Copy **nguyên văn** thông báo lỗi của Dify → mở build trong Builder → bấm **"Request changes"** (⚠ KHÔNG phải Ask — Ask chỉ trả lời, không sửa file) → dán lỗi + ghi rõ "import vào Dify thì bị lỗi này" → build tự sửa → tải lại YAML và import lại. |
+| Import YAML vào Dify báo lỗi | Copy **nguyên văn** thông báo lỗi của Dify → mở build trong Builder. Build đã xong (done) thì bấm **「このワークフローを編集」(Edit this workflow)** để mở lại; đang dừng ở gate thì bấm thẳng **"Request changes"**. Dán lỗi + ghi rõ "import vào Dify thì bị lỗi này" → build tự sửa → tải lại YAML và import lại. ⚠ KHÔNG dùng Ask — Ask chỉ trả lời, không sửa file. |
