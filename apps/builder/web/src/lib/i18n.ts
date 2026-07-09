@@ -68,6 +68,9 @@ const EN: Dict = {
   newTaskInProjectName: 'New task in {name}',
   clearPreselection: 'Clear — start a plain new task',
   runContextHint: 'Where this build lands',
+  // spec 051-followup: the run-crumb "running with a base" badge (edit-existing / Dify-seed builds).
+  baseLabel: 'base:',
+  runningWithBaseHint: 'Editing an existing workflow as the base — Implement modifies this file',
   seedFrom: 'SEED FROM',
   noSeedApps: 'No seed apps — connect Dify to seed from a workspace app. New workflows start from scratch.',
   // spec 051 D5: import a standalone YAML as a local edit-existing base.
@@ -367,6 +370,9 @@ const JA: Dict = {
   newTaskInProjectName: '{name} 内に新規タスク',
   clearPreselection: '選択を解除して新規タスク',
   runContextHint: 'このビルドの保存先',
+  // spec 051-followup
+  baseLabel: 'ベース:',
+  runningWithBaseHint: '既存ワークフローをベースに編集中 — 実装フェーズがこのファイルを変更します',
   seedFrom: 'ベースにする',
   noSeedApps: 'シードアプリがありません — Dify を接続するとワークスペースのアプリをベースにできます。新規ワークフローはゼロから作成されます。',
   // spec 051 D5

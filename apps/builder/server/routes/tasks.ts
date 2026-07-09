@@ -337,7 +337,6 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     const id = idOf(req);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const text = String(body.text ?? '').trim();
-    if (!text) return reply.code(400).send({ error: 'text is required' });
 
     // Spec 012 / 025: validate reply-turn files (type/size/count → 400) before loading/locking.
     const attCheck = validateAttachments(body.files);
@@ -354,6 +353,12 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
         .code(409)
         .send({ error: `task is ${task.status}; /reply needs awaiting_confirm or error` });
     }
+    // Spec 053: an empty reply is valid ONLY as a Retry-out-of-error (a text-less one-click re-run of the
+    // errored phase — replyWithin('') falls back to the fresh phase prompt). At an awaiting_confirm gate
+    // empty text still has no meaning → 400. Moved below loadTask so it can see the status (was an
+    // unconditional top-of-handler guard). An errored PROMOTE build (gate undefined) instead falls through
+    // to the promote-gate check below and 409s there ("no change action") — never reaches replyWithin.
+    if (!text && task.status !== 'error') return reply.code(400).send({ error: 'text is required' });
     // Spec 052: a promote build accepts a "Request changes" reply ONLY at a gate that offers one
     // (promote_review / promote_distill_failed). At the promote_blocked gate (B1: ineligible → NO turn,
     // nothing written) there is no reply action — reject rather than spawn a distill turn on the ineligible

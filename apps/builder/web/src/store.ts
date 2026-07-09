@@ -773,13 +773,18 @@ export async function confirm(action: WireGateAction, extra?: { slug?: string; n
  *  Keep trying); the free-form dock reply has no specific action → the generic 'Requested changes'. */
 export async function reply(text: string, label?: string, files?: Attachment[]): Promise<boolean> {
   const t = task.value;
-  if (!t || !text.trim()) return false;
+  if (!t) return false;
+  const trimmed = text.trim();
+  // spec 053: empty text is a valid reply ONLY as a Retry-out-of-error (a text-less one-click re-run of
+  // the failed phase — the button fires store.reply('', 'Retry phase', …)). Everywhere else it is a no-op.
+  if (!trimmed && t.status !== 'error') return false;
   const items = thread.value.slice();
-  items.push({ id: uid(), kind: 'user', text: text.trim() });
+  // No empty user bubble on a text-less retry; a steered reply still shows the user's message.
+  if (trimmed) items.push({ id: uid(), kind: 'user', text: trimmed });
   thread.value = items;
   try {
     // Optimistic: close the gate; SSE re-opens the current phase as a fresh run (no duplicate).
-    optimisticAdvance(await api.reply(t.taskId, text.trim(), files), label ?? 'Requested changes');
+    optimisticAdvance(await api.reply(t.taskId, trimmed, files), label ?? 'Requested changes');
     void loadActive();
     return true; // spec 040 D2
   } catch (e) {

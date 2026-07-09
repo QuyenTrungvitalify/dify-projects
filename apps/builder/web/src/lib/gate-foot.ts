@@ -7,7 +7,19 @@
 // by contrast, needs a real on-disk edit target, so it DOES require both `project` and `workflowSlug`.
 // Spec 036 D5 adds a THIRD action — "Run test with workflow" — for a done AUTONOMOUS build with self-host
 // reachable (its only live path; each_step/null already saw the implement-gate button, so excluded).
-import type { WireTask } from '../types';
+import type { WireGateAction, WireTask } from '../types';
+
+/** spec 053: a `kind:'reply'` gate button normally ARMS the composer (onArmChange). The one exception is
+ *  the error gate's sole `retry` action, which fires a one-click, text-less re-run of the failed phase
+ *  instead. Pure so gate-foot.test.ts can pin that the carve-out is scoped to `id==='retry' && error` and
+ *  never leaks to another gate's reply buttons (still_failing "Keep trying", awaiting_import "Request
+ *  changes", …). Returns which behavior the reply button should take. */
+export function replyButtonKind(
+  action: Pick<WireGateAction, 'id' | 'kind'>,
+  status: WireTask['status'],
+): 'retry' | 'arm' {
+  return action.id === 'retry' && status === 'error' ? 'retry' : 'arm';
+}
 
 /** True for the `boundaryAutoAdvances`-autonomous set {auto, spec_only}; a null/corrupt confirmMode fails
  *  safe to NON-autonomous (treated as each_step → excluded from the done-state live action, D5). */

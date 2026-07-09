@@ -14,7 +14,7 @@ import { I } from './Icon';
 import { Twist } from './Sidebar';
 import { renderMarkdownHtml } from '../lib/markdown';
 import { PHASE_LABELS, phaseIndex, phaseLabelAt } from '../lib/phase';
-import { terminalFootActions } from '../lib/gate-foot';
+import { replyButtonKind, terminalFootActions } from '../lib/gate-foot';
 import { t as tr, tf, phaseLabel, tAction, localizeNotes } from '../lib/i18n';
 import {
   type ComposerAttachment,
@@ -292,7 +292,7 @@ function gateView(t: WireTask): GateView {
  *  renders for phase∈{analyze,spec,implement} (D7). `onArmChange` replaces the old inline reply textarea:
  *  clicking a reply-kind action now arms the COMPOSER's change-mode (the one reply surface) instead of
  *  opening a second, parallel textarea. */
-export function GateActions({ task, busy, onConfirm, onArmChange, onCancel }: {
+export function GateActions({ task, busy, onConfirm, onArmChange, onCancel, onRetry }: {
   task: WireTask;
   busy?: boolean;
   onConfirm: (action: WireGateAction, extra?: { slug?: string; name?: string; keepCurrent?: boolean }) => void;
@@ -300,6 +300,9 @@ export function GateActions({ task, busy, onConfirm, onArmChange, onCancel }: {
    *  the resolved gate reads true instead of a generic "Requested changes" (spec 016 D4). */
   onArmChange: (label: string) => void;
   onCancel: (action: WireGateAction) => void;
+  /** spec 053: the error gate's sole `retry` reply action fires a one-click, text-less re-run (App owns
+   *  the composer-files closure) instead of arming the composer. Absent → the button falls back to arm. */
+  onRetry?: () => void;
 }) {
   const actions = task.gate?.actions ?? [];
   if (actions.length === 0) return null;
@@ -338,6 +341,11 @@ export function GateActions({ task, busy, onConfirm, onArmChange, onCancel }: {
           );
         }
         if (a.kind === 'reply') {
+          // spec 053: the error gate's `retry` action is a one-click re-run (primary/green + ↻), NOT a
+          // composer-arm — `replyButtonKind` scopes the carve-out to `id==='retry' && status==='error'`.
+          if (replyButtonKind(a, task.status) === 'retry') {
+            return <button key={a.id} className="btn ok" disabled={busy} onClick={() => onRetry?.()}><I.retry />{tAction(a.label)}</button>;
+          }
           return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => onArmChange(a.label)}><I.message />{tAction(a.label)}</button>;
         }
         if (a.kind === 'cancel') {
@@ -377,7 +385,7 @@ export function QaAnswer({ answer, done, seededFrom }: { answer: string; done: b
   );
 }
 
-export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCancel, onRestore, onEditAgain, onRunTest, onOpenArtifact }: {
+export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCancel, onRetry, onRestore, onEditAgain, onRunTest, onOpenArtifact }: {
   task: WireTask;
   resolved?: string;
   busy?: boolean;
@@ -386,6 +394,9 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
    *  the old inline reply textarea (removed; the composer is now the ONE reply surface). */
   onArmChange: (label: string) => void;
   onCancel: (action: WireGateAction) => void;
+  /** spec 053: one-click re-run for the error gate's `retry` action (threaded to the inline GateActions —
+   *  an error gate renders inline here, not in the docked bar, since `docked` needs awaiting_confirm). */
+  onRetry?: () => void;
   onRestore?: () => void;
   /** spec 035: start a NEW edit-existing build from a done/cancelled gate foot (same newTask({baseWorkflow})
    *  the sidebar "+" uses). Only fired when task.project/task.workflowSlug are both set. */
@@ -483,7 +494,7 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
           )}
         </div>
       ) : docked ? null : actions.length > 0 ? (
-        <GateActions task={task} busy={busy} onConfirm={onConfirm} onArmChange={onArmChange} onCancel={onCancel} />
+        <GateActions task={task} busy={busy} onConfirm={onConfirm} onArmChange={onArmChange} onCancel={onCancel} onRetry={onRetry} />
       ) : null}
     </div>
   );

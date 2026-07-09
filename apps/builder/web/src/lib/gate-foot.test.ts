@@ -3,8 +3,8 @@
 // project/workflowSlug requirement was ANDed onto it) can't be reintroduced silently. Spec 036 S5 adds the
 // third guard — Run-test-with-workflow (done AUTONOMOUS build + self-host reachable).
 import { describe, it, expect } from 'vitest';
-import { terminalFootActions } from './gate-foot';
-import type { WireTask } from '../types';
+import { replyButtonKind, terminalFootActions } from './gate-foot';
+import type { WireGateAction, WireTask } from '../types';
 
 // Defaults: a done, pre-scaffold build with NO self-host target and each_step confirm-mode (so runTest is
 // off unless a case explicitly opts in). Each case overrides only what it exercises.
@@ -94,5 +94,32 @@ describe('terminalFootActions — runTest (done autonomous; self-host checked on
 
   it('done + auto + creds qualified but handler NOT wired (has.runTest=false) → HIDDEN', () => {
     expect(terminalFootActions(t(qualified({ confirmMode: 'auto' })), { restore: true, editAgain: true, runTest: false }).runTest).toBe(false);
+  });
+});
+
+// spec 053 — the reply-button behavior split: the error gate's SOLE `retry` action is a one-click re-run
+// (→ 'retry'), every other reply-kind action (or the same id at a non-error status) ARMS the composer
+// (→ 'arm'). Pinned pure so the carve-out can't silently leak onto another gate's reply buttons.
+describe('replyButtonKind (spec 053 — one-click retry vs arm-composer)', () => {
+  const a = (id: string): Pick<WireGateAction, 'id' | 'kind'> => ({ id, kind: 'reply' });
+
+  it("id 'retry' AND status 'error' → 'retry' (the one-click re-run)", () => {
+    expect(replyButtonKind(a('retry'), 'error')).toBe('retry');
+  });
+
+  it("id 'retry' but status is NOT error → 'arm' (never fires a retry off the error path)", () => {
+    expect(replyButtonKind(a('retry'), 'awaiting_confirm')).toBe('arm');
+    expect(replyButtonKind(a('retry'), 'running')).toBe('arm');
+  });
+
+  it("other reply ids at an error status → 'arm' (only id 'retry' is the retry button)", () => {
+    // (defensive — ERROR_GATE only ever emits id 'retry', but the guard must not fire on a hypothetical
+    //  other reply action co-present at an error status)
+    expect(replyButtonKind(a('changes'), 'error')).toBe('arm');
+  });
+
+  it("the OTHER gates' reply ids (Keep trying / Request changes / Edit spec) → 'arm' — no leak", () => {
+    expect(replyButtonKind(a('keep'), 'awaiting_confirm')).toBe('arm'); // still_failing "Keep trying"
+    expect(replyButtonKind(a('changes'), 'awaiting_confirm')).toBe('arm'); // awaiting_import/spec "Request changes"
   });
 });

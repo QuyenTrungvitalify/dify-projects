@@ -65,10 +65,6 @@ export function App() {
   const [artifactOpen, setArtifactOpen] = useState(false);
   const [artifactTab, setArtifactTab] = useState<ArtifactTab>('spec');
   const threadRef = useRef<HTMLDivElement>(null);
-  // Tracks the previously-seen (taskId, hasYaml) so the panel auto-opens ONLY when YAML
-  // newly appears during the live build of the task you're viewing — not when navigating
-  // to a task that already has YAML.
-  const prevYamlRef = useRef<{ id?: string; had: boolean }>({ had: false });
 
   // Live signals.
   const task = store.task.value;
@@ -124,6 +120,11 @@ export function App() {
   // spec 029: context breadcrumb for the OPEN build — which project/workflow it belongs to (shown in
   // the conversation-view chat-top, left of the phase track). null ⇒ no project context to show.
   const runCtx = task ? runContextCrumb(task, tree) : null;
+  // "Running with a base" indicator: an edit-existing build carries the chosen base workflow
+  // (`task.workflow`), a Dify-seed build carries `seedAppId`. Either → the run-crumb shows a `ベース:`
+  // badge so the base is pinned in the header (replacing the old auto-open of the base YAML). Promote
+  // builds render their own header, so exclude them.
+  const editingBase = !!task && task.kind !== 'promote' && (!!task.workflow || !!task.seedAppId);
   // spec 030: a workflow is identified by its {project, workflow} pair (the same name can exist in
   // several projects), so the composer's Workflow dropdown carries a COMPOUND `project/workflow` value
   // with a readable "Project / Workflow" label — `_drafts` scratch is excluded. Sorted by RECENCY
@@ -204,6 +205,14 @@ export function App() {
     }
     // FIX-I: reset mode after EVERY send that could have armed change-mode — including the error-Retry path.
     setMode('ask');
+  }
+  // spec 053: the error gate's one-click "Retry phase" — a text-less re-run of the failed phase that
+  // CARRIES any staged composer files (attach is live at an error gate, so dropping them would be silent
+  // data loss). Empty text is allowed only because store.reply/​the server relax the guard for status==='error'.
+  // Files are cleared only on success (mirrors send()'s reset), so a 409 turn-busy keeps them staged.
+  function onRetry(): void {
+    const atts = files.length ? toWire(files) : undefined;
+    void store.reply('', 'Retry phase', atts).then((ok) => { if (ok) setFiles([]); });
   }
   function openArtifact(tab: ArtifactTab): void {
     setArtifactTab(tab);
@@ -287,20 +296,11 @@ export function App() {
   const livePlaceholder = askableGate
     ? (mode === 'change' ? tr('phChangeMode') : tr('phAskGate'))
     : tr('phReplyOrDescribe');
-  // Auto-open the panel the moment the Implement YAML first appears DURING a build of the
-  // task you're viewing (mirrors the design's behavior). Switching to a task that already
-  // has YAML must NOT pop the panel open — only a false→true transition on the same task does.
-  useEffect(() => {
-    const id = task?.taskId;
-    const had = !!task?.artifactContents?.yaml;
-    const prev = prevYamlRef.current;
-    if (had && !prev.had && prev.id === id && !artifactOpen) {
-      setArtifactTab('yaml');
-      setArtifactOpen(true);
-    }
-    prevYamlRef.current = { id, had };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task?.taskId, task?.artifactContents?.yaml]);
+  // Note: the panel NEVER auto-opens (spec 051-followup UX). It only opens on an explicit user action
+  // (the 成果物 button / a gate-card "open report"·"view diff" link → openArtifact). Auto-opening on the
+  // first YAML made sense for from-scratch, but for an edit-existing build the base file exists from
+  // submit, so it popped the (unchanged) base immediately — noise. The header run-crumb's `ベース:` badge
+  // is the "running with a base" indicator instead.
 
   // Auto-mode artifact race: in `auto` confirm-mode the Spec (and other) gates are auto-confirmed, so
   // the client never runs the gate re-fetch that inlines SPEC.md — the panel shows it empty during
@@ -334,10 +334,11 @@ export function App() {
             {view === 'conversation' ? (
               <>
                 {runCtx && (
-                  <span className="run-crumb" title={tr('runContextHint')}>
+                  <span className="run-crumb" title={editingBase ? tr('runningWithBaseHint') : tr('runContextHint')}>
                     <I.folder className="crumb-ic" />
                     {runCtx.group && <span className="run-crumb-seg">{runCtx.group}</span>}
                     {runCtx.group && runCtx.leaf && <span className="run-crumb-sep">›</span>}
+                    {editingBase && <span className="run-crumb-base">{tr('baseLabel')}</span>}
                     {runCtx.leaf && <span className="run-crumb-seg run-crumb-leaf">{runCtx.leaf}</span>}
                   </span>
                 )}
@@ -420,6 +421,7 @@ export function App() {
                         onConfirm={onConfirm}
                         onArmChange={(label) => { setChangeLabel(label); setMode('change'); setFocusToken((x) => x + 1); }}
                         onCancel={() => void onDiscard()}
+                        onRetry={onRetry}
                         onRestore={() => void store.restore()}
                         /* spec 035: "Edit this workflow" — a done/cancelled gate-foot button that starts a
                            NEW edit-existing build via the SAME newTask({baseWorkflow}) the sidebar "+" uses. */
@@ -446,6 +448,7 @@ export function App() {
                     <GateActions task={task} busy={busy || asking} onConfirm={onConfirm}
                       onArmChange={(label) => { setChangeLabel(label); setMode('change'); setFocusToken((x) => x + 1); }}
                       onCancel={() => void onDiscard()}
+                      onRetry={onRetry}
                     />
                   </div>
                 </div>

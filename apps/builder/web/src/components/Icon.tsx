@@ -29,6 +29,7 @@ export const I: Record<string, Glyph> = {
   checkCircle:(p) => <Svg {...p}><circle cx="12" cy="12" r="9" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></Svg>,
   message:    (p) => <Svg {...p}><path d="M4 5h16v11H9l-4 4z" /></Svg>,
   undo:       (p) => <Svg {...p}><path d="M9 14L4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-3" /></Svg>,
+  retry:      (p) => <Svg {...p}><path d="M23 4v6h-6" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></Svg>,
   warn:       (p) => <Svg {...p}><path d="M12 4l9 16H3z" /><path d="M12 10v4M12 17.5v.5" /></Svg>,
   alert:      (p) => <Svg {...p}><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16v.5" /></Svg>,
   diff:       (p) => <Svg {...p}><path d="M12 3v18M5 8h4M7 6v4M15 16h4" /></Svg>,
