@@ -57,7 +57,10 @@ ground rules first — every non-negotiable below comes from [AGENTS.md](../../.
      - new, **no pattern fits** (`pattern: custom` from Analyze, the highest-risk path) → there is no
        `main.yml` skeleton in `templates/_base` (it scaffolds the *project*, not a workflow), so seed
        from the **closest** `templates/patterns/*.yml` as a structural base and strip what doesn't apply;
-     - edit-existing / dify-seed → modify `{{SEED_PATH}}`'s content per `SPEC.md`.
+     - edit-existing / dify-seed → modify `{{SEED_PATH}}`'s content per `SPEC.md`. **Keep the seed's
+       existing node ids as-is** — they are this workflow's own (the step-3 "never reuse an id" rule is
+       about copying from *another* workflow, not the file you are editing); mint a fresh id ONLY for a
+       node you ADD, and re-thread only the refs/edges the change actually touches.
    - **Mandatory structural elements** (the one canonical checklist — step 2's trivial build assembles
      the same set by hand): however you start, the build MUST still carry every mandatory structural
      element before you validate — enumerate and confirm each: top-level `kind: app` · `version` ·

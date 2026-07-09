@@ -25,9 +25,12 @@ gated turn. Read [SKILL.md](SKILL.md) ground rules and [AGENTS.md](../../../AGEN
      placeholders with a `# TODO:` naming what to fill in;
    - **blank every `llm` node's model** back to the template convention: `provider: ''`, `name: ''`, with a
      `# TODO: wire your model` (an unwired model is expected in a pattern — the gate does NOT re-check it);
-   - **regenerate every node id** — do NOT reuse the source's ids (a pattern copied into a build must not
-     collide). Mint fresh 13-digit ids yourself and update every `id`, every edge `id`
-     (`<source>-source-<target>-target`), and every `{{#<node_id>.<field>#}}` reference consistently.
+   - **keep the source's node ids as-is** — they are already valid 13-digit ids, and a build that
+     instantiates this pattern **regenerates every id anyway** (implement.md step 3 mints fresh ids for
+     every node it copies from a pattern, since a pattern counts as "another workflow"). Re-threading ids
+     here would only add a ref-break risk for zero downstream benefit, so leave every `id`, every edge `id`
+     (`<source>-source-<target>-target`), and every `{{#<node_id>.<field>#}}` reference exactly as the
+     source has them.
 3. **House-style header** — lead the file with the pattern-convention comment block, then `# GOTCHA:` lines
    for the non-enumerable lessons (the *why*, which teaches better than the shape alone):
    ```yaml

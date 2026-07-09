@@ -26,7 +26,44 @@ that depends on them; use the alternative path in the rightmost column.
 
 | Module     | Evidence | Alternative |
 |------------|----------|-------------|
-| `openpyxl` | [test_openpyxl_feasibility.yml](../projects/eiken_stem_proofread/workflows/test_openpyxl_feasibility.yml) — `ImportError: No module named 'openpyxl'` | Code → Tool node bridge: build markdown table in Code, pipe to `bowenliang123/md_exporter` `md_to_xlsx` (see [plugin-capabilities.md](plugin-capabilities.md) for caveats around inline formatting). |
+| `openpyxl` | probe `test_openpyxl_feasibility.yml` — `ImportError: No module named 'openpyxl'` | Code → Tool node bridge: build a markdown table in Code, feed it to a `bowenliang123/md_exporter` `md_to_xlsx` **tool node** (shape below; see [plugin-capabilities.md](plugin-capabilities.md) for inline-formatting caveats). |
+
+> **Note (2026-07-03):** the `projects/eiken_stem_proofread/workflows/*.yml` probe workflows these
+> tables cite were **removed** from the tree — the findings stand, but the links are gone (history:
+> `git show 565480c^:projects/eiken_stem_proofread/workflows/<file>`). **Do not chase those paths.**
+
+### `md_to_xlsx` tool node — the correct `builtin` shape (verbatim from a lint-clean build)
+
+This block is copied verbatim from a build whose 4 linters (incl. `lint_node_bodies.py` against the
+generated `NodeData_ToolNodeData` schema) passed — so it is **schema-valid**, though the `@sha256` still
+needs the workspace hash before a real import. `node_types.md §13`'s generic example shows
+`provider_type: api` and omits several required keys — it does **NOT** match a real marketplace-plugin tool
+node. Use this shape for `bowenliang123/md_exporter`
+(`md_to_xlsx` / `md_to_csv` / `md_to_docx`) so a build does not have to reverse-engineer it. The tool node
+declares **no `outputs:`** — a downstream node reads its `files` (and `text`) via `value_selector`. Keep
+`dependencies: []` + the `# TODO:` hash comment (§4.3 — never fabricate the `@sha256`).
+
+```yaml
+- data:
+    title: Markdown → XLSX
+    type: tool
+    provider_id: bowenliang123/md_exporter/md_exporter    # provider name doubled
+    provider_name: bowenliang123/md_exporter/md_exporter
+    provider_type: builtin                                 # NOT `api`
+    tool_name: md_to_xlsx
+    tool_label: md_to_xlsx
+    tool_configurations: {}
+    tool_parameters:
+      md_text:
+        type: mixed
+        value: '{{#<upstream_code_id>.markdown_table#}}'   # a Markdown-table string
+  id: '<fresh 13-digit id>'
+  type: custom
+# downstream `end` reads the produced file:
+#   - variable: excel_file
+#     value_selector: ['<this tool id>', files]
+#     value_type: array[file]
+```
 
 **Important caveats**:
 

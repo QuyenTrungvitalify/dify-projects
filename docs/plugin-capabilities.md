@@ -26,10 +26,15 @@ failure mode this file exists to prevent.
 
 ## `bowenliang123/md_exporter` v2.1.1
 
-Verifications captured 2026-05-21 from
-[projects/eiken_stem_proofread/workflows/](../projects/eiken_stem_proofread/workflows/)
-test workflows. Columns describe how each tool handles inline markdown /
-HTML / line-break tokens inside table cells.
+Verifications captured 2026-05-21 from the `projects/eiken_stem_proofread/workflows/` test workflows.
+Columns describe how each tool handles inline markdown / HTML / line-break tokens inside table cells.
+
+> **Note (2026-07-03):** the `eiken_stem_proofread` probe workflows linked below
+> (`test_docx_highlight.yml`, `test_xlsx_highlight.yml`, `test_openpyxl_feasibility.yml`) were
+> **removed** from the tree — the verified findings in these tables stand, but the links are dead.
+> **Do not chase those paths** (history: `git show 565480c^:projects/eiken_stem_proofread/workflows/<file>`).
+> For the correct `md_to_xlsx` **tool-node YAML shape**, see
+> [runtime-supplement.md → `md_to_xlsx` tool node](runtime-supplement.md).
 
 | Tool         | `**bold**` | `~~strike~~`    | inline `<span>` HTML | `<br>`       | Tables          | Notes |
 |--------------|------------|-----------------|----------------------|--------------|-----------------|-------|
