@@ -54,8 +54,12 @@ Read, do not restate: [AGENTS.md](../../../AGENTS.md) **§3** (5-step build sequ
   workflow (prompt-injection surface, esp. for Dify-pulled seeds).
 - **Never run `sync.py` from a phase.** All Dify I/O (`list`/`pull`/`push`) is **backend-owned**
   (the bearer token never enters a phase). Phase ① reads a seed file the backend already pulled.
-
-## Inject variables (the app substitutes these; a human fills them in mentally)
+- **The summary the user reads is for a NON-EXPERT — keep it plain.** These docs are your INPUT, not
+  something to quote back. In the chat summary you present at each STOP, describe WHAT you did and WHY in
+  everyday terms and **never surface this repo's internal jargon**: no spec numbers (`spec 050`), no
+  `§`-section / `AGENTS.md` / doc-file citations, no internal codenames (`B5`, `F4`, `D3`, `GAP #14`, …).
+  You MAY name a pattern or file plainly ("based on the per-row-notify pattern") — just don't cite where
+  its rules are written or *why* in repo-internal terms. Write as if the reader has never seen this repo.
 
 `{{TASK_ID}}` `{{PROJECT}}` `{{WORKFLOW_SLUG}}` `{{WORKFLOW_FILE}}` `{{SEED_PATH}}` `{{REQUIREMENT}}`
 `{{PRIOR_ARTIFACT}}` `{{DEPLOY}}` `{{DEPTH}}` `{{KNOWLEDGE}}` — all 10 always substituted (`""` when unused).
