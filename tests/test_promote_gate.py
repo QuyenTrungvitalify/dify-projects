@@ -2,7 +2,8 @@
 distilled worked example (AC 1/3/5), and the D5 version-staleness axis.
 
 The gate is the immune system: promotion is the moment a mistake becomes contagious, so a broken
-source (empty model, failing lint, import-rejected) must be BLOCKED before it can teach the break.
+source (failing lint, import-rejected) must be BLOCKED before it can teach the break. (An empty LLM
+model is only a WARNING — spec 054: under B5 it is auto-filled at deploy, not a "never ran" signal.)
 """
 from __future__ import annotations
 
@@ -51,8 +52,12 @@ def test_gate_green_end_to_end_with_probe(monkeypatch):
     assert deletes and "app-1" in deletes[0], "probe app deleted immediately"
 
 
-def test_gate_blocks_empty_model_source(tmp_path):
-    """AC 4 red: provider''/name'' in the SOURCE = the LLM step never ran → not a proven build."""
+def test_empty_model_is_advisory_not_blocking(tmp_path, monkeypatch):
+    """Spec 054: an empty LLM model (provider''/name'') is a WARNING, not a block. Under the Builder's B5
+    convention the model is auto-filled at deploy/live-test, so an empty model is the NORMAL state of a
+    valid build — blocking on it would false-negative every from-scratch LLM build."""
+    monkeypatch.delenv("DIFY_CONSOLE_URL", raising=False)
+    monkeypatch.delenv("DIFY_CONSOLE_TOKEN", raising=False)
     wf = yaml.safe_load(FIXTURE.read_text())
     for n in wf["workflow"]["graph"]["nodes"]:
         if n.get("data", {}).get("type") == "llm":
@@ -60,10 +65,13 @@ def test_gate_blocks_empty_model_source(tmp_path):
             n["data"]["model"]["name"] = ""
     p = tmp_path / "unwired.yml"
     p.write_text(yaml.safe_dump(wf), encoding="utf-8")
-    reasons = pg.check_model_wiring(p)
-    assert reasons and "empty model" in reasons[0]
-    # and the PATTERN's blanked model is NOT gated (output resets to '' by convention):
-    assert pg.check_model_wiring(FIXTURE) == []
+    # check_model_wiring still REPORTS the empty model (it feeds the advisory) ...
+    assert "empty model" in pg.check_model_wiring(p)[0]
+    assert pg.check_model_wiring(FIXTURE) == []  # a WIRED source produces no warning
+    # ... but gate() no longer BLOCKS on it — eligible, with the empty model surfaced as a warning.
+    verdict = pg.gate(p, run=fake_run_factory([], {}))
+    assert verdict["eligible"], verdict
+    assert verdict["warnings"] and "empty model" in verdict["warnings"][0]
 
 
 def test_gate_blocks_probe_failure_and_sweeps_orphan(monkeypatch):

@@ -112,6 +112,8 @@ export interface Gate {
 export interface PromoteVerdict {
   eligible: boolean;
   reasons: string[];
+  /** Spec 054: non-blocking advisories (e.g. an empty LLM model — auto-filled at deploy under B5). */
+  warnings?: string[];
   probe: string;
   probeDetail?: string;
   knownGoodDify?: string | null;

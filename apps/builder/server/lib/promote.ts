@@ -60,6 +60,7 @@ export function parseVerdict(stdout: string): PromoteVerdict | null {
       return {
         eligible: o.eligible,
         reasons: Array.isArray(o.reasons) ? (o.reasons as string[]) : [],
+        warnings: Array.isArray(o.warnings) ? (o.warnings as string[]) : [],
         probe: typeof o.probe === 'string' ? o.probe : 'skipped',
         probeDetail: typeof o.probe_detail === 'string' ? o.probe_detail : undefined,
         knownGoodDify: (o.known_good_dify as string | null | undefined) ?? null,

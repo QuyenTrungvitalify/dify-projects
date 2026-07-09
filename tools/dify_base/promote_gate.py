@@ -81,9 +81,9 @@ def check_model_wiring(path: Path) -> list[str]:
         model = d.get("model") or {}
         if not model.get("provider") or not model.get("name"):
             reasons.append(
-                f"llm node {node.get('id')} has an empty model (provider/name) — an unwired LLM "
-                f"step means this build never actually ran; a 'proven build' must carry the real "
-                f"model (the distilled output resets to '' by convention AFTER the gate)")
+                f"llm node {node.get('id')} has an empty model (provider/name not set). In the Builder "
+                f"the model is auto-filled at deploy/live-test, so this does NOT block promotion — but set "
+                f"a model and run a live test first if you want a pattern that is proven-runnable as-is.")
     return reasons
 
 
@@ -131,18 +131,25 @@ def probe_source(path: Path, run=run_cmd) -> tuple[str, str]:
 
 
 def gate(source: Path, distilled: Path | None = None, run=run_cmd, skip_probe: bool = False) -> dict:
-    """The D3 eligibility verdict. `eligible` is False on ANY lint/model failure or a probe FAILURE
-    (OQ1 resolved: hard on the source probe); a `skipped` probe degrades to lint-only, still eligible."""
+    """The D3 eligibility verdict. `eligible` is False on ANY lint failure or a probe FAILURE (OQ1: hard
+    on the source probe). An empty LLM model is a `warnings` entry, NOT a blocker (spec 054 — B5 leaves it
+    empty by design). A `skipped` probe degrades to lint-only, still eligible."""
     reasons = check_lint(source, run=run)
-    reasons += check_model_wiring(source)
     if distilled is not None:
         reasons += check_lint(distilled, run=run)
+    # Spec 054: model-wiring is ADVISORY, not blocking. Under the Builder's B5 convention every valid
+    # build leaves the LLM model empty (it is auto-filled at deploy/live-test), so an empty model is the
+    # NORMAL state of a proven build here, not a "never ran" signal — blocking on it false-negatives
+    # every from-scratch LLM build. Surface it as a warning; the linters + the human review gate carry
+    # proven-ness (and the import-probe, when creds exist, is the real-Dify oracle).
+    warnings = check_model_wiring(source)
     probe_status, probe_detail = ("skipped", "probe skipped by flag") if skip_probe else probe_source(source, run=run)
     if probe_status == "failed":
         reasons.append(f"import-probe FAILED on the source: {probe_detail}")
     return {
         "eligible": not reasons,
         "reasons": reasons,
+        "warnings": warnings,
         "probe": probe_status,
         "probe_detail": probe_detail,
         "known_good_dify": DIFY_TAG.read_text(encoding="utf-8").strip()
@@ -190,6 +197,8 @@ def main(argv=None) -> int:
         print(f"{mark} — probe: {verdict['probe']} ({verdict['probe_detail']})")
         for r in verdict["reasons"]:
             print(f"  - {r}")
+        for w in verdict.get("warnings", []):
+            print(f"  ⚠ {w}")
     return 0 if verdict["eligible"] else 1
 
 
