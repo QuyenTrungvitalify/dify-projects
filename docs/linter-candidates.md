@@ -5,3 +5,6 @@ EXISTING linter (013/049 discipline — never a new script). One bullet per rule
 the exact rule statement. When a rule ships, move its bullet to the shipping spec's log.
 
 - environment_variables entries must use 'name:' (not 'variable:', the start-node input shape) — Dify import 400s 'missing name' — cite: `api/factories/variable_factory.py build_environment_variable_from_mapping`
+- A downstream ref to a bowenliang123/md_exporter md_to_xlsx (or md_to_csv/md_to_docx) tool node MUST select its `files` field (value_type array[file]); the tool node declares NO outputs: block, so a ref to `.text`/`.output`/`.result` on it is a dangling ref. — cite: `docs/runtime-supplement.md §1-supplement (md_to_xlsx tool node — no outputs:, downstream reads `files`)`
+- A Code node feeding md_text of md_to_xlsx must build a Markdown TABLE string that includes both a header row and the `| --- |` separator row (line 2); a bare list of `|`-lines yields zero columns in the produced .xlsx. — cite: `docs/plugin-capabilities.md (md_exporter Markdown-table inline-formatting) + projects/_drafts/exel_pdf_url_excel build`
+- Code nodes must not import openpyxl (or other non-sandbox modules) to build spreadsheets; use the Code→Tool md_to_xlsx bridge instead. — cite: `docs/runtime-supplement.md §1-supplement (openpyxl confirmed-missing; probe test_openpyxl_feasibility.yml)`
