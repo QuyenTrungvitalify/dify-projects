@@ -373,6 +373,16 @@ export function App() {
                   <I.panel />{tr('artifact')}
                 </button>
               )}
+              {/* "Edit this workflow" — always-visible in the header while viewing a build whose workflow
+                  is on disk (done/cancelled OR the ④ test gate), so editing doesn't require first clicking
+                  "承認" to reach the terminal gate-foot. Click → a NEW edit-existing build on this workflow. */}
+              {view === 'conversation' && task && task.kind !== 'promote' && task.project && task.workflowSlug &&
+                (task.status === 'done' || task.status === 'cancelled' ||
+                  (task.status === 'awaiting_confirm' && task.phase === 'test')) && (
+                <button className="ghost-pill" onClick={() => newTask({ baseWorkflow: { project: task.project!, workflow: task.workflowSlug! } })} title={tr('editThisWorkflowHint')}>
+                  <I.message />{tr('editThisWorkflow')}
+                </button>
+              )}
               {/* spec 052 D1: "Promote to pattern" — always-visible when the view has a RESOLVED on-disk
                   workflow. In the conversation view: a proven/done build (not itself a promote). On the
                   new-task surface: a base pre-selected from the sidebar workflow row (editingSel). Absent on

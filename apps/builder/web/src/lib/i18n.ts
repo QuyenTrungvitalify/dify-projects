@@ -184,6 +184,7 @@ const EN: Dict = {
   qaSeededFrom: 'Based on: {sources}',
   // spec 035: the done/cancelled gate-foot "Edit this workflow" button.
   editThisWorkflow: 'Edit this workflow',
+  editThisWorkflowHint: 'Start a new build that edits this workflow',
   // spec 036 D5: the done-state "Run test with workflow" foot action (autonomous builds + self-host creds).
   runTestWithWorkflow: 'Run test with workflow',
   // Discoverability change: the foot action is always shown; clicking it without a self-host target
@@ -486,6 +487,7 @@ const JA: Dict = {
   qaSeededFrom: '参照: {sources}',
   // spec 035
   editThisWorkflow: 'このワークフローを編集',
+  editThisWorkflowHint: 'このワークフローを編集する新しいビルドを開始',
   // spec 036 D5
   runTestWithWorkflow: 'ワークフローでテスト実行',
   liveTestNeedsSelfhost:

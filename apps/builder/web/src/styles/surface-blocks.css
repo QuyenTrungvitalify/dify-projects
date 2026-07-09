@@ -298,6 +298,8 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .tree-workflow { padding: 6px 8px 6px 26px; }
 .tree-workflow .tw-name { color: var(--tx-2); font-size: 12.5px; font-family: var(--mono); letter-spacing: -0.01em; }
 .tree-workflow:hover .row-actions { opacity: 1; }
+/* reveal the per-task "edit this workflow" action on hover (tree task rows, not just the sb-active list) */
+.tree-task:hover .row-actions { opacity: 1; }
 
 /* level 3: task */
 .tree-task { padding: 6px 10px 6px 44px; }

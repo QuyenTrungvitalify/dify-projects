@@ -20,16 +20,24 @@ export function Twist({ open, onClick }: { open: boolean; onClick?: JSX.MouseEve
   );
 }
 
-function TaskRow({ task, activeTask, onOpen }: {
+function TaskRow({ task, activeTask, onOpen, projectId, workflowSlug, onNewTask }: {
   task: WireTreeTask;
   activeTask: string | null;
   onOpen: (taskId: string) => void;
+  projectId: string;
+  workflowSlug: string;
+  onNewTask: (opts?: NewTaskOpts) => void;
 }) {
   const active = task.id === activeTask;
   return (
     <div className={'tree-row tree-task' + (active ? ' active' : '')} onClick={() => onOpen(task.id)}>
       <span className="tw-name">{task.name}</span>
       <span className="tw-time">{task.time}</span>
+      {/* hover: edit this task's WORKFLOW — a NEW edit-existing build on it (same as the workflow-row "+").
+          Surfaced here too so it's reachable from any task row (esp. in _drafts). */}
+      <span className="row-actions" onClick={(e) => e.stopPropagation()}>
+        <button className="icon-btn" title={tr('editThisWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: workflowSlug } })}><I.message /></button>
+      </span>
     </div>
   );
 }
@@ -69,7 +77,7 @@ function WorkflowRow({ wf, projectId, activeTask, active, defaultOpen, onOpen, o
       {open && (
         <div className="tree-children">
           {wf.tasks.length === 0 && <div className="tree-row tree-empty"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noTasksYet')}</span></div>}
-          {wf.tasks.map((t) => <TaskRow key={t.id} task={t} activeTask={activeTask} onOpen={onOpen} />)}
+          {wf.tasks.map((t) => <TaskRow key={t.id} task={t} activeTask={activeTask} onOpen={onOpen} projectId={projectId} workflowSlug={wf.id} onNewTask={onNewTask} />)}
         </div>
       )}
     </div>
