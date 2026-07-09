@@ -55,7 +55,7 @@ interface Captured {
 
 function harness(d: string, cap: Captured, o?: { lint?: LintCodes; failFirstReport?: boolean }) {
   const lint = o?.lint ?? CLEAN;
-  const status = Object.values(lint).some((c) => c !== 0) ? 'still_failing' : 'done';
+  const status: 'done' | 'error' = Object.values(lint).some((c) => c !== 0) ? 'error' : 'done';
   const runTurn = async (
     _s: ClaudeSession, _p: string, _e?: unknown, opts?: TurnOpts
   ): Promise<TurnResult> => {

@@ -189,7 +189,7 @@ describe('spec 049 D2 — the ④ import-probe (advisory oracle)', () => {
 
   test('AC 3: no creds → the probe is never attempted and no note is written', async () => {
     dir = fixtureDir();
-    const cap: ProbeCap = { importCalls: [], deleteCalls: [], importResult: { ok: true, appId: 'x', stderr: '' } };
+    const cap: ProbeCap = { importCalls: [], deleteCalls: [], reconcileCalls: [], importResult: { ok: true, appId: 'x', stderr: '' } };
     const ctx = harness(dir, cap);
     const task = await createTask(dir, { requirement: 'r', confirmMode: 'each_step', deploy: 'none' });
     current = task;
@@ -204,7 +204,7 @@ describe('spec 049 D2 — the ④ import-probe (advisory oracle)', () => {
 
   test('AC 3: the live path returns undefined without touching the ops (defensive pin)', async () => {
     dir = fixtureDir();
-    const cap: ProbeCap = { importCalls: [], deleteCalls: [], importResult: { ok: true, appId: 'x', stderr: '' } };
+    const cap: ProbeCap = { importCalls: [], deleteCalls: [], reconcileCalls: [], importResult: { ok: true, appId: 'x', stderr: '' } };
     const ctx = harness(dir, cap);
     const task = await createTask(dir, { requirement: 'r', deploy: 'none' });
     task.project = 'p';

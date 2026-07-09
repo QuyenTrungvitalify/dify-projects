@@ -1,6 +1,10 @@
 # Spec 052 — Promote a proven build to a reusable pattern, from the Builder (gated distill turn)
 
-**Status**: Draft. **M–L**. The theme: spec 050 built the *mechanical* promotion gate (`promote_gate.py`) and
+**Status**: **Implemented — unit-verified** (2026-07-09; the full B1 gate → distill turn → review → Approve
+pipeline works end-to-end — a real promote produced a house-style pattern, reviewed lint-clean; server + web
+suites green). Known limitation: the import-probe is `skipped` in the Builder path (creds stripped) → patterns
+are lint-only + `known_good_dify` empty — see [054](054-reconcile-promote-gate-with-blank-model.md) OQ1. **M–L**.
+The theme: spec 050 built the *mechanical* promotion gate (`promote_gate.py`) and
 documented the *distillation* as a human-run `template-promote` skill invocation — but there is **no door in
 the Builder UI**. A field user who just proved a build works has to drop to a CLI + a skill to turn it into a
 house pattern. This spec adds that door: a **gated "Promote to pattern" flow** that runs the full 050

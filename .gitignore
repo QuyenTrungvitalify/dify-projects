@@ -51,3 +51,9 @@ apps/*/.env*
 projects/_drafts/
 # Optional: generic prompt-derived throwaway workflow folders inside ANY project (depth 2).
 projects/*/workflow_*/
+
+# Ad-hoc build-output / phase-transcript dumps saved at repo root (scratch — never committed).
+# Root-anchored so tracked files like requirements.txt / assets/*.txt are unaffected.
+/analysic.txt
+/run_after*.txt
+/test_*.txt

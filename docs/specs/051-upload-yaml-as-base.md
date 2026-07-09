@@ -1,6 +1,8 @@
 # Spec 051 — Upload a standalone YAML as a base: make an off-disk workflow a first-class edit-existing seed
 
-**Status**: Draft. **S–M**. The theme: the Builder already has two "base" paths — Dify workspace apps
+**Status**: **Implemented — verified** (2026-07-09; real-subprocess E2E passed — real linters + `init_project.py`
+scaffold + `/api/tree` JP display; server + web suites green). Browser QA not yet run. **S–M**. The theme: the
+Builder already has two "base" paths — Dify workspace apps
 (`ベースにする`/seed chips, `/api/seeds`) and repo workflows (the `ワークフロー` selector, `/api/tree`) —
 but a *standalone* YAML on disk (a file someone hands you, an export) can reach neither without manual
 folder surgery. This spec adds ONE UI action — upload a YAML → it becomes a normal repo workflow under
