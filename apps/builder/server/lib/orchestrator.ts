@@ -91,31 +91,12 @@ export async function startTask(task: Task, ctx: OrchestratorCtx): Promise<void>
   // task.workflowSlug is null here) SKIPS the standalone Analyze turn+gate — `runPhaseAndGate('spec')` runs the
   // merged Analyze+Spec `draft.md` (the `spec` slot's fast, pre-scaffold promptFile) and stops at the
   // Spec gate. The Analyze gate is simply never emitted.
-  let startPhase: 'analyze' | 'spec' = task.fastMode ? 'spec' : 'analyze';
-  // Spec 046 D1: a from-scratch STANDARD build's Analyze is a CONSTANT — the 027 honesty rules force
-  // the seedless turn to write `{seed:null, pattern:"custom"}` + one note and STOP (no find_query, no
-  // change_points), so a model turn (~40s + a spawn + a 10-min slot) and a nothing-to-review gate
-  // bought zero information. The backend authors the exact 027-honest constant itself and starts at
-  // Spec (the 028 skip precedent; standard `spec.md` still gets PRIOR_ARTIFACT = this real file).
-  // SEEDED builds keep the full Analyze turn — seed summary/change_points are where its value lives.
-  if (!task.fastMode && !task.seedAppId && !task.workflow) {
-    const analyzeRel = PHASES.find((p) => p.id === 'analyze')!.artifactRel(task);
-    const constant = JSON.stringify(
-      {
-        seed: null,
-        pattern: 'custom',
-        note: 'from-scratch build — nothing to analyze (backend-written, spec 046 D1)',
-      },
-      null,
-      2
-    );
-    await writeFile(join(ctx.projectsDir, analyzeRel), constant);
-    // Fold like the analyze verify would have: pattern 'custom' + no features → no advisory (O2's
-    // documented back-compat path); artifacts.analyze keeps the report/UI links intact.
-    applyAnalysisToTask(task, constant, ctx.projectsDir);
-    task.artifacts.analyze = analyzeRel;
-    startPhase = 'spec';
-  }
+  // Spec 055: a from-scratch STANDARD build now runs a real (lean) Analyze turn — a requirement DIGEST
+  // (overview the user can verify + find.py pattern pick + features), not the 046 D1 backend constant. It
+  // routes through the same `runPhaseAndGate('analyze')` the seeded path uses, so it gets the Analyze gate
+  // + report card in every mode. Only Fast (028) still starts at Spec (the merged `draft.md`). SEEDED builds
+  // keep their full Analyze turn (seed summary/change_points) + gain the overview on top (055 D4).
+  const startPhase: 'analyze' | 'spec' = task.fastMode ? 'spec' : 'analyze';
   await runPhaseAndGate(task, startPhase, ctx);
   if (isCancelled(task.taskId)) return;
   await maybeAutoAdvance(task, ctx);
