@@ -2,26 +2,43 @@
 // stale unresolved gate so a build that advanced/finished while the tab was closed can't render phantom
 // live buttons for a passed phase).
 import { describe, it, expect } from 'vitest';
-import { serializeThread, parseThread, hydrateForReopen } from './thread-persist';
+import { serializeThread, parseThread, hydrateForReopen, capRunOutput, RUN_OUTPUT_CAP } from './thread-persist';
 import type { LiveThreadItem } from '../store';
 import type { WireTask } from '../types';
 
 const snap = (over: Partial<WireTask> = {}): WireTask =>
   ({ taskId: 'T1', phase: 'spec', status: 'awaiting_confirm', requirement: 'r', ...over }) as WireTask;
 
-describe('serializeThread — decision #1 (slim: drop run.output + gate artifactContents)', () => {
-  it('strips the heavy run output and gate artifactContents; keeps user/qa verbatim', () => {
+describe('serializeThread — decision #1 (slim: KEEP capped run.output, drop gate artifactContents)', () => {
+  it('keeps a normal-size run output verbatim and drops gate artifactContents; keeps user/qa verbatim', () => {
     const items: LiveThreadItem[] = [
       { id: 'u', kind: 'user', text: 'hi' },
-      { id: 'r', kind: 'run', phase: 'analyze', running: false, output: 'HUGE STREAMED LOG'.repeat(1000) },
+      { id: 'r', kind: 'run', phase: 'analyze', running: false, output: 'the requirement overview' },
       { id: 'g', kind: 'gate', phase: 'spec', snapshot: snap({ artifactContents: { spec: '# big' } } as Partial<WireTask>) },
       { id: 'q', kind: 'qa', question: 'why?', answer: 'because', done: true },
     ];
     const parsed = JSON.parse(serializeThread(items)) as any[];
-    expect(parsed[1].output).toBe(''); // run log dropped
+    expect(parsed[1].output).toBe('the requirement overview'); // run prose PRESERVED (was the reload data-loss bug)
     expect(parsed[2].snapshot.artifactContents).toBeUndefined(); // artifactContents dropped
     expect(parsed[0]).toEqual({ id: 'u', kind: 'user', text: 'hi' }); // user preserved
     expect(parsed[3]).toEqual({ id: 'q', kind: 'qa', question: 'why?', answer: 'because', done: true }); // qa preserved
+  });
+
+  it('caps a runaway run log (tail kept + truncation marker) so it cannot blow the quota', () => {
+    const huge = 'x'.repeat(RUN_OUTPUT_CAP + 5000);
+    const capped = capRunOutput(huge);
+    expect(capped.length).toBeLessThan(huge.length);
+    expect(capped.startsWith('[… 5000 chars truncated …]\n')).toBe(true);
+    expect(capped.endsWith('x')).toBe(true); // tail preserved
+    // and it round-trips through serializeThread
+    const items: LiveThreadItem[] = [{ id: 'r', kind: 'run', phase: 'implement', running: false, output: huge }];
+    const parsed = JSON.parse(serializeThread(items)) as any[];
+    expect(parsed[0].output).toBe(capped);
+  });
+
+  it('leaves output at exactly the cap untouched', () => {
+    const atCap = 'y'.repeat(RUN_OUTPUT_CAP);
+    expect(capRunOutput(atCap)).toBe(atCap);
   });
 });
 

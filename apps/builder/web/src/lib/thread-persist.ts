@@ -8,9 +8,12 @@
 // reload keeps the conversation. Cache-scoped: clearing the browser / another machine starts fresh.
 //
 // THREE DECISIONS baked in here (the reason this needed no separate spec — they're small + local):
-//  1. SLIM persist: drop `run.output` (the heavy streamed phase log) and `gate.snapshot.artifactContents`
-//     (SPEC.md/main.yml bytes) — both re-derive on reopen (artifactContents are re-fetched by applyTask;
-//     the run log is disposable). Keeps the stored payload to the conversation, well under the ~5MB quota.
+//  1. SLIM persist: KEEP `run.output` (the streamed phase prose — the Analyze overview / Spec / Implement
+//     report a reopened build wants to re-read) but CAP it per run so one runaway log can't blow the ~5MB
+//     quota; still drop `gate.snapshot.artifactContents` (SPEC.md/main.yml bytes re-fetched by applyTask).
+//     (Originally the run output was dropped entirely as "disposable" — but a hard reload then blanked every
+//     phase's output, which reads as data loss. Overviews/specs are far under the cap; only a huge Implement
+//     log is truncated, tail-kept so its final result survives.)
 //  2. RECONCILE on reopen (`hydrateForReopen`): the ONE live gate always comes fresh + authoritative from
 //     applyTask, because the build may have advanced/finished server-side while the tab was closed
 //     (dispatch is fire-and-forget; auto-mode keeps running with no client). So DROP any unresolved gate
@@ -21,10 +24,19 @@
 //     (private mode / quota / disabled storage never breaks the app — it just falls back to no-persist).
 import type { LiveThreadItem } from '../store';
 
-/** Serialize the thread to a SLIM JSON string (decision #1): run output and gate artifactContents stripped. */
+/** Cap a persisted run log so one runaway phase stream can't blow the ~5MB localStorage quota. Phase
+ *  overviews/specs sit far under this; only a huge Implement log is truncated — TAIL kept, since a reopened
+ *  build wants its final result/summary (which streams last), with a leading marker so the cut is visible. */
+export const RUN_OUTPUT_CAP = 32_000; // chars (~32KB); LRU-20 builds × a few runs stays well under quota
+export function capRunOutput(output: string): string {
+  if (output.length <= RUN_OUTPUT_CAP) return output;
+  return `[… ${output.length - RUN_OUTPUT_CAP} chars truncated …]\n` + output.slice(-RUN_OUTPUT_CAP);
+}
+
+/** Serialize the thread to a SLIM JSON string (decision #1): run output CAPPED, gate artifactContents dropped. */
 export function serializeThread(items: LiveThreadItem[]): string {
   const slim = items.map((it) => {
-    if (it.kind === 'run') return { ...it, output: '' };
+    if (it.kind === 'run') return { ...it, output: capRunOutput(it.output) };
     if (it.kind === 'gate') return { ...it, snapshot: { ...it.snapshot, artifactContents: undefined } };
     return it;
   });

@@ -495,7 +495,7 @@ function persistThreadNow(): void {
   if (!t) return;
   try {
     const json = serializeThread(thread.value);
-    if (json === _lastPersisted) return; // unchanged slim payload (e.g. run-output-only churn) → skip
+    if (json === _lastPersisted) return; // unchanged slim payload (re-render with no thread change) → skip
     _lastPersisted = json;
     localStorage.setItem(THREAD_KEY(t.taskId), json);
     const idx = threadIndex().filter((x) => x !== t.taskId);
