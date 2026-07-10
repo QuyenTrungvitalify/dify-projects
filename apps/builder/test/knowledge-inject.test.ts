@@ -100,7 +100,8 @@ async function drive(withFacts: boolean): Promise<{ task: Task; ctx: Orchestrato
   const ctx = harness(dir, prompts);
   const task = await createTask(dir, { requirement: 'r', deploy: 'none' });
   current = task;
-  await withTurn(task.taskId, () => startTask(task, ctx)); // 046 D1: seedless starts at ② spec
+  await withTurn(task.taskId, () => startTask(task, ctx)); // spec 055: seedless starts at ① analyze
+  await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // ① → ② spec
   if (withFacts) {
     const runs = join(dir, 'apps', 'builder', '.runs', task.taskId);
     mkdirSync(runs, { recursive: true });

@@ -67,7 +67,8 @@ function harness(d: string, cap: ProbeCap) {
     const phase = PHASES.find((p) => p.id === task.phase)!;
     const abs = join(d, phase.artifactRel(task));
     mkdirSync(dirname(abs), { recursive: true });
-    if (task.phase === 'spec') writeFileSync(abs, '# SPEC\nbuild it.\n');
+    if (task.phase === 'analyze') writeFileSync(abs, '{"seed":null}'); // spec 055: from-scratch runs analyze
+    else if (task.phase === 'spec') writeFileSync(abs, '# SPEC\nbuild it.\n');
     else writeFileSync(abs, 'workflow:\n  graph:\n    nodes: []\n');
     return { sessionId: `sess-${task.phase}`, result: { type: 'result', is_error: false }, isError: false };
   };
@@ -119,7 +120,8 @@ async function withTurn(taskId: string, work: () => Promise<void>): Promise<void
 
 /** each_step ladder: ② gate → ③ gate → (creds on) → static ④. */
 async function driveToTest(ctx: OrchestratorCtx, task: Task): Promise<void> {
-  await withTurn(task.taskId, () => startTask(task, ctx)); // parks at Spec (046 D1)
+  await withTurn(task.taskId, () => startTask(task, ctx)); // parks at Analyze (spec 055)
+  await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // ① → ②
   await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // ② → ③
   assert.equal(task.phase, 'implement');
   withDifyEnv();
@@ -193,10 +195,11 @@ describe('spec 049 D2 — the ④ import-probe (advisory oracle)', () => {
     const ctx = harness(dir, cap);
     const task = await createTask(dir, { requirement: 'r', confirmMode: 'each_step', deploy: 'none' });
     current = task;
-    await withTurn(task.taskId, () => startTask(task, ctx));
-    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx));
+    await withTurn(task.taskId, () => startTask(task, ctx)); // spec 055: ① analyze
+    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // ① → ②
+    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // ② → ③
     // NO withDifyEnv() — static ④ without creds
-    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx));
+    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // ③ → ④ → done
     assert.equal(cap.importCalls.length, 0);
     assert.equal(task.probeNote, undefined);
     assert.equal(task.status, 'done');

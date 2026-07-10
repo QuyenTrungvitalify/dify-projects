@@ -16,7 +16,7 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { startTask, confirmAdvance, replyWithin, type OrchestratorCtx } from '../server/lib/orchestrator.js';
@@ -191,13 +191,13 @@ describe('advance-loop integration (013 D3)', () => {
 
     assert.equal(task.status, 'done', 'reached done with no human confirm');
     assert.equal(task.phase, 'test');
-    // Spec 046 D1: no analyze turn for a from-scratch standard build — the backend writes the
-    // constant analyze.json and the run starts at Spec (2 turns: spec + implement).
-    assert.equal(h.calls.runTurn, 2, 'one turn each for spec/implement (analyze backend-written, 046 D1)');
+    // Spec 055: a from-scratch build now runs the Analyze (requirement-digest) turn too — 3 turns
+    // (analyze + spec + implement); auto auto-advances the analyze gate.
+    assert.equal(h.calls.runTurn, 3, 'one turn each for analyze/spec/implement (spec 055)');
     assert.equal(h.calls.runReport, 1, '④ report ran once');
-    // the ladder visited every TURN phase (analyze no longer emits — 046 D1)
+    // the ladder visited every TURN phase (analyze now emits — spec 055)
     const phasesSeen = new Set(h.events.map((e) => e.phase));
-    assert.deepEqual([...phasesSeen].sort(), ['implement', 'spec', 'test']);
+    assert.deepEqual([...phasesSeen].sort(), ['analyze', 'implement', 'spec', 'test']);
     // a workflow was scaffolded for the derived slug
     assert.ok(task.workflowSlug, 'workflowSlug derived at the spec gate');
     assert.ok(task.project, 'project resolved at the spec gate (_drafts by default)');
@@ -297,10 +297,12 @@ describe('advance-loop integration (013 D3)', () => {
     const h = harness(dir, task, { reportLintClean: true });
 
     await withDifyEnv(async () => {
-      // each_step: drive spec→implement→test by hand (046 D1: seedless starts at Spec), then assert
-      // the ④ Import gate appears.
-      await withTurn(task.taskId, () => startTask(task, h.ctx)); // 046 D1 → ② spec, parks
+      // each_step: drive analyze→spec→implement→test by hand (spec 055: from-scratch starts at Analyze),
+      // then assert the ④ Import gate appears.
+      await withTurn(task.taskId, () => startTask(task, h.ctx)); // 055 → ① analyze, parks
       assert.equal(task.status, 'awaiting_confirm');
+      assert.equal(task.phase, 'analyze');
+      await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // ① → ② spec
       assert.equal(task.phase, 'spec');
       await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // scaffold → ③ implement
       assert.equal(task.phase, 'implement');
@@ -509,7 +511,7 @@ describe('advance-loop integration (013 D3)', () => {
   test('a cancel landing mid-turn leaves status=cancelled with the gate cleared (no clobber)', async () => {
     const dir = fixtureDir();
     const task = await createTask(dir, { requirement: 'cancel me', confirmMode: 'auto', deploy: 'none' });
-    const h = harness(dir, task, { cancelDuringTurn: 'spec' }); // 046 D1: the first TURN is now spec
+    const h = harness(dir, task, { cancelDuringTurn: 'analyze' }); // spec 055: the first TURN is now analyze
 
     await withTurn(task.taskId, () => startTask(task, h.ctx));
 
@@ -519,29 +521,22 @@ describe('advance-loop integration (013 D3)', () => {
   });
 });
 
-// ── Spec 046 D1 — the seedless-standard Analyze skip, pinned from BOTH sides ─────────────────────
-describe('spec 046 D1 — backend-written analyze.json (seedless standard) vs the seeded turn', () => {
-  test('AC 1: seedless standard → first gate is SPEC; the 027-honest constant is on disk; artifacts.analyze set', async () => {
+// ── Spec 055 — from-scratch AND seeded both run the Analyze turn (046 D1 skip removed) ────────────
+describe('spec 055 — from-scratch (seedless) now runs the Analyze turn + gate, like a seeded build', () => {
+  test('AC 1: seedless standard → first gate is ANALYZE (the requirement-digest turn ran); artifacts.analyze set', async () => {
     const dir = fixtureDir();
     const task = await createTask(dir, { requirement: 'from scratch', confirmMode: 'each_step', deploy: 'none' });
     const h = harness(dir, task);
 
     await withTurn(task.taskId, () => startTask(task, h.ctx));
 
-    assert.equal(task.phase, 'spec', 'starts AT spec — no analyze turn/gate');
+    assert.equal(task.phase, 'analyze', 'starts AT analyze — the requirement-digest turn (spec 055)');
     assert.equal(task.status, 'awaiting_confirm');
-    assert.equal(h.calls.runTurn, 1, 'exactly one turn so far (spec)');
-    assert.ok(!h.events.some((e) => e.phase === 'analyze'), 'no analyze emission at all');
+    assert.equal(h.calls.runTurn, 1, 'exactly one turn so far (analyze)');
+    assert.ok(h.events.some((e) => e.phase === 'analyze'), 'analyze emitted (no longer skipped)');
 
     const analyzeRel = `apps/builder/.runs/${task.taskId}/analyze.json`;
-    assert.equal(task.artifacts.analyze, analyzeRel, 'artifacts.analyze keeps report/UI links intact');
-    const constant = JSON.parse(readFileSync(join(dir, analyzeRel), 'utf8'));
-    assert.equal(constant.seed, null);
-    assert.equal(constant.pattern, 'custom');
-    assert.ok(!('find_query' in constant), '027 honesty: no invented find_query');
-    assert.ok(!('change_points' in constant), '027 honesty: no invented change_points');
-    assert.equal(task.analysisPattern, 'custom', 'folded via applyAnalysisToTask');
-    assert.equal(task.patternAdvisory, undefined, 'custom + no features → no advisory (O2 back-compat)');
+    assert.equal(task.artifacts.analyze, analyzeRel, 'artifacts.analyze set from the real turn');
   });
 
   test('AC 2: a SEEDED (edit-existing) build still runs the real Analyze turn + gate', async () => {

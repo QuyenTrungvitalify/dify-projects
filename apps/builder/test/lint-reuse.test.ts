@@ -143,7 +143,8 @@ describe('spec 048 D2 — reuseLint rides ONLY the windowless ③→④ hop', ()
     const ctx = harness(dir, cap);
     const task = await createTask(dir, { requirement: 'r', confirmMode: 'each_step', deploy: 'none' });
     current = task;
-    await withTurn(task.taskId, () => startTask(task, ctx));
+    await withTurn(task.taskId, () => startTask(task, ctx)); // spec 055: parks at ① analyze
+    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // ① → ② spec
     await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // ② → ③, parks at ③ gate
     assert.equal(task.phase, 'implement');
     await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // the HUMAN window
@@ -157,7 +158,8 @@ describe('spec 048 D2 — reuseLint rides ONLY the windowless ③→④ hop', ()
     const ctx = harness(dir, cap, { lint: DIRTY });
     const task = await createTask(dir, { requirement: 'r', confirmMode: 'each_step', deploy: 'none' });
     current = task;
-    await withTurn(task.taskId, () => startTask(task, ctx));
+    await withTurn(task.taskId, () => startTask(task, ctx)); // spec 055: parks at ① analyze
+    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx)); // ① → ② spec
     await withTurn(task.taskId, () => confirmAdvance(task, 'continue', ctx));
     assert.equal(task.gate?.flag, 'still_failing');
     await withTurn(task.taskId, () => confirmAdvance(task, 'accept', ctx));

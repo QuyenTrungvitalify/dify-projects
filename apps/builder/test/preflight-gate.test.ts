@@ -122,7 +122,8 @@ async function driveToImplementGate(steer: Steer): Promise<{ task: Task; ctx: Or
   const h = harness(dir, steer);
   const task = await createTask(dir, { requirement: 'r', deploy: 'none' });
   current = task;
-  await withTurn(task.taskId, () => startTask(task, h.ctx)); // 046 D1: seedless starts at ② spec
+  await withTurn(task.taskId, () => startTask(task, h.ctx)); // spec 055: seedless parks at ① analyze
+  await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // ① → ② spec
   await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // scaffold → ③
   assert.equal(task.phase, 'implement');
   assert.equal(task.status, 'awaiting_confirm', 'parked at the ③ gate');
