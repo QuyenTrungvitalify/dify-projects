@@ -142,6 +142,183 @@ def evaluate_entry(entry: dict, artifacts: dict[str, Path | None]) -> list[dict]
     return rows
 
 
+# ── spec 060: cost-regression gating ──────────────────────────────────────────
+# The `cost:` block is a TOP-LEVEL entry key (sibling of expect/manual). It gates on task.json.cost
+# (059) — NOT a file artifact — so it lives in its own evaluator, not the file-based evaluate_entry.
+NORMAL_PHASES = ("analyze", "spec", "implement")   # phases a completed build MUST record
+FAST_PHASES = ("spec", "implement")                 # ⚡ (028): merged draft writes under `spec`
+DEFAULT_DRIFT_PCT = 40                               # one-sided; only a regression beyond this fails
+
+
+def _finite(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _phase_num(cost_map: dict, phase: str, field: str):
+    c = cost_map.get(phase)
+    return c.get(field) if isinstance(c, dict) else None
+
+
+def evaluate_cost(cost_block, cost_map, fast: bool = False, baseline: dict | None = None) -> list[dict]:
+    """Spec 060 — evaluate an entry's `cost:` block against task.json.cost. Pure; three-bucket rows.
+
+    Every missing-data path is decided (never a crash, never a silent green):
+      per-phase metric absent → MANUAL · a `total_*` over a build missing an EXPECTED phase → AUTO-FAIL
+      (build incomplete) · cache% with denom 0 → MANUAL · wholly missing cost → all MANUAL.
+    """
+    rows: list[dict] = []
+    if not isinstance(cost_block, dict):
+        return rows
+    expected = FAST_PHASES if fast else NORMAL_PHASES
+    have_cost = isinstance(cost_map, dict) and any(isinstance(cost_map.get(p), dict) for p in expected)
+    drift_pct = cost_block.get("drift_pct", DEFAULT_DRIFT_PCT)
+    if not _finite(drift_pct):
+        drift_pct = DEFAULT_DRIFT_PCT
+
+    for key, arg in cost_block.items():
+        if key == "drift_pct":
+            continue  # config, not a predicate
+        check = f"cost.{key}"
+        if not have_cost:
+            rows.append(_row("MANUAL", check, "no cost captured — pre-059 run"))
+            continue
+
+        if key.endswith("_turns_max"):
+            phase = key[: -len("_turns_max")]
+            if not _finite(arg):
+                rows.append(_row("AUTO-FAIL", check, f"expects a number, got {type(arg).__name__}"))
+            elif phase == "total":
+                total = 0
+                missing = next((p for p in expected if not _finite(_phase_num(cost_map, p, "numTurns"))), None)
+                if missing:
+                    rows.append(_row("AUTO-FAIL", check, f"build incomplete: phase {missing} has no numTurns"))
+                else:
+                    total = sum(_phase_num(cost_map, p, "numTurns") for p in expected)
+                    ok = total <= arg
+                    rows.append(_row("AUTO-PASS" if ok else "AUTO-FAIL", check, f"{total} {'≤' if ok else '>'} {arg}"))
+            else:
+                v = _phase_num(cost_map, phase, "numTurns")
+                if not _finite(v):
+                    rows.append(_row("MANUAL", check, f"no numTurns for phase {phase}"))
+                else:
+                    ok = v <= arg
+                    rows.append(_row("AUTO-PASS" if ok else "AUTO-FAIL", check, f"{v} {'≤' if ok else '>'} {arg}"))
+
+        elif key == "cache_min_pct":
+            if not (_finite(arg) or isinstance(arg, dict)):
+                rows.append(_row("AUTO-FAIL", check, f"expects a number or map, got {type(arg).__name__}"))
+                continue
+            scope = arg if isinstance(arg, dict) else {p: arg for p in expected}
+            for p, minpct in scope.items():
+                if not _finite(minpct):  # a non-numeric map value (e.g. {implement: null}) must not crash
+                    rows.append(_row("AUTO-FAIL", f"{check}[{p}]",
+                                     f"threshold must be a number, got {type(minpct).__name__}"))
+                    continue
+                it, cr = _phase_num(cost_map, p, "inputTokens"), _phase_num(cost_map, p, "cacheReadTokens")
+                if not (_finite(it) and _finite(cr)) or (it + cr) == 0:
+                    rows.append(_row("MANUAL", f"{check}[{p}]", f"no token data for phase {p}"))
+                    continue
+                pct = round(cr / (it + cr) * 100)  # cacheCreation NOT counted (measures reuse)
+                ok = pct >= minpct
+                rows.append(_row("AUTO-PASS" if ok else "AUTO-FAIL", f"{check}[{p}]",
+                                 f"{pct}% {'≥' if ok else '<'} {minpct}%"))
+
+        elif key == "output_tokens_max":
+            if not isinstance(arg, dict):
+                rows.append(_row("AUTO-FAIL", check, f"expects a map {{phase: max}}, got {type(arg).__name__}"))
+                continue
+            for p, maxtok in arg.items():
+                if not _finite(maxtok):  # a non-numeric map value must not crash the comparison
+                    rows.append(_row("AUTO-FAIL", f"{check}[{p}]",
+                                     f"max must be a number, got {type(maxtok).__name__}"))
+                    continue
+                v = _phase_num(cost_map, p, "outputTokens")
+                if not _finite(v):
+                    rows.append(_row("MANUAL", f"{check}[{p}]", f"no outputTokens for phase {p}"))
+                else:
+                    ok = v <= maxtok
+                    rows.append(_row("AUTO-PASS" if ok else "AUTO-FAIL", f"{check}[{p}]",
+                                     f"{v} {'≤' if ok else '>'} {maxtok}"))
+        else:
+            rows.append(_row("MANUAL", check, f"unknown cost predicate '{key}' — verify by hand"))
+
+    # Drift — only when the entry opts in (has a cost: block, which we're inside) AND a baseline
+    # exists. `isinstance` (not truthiness) so a corrupted/hand-edited non-dict baseline entry
+    # degrades to no-drift instead of an AttributeError.
+    if isinstance(baseline, dict) and have_cost:
+        rows.extend(_eval_drift(baseline, cost_map, expected, drift_pct))
+    return rows
+
+
+def _drift_row(check: str, base, new, drift_pct) -> dict:
+    if base == 0:
+        return _row("MANUAL", check, "baseline is 0 — cannot compute drift")
+    pct = round((new - base) / base * 100)
+    if pct < 0:
+        return _row("AUTO-PASS", check, f"{base} → {new}  ({pct}%)  ↓ faster")
+    if pct > drift_pct:
+        return _row("AUTO-FAIL", check, f"{base} → {new}  (+{pct}%)  ✗ > +{drift_pct}%")
+    return _row("AUTO-PASS", check, f"{base} → {new}  (+{pct}%)  ≤ +{drift_pct}%")
+
+
+def _eval_drift(baseline: dict, cost_map: dict, expected, drift_pct) -> list[dict]:
+    """One-sided numTurns drift vs a saved baseline. Regression > +D% fails; any improvement passes."""
+    if not isinstance(baseline, dict):
+        return []  # a corrupted baseline entry degrades to no-drift, never an AttributeError
+    rows: list[dict] = []
+    base_phases = baseline.get("phases") or {}
+    for p in expected:
+        bv = (base_phases.get(p) or {}).get("numTurns")
+        nv = _phase_num(cost_map, p, "numTurns")
+        check = f"cost.drift[{p}.numTurns]"
+        if not (_finite(bv) and _finite(nv)):
+            rows.append(_row("MANUAL", check, f"baseline/current mismatch for phase {p}"))
+        else:
+            rows.append(_drift_row(check, bv, nv, drift_pct))
+    bt = (baseline.get("total") or {}).get("numTurns")
+    if bt is not None:
+        check = "cost.drift[total.numTurns]"
+        if _finite(bt) and all(_finite(_phase_num(cost_map, p, "numTurns")) for p in expected):
+            nt = sum(_phase_num(cost_map, p, "numTurns") for p in expected)
+            rows.append(_drift_row(check, bt, nt, drift_pct))
+        else:
+            rows.append(_row("MANUAL", check, "baseline/current mismatch for total"))
+    return rows
+
+
+def build_baseline(cost_map: dict, fast: bool = False) -> dict:
+    """Snapshot the numTurns/outputTokens profile for `--save-baseline`. `total` only when complete."""
+    expected = FAST_PHASES if fast else NORMAL_PHASES
+    phases = {}
+    complete = True
+    for p in expected:
+        c = cost_map.get(p) if isinstance(cost_map, dict) else None
+        if isinstance(c, dict) and _finite(c.get("numTurns")):
+            phases[p] = {"numTurns": c.get("numTurns"), "outputTokens": c.get("outputTokens")}
+        else:
+            complete = False
+    out: dict = {"phases": phases}
+    if complete:
+        out["total"] = {"numTurns": sum(v["numTurns"] for v in phases.values())}
+    return out
+
+
+def _read_baselines(path: str | None) -> dict:
+    if not path or not Path(path).is_file():
+        return {}
+    data, _err = _load_json(Path(path))
+    return data or {}
+
+
+def _save_baseline(path: str, entry_id: str, snapshot: dict) -> None:
+    # Merge into the committed snapshot file (stable key order, no timestamp → a diff means the
+    # numbers actually moved, so a cost regression shows up in review).
+    data = _read_baselines(path)
+    data[entry_id] = snapshot
+    Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                          encoding="utf-8")
+
+
 PHASE_ORDER = [("analyze", "analyze"), ("spec", "spec"), ("implement", "implement"), ("test", "report")]
 
 
@@ -276,6 +453,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--analyze")
     ap.add_argument("--workflow")
     ap.add_argument("--report")
+    ap.add_argument("--baselines", help="e2e-baselines.json path — for cost drift (spec 060)")
+    ap.add_argument("--save-baseline", action="store_true",
+                    help="write this run's cost profile into --baselines under the entry id")
     ap.add_argument("--json", action="store_true", help="machine output instead of the table")
     args = ap.parse_args(argv)
 
@@ -339,6 +519,19 @@ def main(argv: list[str] | None = None) -> int:
 
     artifacts = {k: Path(v) if (v := getattr(args, k)) else None for k in ARTIFACT_KINDS}
     rows = evaluate_entry(entry, artifacts)
+
+    # Spec 060 — cost gating, opt-in on the entry's `cost:` block (a sibling of expect/manual).
+    cost_block = entry.get("cost")
+    if isinstance(cost_block, dict):
+        cost_map = {}
+        if args.task_json:
+            cj, _err = _load_json(Path(args.task_json))
+            cost_map = (cj or {}).get("cost") or {}
+        baselines = _read_baselines(args.baselines)
+        rows += evaluate_cost(cost_block, cost_map, fast=args.fast, baseline=baselines.get(args.entry))
+        if args.save_baseline and args.baselines:
+            _save_baseline(args.baselines, args.entry, build_baseline(cost_map, fast=args.fast))
+
     auto_fail = sum(1 for r in rows if r["bucket"] == "AUTO-FAIL")
     if args.json:
         print(json.dumps({"entry": args.entry, "rows": rows,

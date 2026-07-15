@@ -157,8 +157,10 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 (cd apps/builder && npm run typecheck && npm test)   # server: tsc --noEmit + node:test via tsx
 (cd apps/builder/web && npm run build && npm test)   # web: tsc --noEmit + vite build + vitest
 
-# E2E simulation harness (spec 058) — fire a prompt at the running Builder like a real user.
-apps/builder/scripts/e2e-run.sh check <taskId> --expect <suite-id>   # OFFLINE 3-bucket verdict
+# E2E simulation harness (specs 058/059/060) — fire a prompt at the running Builder like a real user,
+# grade it (3-bucket), and gate build speed/cost. Full usage guide: apps/builder/scripts/README.md
+apps/builder/scripts/e2e-run.sh check <taskId> --expect <suite-id>   # OFFLINE 3-bucket verdict (+cost)
+apps/builder/scripts/e2e-run.sh bench --entry <suite-id>             # fire→wait→check→timing/cost
 apps/builder/scripts/e2e-run.sh fire "<prompt>" --mode auto          # needs backend + `claude` login
 # or the /e2e skill for the full fire→wait→gate→check→/report procedure + MANUAL-residue report.
 ```

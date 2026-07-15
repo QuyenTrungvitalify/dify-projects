@@ -30,6 +30,10 @@
       grep_absent: ["type: start"]
     report:
       notes_include: ["all linters passed"]
+  cost:                      # spec 060 — gross-regression guard (generous; real ③≈20 turns, cache≈98%)
+    implement_turns_max: 40  # AUTO-FAIL if the ③ lint→fix loop churns way past its ~20-turn norm
+    total_turns_max: 90
+    cache_min_pct: 50        # AUTO-FAIL if prompt-caching stops hitting (cold-start regression)
   manual:
     - "Enable the trigger in Dify Studio → Quick Settings and confirm the 9:00 JST fire (S5 deferred — no enable API)"
     - "UI: the JA trigger-entry note renders on the ④ test card (NOTE_JA frame in i18n.ts)"

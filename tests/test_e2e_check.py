@@ -211,6 +211,135 @@ def test_empty_list_predicate_does_not_crash():
     assert _buckets(rows)["AUTO-FAIL"], rows
 
 
+# ── spec 060: cost-regression gating ──────────────────────────────────────────
+
+_COST_FULL = {
+    "analyze": {"numTurns": 17, "inputTokens": 4140, "cacheReadTokens": 305896, "outputTokens": 5666},
+    "spec": {"numTurns": 16, "inputTokens": 3891, "cacheReadTokens": 213090, "outputTokens": 6243},
+    "implement": {"numTurns": 20, "inputTokens": 4339, "cacheReadTokens": 431284, "outputTokens": 6421},
+}
+
+
+def _cost_buckets(rows):
+    return {b: [r for r in rows if r["bucket"] == b] for b in ("AUTO-PASS", "AUTO-FAIL", "MANUAL")}
+
+
+def test_cost_thresholds_pass_and_fail():
+    b = _cost_buckets(ec.evaluate_cost({"implement_turns_max": 25, "total_turns_max": 60}, _COST_FULL))
+    assert len(b["AUTO-PASS"]) == 2 and not b["AUTO-FAIL"], b
+    b = _cost_buckets(ec.evaluate_cost({"implement_turns_max": 15}, _COST_FULL))
+    assert b["AUTO-FAIL"] and not b["AUTO-PASS"], b
+
+
+def test_cost_cache_min_pct_per_phase():
+    b = _cost_buckets(ec.evaluate_cost({"cache_min_pct": 80}, _COST_FULL))
+    assert len(b["AUTO-PASS"]) == 3 and not b["AUTO-FAIL"], b   # one row per expected phase
+    b = _cost_buckets(ec.evaluate_cost({"cache_min_pct": {"implement": 100}}, _COST_FULL))
+    assert b["AUTO-FAIL"], "99% < 100% must fail"
+
+
+# AC2(b) — total over a build missing an expected phase is AUTO-FAIL, never a silent pass.
+def test_cost_total_over_partial_map_auto_fails():
+    partial = {"analyze": {"numTurns": 17}, "spec": {"numTurns": 16}}  # implement DIED, absent
+    b = _cost_buckets(ec.evaluate_cost({"total_turns_max": 999}, partial))
+    assert b["AUTO-FAIL"] and not b["AUTO-PASS"], b   # 999 is huge, yet still FAIL (incomplete)
+    assert "incomplete" in b["AUTO-FAIL"][0]["detail"]
+
+
+def test_cost_present_phase_numTurns_less_total_auto_fails():
+    # phase dict present but numTurns absent (059 'usage-only' shape) → still incomplete, not undercount
+    m = {"analyze": {"numTurns": 17}, "spec": {"numTurns": 16}, "implement": {"outputTokens": 100}}
+    b = _cost_buckets(ec.evaluate_cost({"total_turns_max": 999}, m))
+    assert b["AUTO-FAIL"], b
+
+
+# AC2(c) — cache% with denom 0 (turns but no tokens) is MANUAL, never a crash / false cold-start.
+def test_cost_cache_denom_zero_is_manual():
+    m = {"analyze": {"numTurns": 3}, "spec": {"numTurns": 3}, "implement": {"numTurns": 3}}  # no tokens
+    b = _cost_buckets(ec.evaluate_cost({"cache_min_pct": 80}, m))
+    assert b["MANUAL"] and not b["AUTO-FAIL"] and not b["AUTO-PASS"], b
+    assert "no token data" in b["MANUAL"][0]["detail"]
+
+
+# AC2(a) — wholly missing cost → all MANUAL.
+def test_cost_missing_cost_all_manual():
+    b = _cost_buckets(ec.evaluate_cost({"implement_turns_max": 25, "cache_min_pct": 80}, {}))
+    assert b["MANUAL"] and not b["AUTO-PASS"] and not b["AUTO-FAIL"], b
+
+
+# AC3 — malformed predicates.
+def test_cost_unknown_key_is_manual():
+    b = _cost_buckets(ec.evaluate_cost({"vibes": 5}, _COST_FULL))
+    assert b["MANUAL"] and "unknown" in b["MANUAL"][0]["detail"]
+
+
+def test_cost_scalar_where_map_expected_auto_fails():
+    b = _cost_buckets(ec.evaluate_cost({"output_tokens_max": 12000}, _COST_FULL))  # should be a map
+    assert b["AUTO-FAIL"] and "map" in b["AUTO-FAIL"][0]["detail"]
+
+
+def test_cost_fast_mode_excludes_analyze():
+    # fast: expected = {spec, implement}; a cost map with no analyze must NOT fail the total.
+    fastmap = {"spec": {"numTurns": 16}, "implement": {"numTurns": 20}}
+    b = _cost_buckets(ec.evaluate_cost({"total_turns_max": 40}, fastmap, fast=True))
+    assert b["AUTO-PASS"] and not b["AUTO-FAIL"], b   # 36 ≤ 40, analyze not required
+
+
+# AC4 — one-sided drift.
+def test_drift_regression_fails_improvement_and_within_pass():
+    base = {"phases": {"analyze": {"numTurns": 17}, "spec": {"numTurns": 16}, "implement": {"numTurns": 20}},
+            "total": {"numTurns": 53}}
+    # regression: implement 20 → 34 (+70%) must FAIL; others within → pass
+    m = {"analyze": {"numTurns": 17}, "spec": {"numTurns": 16}, "implement": {"numTurns": 34}}
+    b = _cost_buckets(ec.evaluate_cost({"implement_turns_max": 999}, m, baseline=base))
+    assert any("drift[implement" in r["check"] for r in b["AUTO-FAIL"]), b
+    # improvement: implement 20 → 8 (−60%) must PASS regardless of magnitude
+    m2 = {"analyze": {"numTurns": 17}, "spec": {"numTurns": 16}, "implement": {"numTurns": 8}}
+    b2 = _cost_buckets(ec.evaluate_cost({"implement_turns_max": 999}, m2, baseline=base))
+    assert not b2["AUTO-FAIL"], b2
+    assert any("faster" in r["detail"] for r in b2["AUTO-PASS"]), b2
+
+
+def test_drift_phase_mismatch_is_manual():
+    base = {"phases": {"analyze": {"numTurns": 17}, "spec": {"numTurns": 16}, "implement": {"numTurns": 20}}}
+    m = {"analyze": {"numTurns": 17}, "spec": {"numTurns": 16}}  # implement missing in current
+    b = _cost_buckets(ec.evaluate_cost({"implement_turns_max": 999}, m, baseline=base))
+    assert any("mismatch" in r["detail"] for r in b["MANUAL"]), b
+
+
+# impl-review findings — malformed input must degrade, never crash ("never crash" contract).
+def test_cost_non_numeric_map_threshold_auto_fails_not_crash():
+    b = _cost_buckets(ec.evaluate_cost({"cache_min_pct": {"implement": "high"}}, _COST_FULL))
+    assert b["AUTO-FAIL"] and "number" in b["AUTO-FAIL"][0]["detail"], b
+    b = _cost_buckets(ec.evaluate_cost({"output_tokens_max": {"implement": None}}, _COST_FULL))
+    assert b["AUTO-FAIL"] and "number" in b["AUTO-FAIL"][0]["detail"], b
+    # a YAML `true` must NOT sneak through as >= 1 (bool is not a valid threshold)
+    b = _cost_buckets(ec.evaluate_cost({"cache_min_pct": {"implement": True}}, _COST_FULL))
+    assert b["AUTO-FAIL"], "bool threshold must be rejected, not treated as 1"
+
+
+def test_drift_non_dict_baseline_degrades_not_crash():
+    # a corrupted/hand-edited baselines entry (scalar/list) must not AttributeError
+    b = _cost_buckets(ec.evaluate_cost({"implement_turns_max": 99}, _COST_FULL, baseline=5))
+    assert not b["AUTO-FAIL"], b            # no drift rows, just the threshold pass
+    assert ec._eval_drift(5, _COST_FULL, ec.NORMAL_PHASES, 40) == []
+    assert ec._eval_drift([1, 2], _COST_FULL, ec.NORMAL_PHASES, 40) == []
+
+
+def test_build_baseline_and_roundtrip(tmp_path):
+    snap = ec.build_baseline(_COST_FULL)
+    assert snap["total"]["numTurns"] == 53
+    assert snap["phases"]["implement"]["numTurns"] == 20
+    # incomplete build → no total (can't sum a missing phase)
+    incomplete = ec.build_baseline({"analyze": {"numTurns": 17}, "spec": {"numTurns": 16}})
+    assert "total" not in incomplete
+    # save/read roundtrip, no timestamp churn
+    p = tmp_path / "e2e-baselines.json"
+    ec._save_baseline(str(p), "my-entry", snap)
+    assert ec._read_baselines(str(p))["my-entry"]["total"]["numTurns"] == 53
+    assert "at" not in ec._read_baselines(str(p))["my-entry"]  # committed snapshot stays stable
+
+
 def test_shipped_suite_parses_and_emits_fire():
     import subprocess
     suite = SCRIPT.parent / "e2e-suite.yml"

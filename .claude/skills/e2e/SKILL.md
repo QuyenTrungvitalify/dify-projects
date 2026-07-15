@@ -65,15 +65,24 @@ say so and build normal; the §5 guard would stop a fast build there anyway.)
    summary's `artifacts`), grade it against the rubric below, then `e2e-run.sh confirm <taskId>`
    to advance (auto-picks ONLY the `continue` action — anything else is a judgment call you must
    pass explicitly) or `e2e-run.sh reply <taskId> "<feedback>"` to send it back a phase.
-4. **Check (structural).** `e2e-run.sh check <taskId> --expect <suite-id>` prints the three-bucket
-   table. Exit 0 iff zero AUTO-FAIL. This is pure jq/grep/Python — no LLM, no cost, re-runnable.
+4. **Check (structural + optional cost gate).** `e2e-run.sh check <taskId> --expect <suite-id>`
+   prints the three-bucket table. Exit 0 iff zero AUTO-FAIL. Pure jq/grep/Python — no LLM, no turn,
+   re-runnable.
+   - **Cost gating is OPT-IN (spec 060).** Cost rows appear ONLY when the entry declares a `cost:`
+     block (`implement_turns_max`, `total_turns_max`, `cache_min_pct`, `output_tokens_max`); no
+     `cost:` ⇒ no cost rows. The harness ASSERTS numbers (a speed/cache regression → AUTO-FAIL); it
+     does NOT narrate the cause — the "why slow" cause + HINT is the **app's** job (spec 059 widget),
+     never re-derived here. A pre-059 run (no captured cost) ⇒ cost rows are MANUAL, never a false PASS.
+   - **Baseline / drift**: `check … --save-baseline` snapshots the entry's cost into the committed
+     `e2e-baselines.json`; a later `check` emits one-sided drift rows — a regression past +40%
+     (default, per-entry `drift_pct`) AUTO-FAILs; ANY improvement always passes.
 5. **Report (content).** Invoke `/report <taskId>` for the two-tier honesty grading (static vs
    runtime) — the harness does structure; `/report` judges quality. Don't reinvent it.
-   - **Timing (speed work).** `e2e-run.sh time <taskId>` prints per-phase + total wall-clock,
-     derived OFFLINE from the taskId (fire time, ms) + artifact mtimes — repeatable, no polling.
-     `e2e-run.sh bench "<prompt>"` does fire→wait→timing+check in one shot. Use it to get a
-     before/after number when optimizing build speed; `implement` is usually the dominant phase.
-     Caveat: single runs carry LLM latency variance — compare medians of ≥3 runs, not one pair.
+   - **Timing (speed work).** `e2e-run.sh time <taskId>` prints per-phase wall-clock (mtime, offline)
+     + the 059 cost table. `e2e-run.sh bench "<prompt>"` = fire→wait→timing/cost; `bench --entry <id>`
+     ALSO runs `check` (correctness + cost gate). `implement` is usually the dominant phase. Caveat:
+     one run's turns/latency wobble — compare **medians of ≥3 runs**, not one pair, before trusting a
+     small delta.
 6. **Emit the verdict.** One table: per-phase ①②③④ PASS/FAIL with one-line evidence, then the
    AUTO-PASS / AUTO-FAIL / **MANUAL-residue** section. The MANUAL section is mandatory even when
    everything auto-passed.

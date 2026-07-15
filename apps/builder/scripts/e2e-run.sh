@@ -7,7 +7,7 @@
 #   wait <taskId> [--timeout-min 20]   # poll until settled; timeout exits CLEANLY (code 5, re-invokable)
 #   confirm <taskId> [actionId]        # no arg → auto-picks ONLY 'continue' (never accept/discard)
 #   reply <taskId> "<feedback>"
-#   check <taskId> --expect <suite-id> [--suite <path>]   # OFFLINE — reads .runs/<id>/task.json
+#   check <taskId> --expect <suite-id> [--suite <path>] [--save-baseline]  # OFFLINE; cost gate (060)
 #   time <taskId>                      # OFFLINE per-phase + total wall-clock (before/after speed fix)
 #   bench "<prompt>" | bench --entry <id>  # fire → wait → timing + check, one command one number
 #   suite                              # list suite entry ids
@@ -168,8 +168,13 @@ cmd_time() {
 }
 
 cmd_bench() {
-  # One command → one repeatable number: fire (auto) → wait → timing + 3-bucket check. For the
-  # before/after speed-comparison workflow. Accepts a raw prompt OR --entry <suite-id>.
+  # One command → fire (auto) → wait → [check, for --entry] → timing + cost table. For the
+  # before/after speed-comparison workflow. Accepts a raw prompt OR --entry <suite-id>. With
+  # --entry it ALSO runs the 3-bucket + cost `check` (spec 060); a raw prompt has no entry to check
+  # against, so it prints PERFORMANCE only (timing + cost).
+  local entry="" i
+  local a=("$@")
+  for ((i=0; i<${#a[@]}; i++)); do [ "${a[i]}" = "--entry" ] && entry="${a[i+1]:-}"; done
   local out id
   out=$(cmd_fire "$@") || { local rc=$?; echo "$out" >&2; exit "$rc"; }  # keep fire's exit code
   id=$(jq -r '.taskId' <<<"$out")
@@ -178,6 +183,8 @@ cmd_bench() {
   ( cmd_wait "$id" ) >/dev/null 2>&1 || true
   local status; status=$(jq -r '.status' "$ROOT/apps/builder/.runs/$id/task.json" 2>/dev/null)
   echo "=== run $id (status=$status) ==="
+  # Subshell + || true so a check auto-fail (or its exit paths) never aborts the timing display.
+  [ -n "$entry" ] && { ( cmd_check "$id" --expect "$entry" ) || true; echo; }
   cmd_time "$id"
 }
 
@@ -191,11 +198,12 @@ cmd_cancel() {
 
 cmd_check() {
   local id=${1:-}; shift || true
-  local expect="" suite="$SUITE"
+  local expect="" suite="$SUITE" save_baseline=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --expect) need_val "$#" "$1"; expect=$2; shift 2 ;;
-      --suite)  need_val "$#" "$1"; suite=$2; shift 2 ;;
+      --expect)        need_val "$#" "$1"; expect=$2; shift 2 ;;
+      --suite)         need_val "$#" "$1"; suite=$2; shift 2 ;;
+      --save-baseline) save_baseline=1; shift ;;   # spec 060: record this run's cost profile
       *) echo "unknown flag $1" >&2; usage ;;
     esac
   done
@@ -203,14 +211,19 @@ cmd_check() {
   # OFFLINE by design — task.json.artifacts is server-authoritative and survives a backend stop.
   local tj="$ROOT/apps/builder/.runs/$id/task.json"
   [ -f "$tj" ] || { echo "check: no $tj — wrong taskId or run pruned" >&2; exit 6; }
-  local a w r args=()
+  local a w r
+  local args=(--suite "$suite" --entry "$expect" --task-json "$tj" --baselines "$SCRIPT_DIR/e2e-baselines.json")
+  [ "$(jq -r '.fastMode // false' "$tj")" = true ] && args+=(--fast)   # spec 060 expected-phase set
+  [ -n "$save_baseline" ] && args+=(--save-baseline)
   a=$(jq -r '.artifacts.analyze   // empty' "$tj")
   w=$(jq -r '.artifacts.implement // empty' "$tj")
   r=$(jq -r '.artifacts.report    // empty' "$tj")
   [ -n "$a" ] && args+=(--analyze  "$ROOT/$a")
   [ -n "$w" ] && args+=(--workflow "$ROOT/$w")
   [ -n "$r" ] && args+=(--report   "$ROOT/$r")
-  exec "$PY" "$SCRIPT_DIR/e2e_check.py" --suite "$suite" --entry "$expect" "${args[@]}"
+  # NOT exec — so a caller (cmd_bench) can continue to cmd_time after this. Standalone `check`
+  # still propagates e2e_check.py's exit code (0 ok / 1 auto-fail / 2 usage) as the function return.
+  "$PY" "$SCRIPT_DIR/e2e_check.py" "${args[@]}"
 }
 
 case "${1:-}" in
