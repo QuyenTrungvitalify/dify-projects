@@ -66,6 +66,20 @@ export function editExistingDuplicateWarning(task: Task): string | null {
 // import cycle). Re-exported so every existing consumer keeps importing it from report.ts.
 export { hasUnresolvedPluginTodo };
 
+/** Spec 057 S4 — the trigger-entry manual-enable advisory. ONE string, shared by the report notes
+ *  (below) and the ④ live gate card (live-test.ts appends it to the parked result's reason). */
+// wording-stable (NOTE_JA keys off this)
+export const TRIGGER_ENTRY_NOTE =
+  'trigger-entry workflow: an API run is a manual fire — the schedule/webhook only runs ' +
+  'automatically after you ENABLE the trigger in Dify Studio Quick Settings';
+
+/** Spec 057 S4 — pure-text predicate (the hasUnresolvedPluginTodo precedent): does the workflow
+ *  YAML declare a trigger-* entry node (trigger-schedule / trigger-webhook / trigger-plugin)?
+ *  Matches the node-body `type:` line, quoted or not. */
+export function hasTriggerEntry(yamlText: string): boolean {
+  return /^\s*type:\s*['"]?trigger-/m.test(yamlText);
+}
+
 /** The Dify Studio manual-import steps for the cloud path (AC #9) — copyable YAML lives in main.yml. */
 function cloudStudioNote(wfRel: string): string {
   return (
@@ -113,9 +127,13 @@ export async function runReport(
 
   // D2 (spec 017): advisory — a left-over `dependencies: [] + # TODO plugin hash` lints clean but
   // breaks a selfhost/cloud import. Surface it as a NOTE; it NEVER feeds `lintClean` or the gate.
+  // Spec 057 S4: same read also feeds the trigger-entry predicate (one file read, two advisories).
   let unresolvedPluginTodo = false;
+  let triggerEntry = false;
   try {
-    unresolvedPluginTodo = hasUnresolvedPluginTodo(await readFile(join(projectsDir, wfRel), 'utf8'));
+    const yamlText = await readFile(join(projectsDir, wfRel), 'utf8');
+    unresolvedPluginTodo = hasUnresolvedPluginTodo(yamlText);
+    triggerEntry = hasTriggerEntry(yamlText);
   } catch {
     /* unreadable workflow → the lint gate above already recorded the real failure; not our concern */
   }
@@ -173,6 +191,12 @@ export async function runReport(
         ? 'add the plugin hash before deploying.'
         : 'add the plugin hash from the target workspace BEFORE import (the import will fail otherwise).';
     noteParts.push(`unresolved_plugin_todo: dependencies are empty but a "# TODO add plugin hash" remains — ${tail}`);
+  }
+  // Spec 057 S4: trigger-entry advisory — an imported trigger workflow does NOTHING on its own until
+  // the trigger is ENABLED in Dify Studio Quick Settings. Only the deploy paths that import (selfhost/
+  // cloud) carry it; advisory only — never feeds lintClean or the gate.
+  if (triggerEntry && (task.deploy === 'selfhost' || task.deploy === 'cloud')) {
+    noteParts.push(TRIGGER_ENTRY_NOTE);
   }
   // The duplicate warning leads the notes so the UI surfaces it prominently (spec footgun).
   if (duplicateWarning) noteParts.unshift(`⚠ ${duplicateWarning}`);

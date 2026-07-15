@@ -456,3 +456,67 @@ def test_all_pattern_templates_still_lint_clean(tmp_path: Path) -> None:
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# ── Spec 057 — trigger-entry support: ENTRY_TYPES + ≤1 schedule ───────────────────────────────
+
+_TRIG_ID = "1000000000010"
+_TRIG2_ID = "1000000000013"
+_TCODE_ID = "1000000000011"
+_TEND_ID = "1000000000012"
+
+
+def _entry_wf(nodes: list[dict], edges: list | None = None) -> dict:
+    return {
+        "kind": "app",
+        "version": "0.6.0",
+        "app": {"name": "t", "mode": "workflow"},
+        "workflow": {"graph": {"nodes": nodes, "edges": edges or []}},
+    }
+
+
+def _trigger_nodes() -> list[dict]:
+    return [
+        {"id": _TRIG_ID, "data": {"type": "trigger-schedule", "mode": "visual",
+                                  "frequency": "daily", "timezone": "Asia/Tokyo"}},
+        {"id": _TCODE_ID, "data": {"type": "code", "code_language": "python3",
+                                   "code": 'def main() -> dict:\n    return {"msg": "ok"}\n',
+                                   "outputs": {"msg": {"type": "string"}}, "variables": []}},
+        {"id": _TEND_ID, "data": {"type": "end",
+                                  "outputs": [{"variable": "msg",
+                                               "value_selector": [_TCODE_ID, "msg"]}]}},
+    ]
+
+
+def _trigger_edges() -> list[dict]:
+    return [
+        {"id": f"{_TRIG_ID}-source-{_TCODE_ID}-target", "source": _TRIG_ID, "target": _TCODE_ID},
+        {"id": f"{_TCODE_ID}-source-{_TEND_ID}-target", "source": _TCODE_ID, "target": _TEND_ID},
+    ]
+
+
+def test_trigger_schedule_entry_passes(tmp_path: Path) -> None:
+    """Spec 057 S1: a trigger-schedule entry satisfies the entry-node rule (no start needed)."""
+    is_valid, errors, _ = _validate(tmp_path, _entry_wf(_trigger_nodes(), _trigger_edges()))
+    assert is_valid, errors
+    assert not _has(errors, "entry node"), errors
+
+
+def test_zero_entry_workflow_errors(tmp_path: Path) -> None:
+    """Spec 057 S1: no start AND no trigger → the new entry-node error fires."""
+    nodes = _trigger_nodes()[1:]  # code + end only
+    is_valid, errors, _ = _validate(tmp_path, _entry_wf(nodes, [_trigger_edges()[1]]))
+    assert not is_valid
+    assert _has(errors, "at least one entry node (start or trigger-*)"), errors
+
+
+def test_two_schedule_triggers_error(tmp_path: Path) -> None:
+    """Spec 057 S1: Dify allows at most ONE schedule trigger per workflow."""
+    nodes = _trigger_nodes() + [{"id": _TRIG2_ID, "data": {"type": "trigger-schedule",
+                                                           "mode": "visual", "frequency": "daily",
+                                                           "timezone": "Asia/Tokyo"}}]
+    edges = _trigger_edges() + [{"id": f"{_TRIG2_ID}-source-{_TCODE_ID}-target",
+                                 "source": _TRIG2_ID, "target": _TCODE_ID}]
+    is_valid, errors, _ = _validate(tmp_path, _entry_wf(nodes, edges))
+    assert not is_valid
+    assert _has(errors, "at most one"), errors

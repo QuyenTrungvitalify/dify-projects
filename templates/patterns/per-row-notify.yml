@@ -23,9 +23,10 @@
 #   4. Model choice (provider/name are blank placeholders — configure in Dify or let the
 #      builder inject at test/deploy).
 #
-# GOTCHA: `today` is a START INPUT, not computed in a code node — the Dify sandbox timezone can
-#   differ from the business timezone, so date-boundary judgments silently shift if computed
-#   inside. Inject the run date from the caller (spec 050 D2b, from the proven build).
+# GOTCHA: run-date rule (spec 056 two-form; refines spec 050 D2b): date-boundary judgments must
+#   not depend on the sandbox's implicit timezone. Machine caller (cron → API): require `today`
+#   as a START input (this pattern's default). Human operator: make `today` `required: false`
+#   with an in-code fallback pinned to the business timezone — never naive `now()`.
 # GOTCHA: services with a CUSTOM auth header (ChatWork-style token headers, many webhook tokens)
 #   use `authorization: { type: no-auth }` + the token in `headers:` via an environment variable
 #   (`name:` form, value_type secret) — do NOT force api-key auth types that rewrite headers.

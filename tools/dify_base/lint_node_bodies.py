@@ -101,10 +101,12 @@ TYPE_TO_DEF: dict[str, str | None] = {
     "start": "NodeData_StartNodeData",
     "template-transform": "NodeData_TemplateTransformNodeData",
     "tool": "NodeData_ToolNodeData",
-    "trigger-event": "NodeData_TriggerEventNodeData",
+    # Spec 057: keys are Dify's WIRE type strings (core/trigger/constants.py) — the old keys
+    # "trigger-event"/"webhook" never matched a real node, so those bodies were silently warn-skipped.
+    "trigger-plugin": "NodeData_TriggerEventNodeData",  # irregular: plugin node's data class is TriggerEvent
     "trigger-schedule": "NodeData_TriggerScheduleNodeData",
+    "trigger-webhook": "NodeData_WebhookData",  # irregular: no 'Node' in the def name
     "variable-aggregator": "NodeData_VariableAggregatorNodeData",
-    "webhook": "NodeData_WebhookData",  # irregular: no 'Node' in the def name
 }
 
 # def name → required fields demoted to stderr warnings (spec 038 D3). SHIPS EMPTY: whether

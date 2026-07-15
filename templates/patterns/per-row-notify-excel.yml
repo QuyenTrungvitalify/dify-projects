@@ -1,0 +1,613 @@
+# Pattern: Per-Row Conditional Notify — Excel upload front-end (file → extract → parse → iterate)
+#
+# Use case: the operator uploads the raw Excel files they already have (a rows list + a
+# key→destination mapping); the workflow extracts and parses them IN-FLOW, then decides PER ROW
+# whether to act and POSTs a message to the destination looked up per row. This is the
+# start-node-as-trigger shape (spec 056, スタートノードをトリガー): Start asks ONLY for raw
+# artifacts the operator physically has — no pre-digested JSON, no hand-typed column names or
+# dates. Distilled from a field-proven ChatWork reminder rework (production build, 2026-07).
+#
+# Flow:
+#   Start (rows Excel + mapping Excel — two file-list inputs, nothing else)
+#     → Document Extractor ×2 (xlsx → markdown table, array[string])
+#     → Code: parse mapping (key → destination map, JSON string)
+#     → Code: parse rows (guarded column access → array[string] + count)
+#     → Iteration (parallel, continue-on-error) over rows:
+#         Code: judge row (should_notify? + destination)
+#         → If-Else: notify?
+#             true  → LLM: compose message → HTTP: POST to destination
+#             false → (skip)
+#         → Variable Aggregator: collect row results
+#     → End (aggregated results + row_count — truncation is always visible)
+#
+# Customization points (`# TODO:`):
+#   1. Column constants in "Parse rows" (NAME_COL / TARGET_COL) + the Start hints — match YOUR
+#      sheet layout. Header row is skipped by both parsers.
+#   2. Judge logic in "Judge row" — your emptiness/eligibility rule.
+#   3. HTTP node: endpoint URL + auth header for YOUR service (Slack/Teams/ChatWork/custom).
+#   4. LLM prompts — tone + language of the message.
+#   5. Model choice (provider/name are blank placeholders — configure in Dify or let the
+#      builder inject at test/deploy).
+#
+# GOTCHA: run-date rule (spec 056, supersedes the absolutist spec 050 D2b form): date-boundary
+#   judgments must not depend on the sandbox's implicit timezone. Machine caller (cron → API):
+#   require a `today` Start input. Human operator (this pattern's default): if your judge needs a
+#   date, add an OPTIONAL `today` input with an in-code fallback explicitly pinned to the
+#   business timezone — e.g. datetime.now(timezone(timedelta(hours=9))) for JST — never naive
+#   now(). This pattern's default judge is date-free.
+# GOTCHA: document-extractor renders xlsx as a MARKDOWN TABLE (and outputs array[string] when
+#   is_array_file is true — unwrap the first element). Cells containing a literal `|` will split
+#   wrong; keep such data out of the judged columns or pre-clean the sheet.
+# GOTCHA: parse code guards every fixed-column access (len(cells) > COL) and always RETURNS —
+#   never raises. The ④ live test uploads a generic 2-column sample.xlsx for every file input, so
+#   an unguarded cells[N] would fail every pattern-derived live test.
+# GOTCHA: iteration hard limit is ≤30 items (constraints.md §2). Need more? Batch BEFORE the
+#   iteration — and if you cap the number of batches, End MUST carry a truncated signal; never
+#   slice the batch list silently (row_count exists so a cap is visible).
+# GOTCHA: services with a CUSTOM auth header (ChatWork-style token headers, many webhook tokens)
+#   use `authorization: { type: no-auth }` + the token in `headers:` via an environment variable
+#   (`name:` form, value_type secret) — do NOT force api-key auth types that rewrite headers.
+# GOTCHA: this shape is NOT idempotent — re-running re-notifies every matching row. If re-runs
+#   must be safe, dedup upstream or record sent-state outside the workflow.
+#
+# x-provenance: source=original repo=
+#   commit= file="リスト入力催促ChatWork通知フロー.yml (field export, not committed)" orig_sha256= promoted=2026-07-13
+#   license=MIT spec=056 known_good_dify=1.13.0
+app:
+  description: 'Excel upload → per-row conditional notify: extract and parse the uploaded rows/mapping files in-flow, judge each row, POST each hit to a mapped destination; Start asks only for the raw files (start-node-as-trigger)'
+  icon: "\U0001F4E4"
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: per_row_notify_excel
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables:
+  # TODO: rename to your service's token; env vars use `name:` (NOT `variable:` — import fails)
+  - name: NOTIFY_API_TOKEN
+    value_type: secret
+    value: ''
+  features:
+    file_upload: { enabled: false }
+    opening_statement: ''
+    retriever_resource: { enabled: false }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: 1783928312574-source-1783928312577-target
+      source: '1783928312574'
+      target: '1783928312577'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: document-extractor }
+      zIndex: 0
+    - id: 1783928312574-source-1783928312579-target
+      source: '1783928312574'
+      target: '1783928312579'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: document-extractor }
+      zIndex: 0
+    - id: 1783928312577-source-1783928312583-target
+      source: '1783928312577'
+      target: '1783928312583'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: document-extractor, targetType: code }
+      zIndex: 0
+    - id: 1783928312579-source-1783928312581-target
+      source: '1783928312579'
+      target: '1783928312581'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: document-extractor, targetType: code }
+      zIndex: 0
+    - id: 1783928312583-source-1783928312586-target
+      source: '1783928312583'
+      target: '1783928312586'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: iteration }
+      zIndex: 0
+    - id: 1783928312581-source-1783928312586-target
+      source: '1783928312581'
+      target: '1783928312586'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: iteration }
+      zIndex: 0
+    - id: 1783928312586-source-1783928312599-target
+      source: '1783928312586'
+      target: '1783928312599'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: iteration, targetType: end }
+      zIndex: 0
+    - id: 1783928312586start-source-1783928312588-target
+      source: 1783928312586start
+      target: '1783928312588'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1783928312586', sourceType: iteration-start, targetType: code }
+      zIndex: 1002
+    - id: 1783928312588-source-1783928312590-target
+      source: '1783928312588'
+      target: '1783928312590'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1783928312586', sourceType: code, targetType: if-else }
+      zIndex: 1002
+    - id: 1783928312590-true-1783928312592-target
+      source: '1783928312590'
+      target: '1783928312592'
+      sourceHandle: 'true'
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1783928312586', sourceType: if-else, targetType: llm }
+      zIndex: 1002
+    - id: 1783928312590-false-1783928312597-target
+      source: '1783928312590'
+      target: '1783928312597'
+      sourceHandle: 'false'
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1783928312586', sourceType: if-else, targetType: variable-aggregator }
+      zIndex: 1002
+    - id: 1783928312592-source-1783928312595-target
+      source: '1783928312592'
+      target: '1783928312595'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1783928312586', sourceType: llm, targetType: http-request }
+      zIndex: 1002
+    - id: 1783928312595-source-1783928312597-target
+      source: '1783928312595'
+      target: '1783928312597'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1783928312586', sourceType: http-request, targetType: variable-aggregator }
+      zIndex: 1002
+    nodes:
+    - id: '1783928312574'
+      type: custom
+      data:
+        title: Start
+        type: start
+        variables:
+        # TODO: adjust allowed_file_extensions + hints to YOUR sheet layout
+        - variable: list_file
+          label: Rows list file (Excel)
+          type: file-list
+          required: true
+          max_length: 1
+          allowed_file_types:
+          - document
+          allowed_file_extensions:
+          - .xlsx
+          allowed_file_upload_methods:
+          - local_file
+          hint: 'Header row is skipped. Columns are picked by NAME_COL / TARGET_COL constants in "Parse rows" — adjust them for your sheet.'
+          options: []
+          placeholder: ''
+        - variable: map_file
+          label: Key -> destination mapping file (Excel)
+          type: file-list
+          required: true
+          max_length: 1
+          allowed_file_types:
+          - document
+          allowed_file_extensions:
+          - .xlsx
+          allowed_file_upload_methods:
+          - local_file
+          hint: 'Two columns: key (col 0) -> destination id/url (col 1). Header row is skipped.'
+          options: []
+          placeholder: ''
+      position: { x: 0, y: 160 }
+      positionAbsolute: { x: 0, y: 160 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1783928312577'
+      type: custom
+      data:
+        title: Extract rows file
+        type: document-extractor
+        is_array_file: true
+        variable_selector: ['1783928312574', list_file]
+      position: { x: 300, y: 60 }
+      positionAbsolute: { x: 300, y: 60 }
+      width: 242
+      height: 92
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1783928312579'
+      type: custom
+      data:
+        title: Extract mapping file
+        type: document-extractor
+        is_array_file: true
+        variable_selector: ['1783928312574', map_file]
+      position: { x: 300, y: 260 }
+      positionAbsolute: { x: 300, y: 260 }
+      width: 242
+      height: 92
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1783928312581'
+      type: custom
+      data:
+        title: Parse mapping
+        type: code
+        code_language: python3
+        # GOTCHA: the extractor renders xlsx as a markdown table; is_array_file → array[string]
+        code: |
+          import json
+
+
+          def _is_separator(cells):
+              return all(c == "" or set(c) <= {"-", ":"} for c in cells)
+
+
+          def _clean(value):
+              value = (value or "").strip()
+              return "" if value.lower() == "nan" else value
+
+
+          def main(text_list: list) -> dict:
+              text = text_list[0] if isinstance(text_list, list) and text_list else ""
+              rows = []
+              for line in (text or "").splitlines():
+                  stripped = line.strip()
+                  if not stripped.startswith("|"):
+                      continue
+                  cells = [c.strip() for c in stripped.strip("|").split("|")]
+                  if all(c == "" for c in cells) or _is_separator(cells):
+                      continue
+                  rows.append(cells)
+              if rows:
+                  rows = rows[1:]  # skip the header row
+              mapping = {}
+              for cells in rows:
+                  key = _clean(cells[0]) if len(cells) > 0 else ""
+                  dest = _clean(cells[1]) if len(cells) > 1 else ""
+                  if key and dest:
+                      mapping[key] = dest
+              return {"map_json": json.dumps(mapping, ensure_ascii=False)}
+        outputs:
+          map_json: { type: string, children: null }
+        variables:
+        - value_selector: ['1783928312579', text]
+          value_type: 'array[string]'
+          variable: text_list
+      position: { x: 600, y: 260 }
+      positionAbsolute: { x: 600, y: 260 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1783928312583'
+      type: custom
+      data:
+        title: Parse rows
+        type: code
+        code_language: python3
+        # TODO: set NAME_COL / TARGET_COL to your sheet's 0-based column positions
+        # GOTCHA: every cells[N] access is length-guarded and main() always RETURNS — the ④ live
+        #   test uploads a generic 2-column sample.xlsx, so an unguarded index would crash it
+        code: |
+          import json
+
+          NAME_COL = 0
+          TARGET_COL = 1
+
+
+          def _is_separator(cells):
+              return all(c == "" or set(c) <= {"-", ":"} for c in cells)
+
+
+          def _clean(value):
+              value = (value or "").strip()
+              return "" if value.lower() == "nan" else value
+
+
+          def main(text_list: list) -> dict:
+              text = text_list[0] if isinstance(text_list, list) and text_list else ""
+              table = []
+              for line in (text or "").splitlines():
+                  stripped = line.strip()
+                  if not stripped.startswith("|"):
+                      continue
+                  cells = [c.strip() for c in stripped.strip("|").split("|")]
+                  if all(c == "" for c in cells) or _is_separator(cells):
+                      continue
+                  table.append(cells)
+              if table:
+                  table = table[1:]  # skip the header row
+              items = []
+              for cells in table:
+                  name = _clean(cells[NAME_COL]) if len(cells) > NAME_COL else ""
+                  target = _clean(cells[TARGET_COL]) if len(cells) > TARGET_COL else ""
+                  if not name:
+                      continue
+                  items.append(json.dumps({"name": name, "target": target}, ensure_ascii=False))
+              return {"items": items, "count": len(items)}
+        outputs:
+          items: { type: 'array[string]', children: null }
+          count: { type: number, children: null }
+        variables:
+        - value_selector: ['1783928312577', text]
+          value_type: 'array[string]'
+          variable: text_list
+      position: { x: 600, y: 60 }
+      positionAbsolute: { x: 600, y: 60 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1783928312586'
+      type: custom
+      data:
+        title: Per row (Iteration)
+        type: iteration
+        error_handle_mode: continue-on-error
+        is_parallel: true
+        parallel_nums: 2
+        iterator_input_type: 'array[string]'
+        iterator_selector: ['1783928312583', items]
+        output_selector: ['1783928312597', output]
+        output_type: 'array[string]'
+        start_node_id: 1783928312586start
+        width: 1400
+        height: 360
+      position: { x: 900, y: 60 }
+      positionAbsolute: { x: 900, y: 60 }
+      width: 1400
+      height: 360
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1
+
+    - id: 1783928312586start
+      type: custom-iteration-start
+      data:
+        title: ''
+        type: iteration-start
+        desc: ''
+        isInIteration: true
+      parentId: '1783928312586'
+      position: { x: 24, y: 90 }
+      positionAbsolute: { x: 924, y: 150 }
+      width: 44
+      height: 48
+      sourcePosition: right
+      targetPosition: left
+      draggable: false
+      selectable: false
+      zIndex: 1002
+
+    - id: '1783928312588'
+      type: custom
+      data:
+        title: Judge row
+        type: code
+        code_language: python3
+        isInIteration: true
+        iteration_id: '1783928312586'
+        # TODO: replace the judge logic — decide should_notify + destination for YOUR rule
+        #   (default: notify when the target cell is EMPTY and the name maps to a destination;
+        #    need a date rule? see the run-date GOTCHA in the pattern header)
+        code: |
+          import json
+
+
+          def main(item_json: str, map_json: str) -> dict:
+              try:
+                  row = json.loads(item_json) if item_json else {}
+              except Exception:
+                  row = {}
+              if not isinstance(row, dict):
+                  row = {}
+              try:
+                  dest_map = json.loads(map_json) if map_json else {}
+              except Exception:
+                  dest_map = {}
+              if not isinstance(dest_map, dict):
+                  dest_map = {}
+              name = str(row.get("name", "") or "")
+              target = row.get("target", "")
+              is_empty = target is None or str(target).strip() == ""
+              destination = str(dest_map.get(name, "") or "")
+              should = bool(is_empty and name and destination)
+              return {"should_notify": should, "name": name, "destination": destination}
+        outputs:
+          should_notify: { type: boolean, children: null }
+          name: { type: string, children: null }
+          destination: { type: string, children: null }
+        variables:
+        - value_selector: ['1783928312586', item]
+          value_type: string
+          variable: item_json
+        - value_selector: ['1783928312581', map_json]
+          value_type: string
+          variable: map_json
+      parentId: '1783928312586'
+      extent: parent
+      position: { x: 100, y: 90 }
+      positionAbsolute: { x: 1000, y: 150 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1783928312590'
+      type: custom
+      data:
+        title: Notify?
+        type: if-else
+        isInIteration: true
+        iteration_id: '1783928312586'
+        logical_operator: and
+        conditions:
+        - variable_selector: ['1783928312588', should_notify]
+          comparison_operator: is
+          value: 'true'
+        cases:
+        - case_id: 'true'
+          id: 'true'
+          logical_operator: and
+          conditions:
+          - variable_selector: ['1783928312588', should_notify]
+            comparison_operator: is
+            value: 'true'
+      parentId: '1783928312586'
+      extent: parent
+      position: { x: 380, y: 90 }
+      positionAbsolute: { x: 1280, y: 150 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1783928312592'
+      type: custom
+      data:
+        title: Compose message (LLM)
+        type: llm
+        isInIteration: true
+        iteration_id: '1783928312586'
+        model:
+          # TODO: configure model (or let the builder inject at live test/deploy)
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.3
+        prompt_template:
+        - id: 1783928312592-prompt-system
+          role: system
+          # TODO: tone + language of the message for your audience
+          text: 'You write short, polite reminder messages. Output the message body only.'
+        - id: 1783928312592-prompt-user
+          role: user
+          text: 'Write a one-sentence reminder for {{#1783928312588.name#}}.'
+        context:
+          enabled: false
+          variable_selector: []
+        vision:
+          enabled: false
+      parentId: '1783928312586'
+      extent: parent
+      position: { x: 660, y: 40 }
+      positionAbsolute: { x: 1560, y: 100 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1783928312595'
+      type: custom
+      data:
+        title: Notify destination (HTTP)
+        type: http-request
+        isInIteration: true
+        iteration_id: '1783928312586'
+        method: POST
+        # TODO: your service's endpoint — the per-row destination from the Judge node rides in the URL
+        url: 'https://example.invalid/notify/{{#1783928312588.destination#}}'
+        # GOTCHA: custom auth header + no-auth type (see pattern header) — token via env secret
+        authorization: { type: no-auth }
+        # TODO: your service's auth header name
+        headers: |
+          X-Api-Token: {{#env.NOTIFY_API_TOKEN#}}
+        params: ''
+        body:
+          type: x-www-form-urlencoded
+          data:
+          - key: body
+            type: text
+            value: '{{#1783928312592.text#}}'
+        timeout: { connect: 10, read: 30, write: 30 }
+        ssl_verify: true
+      parentId: '1783928312586'
+      extent: parent
+      position: { x: 940, y: 40 }
+      positionAbsolute: { x: 1840, y: 100 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1783928312597'
+      type: custom
+      data:
+        title: Collect row results
+        type: variable-aggregator
+        isInIteration: true
+        iteration_id: '1783928312586'
+        output_type: string
+        variables:
+        - - '1783928312592'
+          - text
+        - - '1783928312588'
+          - name
+      parentId: '1783928312586'
+      extent: parent
+      position: { x: 1160, y: 90 }
+      positionAbsolute: { x: 2060, y: 150 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1783928312599'
+      type: custom
+      data:
+        title: Output
+        type: end
+        outputs:
+        - variable: results
+          value_selector: ['1783928312586', output]
+          value_type: 'array[string]'
+        # row_count makes any upstream cap/batching visible — never truncate silently
+        - variable: row_count
+          value_selector: ['1783928312583', count]
+          value_type: number
+      position: { x: 2400, y: 160 }
+      positionAbsolute: { x: 2400, y: 160 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.5 }

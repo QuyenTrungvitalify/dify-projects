@@ -98,3 +98,32 @@ describe('localizeNotes (spec 045 — turn-failure triage frames)', () => {
     for (const [en] of CASES) expect(localizeNotes(en)).toBe(en);
   });
 });
+
+// ── Spec 057 S4 — the trigger-entry manual-enable advisory (report notes + ④ live reason) ───────
+describe('localizeNotes (spec 057 S4 — trigger-entry frame)', () => {
+  // Wording-stable: report.ts TRIGGER_ENTRY_NOTE byte-exact (also appended by live-test.ts).
+  const EN =
+    'trigger-entry workflow: an API run is a manual fire — the schedule/webhook only runs ' +
+    'automatically after you ENABLE the trigger in Dify Studio Quick Settings';
+  const JA =
+    'トリガー起動のワークフローです。上のテスト実行は手動実行です — スケジュール/Webhook の自動起動は ' +
+    'Studio の Quick Settings でトリガーを有効化した後に作動します';
+
+  it('ja: translates the frame in full (no English residue)', () => {
+    setLang('ja');
+    expect(localizeNotes(EN)).toBe(JA);
+  });
+
+  it('ja: translates it embedded in a larger notes blob / appended to the live reason', () => {
+    setLang('ja');
+    const out = localizeNotes(`all linters passed ${EN}`);
+    expect(out).toContain('すべてのリンターが成功しました');
+    expect(out).toContain('トリガー起動のワークフローです');
+    expect(out).not.toContain('manual fire');
+  });
+
+  it('en: passes through unchanged', () => {
+    setLang('en');
+    expect(localizeNotes(EN)).toBe(EN);
+  });
+});

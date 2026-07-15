@@ -755,6 +755,12 @@ const NOTE_JA: [RegExp, string][] = [
     /need sample input for: (.+?) — provide it via \/reply then test again/g,
     'サンプル入力が必要です: $1 — /reply で入力してから再テストしてください',
   ],
+  // spec 057 S4: the trigger-entry manual-enable advisory (report notes + the ④ live reason —
+  // wording-stable in report.ts TRIGGER_ENTRY_NOTE).
+  [
+    /trigger-entry workflow: an API run is a manual fire — the schedule\/webhook only runs automatically after you ENABLE the trigger in Dify Studio Quick Settings/g,
+    'トリガー起動のワークフローです。上のテスト実行は手動実行です — スケジュール/Webhook の自動起動は Studio の Quick Settings でトリガーを有効化した後に作動します',
+  ],
   // spec 032: the `infra_degraded` reason (live run couldn't reach Dify). Two backend prefixes wrap a
   // sync.py `_fmt_request_error` variant; translate the fixed phrases, keep the exception class name.
   [/run could not complete: /g, 'ライブ実行を完了できませんでした: '],

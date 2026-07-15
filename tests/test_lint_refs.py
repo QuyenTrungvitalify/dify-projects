@@ -19,6 +19,8 @@ EXPECTED: dict[str, int] = {
     "bad_value_selector.yml": 1,
     "mixed_errors.yml": 1,
     "code_with_string_ref.yml": 1,  # Q3.3 lenient: treat literal as a ref
+    "reach_trigger_valid.yml": 0,  # spec 057: trigger entry anchors reachability — clean chain
+    "reach_trigger_fwd.yml": 1,  # spec 057: forward ref under a trigger entry now HARD-fails
 }
 
 

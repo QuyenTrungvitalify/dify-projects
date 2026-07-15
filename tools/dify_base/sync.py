@@ -751,13 +751,20 @@ def cmd_inject_model(args) -> int:
     out.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
     # Spec 032: the app mode decides the run endpoint (workflow vs chat vs completion). Prefer app.mode;
     # else infer from node types (an `answer` node ⇒ chat-like, else workflow).
+    types = {(n.get("data") or {}).get("type") for n in nodes}
     mode = (data.get("app") or {}).get("mode") or ""
     if not mode:
-        types = {(n.get("data") or {}).get("type") for n in nodes}
         mode = "advanced-chat" if "answer" in types else "workflow"
+    # Spec 057: surface the ENTRY node types so the Builder can tell a trigger-entry workflow
+    # (no /workflows/run surface — ④ must skip the run step) from a normal start workflow.
+    # Detection must NOT key off `inputs == []` (a zero-variable start workflow runs fine).
+    entry_types = sorted(
+        t for t in types if t in ("start", "trigger-schedule", "trigger-webhook", "trigger-plugin")
+    )
     print(json.dumps({
         "node_count": len(patched), "llm_count": len(llm_nodes), "patched": patched,
         "out": str(out.relative_to(BASE)), "inputs": inputs_schema, "mode": mode,
+        "entry_types": entry_types,
     }))
     return 0
 

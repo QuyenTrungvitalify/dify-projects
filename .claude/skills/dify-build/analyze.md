@@ -44,7 +44,14 @@ is the **intent checkpoint** (they Continue if it matches, or Request changes to
 drafted):
 - **goal** — one line: what the workflow should do;
 - **key requirements / constraints** — a few bullets (the points the user should verify are right);
-- **expected input → output**.
+- **expected input → output** — name the **trigger surface**: who runs this (human in Studio / external
+  system via API) and what they hand over **in the raw form they possess it** (uploaded file(s)? pasted
+  text? nothing?). If the requirement names a file format (Excel / CSV / PDF / 画像 …), the input line
+  says *file input*, not a derived text form. A requirement that should run BY ITSELF (毎日・毎朝・定期・
+  スケジュール・自動で・〜をトリガーに・webhook経由) has a **trigger node** as its surface, not a user
+  upload — name the type (schedule/webhook) and, for schedules, the intended time + timezone. Autonomous
+  modes: assume `trigger-schedule` when a cadence is named and state the assumption (e.g.
+  「毎朝9時のスケジュール起動（前提）」).
 
 Write it in the requirement's language. Keep it brief — this is a digest, not a design.
 
@@ -53,8 +60,13 @@ to check intent, not to see how you worked. Never surface `find.py`/`--has` flag
 tool-reasoning, "単一の--has", or how you picked the pattern — that provenance belongs in `analyze.json`
 (`find_query`/`features`), not the chat. State the pattern plainly (or skip naming it if it is `custom`);
 describe the shape in everyday words. If a real ambiguity in `{{REQUIREMENT}}` blocks a correct design (e.g.
-a missing field), ask ONE concise clarifying question at the end — that is the whole point of this
-checkpoint — but do not pad the overview with internal reasoning.
+a missing field, or the raw form of the runtime input — file vs pasted text — is unnamed), ask ONE concise
+clarifying question at the end — that is the whole point of this checkpoint — but do not pad the overview
+with internal reasoning. When multiple blocking ambiguities exist, combine them into the single question.
+Autonomous modes (`auto`/`spec_only`) auto-confirm this gate, so never make the digest DEPEND on an answer:
+if a file format is named, assume file input and state the assumption in the input line (e.g.
+「Excelファイルをアップロード（前提）」); if no concrete artifact is named, default to pasted text and
+record that as the open point.
 
 ## Then, branch on whether there is a seed
 
@@ -65,7 +77,7 @@ No seed to summarize, so this stays an **overview** (Spec owns the real graph). 
    (you actually ran it now — recording it is truthful, not invented).
 2. **features** — the `find.py --has` features this request NEEDS. Use the vocabulary VERBATIM: `iteration,
    loop, code, llm, http-request, tool, if-else, document-extractor, knowledge-retrieval, agent, file-input,
-   template-transform, parameter-extractor`.
+   template-transform, parameter-extractor, trigger`.
 3. **planned_nodes** — a ROUGH sketch of the node line (`start → … → end`), one-line purpose each. A sketch
    to orient Spec, **not** the final graph.
 Do **NOT** invent `change_points` (no seed to diff — Spec owns the target graph) and omit `nodes`/`var_flow`/

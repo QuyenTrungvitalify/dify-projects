@@ -52,13 +52,19 @@ No seed was classified, so record only what is true. **`features` is MANDATORY o
 - **MUST** set `"seed": null` and `"pattern": "custom"` (no seed classification ran).
 - **MUST** write `"features"` as a **non-empty** array using the find.py vocabulary VERBATIM
   (`iteration, loop, code, llm, http-request, tool, if-else, document-extractor,
-  knowledge-retrieval, agent, file-input, template-transform, parameter-extractor`):
+  knowledge-retrieval, agent, file-input, template-transform, parameter-extractor, trigger`):
   - a **pure single-LLM** transform → `"features": ["llm"]` (exactly).
   - **If the requirement is NOT actually a pure single-LLM transform** (it needs a tool call, HTTP,
     iteration/loop, branching/if-else, file input, code, retrieval, an agent, etc.) → write the **real**
     needed set (e.g. `["llm","iteration"]`), and **flag it in the SPEC.md Open questions** rather than
     forcing a `start → llm → end`. Be honest: the user may have mis-picked fast mode, and the backend
-    will pause the build for human review when `features ⊄ {llm}`.
+    will pause the build for human review when `features ⊄ {llm}`. A requirement that names a file
+    format (Excel / CSV / PDF / 画像 …) is NEVER a pure single-LLM transform: its input surface is
+    `file-input` (plus `document-extractor` for parsing) — write those features honestly so the backend
+    pauses fast mode; do NOT re-shape a file artifact into a pasted-text Start input to stay eligible.
+    A requirement with a self-running cadence or webhook (毎日・定期・自動で・webhook) is NEVER a pure
+    single-LLM transform either: its entry is a `trigger` node — write the `trigger` feature honestly so
+    fast mode pauses.
 - **MUST OMIT `find_query`** (no `find.py` query was run — recording one is invented provenance).
 - **MUST NOT** invent `change_points` (there is no prior graph; the spec below owns the target graph).
 

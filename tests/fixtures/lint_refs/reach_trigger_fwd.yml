@@ -1,0 +1,17 @@
+# Spec 057 S1b — a trigger entry ANCHORS reachability: node A (downstream of the trigger)
+# references {{#B.text#}} but B is not an upstream ancestor of A → hard error, exit 1.
+# Before 057 this file had EMPTY roots (start-only) and the spec-020 gate silently passed it.
+app:
+  name: reach-trigger-fwd
+workflow:
+  graph:
+    nodes:
+      - id: 'T'
+        data: {type: trigger-schedule}
+      - id: 'A'
+        data: {type: llm, prompt: "{{#B.text#}}"}
+      - id: 'B'
+        data: {type: llm, prompt: "hello"}
+    edges:
+      - {source: 'T', target: 'A'}
+      - {source: 'A', target: 'B'}

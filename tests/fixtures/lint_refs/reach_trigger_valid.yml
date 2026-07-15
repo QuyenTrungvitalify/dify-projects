@@ -1,0 +1,18 @@
+# Spec 057 S1b — a clean trigger-entry chain: trigger → code → llm reading the code output.
+# Roots include the trigger, ancestor rule satisfied → exit 0.
+app:
+  name: reach-trigger-valid
+workflow:
+  graph:
+    nodes:
+      - id: 'T'
+        data: {type: trigger-schedule}
+      - id: 'C'
+        data:
+          type: code
+          outputs: {msg: {type: string}}
+      - id: 'L'
+        data: {type: llm, prompt: "{{#C.msg#}}"}
+    edges:
+      - {source: 'T', target: 'C'}
+      - {source: 'C', target: 'L'}

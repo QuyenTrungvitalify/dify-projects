@@ -1,0 +1,279 @@
+# Pattern: Scheduled Fetch & Notify — trigger-schedule entry (runs by itself, no operator)
+#
+# Use case: a report/reminder that must run BY ITSELF on a cadence — no operator present. The
+# workflow starts from a schedule trigger (NOT a start node): at the configured time Dify
+# fetches machine-readable data over HTTP, parses it defensively, has the LLM compose a short
+# notification, and POSTs it to your notify service. This is the trigger-entry shape
+# (spec 057, スタートノードをトリガー): the entry is a trigger node, so the workflow takes NO
+# user inputs at all. Seeded from the 2026-07-13 live trigger probe DSL.
+#
+# Flow:
+#   Trigger: Schedule (visual mode, daily, explicit timezone Asia/Tokyo)
+#     → HTTP: GET fetch data (machine-fetchable source — API / JSON / feed)
+#     → Code: parse fetched payload (defensive json.loads, never raises)
+#     → LLM: compose the notification message
+#     → HTTP: POST to notify service (custom auth header via env secret)
+#     → End (status)
+#
+# Customization points (`# TODO:`):
+#   1. Schedule time in the trigger node (12-hour visual format) — keep the timezone explicit.
+#   2. Data URL in "Fetch data" — must be reachable by the Dify server itself.
+#   3. Parse logic in "Parse fetched data" — pick the fields YOUR summary needs.
+#   4. LLM prompts — tone + language of the notification.
+#   5. Notify endpoint URL + auth header name for YOUR service (Slack/Teams/ChatWork/custom).
+#   6. Model choice (provider/name are blank placeholders — configure in Dify or let the
+#      builder inject at test/deploy).
+#
+# GOTCHA: Dify schedule triggers default to timezone UTC — a "9:00 AM" JST reminder silently
+#   fires at 18:00 JST unless `timezone: Asia/Tokyo` is explicit. Always set it.
+# GOTCHA: publishing is NOT enough — the schedule only fires after you also ENABLE the trigger
+#   in Dify Studio (Quick Settings). An API `POST /workflows/run` is a manual fire of the same
+#   graph (useful for testing) — it says nothing about the schedule being armed.
+# GOTCHA: at most ONE schedule trigger per workflow (Dify 1.15 rule; the repo validator mirrors
+#   it). Webhook/plugin triggers may coexist with it, but this pattern is single-entry.
+# GOTCHA: a trigger entry has NO operator present — every input must be machine-fetchable
+#   (http-request/tool/dataset). Never design required user uploads or typed inputs into a
+#   trigger-entry workflow.
+# GOTCHA: this shape is NOT idempotent — every fire re-notifies. If duplicate notifications
+#   hurt, dedup in the receiving service or record sent-state outside the workflow.
+#
+# Live import, publish and API run verified on the user Dify 1.15.0 during the 2026-07-13 probes.
+# x-provenance: source=original repo=
+#   commit= file="trigger_probe (repo _drafts seed)" orig_sha256= promoted=2026-07-15
+#   license=MIT spec=057 known_good_dify=1.13.0
+app:
+  description: 'Schedule trigger → fetch data over HTTP → defensive parse → LLM compose → POST to a notify service; runs by itself once published AND the trigger is enabled (trigger-entry shape, spec 057)'
+  icon: "\U000023F0"
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: scheduled_fetch_notify
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables:
+  # TODO: rename to your service's token; env vars use `name:` (NOT `variable:` — import fails)
+  - name: NOTIFY_API_TOKEN
+    value_type: secret
+    value: ''
+  features:
+    file_upload: { enabled: false }
+    opening_statement: ''
+    retriever_resource: { enabled: false }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: 1784041371529-source-1784041371531-target
+      source: '1784041371529'
+      target: '1784041371531'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: trigger-schedule, targetType: http-request }
+      zIndex: 0
+    - id: 1784041371531-source-1784041371533-target
+      source: '1784041371531'
+      target: '1784041371533'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: http-request, targetType: code }
+      zIndex: 0
+    - id: 1784041371533-source-1784041371535-target
+      source: '1784041371533'
+      target: '1784041371535'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: llm }
+      zIndex: 0
+    - id: 1784041371535-source-1784041371538-target
+      source: '1784041371535'
+      target: '1784041371538'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: http-request }
+      zIndex: 0
+    - id: 1784041371538-source-1784041371540-target
+      source: '1784041371538'
+      target: '1784041371540'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: http-request, targetType: end }
+      zIndex: 0
+    nodes:
+    - id: '1784041371529'
+      type: custom
+      data:
+        title: Every morning (Schedule)
+        type: trigger-schedule
+        mode: visual
+        frequency: daily
+        visual_config:
+          # TODO: your time (12-hour visual format, e.g. '6:30 PM')
+          time: '9:00 AM'
+        # GOTCHA: Dify defaults the trigger timezone to UTC — omit this line and the 9:00 AM
+        #   above silently fires at 18:00 JST. Keep an explicit business timezone.
+        timezone: Asia/Tokyo
+      position: { x: 0, y: 100 }
+      positionAbsolute: { x: 0, y: 100 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1784041371531'
+      type: custom
+      data:
+        title: Fetch data (HTTP)
+        type: http-request
+        method: GET
+        # TODO: your data URL — must be machine-fetchable by the Dify server (a trigger entry
+        #   has no operator to upload files)
+        url: 'https://example.invalid/data.json'
+        # GOTCHA: custom auth header + no-auth type (see pattern header) — token via env secret
+        authorization: { type: no-auth }
+        # TODO: your data service's auth header name (drop the header if the source is public)
+        headers: |
+          X-Api-Token: {{#env.NOTIFY_API_TOKEN#}}
+        params: ''
+        body:
+          type: none
+          data: []
+        timeout: { connect: 10, read: 30, write: 30 }
+        ssl_verify: true
+      position: { x: 300, y: 100 }
+      positionAbsolute: { x: 300, y: 100 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1784041371533'
+      type: custom
+      data:
+        title: Parse fetched data
+        type: code
+        code_language: python3
+        # TODO: pull the fields YOUR summary needs out of the fetched payload
+        # GOTCHA: defensive parse — json.loads in try/except and main() always RETURNS, never
+        #   raises: the schedule fires unattended, so a bad payload must degrade into text the
+        #   LLM can still report, not a crashed run nobody sees
+        code: |
+          import json
+
+
+          def main(body: str, status_code: int) -> dict:
+              try:
+                  data = json.loads(body) if body else None
+              except Exception:
+                  data = None
+              if data is None:
+                  summary_input = "Fetch returned no parseable JSON (HTTP status {}). Raw head: {}".format(
+                      status_code, (body or "")[:500])
+              else:
+                  summary_input = json.dumps(data, ensure_ascii=False)[:4000]
+              return {"summary_input": summary_input}
+        outputs:
+          summary_input: { type: string, children: null }
+        variables:
+        - value_selector: ['1784041371531', body]
+          value_type: string
+          variable: body
+        - value_selector: ['1784041371531', status_code]
+          value_type: number
+          variable: status_code
+      position: { x: 600, y: 100 }
+      positionAbsolute: { x: 600, y: 100 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1784041371535'
+      type: custom
+      data:
+        title: Compose notification (LLM)
+        type: llm
+        model:
+          # TODO: configure model (or let the builder inject at live test/deploy)
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.3
+        prompt_template:
+        - id: 1784041371535-prompt-system
+          role: system
+          # TODO: tone + language of the notification for your audience
+          text: 'You summarize fetched data into a short notification message. Output the message body only.'
+        - id: 1784041371535-prompt-user
+          role: user
+          text: 'Summarize the following data for the team in 2-3 sentences: {{#1784041371533.summary_input#}}'
+        context:
+          enabled: false
+          variable_selector: []
+        vision:
+          enabled: false
+      position: { x: 900, y: 100 }
+      positionAbsolute: { x: 900, y: 100 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1784041371538'
+      type: custom
+      data:
+        title: Notify service (HTTP)
+        type: http-request
+        method: POST
+        # TODO: your service's endpoint (Slack/Teams/ChatWork/custom webhook)
+        url: 'https://example.invalid/notify'
+        # GOTCHA: custom auth header + no-auth type (see pattern header) — token via env secret
+        authorization: { type: no-auth }
+        # TODO: your service's auth header name
+        headers: |
+          X-Api-Token: {{#env.NOTIFY_API_TOKEN#}}
+        params: ''
+        body:
+          type: x-www-form-urlencoded
+          data:
+          - key: body
+            type: text
+            value: '{{#1784041371535.text#}}'
+        timeout: { connect: 10, read: 30, write: 30 }
+        ssl_verify: true
+      position: { x: 1200, y: 100 }
+      positionAbsolute: { x: 1200, y: 100 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1784041371540'
+      type: custom
+      data:
+        title: Output
+        type: end
+        outputs:
+        - variable: status
+          value_selector: ['1784041371535', text]
+          value_type: string
+      position: { x: 1500, y: 100 }
+      positionAbsolute: { x: 1500, y: 100 }
+      width: 241
+      height: 90
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.5 }

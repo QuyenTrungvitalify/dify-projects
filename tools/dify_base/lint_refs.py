@@ -155,6 +155,10 @@ def walk_value_selectors(obj, path: tuple = ()):
 # AGENTS.md §4.2's "#1 cause of silent import success + runtime failure". This pass verifies that over
 # the `graph.edges[]` DAG, with the Dify-shape carve-outs the corpus actually needs (see exclusions).
 CONTAINER_START_TYPES = {"iteration-start", "loop-start"}
+# Spec 057: trigger nodes are first-class workflow entries (Dify 1.10+, DSL unchanged at 0.6.0).
+# They anchor reachability exactly like `start` — without this, a trigger-entry workflow had EMPTY
+# roots and the spec-020 reachability gate silently disabled itself (proven in the 057 review).
+ENTRY_TYPES = {"start", "trigger-schedule", "trigger-webhook", "trigger-plugin"}
 # Escape-hatch marker: a FULL-LINE comment `# lint-refs: allow-reach <id>.<field>[, <id>.<field>...]`
 # suppresses a specific reachability finding (the rare legitimate graph shape the BFS can't model).
 # Anchored to line-start (`^\s*#`, MULTILINE) so a `#` inside a quoted string/prompt can't forge a marker.
@@ -266,18 +270,19 @@ def check_reachability(data: dict, yaml_path: Path, allow: set[tuple[str, str]] 
                 continue
             yield sid, field
 
-    # Roots = start nodes + container entries (iteration/loop bodies begin at their *-start). Without an
-    # anchor we cannot judge reachability — but DON'T silently skip (spec 020 Mục 5): if the file still
-    # carries node-to-node refs, surface an advisory so a mislabeled entry node isn't a blind spot.
-    roots = [nid for nid, ty in node_type.items() if ty == "start" or ty in CONTAINER_START_TYPES]
+    # Roots = entry nodes (start | trigger-*, spec 057) + container entries (iteration/loop bodies
+    # begin at their *-start). Without an anchor we cannot judge reachability — but DON'T silently
+    # skip (spec 020 Mục 5): if the file still carries node-to-node refs, surface an advisory so a
+    # mislabeled entry node isn't a blind spot.
+    roots = [nid for nid, ty in node_type.items() if ty in ENTRY_TYPES or ty in CONTAINER_START_TYPES]
     if not roots:
         for n in nodes:
             if not isinstance(n, dict) or not n.get("id"):
                 continue
             for sid, field in _qualifying_refs(n):
                 return [
-                    f"{yaml_path}: no start/container-start node — {REACH_ADVISORY} "
-                    f"(found node-to-node ref {{{{#{sid}.{field}#}}}}; add a start node or verify the graph)"
+                    f"{yaml_path}: no start/trigger/container-start node — {REACH_ADVISORY} "
+                    f"(found node-to-node ref {{{{#{sid}.{field}#}}}}; add an entry node (start or trigger-*) or verify the graph)"
                 ]
         return []
 

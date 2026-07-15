@@ -32,6 +32,11 @@ from typing import Dict, List, Any, Tuple
 # node-definition loop.
 NODE_ID_RE = re.compile(r"^\d+(start)?$")
 
+# Spec 057: valid workflow ENTRY node types. Mirrors Dify's `is_start_node` set MINUS `datasource`
+# (rag-pipeline app mode, which this validator already rejects at app.mode). Trigger-entry
+# workflows (schedule/webhook/plugin) are first-class since Dify 1.10; DSL stays 0.6.0.
+ENTRY_TYPES = {"start", "trigger-schedule", "trigger-webhook", "trigger-plugin"}
+
 
 class WorkflowValidator:
     def __init__(self):
@@ -171,7 +176,8 @@ class WorkflowValidator:
 
         # Validate nodes
         node_ids = set()
-        has_start = False
+        has_entry = False
+        schedule_count = 0
         has_end = False
         has_answer = False
 
@@ -209,8 +215,12 @@ class WorkflowValidator:
                 self.errors.append(f"Node {node_id} missing type")
                 continue
 
+            if node_type in ENTRY_TYPES:
+                has_entry = True
+                if node_type == 'trigger-schedule':
+                    schedule_count += 1
+
             if node_type == 'start':
-                has_start = True
                 self._validate_start_node(node_id, node['data'])
             elif node_type == 'end':
                 has_end = True
@@ -226,8 +236,14 @@ class WorkflowValidator:
             elif node_type == 'if-else':
                 self._validate_ifelse_node(node_id, node['data'], edge_handles.get(node_id))
 
-        if not has_start:
-            self.errors.append("Workflow must have at least one 'start' node")
+        if not has_entry:
+            self.errors.append("Workflow must have at least one entry node (start or trigger-*)")
+        # Spec 057: mirror Dify 1.15 — a workflow may carry multiple webhook/plugin triggers but
+        # AT MOST ONE schedule trigger.
+        if schedule_count > 1:
+            self.errors.append(
+                f"Workflow has {schedule_count} 'trigger-schedule' nodes — Dify allows at most one"
+            )
         # Terminal node depends on app mode: chatflows (advanced-chat) end at an 'answer' node,
         # workflows end at an 'end' node.
         if self.app_mode == 'advanced-chat':

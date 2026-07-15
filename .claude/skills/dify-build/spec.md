@@ -38,16 +38,32 @@ Write all **human-facing prose** in the **same language as the requirement** (`{
    .venv/bin/python tools/dify_base/find.py --json --has <feature> [--has <feature> ...]
    .venv/bin/python tools/dify_base/find.py --list-features
    ```
-   Priority order (AGENTS.md §3): `templates/patterns/` > `projects/*/workflows/` > `corpus/`.
+   Priority order (AGENTS.md §3): `templates/patterns/` > `templates/library/` > `projects/*/workflows/` > `corpus/`.
 3. Draft the **target spec**: intended behavior, chosen pattern, the nodes to add/modify/keep
    (with roles), the variable-flow you intend (`{{#id.field#}}` chains), and the plugins
    needed (note: real plugin hashes are added later from the target workspace — never invent).
-4. **If `{{WORKFLOW_SLUG}}` is empty, propose a `slug` + human `name`** (slug = lowercase, `[a-z0-9_]` — the backend's deriveSlugName never emits hyphens,
+4. **Trigger-surface rule (spec 056).** Every **required** Start variable must be something the runtime
+   operator physically has. Anything derivable in-flow is derived by nodes — or made `required: false`
+   with a documented default: a requirement that names a file format gets a `type: file-list` (or `file`)
+   Start variable with `allowed_file_types` / `allowed_file_extensions` / `max_length` set, feeding a
+   `document-extractor` front-end (with `is_array_file: true` its output is `array[string]` — unwrap the
+   first element defensively in the parse code node); parsed/derived values (JSON arrays, maps, column
+   names/positions, counts) live in code nodes, with fixed column positions documented in the Start
+   `hint:`; a run date is an optional input with a timezone-pinned in-code fallback, or required when the
+   caller is a machine (per-row-notify GOTCHA). State the Start variables and their variable types in the
+   start row's *purpose* cell of the **Nodes** table; in **Open questions**, flag any required input you
+   could not eliminate and why.
+   - a self-running requirement (定期/毎日/webhook) gets a trigger entry instead of `start`: state
+     `timezone: Asia/Tokyo` explicitly on schedule triggers (the Dify default is UTC — a 9AM JST reminder
+     silently becomes 18:00), at most ONE schedule trigger per workflow, the data source must be
+     machine-fetchable (http-request / tool / dataset — no required user-file inputs can coexist with a
+     trigger entry), and delivery is a side-effect (notify/write) since no one watches the output.
+5. **If `{{WORKFLOW_SLUG}}` is empty, propose a `slug` + human `name`** (slug = lowercase, `[a-z0-9_]` — the backend's deriveSlugName never emits hyphens,
    from the app's purpose). The backend scaffolds `projects/{{PROJECT}}/<slug>/` on the gate confirm — do
    **not** run `init_project.py` yourself.
-5. Prefer a **single-file branched** design (if-else + variable-aggregator) over multiple
+6. Prefer a **single-file branched** design (if-else + variable-aggregator) over multiple
    parallel YAMLs for "phase-1 demo + phase-2 pending" shapes (AGENTS.md §9).
-6. Draft **Acceptance Criteria** (spec 032 §3 / D6) — **3–7** one-line, *checkable* statements of "done
+7. Draft **Acceptance Criteria** (spec 032 §3 / D6) — **3–7** one-line, *checkable* statements of "done
    right", derived ONLY from (a) what `{{REQUIREMENT}}` **explicitly** asks for, and (b) the structural
    correctness of the chosen shape (right nodes in order, variable flow, one-in→one-out). Phrase each as a
    testable assertion (format / length / must-mention-X / output-shape / must-not-do-Y), not a feeling.

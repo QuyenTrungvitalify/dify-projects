@@ -381,6 +381,45 @@ describe('runLiveTest verdict → gate', () => {
     assert.equal(task.gate?.flag, 'infra_degraded');
     assert.ok(!task.testApps || task.testApps.length === 0);
   }));
+
+  // Spec 057 S4 — a trigger-entry build runs the SAME ④ flow (r3 probes: /workflows/run works); only
+  // the manual-enable advisory is appended to the reason. Verdict/label/gate flag stay untouched.
+  test('trigger entryTypes → passed at test_result, reason carries the manual-enable note (additive)', withCreds(async () => {
+    const { task, ctx } = await harness({
+      deployWithModel: async (_d, _s, outRel) => ({
+        ok: true, nodeCount: 0, llmCount: 0, patched: [], outFile: outRel, inputs: [], mode: 'workflow',
+        entryTypes: ['trigger-schedule'], stderr: '',
+      }),
+    });
+    await runLiveTest(task, ctx);
+    assert.equal(task.gate?.flag, 'test_result', 'the ④ flow is UNCHANGED — no special park');
+    assert.equal(task.liveTest?.verdict, 'passed');
+    assert.equal(task.liveTest?.label, 'live-verified');
+    assert.match(task.liveTest?.reason ?? '', /ran OK/, 'the normal run summary still leads');
+    assert.ok(
+      (task.liveTest?.reason ?? '').includes(
+        'trigger-entry workflow: an API run is a manual fire — the schedule/webhook only runs ' +
+          'automatically after you ENABLE the trigger in Dify Studio Quick Settings'
+      ),
+      'the wording-stable EN advisory is appended'
+    );
+  }));
+
+  test('start entryTypes (and absent entryTypes) → NO trigger note in the reason', withCreds(async () => {
+    // explicit ['start']
+    const a = await harness({
+      deployWithModel: async (_d, _s, outRel) => ({
+        ok: true, nodeCount: 1, llmCount: 1, patched: ['n1'], outFile: outRel, inputs: [], mode: 'workflow',
+        entryTypes: ['start'], stderr: '',
+      }),
+    });
+    await runLiveTest(a.task, a.ctx);
+    assert.equal((a.task.liveTest?.reason ?? '').includes('trigger-entry workflow'), false);
+    // absent (older sync.py) → assume start (okOps' deployWithModel has no entryTypes)
+    const b = await harness({});
+    await runLiveTest(b.task, b.ctx);
+    assert.equal((b.task.liveTest?.reason ?? '').includes('trigger-entry workflow'), false);
+  }));
 });
 
 describe('cleanupTestApps (S6)', () => {

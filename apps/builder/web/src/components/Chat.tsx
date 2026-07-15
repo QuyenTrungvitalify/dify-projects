@@ -255,8 +255,12 @@ function gateView(t: WireTask): GateView {
   // spec 032 D1c: live couldn't run for an infra reason — the static lint result stands.
   if (t.gate?.flag === 'infra_degraded') {
     const lt = t.liveTest;
+    const summary = [lt?.reason ? localizeNotes(lt.reason) : tr('gateLiveInfraSummary'), tr('gateLiveStaticStands')];
+    // spec 057 S4 (card fix): a post-import infra park DID create the app — surface its link like the
+    // test_result branch does, so the human can open it instead of hunting through Dify Studio.
+    if (lt?.appUrl) summary.push(tf('gateLiveApp', { url: lt.appUrl }));
     return { tone: 'warn', badge: tr('gateLiveInfraBadge'), title: tr('gateLiveInfraTitle'), meta,
-      summary: [lt?.reason ? localizeNotes(lt.reason) : tr('gateLiveInfraSummary'), tr('gateLiveStaticStands')], showReportLink: true };
+      summary, showReportLink: true };
   }
   switch (t.phase) {
     case 'analyze': {

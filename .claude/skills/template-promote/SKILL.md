@@ -68,10 +68,11 @@ one-file-per-run, human-gated discipline. Procedure:
    ```bash
    .venv/bin/python tools/dify_base/promote_gate.py check <source.yml> --json
    ```
-   Blocks on: any linter failure, an EMPTY `model.provider/name` in the source (an unwired LLM =
-   the build never actually ran = not "proven"), or an import-probe FAILURE against the real Dify
-   (push→capture→delete; no creds → degrades to lint-only with `probe: skipped`). Record the
-   verdict's `known_good_dify` for step 4.
+   Blocks on: any linter failure, or an import-probe FAILURE against the real Dify
+   (push→capture→delete; no creds → degrades to lint-only with `probe: skipped`). An EMPTY
+   `model.provider/name` in the source is a **warning only, not a blocker** (spec 054 — it lands
+   in the verdict's `warnings`, since a blank model is the house template convention anyway).
+   Record the verdict's `known_good_dify` for step 4.
 2. **Distill** — skeleton stays, instance goes: replace domain specifics (service URL, auth-header
    name, judge rule, prompts) with placeholders + `# TODO:` customization points; **blank the
    model** back to the `''` + `# TODO:` template convention; keep the structural lessons. Header

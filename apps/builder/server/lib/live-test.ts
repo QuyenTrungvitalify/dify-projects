@@ -11,6 +11,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { computeGate } from './gate.js';
+import { TRIGGER_ENTRY_NOTE } from './report.js';
 import { difyCreds, appUrlFrom, unregisterSecret, type InputVar } from './dify-io.js';
 import { emit, resolveRunners, resolveLiveOps, type OrchestratorCtx } from './orchestrator-shared.js';
 import { isCancelled, setSession, clearSession } from './lock.js';
@@ -373,6 +374,16 @@ export async function runLiveTest(
     if (bail()) return;
   }
 
+  const reasonCore = t1Pass
+    ? `ran OK (${dep.nodeCount > 0 ? `auto-filled ${dep.nodeCount} node(s) with ${pick?.name}` : 'no model needed (deterministic)'}, ${run.totalTokens ?? '?'} tokens) — review the output below`
+    : run.error
+      ? `workflow ran but FAILED: ${run.error}`
+      : 'workflow ran but produced no output';
+  // Spec 057 S4: a trigger-entry workflow DID run (the API run is a manual fire of the same graph —
+  // r3 probes), but the schedule/webhook only fires by itself after the trigger is ENABLED in Studio.
+  // Append the shared advisory to the reason channel the ④ card renders — ADDITIVE only, the
+  // verdict/label/gate flag are untouched. Absent entryTypes (older sync.py) ⇒ assume start ⇒ no note.
+  const isTriggerEntry = (dep.entryTypes ?? []).some((t) => t.startsWith('trigger-'));
   return parkResult({
     verdict: t1Pass ? 'passed' : 'workflow_fail',
     label: t1Pass ? 'live-verified' : 'live-verified-fail',
@@ -381,11 +392,7 @@ export async function runLiveTest(
     runError: run.error,
     t1Pass,
     judge,
-    reason: t1Pass
-      ? `ran OK (${dep.nodeCount > 0 ? `auto-filled ${dep.nodeCount} node(s) with ${pick?.name}` : 'no model needed (deterministic)'}, ${run.totalTokens ?? '?'} tokens) — review the output below`
-      : run.error
-        ? `workflow ran but FAILED: ${run.error}`
-        : 'workflow ran but produced no output',
+    reason: isTriggerEntry ? `${reasonCore} ${TRIGGER_ENTRY_NOTE}` : reasonCore,
   });
 }
 

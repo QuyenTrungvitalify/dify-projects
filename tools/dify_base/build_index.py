@@ -90,12 +90,17 @@ def analyze(yaml_path):
 
     node_types = []
     has_file_input = False
+    has_trigger = False
     for n in nodes:
         d = n.get('data') or {}
         ntype = d.get('type') or ''
         if not ntype or ntype in ('iteration-start', 'loop-start', 'custom-iteration-start', 'custom-loop-start'):
             continue
         node_types.append(ntype)
+        # Spec 057: computed key (NOT an INTERESTING_NODE_TYPES append) so `find.py --has trigger`
+        # matches any trigger-* entry (schedule/webhook/plugin).
+        if ntype.startswith('trigger-'):
+            has_trigger = True
         if ntype == 'start':
             for v in (d.get('variables') or []):
                 if v.get('type') in ('file', 'file-list'):
@@ -132,6 +137,7 @@ def analyze(yaml_path):
         "node_types": unique_types,
         "complexity": complexity,
         "has_file_input": has_file_input,
+        "has_trigger": has_trigger,
         "plugins": plugins,
     }
     for t in INTERESTING_NODE_TYPES:
@@ -183,6 +189,7 @@ def write_markdown(entries, out_path):
         if e['has_iteration']: features.append('iteration')
         if e['has_loop']: features.append('loop')
         if e['has_file_input']: features.append('file-in')
+        if e['has_trigger']: features.append('trigger')
         if e['has_http_request']: features.append('http')
         if e['has_code']: features.append('code')
         if e['has_llm']: features.append('llm')
@@ -213,6 +220,7 @@ def write_markdown(entries, out_path):
     feature_groups = {
         "Iteration / Loop (bulk processing)": ["has_iteration", "has_loop"],
         "File Input (upload)": ["has_file_input"],
+        "Trigger entry (schedule/webhook — self-running)": ["has_trigger"],
         "Document Extractor (parse file)": ["has_document_extractor"],
         "HTTP Request (call external API)": ["has_http_request"],
         "Code Node (Python/JS)": ["has_code"],

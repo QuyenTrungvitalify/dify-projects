@@ -753,6 +753,10 @@ export interface DeployResult {
   inputs: InputVar[];
   /** app mode — decides the run endpoint (workflow → /workflows/run; chat-like → /chat-messages). */
   mode: string;
+  /** Spec 057 S4: the ENTRY node types (e.g. ['start'] or ['trigger-schedule']) from sync.py
+   *  inject-model. Optional — absent on an older sync.py (no entry_types) → undefined → callers
+   *  assume a start entry (the llm_count graceful-degrade precedent). */
+  entryTypes?: string[];
   stderr: string;
 }
 
@@ -782,7 +786,10 @@ export async function deployWithModel(
   const outFile = typeof obj?.out === 'string' ? obj.out : outRel;
   const inputs = (Array.isArray(obj?.inputs) ? obj!.inputs : []) as InputVar[];
   const mode = typeof obj?.mode === 'string' ? obj.mode : '';
-  return { ok: true, nodeCount, llmCount, patched, outFile, inputs, mode, stderr: r.stderr };
+  // Spec 057 S4: entry node types — undefined on an older sync.py (no entry_types) so callers
+  // assume a start entry (the llm_count graceful-degrade style above).
+  const entryTypes = Array.isArray(obj?.entry_types) ? (obj!.entry_types as unknown[]).map(String) : undefined;
+  return { ok: true, nodeCount, llmCount, patched, outFile, inputs, mode, entryTypes, stderr: r.stderr };
 }
 
 /**
