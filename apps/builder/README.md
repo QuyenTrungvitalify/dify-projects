@@ -18,7 +18,7 @@ owns all Dify I/O and the `claude` turns; the browser is a dumb renderer over SS
    ```bash
    claude auth login
    ```
-3. **Node.js 20.6+** (22 recommended).
+3. **Node.js 22.6+**.
 
 ## Install & run
 
@@ -84,7 +84,11 @@ Copy [`.env.example`](.env.example) to `.env` (gitignored). Keys (spec §F):
 | `DEFAULT_DEPLOY` | `none` | Default deploy target: `none` \| `selfhost` \| `cloud`. |
 | `BUILDER_PORT` | `4123` | The only configurable bind knob; host stays `127.0.0.1`. |
 | `DIFY_CONSOLE_URL` | — | `https://<host>/console/api`. **Only** for `deploy=selfhost` or Dify-seed. |
-| `DIFY_CONSOLE_TOKEN` | — | Bearer from a logged-in Dify browser session. **Backend-only.** |
+| `DIFY_CONSOLE_TOKEN` | — | Either (a) a browser-session bearer token (expires) or (b) an Admin API key + `DIFY_WORKSPACE_ID` (stable, recommended) — see [`.env.example`](.env.example). **Backend-only.** |
+| `DIFY_WORKSPACE_ID` | — | Tenant id, sent as the `X-WORKSPACE-ID` header. **Required** when `DIFY_CONSOLE_TOKEN` is an Admin API key; leave unset for a session token. |
+| `BUILDER_TURN_TIMEOUT_MS` | `600000` | Wall-clock budget (ms) for one `claude` phase turn (spec 048). |
+| `BUILDER_ASK_TIMEOUT_MS` | `180000` | Budget (ms) for a quick Ask/chat reply. |
+| `BUILDER_LIVE_RUN_TIMEOUT_MS` | `120000` | Budget (ms) for one live workflow run against Dify at Test ④. |
 
 The real `.env` is gitignored; only `.env.example` is committed.
 

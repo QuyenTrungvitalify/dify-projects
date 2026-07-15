@@ -13,7 +13,7 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 - `Parked` — authored but dormant; no active plan (revive or supersede explicitly)
 - `Superseded` — replaced by another spec (links forward)
 
-> Statuses in this index are verified against code + git log (2026-07-06). Headers inside older
+> Statuses in this index are verified against code + git log (2026-07-13). Headers inside older
 > spec files may lag behind — the index is the roadmap surface; trust it over stale file headers.
 
 ## Index
@@ -63,14 +63,22 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 | [040](040-builder-uat-fixes.md) | UAT hardening: confinement false-positive revert (concurrent-edit data loss) + composer-draft/reload/sidebar fixes | Implemented (D1–D4; E1–E4 deferred) | S |
 | [041](041-builder-request-changes-everywhere.md) | "Request changes" available at every parked gate from Spec onward (fixable at any ④ gate incl. LIVE ⚠) | Implemented | S |
 | [042](042-foreign-residue-preflight.md) | Foreign-residue preflight: demo/seed values (URLs, tool params, stale dataset/plugin ids) surviving into a build — 4 new advisory classes on the 037 machinery | Draft | S–M |
+| [043](043-builder-live-test-model-optional-for-llm-less-workflows.md) | Live-test needs no workspace LLM model when the workflow has no LLM node (0-model gate conditional on `llm_count`) | Implemented | S |
 | [045](045-turn-failure-triage.md) | Turn-failure triage: classify claude-CLI deaths (usage limit / login / network / not installed) into actionable, JA-localized gate notes | Implemented | S |
 | [046](046-phase-latency-and-drift.md) | Phase latency & drift: skip the constant Analyze turn (−1 turn/gate per from-scratch build), fix ③'s empty `{{REQUIREMENT}}`, no 3rd pattern pick, docs↔contract pin | Implemented | S–M |
-| [047](047-builder-live-test-file-inputs-and-timeout-classification.md) | Live-test: file inputs đúng contract (file-object thay URL trần) + phân loại ReadTimeout-khi-streaming | Draft (root cause verified) | S |
+| [047](047-builder-live-test-file-inputs-and-timeout-classification.md) | Live-test: file inputs đúng contract (file-object + upload bundled file thay URL trần) + phân loại ReadTimeout-khi-streaming | Implemented (2026-07-08; S0–S5, suite 418/418) | S |
 | [048](048-timeout-knobs-and-auto-lint-reuse.md) | Timeout knobs (turn/ask/live-run env-configurable), ④ lint-reuse trên auto hop không cửa sổ sửa, implement.md de-accretion | Implemented (r2) | S |
 | [049](049-dify-import-blocker-defense.md) | Chống import-blocker: linter mirror variable_factory (env/conversation vars), ④ import-probe hỏi Dify thật (advisory + orphan sweep), HUONG_DAN recovery qua Edit-again/Request changes | Implemented (r3) | S–M |
 | [050](050-proven-build-to-reusable-pattern-promotion.md) | Proven build → pattern: promote_gate (lint+model-wiring+probe), kênh linter-candidate dedup, trục staleness known_good_dify, pattern per-row-notify đầu tiên | Implemented (r5) | M |
-| [043](043-builder-live-test-model-optional-for-llm-less-workflows.md) | Live-test needs no workspace LLM model when the workflow has no LLM node (0-model gate conditional on `llm_count`) | Implemented | S |
+| [051](051-upload-yaml-as-base.md) | Upload một YAML rời làm base: validate 4 linter → scaffold thành workflow repo chuẩn → dùng ngay như edit-existing base (`POST /api/bases`, ImportBaseModal) | Implemented — verified (2026-07-09; real-subprocess E2E passed, browser QA pending) | S |
+| [052](052-builder-promote-to-pattern.md) | "Promote to pattern" trong Builder UI: eligibility gate → distill turn (ghi vào staging `.runs/`) → re-gate → human Approve mới ghi `templates/patterns/` (import-probe skipped trong Builder path) | Implemented — unit-verified (2026-07-09) | M |
 | [053](053-builder-one-click-retry-out-of-error.md) | One-click "Retry phase" out of error: the reply-kind button only armed the composer (dead click) + 2 layers rejected empty text — fire a file-inclusive re-run on click (primary green ↻), steered retry still via dock; promote-error 409 pinned | Implemented — unit-verified (r3); AC7–9 manual pending | S |
+| [054](054-reconcile-promote-gate-with-blank-model.md) | Promote gate coi LLM model để trống (convention B5 — blank-model, điền lúc deploy) là advisory warning, không phải blocker | Implemented — unit-verified (2026-07-09) | XS |
+| [055](055-from-scratch-analyze-requirement-digest.md) | Build từ đầu: ① Analyze thành lượt "requirement digest" thật (đảo 046 D1 skip) — user xác nhận đúng ý trước khi viết spec; gate Analyze trở lại | Implemented (code e3ca64c 2026-07-09, tests 9ef5506 2026-07-10) | S–M |
+| [056](056-start-node-as-trigger-raw-inputs.md) | スタートノードをトリガーにする仕様: Start chỉ hỏi đúng thứ user cầm trong tay (file thô), mọi parse/derive nằm trong workflow — trigger-surface rule ở ①/②/fast-mode, pattern per-row-notify-excel (thứ 8), nới GOTCHA `today` 2 dạng (từ vụ rework ChatWork thực tế) | Implemented (2026-07-13; S4 deferred; AC1 verified bằng live run cùng ngày) | S–M |
+| [057](057-trigger-entry-support.md) | Trigger-entry support: gate chấp nhận workflow mở đầu bằng トリガー (schedule/webhook) — nới validator entry rule (≤1 schedule), skill guidance 定期/毎日→trigger, pattern scheduled-fetch-notify, ④ import+publish nhưng skip run + note "enable tay trong Quick Settings" (probe import/publish/**run** PASS trên Dify 1.15 của user — S4 đơn giản thành "run bình thường + note enable", DSL vẫn 0.6.0) | Implemented (2026-07-15; S5 deferred; AC2 verified ①→④ static + import-probe, live-run 1 click còn lại) | S–M |
+| [058](058-e2e-simulation-harness.md) | E2E simulation harness + skill `/e2e`: Claude test Builder như người dùng thật — runner 1 lệnh (fire/wait/confirm/check trên API thật), suite prompt hồi quy máy-đọc-được, chấm 3 bucket **AUTO-PASS/AUTO-FAIL/MANUAL** (phần không tự test được luôn báo cáo), giao chấm nội dung cho `/report`; on-demand (tốn turn thật), KHÔNG phải CI (spec 021 vẫn là nhánh pytest) | Implemented (2026-07-15; r3 — runner+suite+skill+fixtures, 16 pytest xanh, live sweep 6 entry + adversarial review 10 finding đã fold; `check`/`time` offline verify trên golden run AC2: 6 auto-pass/0 fail/3 manual) | S–M |
+| [059](059-phase-cost-instrumentation.md) | Phase cost instrumentation: bắt token/duration/num_turns/**cache** mỗi phase từ `result` event (đang chảy qua turn-runner mà bị vứt) → `task.json.cost` → GET /api/tasks + bảng `e2e-run.sh time`. Thuần quan sát (ghi SAU turn, FSM không đọc → 0 rủi ro chất lượng); mở đường đo *tại sao* ③ Implement chậm để chọn đòn bẩy tối ưu (058 đã đo *bao lâu*: ③ chiếm ~55–70%) | Implemented (2026-07-15; S1 capture + cost.ts reader + 5 unit test, S2 API/`time`-table + 3 pytest; **S3 baseline chờ 1 lần chạy suite live** để điền + chốt nguyên nhân ③) | S |
 
 \* Spec 001 + 006 have 2 minor Q awaiting confirm; can proceed with defaults.
 
@@ -78,7 +86,9 @@ Development specifications for `dify-projects`. Each spec is **drafted before im
 
 ‡ Spec 008: only the Phase-1 PoC landed (`templates/patterns/meta-workflow-builder.yml` + feasibility test); the browser builder (009) became the shipped path. Revive or supersede explicitly before investing further.
 
-**Numbering collision (030)**: two files share number 030 — [030a content-language-sync](030-builder-content-language-sync.md) and [030b nested-folders](030-builder-nested-project-workflow-folders.md). Cross-references elsewhere say "spec 030" ambiguously; when citing, use the filename. New specs start at 037+.
+**Numbering collision (030)**: two files share number 030 — [030a content-language-sync](030-builder-content-language-sync.md) and [030b nested-folders](030-builder-nested-project-workflow-folders.md). Cross-references elsewhere say "spec 030" ambiguously; when citing, use the filename. New specs start at 059+.
+
+**Số 044 trống**: không có file `044-*.md`. Commit 18941c7 (smart sample input cho file/select/boolean trong live-test) tự nhận "spec 044" nhưng spec file chưa từng được author; số 044 bỏ trống, không tái sử dụng.
 
 ## How to use
 

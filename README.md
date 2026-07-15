@@ -5,7 +5,7 @@
 Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 
 - Reference skills + corpus + node-type schema để build YAML workflow nhanh
-- CLI search ~43 template theo feature/complexity/plugin
+- CLI search ~45 template theo feature/complexity/plugin
 - Cấu trúc folder 2 tầng cho từng dự án (`projects/<project>/<workflow>/`, spec 030)
 - GitOps sync (pull/push/diff giữa Dify workspace ↔ git)
 - pytest harness + pre-commit hooks
@@ -30,12 +30,15 @@ git clone <repo> dify-projects && cd dify-projects
 Build + validate your first workflow end-to-end:
 
 ```bash
-# 1. Scaffold a new project (non-interactive form for speed)
+# 1. Scaffold tầng project rồi tầng workflow bên trong (2 tầng, spec 030)
 .venv/bin/python tools/dify_base/init_project.py \
-    --non-interactive --name "My First" --slug my_first --app-type workflow
+    --non-interactive --kind project --name "My First" --slug my_first
+.venv/bin/python tools/dify_base/init_project.py \
+    --non-interactive --kind workflow --project my_first \
+    --name "Main" --slug main --app-type workflow
 
 # 2. Copy the simplest pattern: file → 1 LLM call → output
-cp templates/patterns/file-to-llm.yml projects/my_first/workflows/main.yml
+cp templates/patterns/file-to-llm.yml projects/my_first/main/workflows/main.yml
 
 # 3. Customize the 2 things every workflow needs (open in your editor):
 #    a. LLM node `model.provider` + `model.name` — pick from plugins
@@ -43,7 +46,7 @@ cp templates/patterns/file-to-llm.yml projects/my_first/workflows/main.yml
 #    b. Plugin dependency hash (top of file). See AGENTS.md §4.3 for how to get it.
 
 # 4. Validate locally before importing
-.venv/bin/pre-commit run --files projects/my_first/workflows/main.yml
+.venv/bin/pre-commit run --files projects/my_first/main/workflows/main.yml
 # Runs 13 hooks in <1s. Failures explain exactly what's wrong.
 
 # 5. Import into Dify
@@ -70,12 +73,15 @@ dify-projects/
 ├── templates/                 # Project starter, patterns + promoted library/ (spec 022)
 │   ├── _base/project/         # Scaffolded by init_project.py
 │   ├── library/               # Promoted, provenance-stamped templates (spec 022; curated English, v0.6.0)
-│   └── patterns/              # 7 reusable workflow skeletons
+│   └── patterns/              # 9 reusable workflow skeletons
 │       ├── file-to-llm.yml      # File upload → 1 LLM call → output (simplest)
 │       ├── file-iteration.yml   # File upload → split → iterate → aggregate
 │       ├── multi-step-llm.yml   # 3 chained LLM calls (refine pattern)
 │       ├── rag-qa.yml           # Knowledge retrieval + LLM
 │       ├── agent-with-tools.yml # Agent node with pluggable tools
+│       ├── per-row-notify.yml   # Iterate rows → judge per-row → notify external API (spec 050)
+│       ├── per-row-notify-excel.yml # Excel upload → extract/parse in-flow → per-row notify (spec 056)
+│       ├── scheduled-fetch-notify.yml # Schedule trigger → fetch data → LLM → notify (trigger entry, spec 057)
 │       └── meta-workflow-builder.yml # NL requirement → generate + auto-import a Dify workflow
 │
 ├── examples/                  # Fully-worked projects (importable as-is)
@@ -83,14 +89,15 @@ dify-projects/
 │
 ├── apps/
 │   └── builder/               # Builder app: Fastify backend + Preact SPA, gated 4-phase
-│                              # AI build (specs 009–035). Own Node toolchain; see HUONG_DAN.md
+│                              # AI build (specs 009–055). Own Node toolchain; see HUONG_DAN.md
 │
 ├── schemas/                   # Auto-generated JSON Schema for Dify DSL (Phase 1.A done)
 │   ├── gen_schema.py          # Reverse-engineer schema from dify pydantic models
 │   └── dify-dsl-0.6.0.json    # Generated schema (DSL v0.6.0; envelope-validated, 29 NodeData reference defs — node bodies not enforced)
 │
 ├── tools/                     # Python tooling
-│   └── dify_base/             # build_index, find, init_project, sync (Phase 2.A)
+│   └── dify_base/             # 13 modules: build_index, find, init_project, sync,
+│                              # 4 linters, promote_gate, provenance, sources
 │
 ├── tests/                     # pytest harness (Phase 1.D)
 │   ├── conftest.py            # DifyWorkflowClient + env-loading fixtures
@@ -100,7 +107,8 @@ dify-projects/
 │
 ├── projects/                  # 2 tầng (spec 030): projects/<project>/<workflow>/{workflows/,SPEC.md,...}
 │
-└── docs/                      # GUIDE.md, architecture.md, specs/ (001–039), plugin-capabilities.md
+└── docs/                      # GUIDE.md, architecture.md, project-overview-{vi,ja}.md,
+                               # specs/ (001–055), plugin-capabilities.md, runtime-supplement.md
 
 ```
 
@@ -131,6 +139,17 @@ python3 tools/dify_base/sync.py pull --project my_app           # fetch all apps
 python3 tools/dify_base/sync.py pull --project my_app --name-contains RAG
 python3 tools/dify_base/sync.py diff --project my_app           # local vs remote diff
 python3 tools/dify_base/sync.py push --project my_app --file workflows/main.yml
+# ... + 9 subcommand khác: models/plugins/datasets/api-key/publish/delete/inject-model/run/upload
+
+# === 4 linter của gate (chạy tay khi cần) ===
+python3 tools/dify_base/validate_workflow.py <file>             # cấu trúc DSL
+python3 tools/dify_base/lint_refs.py <file>                     # biến tham chiếu + graph reachability (spec 020)
+python3 tools/dify_base/lint_node_bodies.py <file>              # thân node vs NodeData_* schema (spec 038)
+python3 tools/dify_base/lint_plugin_hashes.py <file>            # định dạng plugin hash
+
+# === Template promotion (specs 022/050/052) ===
+python3 tools/dify_base/promote_gate.py <workflow.yml>          # cổng chất lượng trước khi thăng cấp thành pattern
+python3 tools/dify_base/check_provenance.py                     # staleness/license của templates/library/
 
 # === Pre-commit hooks (Phase 2.B) ===
 .venv/bin/pre-commit install                                    # enable on git commit
@@ -138,7 +157,6 @@ python3 tools/dify_base/sync.py push --project my_app --file workflows/main.yml
 
 # === Helpers from skills/ ===
 python3 skills/mango-svip/scripts/generate_id.py 5              # unique node IDs
-python3 tools/dify_base/validate_workflow.py <file>   # validate
 ```
 
 ## Bắt đầu một dự án mới
@@ -169,13 +187,16 @@ Hệ thống 2 tầng (spec 030): `projects/<project>/` (manifest `.dify-workspa
 | `multi-step-llm.yml` | Chain 3 LLM calls (generate → critique → refine) | 5 | llm × 3 |
 | `rag-qa.yml` | Q&A grounded in knowledge base | 4 | knowledge-retrieval, llm |
 | `agent-with-tools.yml` | ReAct agent with pluggable tools | 3 | agent |
+| `per-row-notify.yml` | Iterate rows → judge per-row condition → notify external API (ChatWork...) | 9 | iteration, if-else, llm, http-request |
+| `per-row-notify-excel.yml` | Upload 2 Excel (rows + mapping) → extract/parse in-flow → per-row judge → notify (start-node-as-trigger, spec 056) | 12 | file-input, document-extractor, iteration, if-else, llm, http-request |
+| `scheduled-fetch-notify.yml` | 定期実行: schedule trigger → fetch data → LLM → notify (chạy tự động sau khi enable) | 6 | trigger-schedule, http-request, llm |
 | `meta-workflow-builder.yml` | NL requirement → generate + auto-import a new Dify workflow (meta) | 11 | llm, http-request (Dify console API) |
 
 Mỗi pattern có comment `# TODO:` đánh dấu chỗ cần customize (model, prompt, plugin hash, dataset IDs, ...).
 
 ```bash
-# Copy pattern vào project mới của bạn
-cp templates/patterns/file-iteration.yml projects/<your_project>/workflows/main.yml
+# Copy pattern vào workflow mới của bạn (2 tầng: projects/<project>/<workflow>/)
+cp templates/patterns/file-iteration.yml projects/<project>/<workflow>/workflows/main.yml
 # Edit theo TODOs, import vào Dify, test
 ```
 
@@ -214,15 +235,18 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **Phase 0** — base setup (cấu trúc + tooling cũ)
 - ✅ **Phase 1.A** — JSON Schema generator
 - ✅ **Phase 1.B** — `tools/dify_base/init_project.py` interactive scaffolder + `templates/_base/project/` skeleton
-- ✅ **Phase 1.C** — 7 reusable patterns in `templates/patterns/`: file-to-llm, file-iteration, multi-step-llm, rag-qa, agent-with-tools, meta-workflow-builder, per-row-notify (all validate against schema + skill validator)
+- ✅ **Phase 1.C** — 9 reusable patterns in `templates/patterns/`: file-to-llm, file-iteration, multi-step-llm, rag-qa, agent-with-tools, meta-workflow-builder, per-row-notify, per-row-notify-excel, scheduled-fetch-notify (all validate against the repo linters; the upstream skill-clone validator predates trigger entries)
 - ✅ **Phase 1.D** — pytest harness ([tests/](tests/)) — minimal `DifyWorkflowClient` + env-loading fixtures + syrupy snapshot example. Skips cleanly without creds.
-- ✅ **Phase 2.A** — GitOps sync ([tools/dify_base/sync.py](tools/dify_base/sync.py)) — `list/pull/diff/push` workflow apps via Console API. 8 tests passing (mocked HTTP, no real Dify needed). Polish: clean error messages for connection/timeout/HTTP failures.
+- ✅ **Phase 2.A** — GitOps sync ([tools/dify_base/sync.py](tools/dify_base/sync.py)) — 13 subcommands via Console API: `list/pull/diff/push` + `models/plugins/datasets/api-key/publish/delete/inject-model/run/upload`. 12 tests passing (mocked HTTP, no real Dify needed). Polish: clean error messages for connection/timeout/HTTP failures.
 - ✅ **Phase 2.B** — pre-commit hooks ([.pre-commit-config.yaml](.pre-commit-config.yaml), 13 hooks: yamllint + check-jsonschema + skill validator + DSL version guard + agents-md-refs + dify-lint-refs + dify-lint-node-bodies (spec 038) + dify-lint-plugin-hashes + 5 built-in) + bootstrap script ([scripts/setup.sh](scripts/setup.sh))
-- ✅ **Builder app** (specs [009](docs/specs/009-browser-workflow-builder.md)–036) — web UI local cho build 4 phase có gate; đã ship: turn sandbox (015/018), linter gates + graph reachability (020), template library (022), file attachments (025), live workflow test trên Dify thật (032 S1–S5), Ask mode tại gate (033–035), capability-aware test targets (036)
+- ✅ **Builder app** (specs [009](docs/specs/009-browser-workflow-builder.md)–055) — web UI local cho build 4 phase có gate; đã ship: turn sandbox (015/018), linter gates + graph reachability (020), template library (022), file attachments (025), live workflow test trên Dify thật (032 S1–S5, file inputs 047, model-optional 043), Ask mode tại gate (033–035), capability-aware test targets (036), workspace facts + runnability preflight (037), Request changes ở mọi gate (041), turn-failure triage (045), timeout knobs (048), chống import-blocker + import-probe (049), promote build → pattern (050/052), upload YAML làm base (051), one-click retry khi lỗi (053), Analyze digest cho build từ đầu (055)
 - ✅ **Curated template library** ([templates/library/](templates/library/), spec 022) — promote qua `/template-promote`, provenance-stamped
 - ⏳ **Polish 1.A** — `http_request` schema-dump currently **fails** (`_error: SchemaSerializer` on `dify_config.HTTP_REQUEST_MAX_*` defaults); 25/25 node modules import and 29 schemas generate, but this one ships with an `_error` marker rather than a clean dump. Tracked as spec 024 **S1** (make a dump-fail fatal in `gen_schema.py`, then fix the stub).
 - ✅ **Spec 039** — post-turn gate lint mọi `workflows/*.ya?ml` mà turn chạm + extension-twin hard error; 5 hook pre-commit DSL mở rộng sang `.ya?ml`
-- ⏳ **Specs 037–038** (đã author 2026-07-06, chưa implement) — runnability preflight + workspace facts (037), node-body schema linter (038). Index: [docs/specs/README.md](docs/specs/README.md)
+- ✅ **Specs 037–038** (implemented 2026-07-07) — runnability preflight + workspace facts `{{KNOWLEDGE}}` (037), node-body schema linter thành linter thứ 4 của gate + pre-commit hook (038)
+- ✅ **Specs 040–055** (field hardening, 2026-07-07 → 07-10) — đã ship gần hết: UAT fixes (040), Request-changes-everywhere (041), live-test model-optional (043) + file inputs (047), turn-failure triage (045), phase latency (046), timeout knobs + auto-lint-reuse (048), import-blocker defense (049), promote-to-pattern (050/052/054), upload-YAML-as-base (051), one-click retry (053), from-scratch Analyze digest (055). Còn mở: 042 (foreign-residue preflight, Draft), 032 S6. Index: [docs/specs/README.md](docs/specs/README.md)
+- ✅ **Specs 056–057** (trigger entry, 2026-07-13 → 07-15) — start-node-as-trigger + raw file inputs (056); trigger-entry support cho workflow tự chạy theo lịch/webhook (057) — validator/lint_refs nhận `trigger-schedule|webhook|plugin`, skill nhận keyword tự-chạy, pattern `scheduled-fetch-notify`. ④ test nhắc bật trigger trong Studio Quick Settings (S5 enable-API deferred).
+- ✅ **Spec 058** — E2E simulation harness (`apps/builder/scripts/e2e-run.sh` + skill `/e2e`): bắn prompt vào Builder như user thật, chấm cơ học theo 3 bucket **AUTO-PASS / AUTO-FAIL / MANUAL** (phần không tự test được luôn báo cáo, không im lặng bỏ qua), tái dùng `/report` để chấm nội dung.
 
 Chi tiết design: xem [docs/architecture.md](docs/architecture.md).
 

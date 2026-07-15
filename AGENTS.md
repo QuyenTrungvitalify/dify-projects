@@ -11,8 +11,8 @@
 ## 1. What this repo is — and is NOT
 
 This is a **base workspace** for authoring Dify workflow YAML across multiple projects. It
-provides: a JSON Schema for Dify DSL, scaffolding tools, 7 vetted workflow patterns, a
-~46-example corpus, pytest harness, and pre-commit hooks.
+provides: a JSON Schema for Dify DSL, scaffolding tools, 9 vetted workflow patterns, a
+~27-example vendored corpus (45-file template index), pytest harness, and pre-commit hooks.
 
 **It is NOT** a fork of Dify, a Dify plugin, or a runtime. We only produce DSL YAML that gets
 imported into a Dify workspace. Source pin: `.dify-tag` = `1.13.0`. DSL pin: `.dify-dsl-version` = `0.6.0`.
@@ -30,16 +30,19 @@ imported into a Dify workspace. Source pin: `.dify-tag` = `1.13.0`. DSL pin: `.d
 All commands run from repo root. Use `.venv/bin/python` (created by `./scripts/setup.sh`).
 
 ```bash
-# 1. Scaffold project (interactive, asks 5-6 questions).
-.venv/bin/python tools/dify_base/init_project.py
-#    Non-interactive form:
-#    .venv/bin/python tools/dify_base/init_project.py --non-interactive \
-#        --name "My App" --slug my_app --app-type workflow --primary-lang en
+# 1. Scaffold project tier, then workflow tier inside it (2 tầng, spec 030 — both required;
+#    `--kind` defaults to `project`, which has NO workflows/ dir).
+.venv/bin/python tools/dify_base/init_project.py   # interactive (project tier)
+#    Non-interactive form (2 commands):
+#    .venv/bin/python tools/dify_base/init_project.py --non-interactive --kind project \
+#        --name "My App" --slug my_app --primary-lang en
+#    .venv/bin/python tools/dify_base/init_project.py --non-interactive --kind workflow \
+#        --project my_app --name "Main" --slug main --app-type workflow --primary-lang en
 
 # 2. Find the closest existing pattern (filter by feature).
 .venv/bin/python tools/dify_base/find.py --has iteration --has file-input
 .venv/bin/python tools/dify_base/find.py --list-features    # see all features
-# Priority order: templates/patterns/ > projects/*/*/workflows/ > corpus/ > skills/*/assets/
+# Priority order: templates/patterns/ > templates/library/ > projects/*/*/workflows/ > corpus/ > skills/*/assets/
 
 # 3. Generate node IDs (Unix-timestamp-ms strings, guaranteed unique).
 .venv/bin/python skills/mango-svip/scripts/generate_id.py 7
@@ -153,6 +156,11 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 # Builder app (apps/builder) — separate TS/Node toolchain; pre-commit/pytest skip apps/ (see §10).
 (cd apps/builder && npm run typecheck && npm test)   # server: tsc --noEmit + node:test via tsx
 (cd apps/builder/web && npm run build && npm test)   # web: tsc --noEmit + vite build + vitest
+
+# E2E simulation harness (spec 058) — fire a prompt at the running Builder like a real user.
+apps/builder/scripts/e2e-run.sh check <taskId> --expect <suite-id>   # OFFLINE 3-bucket verdict
+apps/builder/scripts/e2e-run.sh fire "<prompt>" --mode auto          # needs backend + `claude` login
+# or the /e2e skill for the full fire→wait→gate→check→/report procedure + MANUAL-residue report.
 ```
 
 ## 8. Where to find what
@@ -171,7 +179,7 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 | Workflow examples (multilingual reference, bodies mostly Chinese) | [corpus/awesome-dify-workflow-en/Workflow-Store/](corpus/awesome-dify-workflow-en/) |
 | Vendored-source registry (one entry per corpus; add/refresh sources here) | [corpus/sources.yml](corpus/sources.yml) — read by `setup.sh`, `build_index.py`, `update_corpus.sh` (spec 022). Tagged `corpus:<name>` in INDEX. |
 | Promoted curated templates (standardized from a corpus example) | [templates/library/](templates/library/) — each carries an `x-provenance` header; promote via `/template-promote` (spec 022 D5). Staleness: `tools/dify_base/check_provenance.py`. Attributions: [THIRD_PARTY.md](THIRD_PARTY.md). |
-| 6 vetted starting patterns | [templates/patterns/](templates/patterns/) |
+| 9 vetted starting patterns | [templates/patterns/](templates/patterns/) |
 | Project scaffold skeleton | [templates/_base/project/](templates/_base/project/) |
 | JSON Schema (DSL v0.6.0) | [schemas/dify-dsl-0.6.0.json](schemas/dify-dsl-0.6.0.json) |
 | Schema generator (regen on Dify upgrade) | [schemas/gen_schema.py](schemas/gen_schema.py) |
@@ -193,6 +201,8 @@ DIFY_PROJECT=<slug> .venv/bin/pytest tests/ -v
 - 2026-05-21: Used string node IDs (`node-code-1`) in a workflow → downstream `{{#node-code-1.text#}}` rendered as literal template string in output, no error, no warning. → Dify template engine only resolves numeric-timestamp IDs. Always generate via `skills/mango-svip/scripts/generate_id.py` per §4.1.
 - 2026-05-22: Proposed LanguageTool free tier for production proofread → ToS prohibits automated/non-interactive use. → For any tiered third-party API, read ToS for "automated requests" clause before designing free-tier production path. Tracker (project removed from the tree 2026-07-03): `git show 565480c^:projects/eiken_stem_proofread/spec_todo/api_alternatives.md`.
 - 2026-07-08: ChatWork per-row reminder (spec 050's worked example) — two design gotchas worth reusing: (a) date-boundary judgments computed inside a code node silently shift with the sandbox timezone → inject the run date (`today`) as a START input from the caller; (b) services with a custom auth header (X-ChatWorkToken 等) need `authorization: {type: no-auth}` + the token in `headers:` via an env-var secret (`name:` form) — api-key auth types rewrite headers. Distilled into `templates/patterns/per-row-notify.yml` (`# GOTCHA:` header).
+- 2026-07-13: Builder shipped 6 required text inputs (list JSON, column names, today) for an Excel-shaped requirement; stakeholder rework (スタートノードをトリガー) → required Start inputs = only raw artifacts the operator holds. `today` is required only for a machine caller; for a human operator make it `required: false` with an in-code fallback pinned to the business timezone (JST: `datetime.now(timezone(timedelta(hours=9)))`) — never naive `now()`. See `templates/patterns/per-row-notify-excel.yml` + spec 056 (refines the 2026-07-08 run-date rule).
+- 2026-07-13: Stakeholder confirmed 「スタートノードをトリガーにする仕様」 means TRIGGER-entry workflows (schedule/webhook) — the Builder could not produce them (validator required a start node; spec 020 reachability silently disabled itself on trigger entries). GOTCHA: Dify schedule triggers default to timezone UTC — always set Asia/Tokyo explicitly. Probes: import/publish/API-run all work on Dify 1.15. See `templates/patterns/scheduled-fetch-notify.yml` + spec 057.
 
 ## 10. The builder app (apps/builder)
 

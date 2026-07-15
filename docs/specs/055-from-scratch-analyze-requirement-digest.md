@@ -1,6 +1,6 @@
 # Spec 055 — From-scratch Analyze does a lean requirement digest (that Spec reuses), not a skip
 
-**Status**: Draft. **S–M**. The theme: spec 046 D1 made a from-scratch build's Analyze a backend-written
+**Status**: **Implemented** (code e3ca64c 2026-07-09; test harnesses realigned 9ef5506 2026-07-10). **S–M**. The theme: spec 046 D1 made a from-scratch build's Analyze a backend-written
 CONSTANT (no turn) because the old seedless Analyze could only write `{seed:null, pattern:custom}` — zero
 information. This spec redefines that phase into something USEFUL: a **lean requirement digest** — a plain
 "here's what I understood you want" overview the user can verify at the Analyze gate, surfaced as a proper

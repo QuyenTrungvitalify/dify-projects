@@ -186,8 +186,10 @@ Mỗi template:
 
 Documentation team-specific. Hiện có:
 - `GUIDE.md` (file này) — operations guide
-
-Sẽ bổ sung khi scope mở rộng (decision tree, conventions, troubleshooting log).
+- `architecture.md`, `plugin-capabilities.md`, `runtime-supplement.md`, `linter-candidates.md`
+- `project-overview-vi.md` / `project-overview-ja.md` — tổng quan cho người mới / bản thuyết trình JA
+- `design/` — design docs
+- `specs/` — spec đánh số 001–055 + `prompts/`
 
 ---
 
@@ -212,7 +214,7 @@ Start → Node A → Node B → ... → End
 
 ### Bước 2: Tìm pattern tương tự
 
-**Cách tốt nhất** — dùng index có sẵn (51 file đã được index theo feature):
+**Cách tốt nhất** — dùng index có sẵn (~45 file đã được index theo feature — số chính xác xem header INDEX.md):
 
 ```bash
 # Browse trực quan
@@ -232,10 +234,11 @@ python3 tools/dify_base/find.py --has iteration --full      # Show full info
 **Available features** (cho `--has` / `--no`): `iteration, loop, code, llm, http-request, tool, if-else, document-extractor, knowledge-retrieval, agent, file-input, template-transform, parameter-extractor`
 
 **Thứ tự ưu tiên khi pick reference**:
-1. `patterns/` — 4 base patterns đã build cho workspace
-2. `project` — workflow đã có trong projects/<your>/workflows/
-3. `corpus/` — community examples
-4. `skill-assets/` — bare-minimum skeleton từ Claude skills
+1. `templates/patterns/` — 9 base patterns đã build cho workspace
+2. `templates/library/` — template curated đã promote, có header x-provenance (spec 022)
+3. `projects/*/*/workflows/` — workflow đã có trong project của bạn
+4. `corpus/` — community examples
+5. `skills/*/assets/` — bare-minimum skeleton từ Claude skills
 
 **Nếu thêm template mới**, rebuild index:
 ```bash
@@ -323,7 +326,6 @@ python3 tools/dify_base/validate_workflow.py templates/<new_task>.yml
 ├── Multi-step LLM (refine, translate-then-improve)
 │   └─→ Reference: templates/patterns/multi-step-llm.yml
 │       Reference: corpus/.../translation_workflow.yml
-│       Reference: corpus/.../宝玉的英译中优化版.yml
 │
 ├── Classification (route theo nội dung)
 │   └─→ Node: question-classifier
@@ -541,7 +543,7 @@ DIFY_PROJECT=<your> .venv/bin/pytest tests/ -v
 ### Internal references
 - [README.md](../README.md) — overview
 - [Template hiện tại](../templates/patterns/file-iteration.yml) — example đầy đủ
-- [JSON Schema generated](../schemas/dify-dsl-0.6.0.json) cho Dify DSL v0.6.0 (27 NodeData)
+- [JSON Schema generated](../schemas/dify-dsl-0.6.0.json) cho Dify DSL v0.6.0 (29 NodeData)
 
 ### Cheatsheet 1 dòng cho mỗi tool
 ```bash

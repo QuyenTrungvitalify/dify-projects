@@ -18,7 +18,7 @@ WEB_DIR="$APP_DIR/web"
 DO_BUILD=1
 [[ "${1:-}" == "--no-build" ]] && DO_BUILD=0
 
-command -v node >/dev/null 2>&1 || { echo "❌ node not found — install Node.js 20.6+ (22 recommended)"; exit 1; }
+command -v node >/dev/null 2>&1 || { echo "❌ node not found — install Node.js 22.6+"; exit 1; }
 command -v npm  >/dev/null 2>&1 || { echo "❌ npm not found — install Node.js"; exit 1; }
 echo "ℹ node $(node --version), npm $(npm --version)"
 

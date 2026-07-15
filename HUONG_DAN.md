@@ -4,14 +4,15 @@
 nó chạy qua 4 bước (**Analyze → Spec → Implement → Test**) để sinh ra file YAML, và có thể **tự
 import** thẳng vào Dify của bạn.
 
-> Chạy ở `127.0.0.1` (chỉ máy bạn), một build tại một thời điểm. Mỗi người tự chạy bản của mình.
+> Chạy ở `127.0.0.1` (chỉ máy bạn). Có thể mở nhiều build song song (dừng ở gate); tại một thời
+> điểm chỉ một lượt AI chạy. Mỗi người tự chạy bản của mình.
 
 ---
 
 ## 1. Yêu cầu
 
 - **Python 3.12+**
-- **Node.js 20.6+** (khuyến nghị 22)
+- **Node.js 22.6+** (backend cần load hook `.ts` native — Node cũ hơn sẽ từ chối khởi động, SEC1)
 - **Claude CLI** — đã cài và đăng nhập (Builder gọi `claude` để chạy các bước)
 - **(Tùy chọn) Dify** (local hoặc cloud) — chỉ cần nếu muốn tự import workflow vào Dify
 
@@ -69,10 +70,12 @@ Mở trình duyệt: **http://127.0.0.1:4123**
 
 1. Nhập yêu cầu vào ô chat (ví dụ: *"Tạo workflow tóm tắt văn bản"*).
 2. Chọn các tùy chọn ở dưới ô nhập (giao diện là **English** hoặc **日本語** — có nút đổi ngôn ngữ):
-   - **Workflow / ワークフロー**: `none (new)` / `なし（新規）` = làm mới từ đầu; hoặc chọn workflow có sẵn để sửa.
+   - **Workflow / ワークフロー**: `none (new)` / `なし（新規）` = làm mới từ đầu; chọn workflow có sẵn để sửa;
+     hoặc bấm **＋ Add YAML as base / ＋YAMLをベースに追加** để upload/dán một file YAML có sẵn làm base chỉnh sửa (spec 051).
    - **Confirm / 確認**: `each step`/`各ステップ` (dừng mỗi bước) · `spec only`/`仕様のみ` (chỉ dừng ở Spec) · `auto`/`自動` (tự chạy).
-   - **Deploy / デプロイ**: `none`/`なし` (chỉ tạo file local) · `selfhost`/`セルフホスト` (tự import vào Dify) · `cloud`/`クラウド`.
    - **Fast build / 高速ビルド**: `on`/`オン` = tạo nhanh workflow đơn giản (1 node LLM), chỉ dùng khi làm mới từ đầu.
+   - Việc **test/deploy không chọn ở đây nữa** (spec 036): đến gate Test, Builder tự hiện các nút
+     "Test with workflow" theo Dify khả dụng, và nút **Import to Dify** luôn chờ bạn bấm.
 3. Bấm gửi → Builder chạy qua 4 bước.
 4. **Duyệt ở Spec gate**: xem lại/chỉnh bản thiết kế rồi xác nhận đi tiếp.
 5. **Import**: cuối cùng bấm nút **"Import to Dify"** → workflow được đẩy lên Dify, kèm link mở app.
