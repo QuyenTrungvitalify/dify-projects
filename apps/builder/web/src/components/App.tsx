@@ -11,6 +11,8 @@ import { Sidebar } from './Sidebar';
 import { PhaseTrack, Disclosure, GateCard, GateActions, QaAnswer, Composer } from './Chat';
 import { ArtifactPanel } from './ArtifactPanel';
 import { CreateProjectModal, ImportBaseModal, ConfirmModal } from './Modal';
+import { DevPanel } from './DevPanel';
+import { devMode } from '../lib/dev';
 import { I } from './Icon';
 import { suggestions } from '../data';
 import { t as tr, tf, lang, toggleLang } from '../lib/i18n';
@@ -399,6 +401,9 @@ export function App() {
               )}
             </div>
           </div>
+
+          {/* spec 059: dev strip (taskId + per-phase cost) — only under `?dev=1`, only for an open build. */}
+          {devMode && view === 'conversation' && task && <DevPanel task={task} />}
 
           {view === 'empty' ? (
             <EmptyState draft={draft} setDraft={setDraft} send={send}

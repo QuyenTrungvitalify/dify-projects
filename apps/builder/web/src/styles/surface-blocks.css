@@ -1310,3 +1310,87 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* empty workflow/task hint row */
 .tree-empty { cursor: default; }
 .conn-dot { display: inline-block; margin-right: 6px; }
+
+/* ── spec 059 dev strip (taskId + per-phase cost; only under ?dev=1) ─────────── */
+.dev-strip {
+  margin: 6px 16px 0;
+  padding: 6px 10px;
+  border: 1px dashed var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-chip);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--tx-muted);
+  overflow-x: auto;
+}
+.dev-strip-top { display: flex; align-items: center; gap: 8px; }
+.dev-collapsed { padding-bottom: 6px; }
+.dev-strip .tw-twist { color: var(--tx-faint); cursor: pointer; }
+.dev-strip .tw-twist:hover { color: var(--tx-strong); }
+.dev-msg--ok { color: var(--ok); }
+.dev-tag {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--accent-dim);
+  color: var(--accent-tx);
+}
+.dev-id { user-select: all; color: var(--tx-strong); }
+.dev-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dev-copy {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--tx-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.dev-copy:hover { color: var(--tx-strong); border-color: var(--border-strong); }
+.dev-copy:disabled { opacity: 0.6; cursor: default; }
+.dev-rebuild { color: var(--accent-tx); border-color: var(--accent-line); }
+.dev-rebuild:hover:not(:disabled) { border-color: var(--accent); }
+.dev-msg { color: var(--tx-faint); }
+.dev-cost { margin-top: 5px; border-collapse: collapse; white-space: nowrap; }
+.dev-cost th, .dev-cost td { text-align: right; padding: 1px 10px; }
+.dev-cost th { color: var(--tx-faint); font-weight: 500; }
+.dev-cost td { color: var(--tx-muted); }
+.dev-cost .dev-ph, .dev-cost th:first-child { text-align: left; color: var(--tx-strong); }
+.dev-empty { margin-top: 4px; color: var(--tx-faint); }
+/* spec 059 — the auto cause-analysis line (heuristic hint) + slowest-phase row */
+.dev-cost .dev-slow td { color: var(--tx-strong); font-weight: 600; }
+.dev-diag {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px dotted var(--border-soft);
+  line-height: 1.5;
+}
+.dev-diag-tag {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  color: var(--tx-faint);
+}
+.dev-diag-phase { color: var(--tx-strong); }
+.dev-diag-cause { color: var(--accent-tx); }
+.dev-diag-arrow { color: var(--tx-faint); }
+.dev-diag-lever { color: var(--tx-muted); }
+.dev-diag--cold-start .dev-diag-cause { color: var(--ok); }
+/* spec 059 — per-phase cause column */
+.dev-cost .dev-cause { text-align: left; padding-left: 14px; }
+.dev-cause--tool-loop { color: var(--accent-tx); }
+.dev-cause--generation { color: var(--tx-strong); }
+.dev-cause--cold-start { color: var(--ok); }
+.dev-cause--inconclusive { color: var(--tx-faint); }
+/* spec 059 — balanced verdict (no single bottleneck): a neutral tint, not the accent "fix this" cue */
+.dev-diag--balanced .dev-diag-cause { color: var(--tx-faint); }
+.dev-diag--balanced .dev-diag-phase { color: var(--tx-muted); }

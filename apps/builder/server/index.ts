@@ -140,6 +140,15 @@ await app.register(tasksRoutes, {
 // The UI read endpoints (Lát 4): GET /api/tree · GET /api/seeds · GET+PUT /api/tasks/:id/spec.
 await app.register(uiRoutes, { projectsDir: DIFY_PROJECTS_DIR, now: () => Date.now() });
 
+// Spec 059 dev-only: POST /api/dev/rebuild (rebuild server+web + hot-restart from the dev panel).
+// Mounted ONLY under BUILDER_DEV=1 — a normal/prod run never exposes a build/restart endpoint. Dynamic
+// import so the module isn't even loaded otherwise. Registered before the static `/*` wildcard.
+if (process.env.BUILDER_DEV === '1') {
+  const devRoutes = (await import('./routes/dev.js')).default;
+  await app.register(devRoutes, { builderDir: join(DIFY_PROJECTS_DIR, 'apps/builder'), port: PORT });
+  app.log.warn('BUILDER_DEV=1 — POST /api/dev/rebuild ENABLED (dev panel rebuild+restart button)');
+}
+
 // ── Static SPA (web/dist) served at "/" — dependency-free handler (spec task 1) ──
 // A wildcard GET catches everything not matched by the api/health/sse routes (Fastify prefers
 // specific routes over the wildcard). Single-page app: unknown paths fall back to index.html.

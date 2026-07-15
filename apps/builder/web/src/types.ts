@@ -140,6 +140,24 @@ export interface WireTask {
   attachments?: string[];
   /** present on GET /api/tasks/:id (not on SSE task:update). */
   artifactContents?: WireArtifacts;
+  /** spec 059: per-phase turn cost/metrics (dev panel — `?dev=1`). Rides the wire via `toWireTask`.
+   *  Absent on a pre-059 snapshot or a build that ran on old backend code. Every field optional. */
+  cost?: { analyze?: WirePhaseCost; spec?: WirePhaseCost; implement?: WirePhaseCost; test?: WirePhaseCost };
+}
+
+/** spec 059: one phase's cost/metrics, mirrored from the backend `PhaseCost` (state/task.ts). Pure
+ *  observability; a phase whose turn died before a `result` event has no entry. `cacheReadTokens` is
+ *  the cold-start-cache signal (≈0 ⇒ each spawn re-pays full input price). */
+export interface WirePhaseCost {
+  durationMs?: number;
+  apiDurationMs?: number;
+  numTurns?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  totalCostUsd?: number;
+  at?: number;
 }
 
 /* ───── live sidebar tree (GET /api/tree) ───── */

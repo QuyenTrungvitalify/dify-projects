@@ -133,6 +133,10 @@ export const api = {
   active: (): Promise<{ active: WireTreeTask[] }> => request('GET', '/api/active'),
   /** GET /api/seeds → seed-picker apps (degrades to [] until Lát 5, AC #2). */
   seeds: (): Promise<{ seeds: Seed[]; note?: string }> => request('GET', '/api/seeds'),
+  /** spec 059 dev-only (BUILDER_DEV=1): rebuild server+web then hot-restart. Throws ApiError(404) when
+   *  the flag is off, ApiError(409) when a build turn is running; a failed BUILD returns `{ok:false,log}`. */
+  devRebuild: (): Promise<{ ok: boolean; restarting?: boolean; phase?: string; log?: string; reason?: string }> =>
+    request('POST', '/api/dev/rebuild', {}),
 };
 
 /** Map the UI's public Confirm-mode label → the backend's verbose `confirm_mode` value (AC #15). */

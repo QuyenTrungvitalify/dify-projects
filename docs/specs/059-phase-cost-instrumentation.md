@@ -7,12 +7,21 @@
 turn settles ([orchestrator.ts](../../apps/builder/server/lib/orchestrator.js)) — rides the existing
 success/gate saves, `null` on a dead turn records nothing; `cost` reaches the wire for free via
 `toWireTask`'s spread (AC5). Surface: `e2e_check.py render_cost` + `--task-json`, printed under the
-mtime table by `e2e-run.sh time` (S2), + 3 pytest cases. **S3 baseline is NOT filled yet** — it needs
-ONE live suite sweep (real `claude` turns + a running backend), which this authoring session cannot
-run; the Baseline section stays TBD until then, and AC7 is the only open criterion. **OQ4 still
-stands**: confirm `usage.cache_read_input_tokens` naming against a real captured `result` line before
-trusting the baseline (the reader degrades to null on a miss, so nothing crashes — but the numbers
-would silently read `—`).
+mtime table by `e2e-run.sh time` (S2), + 3 pytest cases. **S3 baseline is FILLED** from the first live
+run (see Baseline below) — ③ named TOOL-LOOP-bound; **AC7 met**. **OQ4 RESOLVED live**: the first real
+`result` event carried `usage.cache_read_input_tokens` = 322092 (cache% 99%), so the field naming is
+confirmed and the numbers read true. Added on user request: an in-app **dev panel** (`?dev=1`,
+runtime-flagged so it works in the prod `web/dist` build) surfacing the copyable taskId + the per-phase
+cost table (with a `share`% column + balanced detection) + `diagnose()` — the S3 decision rules
+rendered as a live cause verdict ([web/src/lib/dev.ts](../../apps/builder/web/src/lib/dev.js),
+[web/src/components/DevPanel.tsx](../../apps/builder/web/src/components/DevPanel.js); 14 vitest). Also a
+dev-only **`⟳ rebuild`** button → `POST /api/dev/rebuild` (mounted ONLY under `BUILDER_DEV=1`;
+[routes/dev.ts](../../apps/builder/server/routes/dev.js),
+[lib/dev-rebuild.ts](../../apps/builder/server/lib/dev-rebuild.js),
+[scripts/dev-restart.sh](../../apps/builder/scripts/dev-restart.sh)) — rebuilds server+web then
+hot-restarts via a detached restarter; build-fails-safe (restart scheduled only on a clean build) and
+refuses while a build turn is live. The kill+restart runtime path is verified by design + typecheck +
+suites, NOT an automated test (triggering it kills the process) — confirmed by clicking.
 **Effort**: S (S1 capture ≈ XS, S2 surface ≈ S, S3 baseline write-up ≈ XS, S4 docs ≈ XS)
 **Depends on**: spec 009 (turn-runner + `TurnResult.result`), spec 058 (`e2e-run.sh time`/`bench` —
 the mtime wall-clock this upgrades), spec 045 (turn-failure notes — a dead turn has no `result`, so
@@ -163,10 +172,47 @@ Only ONE of these becomes the follow-up spec, chosen by the numbers — not pre-
   a token/turn/cache breakdown (same-commit `check_agents_refs.sh` rule).
 - No pattern/hook count pins are touched (verify with the drift tests anyway).
 
-## Baseline (filled by S3 on first run)
+## Baseline (S3 — first live run, 2026-07-15)
 
-> _TBD — populated when S3 runs. Table: phase × {numTurns, inputTok, outputTok, cacheReadTok,
-> cache-hit%, apiMs/totalMs}. Then: "③ is <cause>-bound → follow-up spec targets <lever>."_
+First instrumented build (`run 1784125079246`, a standard ①②③④ from-scratch build):
+
+| phase | durationMs | share | numTurns | outputTok | inputTok | cacheReadTok | cache% | apiMs/totalMs |
+|---|---|---|---|---|---|---|---|---|
+| ① analyze | 108935 | 31% | 18 | 5138 | 3993 | 322092 | 99% | ~0.99 |
+| ② spec | 103484 | 30% | 8 | 5286 | 3817 | 136351 | 97% | ~1.0 |
+| **③ implement** | **129629** | **37%** | **20** | 5876 | 4262 | 427079 | 99% | ~1.0 |
+
+**Named cause: ③ is TOOL-LOOP-bound (not cold-start, not generation).** The evidence rules out two of
+the three candidates outright:
+- **Cold-start ruled out** — `cache%` is ~97–99% on every phase; the prompt cache is hitting hard, so
+  fresh spawns are NOT re-paying full input price. (Decisively kills the earlier cold-start/format
+  theories.)
+- **Generation ruled out** — output is only ~5–6k tokens/phase; there is no giant single YAML emit.
+- **Tool-loop confirmed** — `apiDurationMs ≈ durationMs` (≈100% of wall-clock is model time, ~0 local
+  work), and each phase's time tracks its `numTurns`. ③ has the most internal turns (20) and is the
+  slowest (37%). So the wall-clock is spent on the *number of internal round-trips*, not on any one big
+  generation.
+
+**Follow-up lever**: reduce internal turns on ③ (fewer lint→fix cycles via a better SPEC/template seed
+so the first write is closer to lint-clean); ① analyze (18 turns) is a secondary target (fewer find.py
+probes). Caveat: this is ONE build — 058's sweep saw ③ at 55–70% (heavier builds), vs 37% here on a
+light build; the *share* varies by build weight, but the *cause* (turn-count-bound, cache healthy) is
+structural. Confirm across ≥3 medians before committing the follow-up spec.
+
+**Now also DISPLAYED** (answering "hiển thị được không"): `lib/dev.ts` encodes these exact decision
+rules (cold-start ▸ tool-loop ▸ generation ▸ inconclusive) two ways — `classify(phaseCost)` gives a
+**per-phase `cause` column** in the dev-panel table (every row tagged), and `diagnose(cost)` picks the
+**slowest phase** for a single priority HINT line with the lever (`hint · ② spec · 56% → fewer internal
+turns`) + bolds that row. The tool is data-driven, not pinned to ③: across light builds the slowest phase
+varied (② spec 56%, ③ implement 37%, ② spec 36%) — same structural cause (tool-loop, cache healthy),
+different dominant phase. The panel table carries a **`share`% column** (per-phase % of total
+durationMs) so the bolded slowest row is self-explanatory, and `diagnose()` flags a build **`balanced`**
+when the top phase's share is < 40% AND its lead over the 2nd is < 8 pts — then the HINT reads
+`balanced (top ② spec 36%) · all tool-loop → gather ≥3 runs` instead of over-pointing at a marginal
+leader (the user-surfaced case where spec was slowest by *time* yet had the *fewest* turns, so a
+"fewer turns" lever would have been misleading). Net finding on LIGHT builds: no sharp bottleneck —
+phases sit ~30–38% each, all tool-loop; the ③-dominates regime (058's 55–70%) is for HEAVY builds. The
+`e2e_check.py` CLI table stays raw-numbers-only (a follow-up could add the same line there).
 
 ## Open questions
 
