@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { ClaudeSession } from './claude-session.js';
 import { confinementCheck, gitDirtyPaths, type PostTurnDetail } from './post-turn.js';
 import { type TurnResult } from './turn-runner.js';
+import { costFromResult } from './cost.js';
 import { PHASES, renderPrompt, languagePin, type PhaseDef } from './phases.js';
 import { attachmentBlock } from './attachments.js';
 import { snapshotDiffBase, writeDiffArtifact } from './diff.js';
@@ -466,6 +467,14 @@ async function runPhase(
     log.warn({ taskId: task.taskId, phase: phaseId }, 'resume failed → fresh turn seeded with artifact');
     turn = await spawnOnce(undefined, freshPrompt);
   }
+
+  // Spec 059: record THIS phase's cost/metrics from the turn's terminal `result` event. Pure
+  // observability — set AFTER the turn on the in-memory task, never read by the FSM, so it cannot
+  // move behavior or quality. `null` when the turn died before a result (record no entry). Rides the
+  // existing verify-success save AND gateAfterPhase's `emit` on the error/still-failing paths; `at`
+  // orders a /reply re-run of the same phase (last write wins).
+  const cost = costFromResult(turn.result);
+  if (cost) task.cost = { ...(task.cost ?? {}), [phaseId]: { ...cost, at: Date.now() } };
 
   // A /cancel may have killed the child mid-turn. Converge the build's own state to `cancelled`
   // (idempotent with the cancel handler's write) and bail — do NOT verify/gate/advance. The lock is

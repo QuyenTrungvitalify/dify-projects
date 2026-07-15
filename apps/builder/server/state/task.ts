@@ -142,6 +142,25 @@ export interface PromoteState {
   note?: string;
 }
 
+/** Spec 059 — per-phase cost/metrics captured from a `claude` turn's terminal `result` stream-json
+ *  event (already carried as turn-runner's `TurnResult.result`). PURE observability: recorded AFTER
+ *  the turn settles, NEVER read by computeGate/runPhaseAndGate/maybeAutoAdvance — so it can't move
+ *  build behavior or quality. Every field is optional: a turn that died before a `result` event
+ *  records NO entry (see lib/cost.ts `costFromResult` → null), and a `result` missing `usage` records
+ *  duration/turns only. `cacheReadTokens` is the decisive cold-start-cache signal (≈0 ⇒ each spawn
+ *  re-pays full input price). `at` orders /reply re-runs of a phase (last write wins). */
+export interface PhaseCost {
+  durationMs?: number; // result.duration_ms — total turn wall-clock (CLI-reported)
+  apiDurationMs?: number; // result.duration_api_ms — model API time only
+  numTurns?: number; // result.num_turns — internal tool-loop iterations (③'s lint→fix signal)
+  inputTokens?: number; // usage.input_tokens
+  outputTokens?: number; // usage.output_tokens — the slow/expensive axis
+  cacheReadTokens?: number; // usage.cache_read_input_tokens — cold-start-cache decisive field
+  cacheCreationTokens?: number; // usage.cache_creation_input_tokens
+  totalCostUsd?: number; // result.total_cost_usd — may be absent on a subscription login
+  at?: number; // capture stamp (Date.now at persist) — stamped by the orchestrator, not the pure reader
+}
+
 export interface Task {
   taskId: string; // 13-digit ms-timestamp string
   // Spec 052: the build KIND. Absent ⇒ 'build' (the standard ①②③④ pipeline — back-compat: every existing
@@ -186,6 +205,9 @@ export interface Task {
   // consults it to decide fresh-spawn vs --resume for a follow-up question in the same conversation.
   sessionIds: { analyze?: string; spec?: string; implement?: string; askTest?: string };
   artifacts: { analyze?: string; spec?: string; implement?: string; report?: string; diff?: string; criteria?: string };
+  // Spec 059: per-phase turn cost/metrics (pure observability). Absent on a pre-059 task.json ⇒ falsy
+  // (back-compat: nothing reads it in the FSM). Rides `toWireTask` (spread) → GET /api/tasks returns it.
+  cost?: { analyze?: PhaseCost; spec?: PhaseCost; implement?: PhaseCost; test?: PhaseCost };
   // the live gate (set at awaiting_confirm; cleared/ignored in terminal states).
   gate?: Gate;
   error?: string;
