@@ -1,0 +1,15 @@
+{
+  "seed": null,
+  "overview": "Fetch a TODO list on a morning schedule, summarize the incomplete tasks in Japanese within 3 lines, and POST the result to a notify URL. (sanitized fixture — spec 058 AC5)",
+  "pattern": "scheduled-fetch-notify",
+  "features": ["trigger", "http-request", "code", "llm"],
+  "find_query": ".venv/bin/python tools/dify_base/find.py --has trigger --has http-request --has code",
+  "planned_nodes": [
+    {"type": "trigger-schedule", "purpose": "auto-start every morning (Asia/Tokyo)"},
+    {"type": "http-request", "purpose": "GET the TODO JSON"},
+    {"type": "code", "purpose": "extract completed==false, count + titles"},
+    {"type": "llm", "purpose": "summarize in Japanese within 3 lines"},
+    {"type": "http-request", "purpose": "POST the summary to the notify URL"},
+    {"type": "end", "purpose": "return the final output"}
+  ]
+}

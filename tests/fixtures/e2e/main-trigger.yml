@@ -1,0 +1,32 @@
+# Sanitized trigger-entry workflow fixture (spec 058 AC5). Trimmed from the AC2 golden run:
+# just enough structure for e2e_check.py's grep predicates. NOT lint-clean (model empty) — the
+# check predicates are pure substring, so this stays a fixture, not a corpus file.
+app:
+  mode: workflow
+  name: sanitized-trigger-fixture
+kind: app
+version: 0.6.0
+workflow:
+  graph:
+    edges:
+    - id: e1
+      source: '1000000000001'
+      target: '1000000000002'
+      data: { sourceType: trigger-schedule, targetType: http-request }
+    nodes:
+    - id: '1000000000001'
+      data:
+        title: schedule
+        type: trigger-schedule
+        mode: visual
+        frequency: daily
+        timezone: Asia/Tokyo
+    - id: '1000000000002'
+      data:
+        title: fetch
+        type: http-request
+        method: GET
+    - id: '1000000000003'
+      data:
+        title: out
+        type: end

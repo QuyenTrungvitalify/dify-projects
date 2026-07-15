@@ -1,0 +1,103 @@
+# e2e-suite.yml — regression prompts the Builder is expected to handle (spec 058).
+#
+# Each entry drives ONE simulated user build. `expect` predicates are evaluated mechanically by
+# e2e_check.py into three buckets: AUTO-PASS / AUTO-FAIL / MANUAL. `manual:` items are things the
+# harness KNOWS it cannot auto-verify (runtime behavior, UI rendering, trigger enablement) — they
+# are echoed as MANUAL after every run and reported to the user, never silently dropped.
+#
+# Vocabulary (kept tiny on purpose — YAGNI):
+#   analyze:  { features_include: [..], features_exclude: [..], pattern: <name> }
+#   workflow: { grep_present: [..], grep_absent: [..] }     # raw substring over main.yml
+#   report:   { notes_include: [..] }                        # report.json.notes is ONE string
+#   manual:   [ "<free-text item to verify by hand>", ... ]
+# Fire parameters (read by `fire --entry <id>`): prompt, mode (auto|each_step), fast, deploy, project.
+# deploy defaults to `none` (no app created in the user's Dify). TRIGGER_ENTRY_NOTE only reaches
+# report.notes on selfhost/cloud (report.ts:198), so with deploy:none the note check lives in manual:.
+
+- id: trigger-schedule
+  prompt: >-
+    毎朝9時に https://jsonplaceholder.typicode.com/todos?userId=1 のJSONを取得して、
+    completed が false のタスクの件数とタイトルを日本語で3行以内にまとめ、
+    その結果を https://httpbin.org/post へPOSTしてください。
+  mode: auto
+  deploy: none
+  expect:
+    analyze:
+      features_include: [trigger]
+      pattern: scheduled-fetch-notify
+    workflow:
+      grep_present: ["type: trigger-schedule", "timezone: Asia/Tokyo"]
+      grep_absent: ["type: start"]
+    report:
+      notes_include: ["all linters passed"]
+  manual:
+    - "Enable the trigger in Dify Studio → Quick Settings and confirm the 9:00 JST fire (S5 deferred — no enable API)"
+    - "UI: the JA trigger-entry note renders on the ④ test card (NOTE_JA frame in i18n.ts)"
+    - "Runtime: with model filled + imported, the LLM summary is Japanese and ≤3 lines"
+
+- id: negative-no-trigger
+  prompt: 入力されたテキストを3行に要約するワークフローを作ってください。
+  mode: auto
+  deploy: none
+  expect:
+    analyze:
+      features_exclude: [trigger]
+    workflow:
+      grep_present: ["type: start"]
+      grep_absent: ["type: trigger-schedule"]
+  manual:
+    - "Runtime: paste a paragraph, confirm the summary is 3 lines"
+
+- id: excel-per-row-notify
+  prompt: >-
+    アップロードされたExcelの各行について、氏名と金額を読み取り、
+    1行ずつ Slack 風の通知メッセージを組み立てて出力してください。
+  mode: auto
+  deploy: none
+  expect:
+    analyze:
+      features_include: [iteration]
+    workflow:
+      grep_present: ["type: iteration"]
+  manual:
+    - "Attachment path: this suite fires without a file — verify the shape only; a real upload is manual"
+    - "Runtime: per-row messages match the sheet"
+
+- id: fast-single-llm
+  prompt: ユーザーが入力した英文を日本語に翻訳するだけのワークフロー。
+  mode: auto
+  fast: true
+  deploy: none
+  expect:
+    analyze:
+      features_include: [llm]
+    workflow:
+      grep_present: ["type: llm", "type: start", "type: end"]
+  manual:
+    - "Fast mode: confirm the build used a single LLM turn (⚡) and did not over-build"
+
+- id: edit-existing
+  prompt: この翻訳ワークフローに、翻訳後の文字数をカウントする Code ノードを追加してください。
+  mode: each_step
+  deploy: none
+  project: null   # set to an existing slug at run time; --project pass-through
+  expect:
+    analyze:
+      features_include: [code]
+    workflow:
+      grep_present: ["type: code"]
+  manual:
+    - "Requires a base workflow; set project to an existing slug before firing (OQ2 — --project only)"
+    - "each_step: review each gate artifact before confirming"
+
+- id: lang-sync-vi
+  prompt: Tạo workflow nhận vào một đoạn văn tiếng Việt và tóm tắt thành 3 câu.
+  mode: auto
+  deploy: none
+  expect:
+    analyze:
+      features_include: [llm]
+    workflow:
+      grep_present: ["type: llm"]
+  manual:
+    - "Language sync: the digest + SPEC should be in Vietnamese (matches the prompt), not JA"

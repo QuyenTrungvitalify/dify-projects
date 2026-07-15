@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+"""e2e_check.py — structural predicate evaluator for the e2e simulation harness (spec 058).
+
+Three-bucket contract (spec 058 r3 — "auto-test as much as possible, report the rest"):
+  AUTO-PASS  — predicate evaluated mechanically and held
+  AUTO-FAIL  — predicate evaluated mechanically and failed (a MISSING artifact is AUTO-FAIL:
+               the build demonstrably didn't produce what the expectation requires)
+  MANUAL     — cannot be auto-tested: the entry's `manual:` items, plus any predicate key the
+               vocabulary doesn't know yet (the suite may grow ahead of the runner — degrade,
+               never crash). MANUAL never affects the exit code but is ALWAYS printed.
+
+Exit codes: 0 = zero AUTO-FAIL · 1 = at least one AUTO-FAIL · 2 = usage / suite error.
+
+Usage:
+  e2e_check.py --suite e2e-suite.yml --entry trigger-schedule \
+      [--analyze p] [--workflow p] [--report p] [--json]
+  e2e_check.py --suite e2e-suite.yml --list            # print entry ids
+  e2e_check.py --suite e2e-suite.yml --entry X --emit-fire   # {prompt,mode,fast,deploy,project}
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+import yaml
+
+# Vocabulary (spec 058 S2) — kept intentionally tiny; unknown keys degrade to MANUAL.
+KNOWN_PREDICATES: dict[str, set[str]] = {
+    "analyze": {"features_include", "features_exclude", "pattern"},
+    "workflow": {"grep_present", "grep_absent"},
+    "report": {"notes_include"},
+}
+ARTIFACT_KINDS = ("analyze", "workflow", "report")
+SETTLED_BUCKETS = ("AUTO-PASS", "AUTO-FAIL", "MANUAL")
+
+
+def _row(bucket: str, check: str, detail: str) -> dict:
+    return {"bucket": bucket, "check": check, "detail": detail}
+
+
+def _load_json(path: Path) -> tuple[dict | None, str | None]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001 — any parse/read failure is one AUTO-FAIL row
+        return None, f"unreadable JSON: {e}"
+    if not isinstance(data, dict):
+        # valid JSON but a top-level array/scalar — the predicates read object keys, so degrade to a
+        # FAIL row instead of crashing on data.get() (the 'never crash' three-bucket contract).
+        return None, f"expected a JSON object, got {type(data).__name__}"
+    return data, None
+
+
+def evaluate_entry(entry: dict, artifacts: dict[str, Path | None]) -> list[dict]:
+    """Evaluate one suite entry against artifact paths. Pure — no network, no suite I/O."""
+    rows: list[dict] = []
+    expect = entry.get("expect") or {}
+
+    for section, preds in expect.items():
+        if section not in KNOWN_PREDICATES:
+            rows.append(_row("MANUAL", f"{section}.*",
+                             f"unknown expect section '{section}' — not in runner vocabulary yet; verify by hand"))
+            continue
+        if not isinstance(preds, dict):
+            rows.append(_row("AUTO-FAIL", f"{section}", f"expect.{section} must be a mapping, got {type(preds).__name__}"))
+            continue
+
+        path = artifacts.get(section)
+        if path is None or not Path(path).is_file():
+            missing = str(path) if path else "(no path — phase never produced it)"
+            for key in preds:
+                rows.append(_row("AUTO-FAIL", f"{section}.{key}", f"artifact missing: {missing}"))
+            continue
+        path = Path(path)
+
+        if section == "workflow":
+            text = path.read_text(encoding="utf-8")
+            data: dict | None = None
+            err = None
+        else:
+            data, err = _load_json(path)
+            text = ""
+        if err:
+            for key in preds:
+                rows.append(_row("AUTO-FAIL", f"{section}.{key}", f"{path.name}: {err}"))
+            continue
+
+        for key, arg in preds.items():
+            check = f"{section}.{key}"
+            if key not in KNOWN_PREDICATES[section]:
+                rows.append(_row("MANUAL", check,
+                                 f"unknown predicate '{key}' — not in runner vocabulary yet; verify by hand"))
+                continue
+            # Every predicate except `pattern` takes a LIST. A scalar (missing YAML brackets) would
+            # otherwise iterate character-by-character → a false AUTO-PASS on grep_present, or a crash
+            # on None. Degrade to AUTO-FAIL so a malformed suite entry never masquerades as green.
+            if key != "pattern" and not isinstance(arg, list):
+                rows.append(_row("AUTO-FAIL", check,
+                                 f"predicate '{key}' expects a list, got {type(arg).__name__} — check the suite YAML brackets"))
+                continue
+
+            if section == "analyze":
+                assert data is not None
+                features = data.get("features") or []
+                if key == "features_include":
+                    for f in arg:
+                        ok = f in features
+                        rows.append(_row("AUTO-PASS" if ok else "AUTO-FAIL", f"{check}[{f}]",
+                                         f"features={features}"))
+                elif key == "features_exclude":
+                    for f in arg:
+                        ok = f not in features
+                        rows.append(_row("AUTO-PASS" if ok else "AUTO-FAIL", f"{check}[{f}]",
+                                         f"features={features}"))
+                elif key == "pattern":
+                    got = data.get("pattern")
+                    ok = got == arg
+                    rows.append(_row("AUTO-PASS" if ok else "AUTO-FAIL", check,
+                                     f"expected '{arg}', got '{got}'"))
+            elif section == "workflow":
+                for needle in arg:
+                    present = needle in text
+                    if key == "grep_present":
+                        rows.append(_row("AUTO-PASS" if present else "AUTO-FAIL",
+                                         f"{check}[{needle}]",
+                                         "found" if present else f"'{needle}' not in {path.name}"))
+                    else:  # grep_absent
+                        rows.append(_row("AUTO-PASS" if not present else "AUTO-FAIL",
+                                         f"{check}[{needle}]",
+                                         "absent" if not present else f"'{needle}' PRESENT in {path.name}"))
+            elif section == "report":
+                assert data is not None
+                notes = str(data.get("notes") or "")  # report.json.notes is ONE string (058 r2)
+                for needle in arg:
+                    ok = needle in notes
+                    rows.append(_row("AUTO-PASS" if ok else "AUTO-FAIL", f"{check}[{needle}]",
+                                     "found in notes" if ok else f"'{needle}' not in notes"))
+
+    for item in entry.get("manual") or []:
+        rows.append(_row("MANUAL", "manual", str(item)))
+    return rows
+
+
+PHASE_ORDER = [("analyze", "analyze"), ("spec", "spec"), ("implement", "implement"), ("test", "report")]
+
+
+def compute_timing(taskid: str, artifact_paths: dict[str, str | None], fast: bool = False) -> dict:
+    """Per-phase + total wall-clock for one run, derived post-hoc — no polling.
+
+    Model (both signals are accurate to ~1s and need no backend):
+      - `taskid` is the fire time in EPOCH MILLISECONDS (Builder ids are 13-digit ms timestamps).
+      - each phase's artifact mtime is that phase's completion instant (analyze.json, SPEC.md,
+        main.yml, report.json in order).
+    A phase whose artifact is missing (e.g. an errored/parked run) is marked incomplete; the total
+    runs up to the last artifact present. Caveat: re-running `check`/editing an artifact rewrites its
+    mtime — measure on a clean single run for before/after comparison.
+
+    `fast=True` (⚡ spec 028): the build has NO separate analyze phase — one merged draft turn writes
+    both analyze.json and SPEC.md, so splitting them is meaningless (the 'analyze' delta would absorb
+    the whole turn and 'spec' would be a within-turn file-write gap, possibly negative). In that mode
+    analyze+spec are reported as ONE `draft(analyze+spec)` row measured to the later of the two mtimes.
+    """
+    try:
+        t0 = int(taskid) / 1000.0
+    except (TypeError, ValueError):
+        return {"taskid": str(taskid), "error": "taskid is not a numeric ms timestamp", "phases": [], "total_s": None}
+
+    order = PHASE_ORDER
+    if fast:
+        # Merge analyze+spec: completion = the later mtime of the two (same turn wrote both).
+        a, s = artifact_paths.get("analyze"), artifact_paths.get("spec")
+        mt = [Path(p).stat().st_mtime for p in (a, s) if p and Path(p).is_file()]
+        merged_path = None
+        if mt:
+            merged_path = a if (a and Path(a).is_file() and Path(a).stat().st_mtime == max(mt)) else s
+        order = [("draft(analyze+spec)", "_merged"), ("implement", "implement"), ("test", "report")]
+        artifact_paths = {**artifact_paths, "_merged": merged_path}
+
+    rows: list[dict] = []
+    prev = t0
+    last = t0
+    complete = True
+    for phase, key in order:
+        p = artifact_paths.get(key)
+        if p and Path(p).is_file():
+            m = Path(p).stat().st_mtime
+            # A merged/edited artifact could predate `prev`; never report a negative phase.
+            delta = max(0.0, m - prev)
+            rows.append({"phase": phase, "delta_s": round(delta, 1), "cum_s": round(m - t0, 1), "ok": True})
+            prev = m
+            last = m
+        else:
+            rows.append({"phase": phase, "delta_s": None, "cum_s": None, "ok": False})
+            complete = False
+    return {"taskid": str(taskid), "total_s": round(last - t0, 1), "complete": complete, "fast": fast, "phases": rows}
+
+
+def render_timing(t: dict) -> str:
+    if t.get("error"):
+        return f"timing error: {t['error']}"
+    tag = " ⚡fast (analyze+spec merged)" if t.get("fast") else ""
+    lines = [f"== e2e timing · run {t['taskid']}{tag} =="]
+    for r in t["phases"]:
+        if r["ok"]:
+            lines.append(f"  {r['phase']:<20} {r['delta_s']:>7.1f}s   (cumulative {r['cum_s']:>7.1f}s)")
+        else:
+            lines.append(f"  {r['phase']:<20} {'—':>7}    (no artifact — phase incomplete)")
+    tag = "" if t.get("complete") else "  [INCOMPLETE — run did not finish all phases]"
+    lines.append(f"  {'TOTAL':<12} {t['total_s']:>7.1f}s{tag}")
+    return "\n".join(lines)
+
+
+def render_cost(cost: dict) -> str:
+    """Spec 059 — the per-phase token/turn/cache table from task.json `.cost`. The mtime timing above
+    answers HOW LONG a phase took; this answers WHY: `numTurns` (internal tool-loop / lint→fix churn),
+    `outputTokens` (the slow generation axis), and `cache%` = cacheRead / (cacheRead + input) — the
+    cold-start-cache signal (near 0% ⇒ each fresh spawn re-pays full input price). Missing cells show
+    `—` (a phase whose turn died before a result records no entry); an empty map ⇒ a pre-059 run."""
+    order = [p for (p, _k) in PHASE_ORDER]  # analyze, spec, implement, test
+    if not any(isinstance(cost.get(p), dict) for p in order):
+        return "== e2e cost · (no per-phase cost recorded — pre-059 run, or turns died before a result) =="
+    lines = [
+        "== e2e cost · per-phase tokens / turns / cache ==",
+        f"  {'phase':<12}{'turns':>6}{'in_tok':>10}{'out_tok':>10}{'cache_rd':>10}{'cache%':>8}",
+    ]
+
+    def _s(v: object) -> str:
+        return "—" if not isinstance(v, (int, float)) else str(int(v))
+
+    for ph in order:
+        c = cost.get(ph)
+        if not isinstance(c, dict):
+            continue
+        it, cr = c.get("inputTokens"), c.get("cacheReadTokens")
+        denom = (cr if isinstance(cr, (int, float)) else 0) + (it if isinstance(it, (int, float)) else 0)
+        pct = f"{round(100 * (cr or 0) / denom)}%" if denom else "—"
+        lines.append(
+            f"  {ph:<12}{_s(c.get('numTurns')):>6}{_s(it):>10}"
+            f"{_s(c.get('outputTokens')):>10}{_s(cr):>10}{pct:>8}"
+        )
+    return "\n".join(lines)
+
+
+def render_table(entry_id: str, rows: list[dict]) -> str:
+    counts = {b: sum(1 for r in rows if r["bucket"] == b) for b in SETTLED_BUCKETS}
+    lines = [f"== e2e check · entry '{entry_id}' =="]
+    for bucket in SETTLED_BUCKETS:
+        group = [r for r in rows if r["bucket"] == bucket]
+        if not group:
+            continue
+        lines.append(f"-- {bucket} ({len(group)}) --")
+        lines.extend(f"  {r['check']:<44} {r['detail']}" for r in group)
+    verdict = "PASS (auto)" if counts["AUTO-FAIL"] == 0 else "FAIL (auto)"
+    lines.append(f"verdict: {verdict} — {counts['AUTO-PASS']} auto-pass, "
+                 f"{counts['AUTO-FAIL']} auto-fail, {counts['MANUAL']} manual-residue")
+    if counts["MANUAL"]:
+        lines.append("NOTE: MANUAL rows are unverified surface — report them to the user, never drop them.")
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--suite")
+    ap.add_argument("--entry")
+    ap.add_argument("--list", action="store_true", help="print suite entry ids and exit")
+    ap.add_argument("--emit-fire", action="store_true",
+                    help="print the entry's fire parameters as JSON {prompt,mode,fast,deploy,project}")
+    ap.add_argument("--timing", action="store_true",
+                    help="per-phase + total wall-clock for a run (needs --taskid + artifact paths); no --suite")
+    ap.add_argument("--taskid", help="run id (fire time in ms) — for --timing")
+    ap.add_argument("--spec-path", help="SPEC.md path — for --timing")
+    ap.add_argument("--task-json", help="task.json path — for --timing: also render the spec-059 cost table")
+    ap.add_argument("--fast", action="store_true",
+                    help="--timing: this was a ⚡ fast build — merge analyze+spec into one draft row")
+    ap.add_argument("--analyze")
+    ap.add_argument("--workflow")
+    ap.add_argument("--report")
+    ap.add_argument("--json", action="store_true", help="machine output instead of the table")
+    args = ap.parse_args(argv)
+
+    # ── timing mode: no suite needed, pure filesystem ────────────────────────
+    if args.timing:
+        if not args.taskid:
+            print("--timing needs --taskid", file=sys.stderr)
+            return 2
+        t = compute_timing(args.taskid, {
+            "analyze": args.analyze, "spec": args.spec_path,
+            "implement": args.workflow, "report": args.report,
+        }, fast=args.fast)
+        # Spec 059: the WHY table (tokens/turns/cache) rides alongside the mtime timing when a
+        # task.json is passed. Read leniently — a pre-059 run (no `.cost`) renders the empty-map line.
+        cost = {}
+        if args.task_json:
+            cj, _err = _load_json(Path(args.task_json))
+            cost = (cj or {}).get("cost") or {}
+        if args.json:
+            t["cost"] = cost
+            print(json.dumps(t, ensure_ascii=False, indent=2))
+        else:
+            print(render_timing(t) + (("\n" + render_cost(cost)) if args.task_json else ""))
+        return 0 if t.get("total_s") is not None else 2
+
+    if not args.suite:
+        print("--suite is required (except in --timing mode)", file=sys.stderr)
+        return 2
+    try:
+        suite = yaml.safe_load(Path(args.suite).read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        print(f"cannot read suite {args.suite}: {e}", file=sys.stderr)
+        return 2
+    if not isinstance(suite, list):
+        print(f"suite {args.suite} must be a YAML list of entries", file=sys.stderr)
+        return 2
+
+    if args.list:
+        for e in suite:
+            print(e.get("id", "?"))
+        return 0
+
+    if not args.entry:
+        print("--entry is required (or --list)", file=sys.stderr)
+        return 2
+    entry = next((e for e in suite if e.get("id") == args.entry), None)
+    if entry is None:
+        ids = ", ".join(str(e.get("id")) for e in suite)
+        print(f"entry '{args.entry}' not in suite — have: {ids}", file=sys.stderr)
+        return 2
+
+    if args.emit_fire:
+        print(json.dumps({
+            "prompt": entry.get("prompt", ""),
+            "mode": entry.get("mode", "auto"),
+            "fast": bool(entry.get("fast", False)),
+            "deploy": entry.get("deploy", "none"),
+            "project": entry.get("project"),
+        }, ensure_ascii=False))
+        return 0
+
+    artifacts = {k: Path(v) if (v := getattr(args, k)) else None for k in ARTIFACT_KINDS}
+    rows = evaluate_entry(entry, artifacts)
+    auto_fail = sum(1 for r in rows if r["bucket"] == "AUTO-FAIL")
+    if args.json:
+        print(json.dumps({"entry": args.entry, "rows": rows,
+                          "auto_ok": auto_fail == 0}, ensure_ascii=False, indent=2))
+    else:
+        print(render_table(args.entry, rows))
+    return 0 if auto_fail == 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

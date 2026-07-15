@@ -1,0 +1,27 @@
+# Sanitized start-entry workflow fixture (spec 058 AC5). The negative-no-trigger counterpart:
+# a classic start node, no trigger-* — exercises grep_present[type: start] / grep_absent[trigger].
+app:
+  mode: workflow
+  name: sanitized-start-fixture
+kind: app
+version: 0.6.0
+workflow:
+  graph:
+    edges:
+    - id: e1
+      source: '1000000000001'
+      target: '1000000000002'
+      data: { sourceType: start, targetType: llm }
+    nodes:
+    - id: '1000000000001'
+      data:
+        title: start
+        type: start
+    - id: '1000000000002'
+      data:
+        title: summarize
+        type: llm
+    - id: '1000000000003'
+      data:
+        title: out
+        type: end

@@ -1,0 +1,10 @@
+{
+  "workflow_file": "projects/_drafts/sanitized/workflows/main.yml",
+  "lint": {"validate": 0, "lint_refs": 0, "lint_node_bodies": 0, "lint_plugin_hashes": 0},
+  "notes": "all linters passed preflight: not runnable out-of-the-box — needs: model fill (llm; auto-injected at live test/deploy), plugin hash (dependencies TODO). Advisory — does not block the build. trigger-entry workflow: an API run is a manual fire — the schedule/webhook only runs automatically after you ENABLE the trigger in Dify Studio Quick Settings",
+  "unresolved_plugin_todo": true,
+  "duplicate_warning": null,
+  "accepted_lint_failure": false,
+  "deploy": "selfhost",
+  "app_url": "https://dify.example/app/sanitized-fixture"
+}
