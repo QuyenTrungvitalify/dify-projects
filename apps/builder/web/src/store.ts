@@ -520,14 +520,50 @@ function loadPersistedThread(taskId: string): LiveThreadItem[] | null {
   }
 }
 
-// Debounced write on any thread/task change (coalesces the qa-answer streaming churn to ~1 write/settle).
+/** Flush the thread to localStorage RIGHT NOW: drain the rAF output buffer first, cancel the debounce,
+ *  write synchronously. Two callers: (a) the unload path — during a streaming phase `thread.value`
+ *  changes many times per second, so the 500ms debounce below is perpetually reset and NEVER fires
+ *  (starvation); a mid-run reload then restored a thread from BEFORE the stream started, which read as
+ *  "output lost on reload" even after the capped-persist fix. `localStorage.setItem` is synchronous, so
+ *  a pagehide/beforeunload write is safe. (b) the max-wait tick below. Exported for the store unit test. */
+export function persistThreadImmediately(): void {
+  if (_persistTimer) {
+    clearTimeout(_persistTimer);
+    _persistTimer = null;
+  }
+  flushPendingOutput(); // land any buffered stream fragments on the run item BEFORE serializing
+  persistThreadNow();
+}
+
+// Debounced write on any thread/task change (coalesces the qa-answer streaming churn to ~1 write/settle) —
+// with a MAX-WAIT: continuous streaming resets the debounce forever, so if nothing has been written for
+// PERSIST_MAX_WAIT_MS we persist immediately instead of re-arming. Keeps a crash/kill mid-stream from
+// losing more than a few seconds; the unload listeners below make a normal reload lose nothing at all.
+const PERSIST_MAX_WAIT_MS = 3_000;
+let _lastPersistWriteAt = 0;
 if (typeof localStorage !== 'undefined') {
   effect(() => {
     void thread.value;
     void task.value; // subscribe to both
     if (_persistTimer) clearTimeout(_persistTimer);
-    _persistTimer = setTimeout(persistThreadNow, 500);
+    if (Date.now() - _lastPersistWriteAt >= PERSIST_MAX_WAIT_MS) {
+      _lastPersistWriteAt = Date.now();
+      _persistTimer = setTimeout(persistThreadImmediately, 0); // out-of-effect: no signal writes inside effect
+    } else {
+      _persistTimer = setTimeout(() => {
+        _lastPersistWriteAt = Date.now();
+        persistThreadNow();
+      }, 500);
+    }
   });
+
+  // A hard reload/close mid-stream must not lose the buffered output (see persistThreadImmediately).
+  // `pagehide` is the reliable modern signal (fires on reload/close/bfcache); `beforeunload` is the
+  // belt-and-braces fallback for older engines. Both write synchronously.
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', persistThreadImmediately);
+    window.addEventListener('beforeunload', persistThreadImmediately);
+  }
 
   void restoreLastTask();
 }
