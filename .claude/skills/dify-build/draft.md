@@ -12,7 +12,7 @@
 >
 > You are here because the user chose **⚡ Fast build**, asserting the requirement is a simple
 > single-LLM transform (`start → llm → end`, or `start → llm → answer` for an advanced-chat/chatbot).
-> Read [SKILL.md](SKILL.md) ground rules **once** (esp. **honest provenance**, **never invent plugin
+> Read `.claude/skills/dify-build/SKILL.md` ground rules **once** (esp. **honest provenance**, **never invent plugin
 > hashes**). Do **not** re-read them per artifact — this is the whole point of the merge.
 
 ## Inputs

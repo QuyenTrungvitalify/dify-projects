@@ -10,7 +10,7 @@
 > translate. (Machine identifiers / slugs / YAML keys stay ASCII — see *Output language*.)
 
 You are turning a requirement (and, if present, the Analyze summary) into a concrete build
-plan. Read [SKILL.md](SKILL.md) ground rules first.
+plan. Read `.claude/skills/dify-build/SKILL.md` ground rules first.
 
 ## Inputs
 - `{{REQUIREMENT}}` — the target behavior the user wants.

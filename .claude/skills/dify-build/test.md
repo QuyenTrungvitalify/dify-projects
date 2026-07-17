@@ -5,7 +5,7 @@
 > the procedure outside the app, and documents what the backend reproduces.
 
 You are validating the produced workflow and reporting the result; if `{{DEPLOY}}` requires it,
-importing into Dify. Read [SKILL.md](SKILL.md) ground rules first.
+importing into Dify. Read `.claude/skills/dify-build/SKILL.md` ground rules first.
 
 ## Inputs
 - `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}` — the file Phase ③ produced.
