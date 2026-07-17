@@ -25,6 +25,7 @@ export const I: Record<string, Glyph> = {
   plus:       (p) => <Svg {...p}><path d="M12 5v14M5 12h14" /></Svg>,
   newFile:    (p) => <Svg {...p}><path d="M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z" /><path d="M13 3v6h6" /></Svg>,
   arrowUp:    (p) => <Svg {...p}><path d="M12 19V5M6 11l6-6 6 6" /></Svg>,
+  download:   (p) => <Svg {...p}><path d="M12 4v10M8 11l4 4 4-4M5 19h14" /></Svg>,
   check:      (p) => <Svg {...p}><path d="M5 12.5l4.5 4.5L19 6.5" /></Svg>,
   checkCircle:(p) => <Svg {...p}><circle cx="12" cy="12" r="9" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></Svg>,
   message:    (p) => <Svg {...p}><path d="M4 5h16v11H9l-4 4z" /></Svg>,

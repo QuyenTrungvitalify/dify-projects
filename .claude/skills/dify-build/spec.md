@@ -41,7 +41,23 @@ Write all **human-facing prose** in the **same language as the requirement** (`{
    Priority order (AGENTS.md §3): `templates/patterns/` > `templates/library/` > `projects/*/workflows/` > `corpus/`.
 3. Draft the **target spec**: intended behavior, chosen pattern, the nodes to add/modify/keep
    (with roles), the variable-flow you intend (`{{#id.field#}}` chains), and the plugins
-   needed (note: real plugin hashes are added later from the target workspace — never invent).
+   needed. **A needed plugin is never a reason to avoid a node.** Plugin hashes are **public and
+   version-keyed** — resolved from the marketplace at Implement, whether or not the workspace has the
+   plugin installed (§4.3 / spec 067). So if the requirement is best served by a Dify `tool` node, spec
+   the `tool` node; do NOT downgrade it to `http-request` to dodge a `dependencies:` entry. Never
+   invent a `@sha256`; resolving one is not inventing.
+
+   **Check the tool catalog before you model an integration by hand.** `templates/tool-catalog.json`
+   lists curated, version-pinned Dify tools with their real identifiers — Google Sheets, Slack, Google
+   Search, GitHub, Notion, Markdown export. If one covers the requirement, name it in `## Plugins`
+   (`provider_name` + `tool_name`) and spec a `type: tool` node. `.venv/bin/python
+   tools/dify_base/marketplace.py resolve <org>/<name>` resolves anything not in the catalog — no
+   login, no install needed.
+   *This rule exists because of a measured failure:* three consecutive real builds modelled 「Slackに
+   通知」 as an `http-request` to a webhook the user had to create by hand — while `langgenius/slack`
+   sat in the marketplace with 14k installs. The reason recorded in one build's own SPEC was
+   「プラグインハッシュ依存が増えないため」 (to avoid adding a plugin-hash dependency). That is no longer
+   a cost worth avoiding: the hash is free to resolve, and the tool spares the user the setup.
 4. **Trigger-surface rule (spec 056).** Every **required** Start variable must be something the runtime
    operator physically has. Anything derivable in-flow is derived by nodes — or made `required: false`
    with a documented default: a requirement that names a file format gets a `type: file-list` (or `file`)

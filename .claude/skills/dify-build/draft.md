@@ -87,8 +87,10 @@ Write `SPEC.md` with this structure:
   ids — Implement mints the 13-digit ids.
 - **Variable flow** — the `{{#id.field#}}` chain (e.g. `{{#start.input#}} → llm.prompt`,
   `{{#llm.text#}} → end.output`).
-- **Plugins** — the model plugin the `llm` node needs, left as `# TODO: add plugin hash from target
-  workspace` (real hashes are added later from the target workspace — **never invent** a `@sha256`).
+- **Plugins** — the plugins this workflow needs (the `llm` node's model plugin; any `tool` node's
+  plugin). Name them; the hash is **resolved** from the public marketplace at Implement — it is
+  version-keyed and workspace-independent, so a plugin nobody has installed is still buildable
+  (§4.3 / spec 067). **Never invent** a `@sha256`; resolving one is not inventing.
 - **`## Acceptance Criteria`** (spec 032) — **REQUIRED, never omit.** Use that EXACT `##` heading (the
   backend parses it) + a markdown list, ONE *checkable* criterion per `-` line. Derive criteria ONLY from
   what `{{REQUIREMENT}}` explicitly asks + the shape's structural correctness (right nodes in order,

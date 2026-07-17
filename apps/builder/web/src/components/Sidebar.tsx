@@ -10,6 +10,8 @@ import type { JSX } from 'preact';
 import { I } from './Icon';
 import { t as tr, tf } from '../lib/i18n';
 import { askConfirm } from '../store';
+import { devMode } from '../lib/dev';
+import { RebuildButton } from './RebuildButton';
 import type { WireTreeProject, WireTreeWorkflow, WireTreeTask, NewTaskOpts } from '../types';
 
 export function Twist({ open, onClick }: { open: boolean; onClick?: JSX.MouseEventHandler<HTMLSpanElement> }) {
@@ -213,6 +215,9 @@ export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, 
       <div className="sb-head">
         <span className="sb-title">{tr('projects')}</span>
         <div className="sb-head-actions">
+          {/* spec 059: the dev-only rebuild moved here (from the per-task DevPanel) so it's reachable
+              from any view. Left of New-project → the latter keeps its right-edge alignment. */}
+          {devMode && <RebuildButton />}
           <button className="icon-btn" title={tr('newProject')} onClick={onNewProject}><I.newFile /></button>
         </div>
       </div>

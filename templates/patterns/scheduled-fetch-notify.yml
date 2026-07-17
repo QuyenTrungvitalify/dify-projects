@@ -21,6 +21,8 @@
 #   3. Parse logic in "Parse fetched data" — pick the fields YOUR summary needs.
 #   4. LLM prompts — tone + language of the notification.
 #   5. Notify endpoint URL + auth header name for YOUR service (Slack/Teams/ChatWork/custom).
+#      Slack also has a real tool node (`langgenius/slack/slack`) — read the notify GOTCHA below
+#      before defaulting to the webhook POST.
 #   6. Model choice (provider/name are blank placeholders — configure in Dify or let the
 #      builder inject at test/deploy).
 #
@@ -36,6 +38,16 @@
 #   trigger-entry workflow.
 # GOTCHA: this shape is NOT idempotent — every fire re-notifies. If duplicate notifications
 #   hurt, dedup in the receiving service or record sent-state outside the workflow.
+# GOTCHA: the POST-to-webhook notify step is this pattern's DEFAULT — it is NOT a verdict against
+#   `tool` nodes. Never swap a tool node for http-request to "avoid resolving a plugin hash": the
+#   hash is the PUBLIC marketplace checksum, keyed to (plugin, version) and identical in every
+#   workspace, resolvable with no login (spec 067 — copy it from templates/tool-catalog.json and
+#   fill `dependencies:`). A real build read THIS header, concluded the webhook was the way to
+#   dodge hash resolution, and then burned ~10 tool calls hunting for a raw Slack JSON body it had
+#   no vetted example of. Keep the webhook when the target has no plugin, or when the channel is
+#   fixed and a POST is genuinely simpler; prefer the tool node when the requirement needs what an
+#   Incoming Webhook cannot do (dynamic channel, threading, rich blocks — a webhook URL pins its
+#   channel at issue time).
 #
 # Live import, publish and API run verified on the user Dify 1.15.0 during the 2026-07-13 probes.
 # x-provenance: source=original repo=

@@ -20,6 +20,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadTask } from '../state/task.js';
 import { buildTree, listActiveTasks, specPathFor, workflowPathFor } from '../lib/artifacts.js';
+import { buildBundle } from '../lib/bundle.js';
 import { revealInFileManager } from '../lib/reveal.js';
 import { listSeeds } from '../lib/dify-io.js';
 import { runPython as realRunPython } from '../lib/shell.js';
@@ -179,6 +180,34 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
     }
     await writeFile(specPathFor(projectsDir, task), content);
     return { ok: true, path: specPathFor(projectsDir, task) };
+  });
+
+  // ── GET /api/tasks/:id/bundle — the run dossier zip (spec 062). A READ endpoint (no gate/turn), so it
+  //    lives here beside the spec GET, not in the gated routes/tasks.ts. `buildBundle` reads ONLY the run
+  //    dir + the task's workflow subtree (confinement, S5); the id is validated first so a crafted id
+  //    can't traverse. Streams `application/zip` with a sanitized download filename. ──
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/bundle', async (req, reply) => {
+    if (!isTaskId(req.params.id)) return reply.code(400).send({ error: 'invalid task id' });
+    let task;
+    try {
+      task = await loadTask(projectsDir, req.params.id);
+    } catch {
+      return reply.code(404).send({ error: `no such task: ${req.params.id}` });
+    }
+    try {
+      const zip = await buildBundle(projectsDir, task);
+      // Sanitize the slug for the Content-Disposition filename (a stray char can't break the header).
+      const slug = (task.workflowSlug || 'run').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60) || 'run';
+      const filename = `builder-${slug}-${task.taskId}.zip`;
+      return reply
+        .header('Content-Type', 'application/zip')
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .header('Content-Length', String(zip.length))
+        .send(zip);
+    } catch (e) {
+      app.log.error({ err: String(e), taskId: req.params.id }, 'bundle assembly failed');
+      return reply.code(500).send({ error: 'could not assemble the run bundle' });
+    }
   });
 
   // ── POST /api/tasks/:id/reveal — open the OS file manager at the task's workflow YAML ("Reveal in

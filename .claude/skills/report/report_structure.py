@@ -123,6 +123,44 @@ def analyze_file(path):
     if kr_empty:
         classes.add("dataset_empty")
         out["runnable_blockers"].append(f"dataset_ids empty on knowledge-retrieval: {kr_empty}")
+    # spec 066 S2 — the fifth class, mirrored from apps/builder/server/lib/runnability.ts
+    # (RUNNABILITY_PROBE + classifyRunnability). The AC-2 parity test compares
+    # `runnable_blocker_classes` between the two implementations and HARD-FAILS on drift, so this
+    # block and the TS one must stay semantically identical: an env var is a blocker only when it is
+    # BOTH empty AND referenced by the graph via {{#env.NAME#}}.
+    wf = (doc.get("workflow") or {}) if isinstance(doc, dict) else {}
+    # BOTH Dify env-reference forms — the template one and the selector one. lint_refs.py already
+    # walks both (REF_PATTERN + walk_value_selectors, SPECIAL_NS includes "env"); a probe that greps
+    # only the template form yields a false negative, which is the failure 066 exists to end.
+    env_ref_re = re.compile(r"{{\s*#env\.([A-Za-z0-9_]+)#\s*}}")
+    graph = wf.get("graph") or {}
+    referenced = set(env_ref_re.findall(yaml.safe_dump(graph, allow_unicode=True, default_flow_style=False)))
+
+    def _walk_selectors(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "value_selector" and isinstance(v, list) and len(v) >= 2:
+                    if str(v[0]) == "env":
+                        referenced.add(str(v[1]))
+                else:
+                    _walk_selectors(v)
+        elif isinstance(o, list):
+            for it in o:
+                _walk_selectors(it)
+
+    _walk_selectors(graph)
+    empty_env = [
+        str(ev.get("name") or ev.get("variable"))
+        for ev in (wf.get("environment_variables") or [])
+        if isinstance(ev, dict)
+        and (ev.get("name") or ev.get("variable"))
+        and not ev.get("value")
+        and str(ev.get("name") or ev.get("variable")) in referenced
+    ]
+    if empty_env:
+        classes.add("env_secret_empty")
+        out["runnable_blockers"].append(f"environment variable(s) declared empty but used: {empty_env}")
+    out["env_vars_empty_used"] = empty_env
     out["runnable_blocker_classes"] = sorted(classes)
     return out
 

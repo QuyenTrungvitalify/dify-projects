@@ -187,6 +187,35 @@ def test_known_node_types_deleted_from_lint_refs() -> None:
     assert "KNOWN_NODE_TYPES" not in src
 
 
+def test_list_coverage_is_the_enforced_predicate_not_a_copy_of_it() -> None:
+    """`--list-coverage` answers "will this node type be checked at all?" without a file — the
+    question both ③ transcripts (runs 1784185934247 / 1784192313811) answered by reading this
+    tool's source, because the skip warning only fires after a body already exists.
+
+    The listing must BE the enforcement: every status is recomputed here from the pinned schema
+    + TYPE_TO_DEF (lint_file's own predicate) and must match row-for-row. Asserting a literal
+    "http-request → warn-skip" instead would be the hand-synced allowlist D4 exists to forbid —
+    it would fail exactly when gen_schema (spec 024 S1) starts dumping a real def and coverage
+    correctly turns itself on.
+    """
+    from lint_node_bodies import TYPE_TO_DEF
+
+    result = run_tool("--list-coverage")
+    assert result.returncode == 0, f"stderr:\n{result.stderr}"
+
+    defs = _schema_defs()
+    expected = {
+        ntype: (
+            "warn-skip"
+            if def_name is None or "_error" in defs.get(def_name, {})
+            else "validated"
+        )
+        for ntype, def_name in TYPE_TO_DEF.items()
+    }
+    got = {line.split()[0]: line.split()[1] for line in result.stdout.splitlines()}
+    assert got == expected
+
+
 def test_root_node_data_envelope_still_bare() -> None:
     """AC 6 (D1, anti-gaming): the root Node.data subschema stays the bare `{type}` envelope —
     wiring the NodeData_* $refs there would flip the existing check-jsonschema pre-commit hook

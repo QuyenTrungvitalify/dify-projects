@@ -205,13 +205,16 @@ describe('report.ts notes provenance (013 D1 / Q2)', () => {
     assert.equal(report.lint.lint_refs, 1, 'report.lint records the exit code');
   });
 
-  test('duplicateWarning leads the notes (⚠) and deploy=none is recorded', async () => {
+  test('duplicateWarning leads the notes (⚠); deploy is recorded on the structured field', async () => {
     const task = await createTask(dir, { requirement: 'q', project: PROJECT, slug: SLUG, deploy: 'none' });
     await runReport(dir, task, log, { duplicateWarning: 'created a NEW app (duplicate)' });
     const report = JSON.parse(readFileSync(join(dir, `apps/builder/.runs/${task.taskId}/report.json`), 'utf8'));
     assert.match(report.notes, /^⚠ created a NEW app \(duplicate\)/);
     assert.equal(report.duplicate_warning, 'created a NEW app (duplicate)');
-    assert.match(report.notes, /deploy=none/);
+    // spec 064: `deploy=none (no Dify contact)` was a dev detail meaningless to a user — it now
+    // lives ONLY on the structured field, never in the human note text.
+    assert.equal(report.deploy, 'none');
+    assert.ok(!report.notes.includes('deploy=none'), 'no deploy=none jargon in the human note');
   });
 });
 

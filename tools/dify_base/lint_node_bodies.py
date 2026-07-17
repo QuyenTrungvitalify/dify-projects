@@ -23,15 +23,27 @@ Skips (D4, all derived at runtime — zero hand-synced allowlists):
     `_error` dump-stub (http-request today) — stderr warning. When gen_schema's dump is fixed
     (spec 024 S1), the next regeneration turns coverage on automatically.
 
+`--list-coverage` prints that same skip/validate split BEFORE a file exists, because the skip
+warning only fires once you have already written a body and run the tool on it. An author who
+wants to know "will this node type be checked at all?" up front otherwise has to read this
+source — measured twice (runs 1784185934247 / 1784192313811, the only two ③ transcripts), which
+is what motivated the flag. It derives every row from `coverage_rows()`, i.e. the same predicate
+`lint_file` gates on, so it cannot drift from what is actually enforced — the D4 rule above is
+exactly why no doc may copy the list into prose.
+
 Usage:
     python3 tools/dify_base/lint_node_bodies.py [--schema <path>] [--demote DEF:FIELD ...] \\
         <file.yml> [<file.yml> ...]
+    python3 tools/dify_base/lint_node_bodies.py --list-coverage [--schema <path>]
 
     --schema  override the pinned schema (default: schemas/dify-dsl-0.6.0.json at the repo root;
               `schemas/_latest.json` serves ad-hoc runs against a fresh regeneration)
     --demote  treat DEF's missing-required FIELD as a stderr warning instead of a finding —
               the subprocess-boundary test seam for DEMOTED_REQUIRED (D3); shipped rows must
               cite the P2 report
+    --list-coverage
+              print `<node type> <validated|warn-skip> <def name|reason>` for every known
+              node type and exit 0; takes no files
 
 Escape hatch (D3, P3): a COLUMN-0 full-line comment `# lint-bodies: allow <node_id>` suppresses
 all body findings for that node (stderr notes the suppression). Anchored at column 0 — stricter
@@ -125,6 +137,25 @@ ALLOW_RE = re.compile(r"^#\s*lint-bodies:\s*allow\s+(\S+)\s*$", re.MULTILINE)
 
 def load_schema(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def coverage_rows(schema_path: Path) -> list[tuple[str, str, str]]:
+    """→ [(node type, 'validated'|'warn-skip', def name or skip reason)] for every known type.
+
+    The status column re-uses `lint_file`'s skip predicate verbatim (`def_name is None or
+    '_error' in defs.get(def_name, {})`), so this listing IS the enforcement — not a second,
+    hand-synced description of it that could drift (D4).
+    """
+    defs = load_schema(schema_path)["$defs"]
+    rows: list[tuple[str, str, str]] = []
+    for ntype, def_name in sorted(TYPE_TO_DEF.items()):
+        if def_name is None:
+            rows.append((ntype, "warn-skip", "no NodeData_* def dumped for this type"))
+        elif "_error" in defs.get(def_name, {}):
+            rows.append((ntype, "warn-skip", f"{def_name} is an `_error` dump-stub"))
+        else:
+            rows.append((ntype, "validated", def_name))
+    return rows
 
 
 def node_lines(text: str) -> dict[str, int]:
@@ -239,11 +270,15 @@ def main(argv: list[str]) -> int:
     schema_path = DEFAULT_SCHEMA
     demoted: dict[str, set[str]] = {k: set(v) for k, v in DEMOTED_REQUIRED.items()}
     files: list[str] = []
+    list_coverage = False
 
     i = 0
     while i < len(argv):
         arg = argv[i]
-        if arg == "--schema":
+        if arg == "--list-coverage":
+            list_coverage = True
+            i += 1
+        elif arg == "--schema":
             if i + 1 >= len(argv):
                 print("usage: --schema requires a path", file=sys.stderr)
                 return 2
@@ -260,10 +295,19 @@ def main(argv: list[str]) -> int:
             files.append(arg)
             i += 1
 
+    if list_coverage:
+        if not schema_path.exists():
+            print(f"{schema_path}: schema file not found", file=sys.stderr)
+            return 2
+        for ntype, status, detail in coverage_rows(schema_path):
+            print(f"{ntype:<22} {status:<10} {detail}")
+        return 0
+
     if not files:
         print(
             "usage: lint_node_bodies.py [--schema <path>] [--demote DEF:FIELD ...] "
-            "<file.yml> [<file.yml> ...]",
+            "<file.yml> [<file.yml> ...]\n"
+            "       lint_node_bodies.py --list-coverage [--schema <path>]",
             file=sys.stderr,
         )
         return 2

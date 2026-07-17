@@ -123,7 +123,7 @@ describe('POST /api/bases (spec 051 S1)', () => {
   });
 
   test('(D2 advisory) an import-probe verdict is attached to the 200 response, never blocks the write', async () => {
-    probeNote = 'import-probe: OK — Dify accepted this DSL (probe app deleted)';
+    probeNote = 'Checked automatically: Dify accepts this workflow file.'; // spec 066 S4 wording
     const res = await post({ yaml: VALID_YAML });
     assert.equal(res.statusCode, 200);
     assert.equal(res.json().probeNote, probeNote);

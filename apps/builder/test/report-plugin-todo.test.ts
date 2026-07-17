@@ -76,8 +76,13 @@ describe('runReport — D2 advisory', () => {
     const rep = await runReport(dir, task, log);
     assert.equal(rep.lintClean, true, 'the advisory must NOT flip the lint verdict');
     const report = JSON.parse(readFileSync(join(dir, rep.reportRel), 'utf8'));
-    assert.equal(report.unresolved_plugin_todo, true);
-    assert.match(report.notes, /unresolved_plugin_todo/);
+    assert.equal(report.unresolved_plugin_todo, true, 'the raw dev field stays (spec 064)');
+    // spec 064: the human NOTE is now PLAIN — the `unresolved_plugin_todo` jargon lives only on the
+    // structured field above, never in the text a naive user reads.
+    assert.match(report.notes, /relies on a Dify plugin/);
+    for (const jargon of ['unresolved_plugin_todo:', 'plugin hash', 'dependencies are empty']) {
+      assert.ok(!report.notes.includes(jargon), `note must not contain jargon "${jargon}"`);
+    }
   });
 
   test('clean workflow → flag false, no advisory note', async () => {
@@ -88,6 +93,42 @@ describe('runReport — D2 advisory', () => {
     const report = JSON.parse(readFileSync(join(dir, rep.reportRel), 'utf8'));
     assert.equal(report.unresolved_plugin_todo, false);
     assert.doesNotMatch(report.notes, /unresolved_plugin_todo/);
+  });
+});
+
+// ── spec 067 S5b: the tool checklist is gated on hasToolNode, NOT on the TODO marker ─────────────
+// 067 S1 makes a RESOLVED `dependencies:` the correct output (the hash is public + version-keyed), so
+// `unresolvedPluginTodo` goes false on exactly the builds that use a tool. Nesting 061's checklist
+// under the TODO would retire it precisely then — the user still must install the plugin and add its
+// API key. These two tests are the regression guard; they FAIL against the pre-067 nesting.
+const TOOL_RESOLVED =
+  'dependencies:\n' +
+  '- type: marketplace\n' +
+  '  value:\n' +
+  '    marketplace_plugin_unique_identifier: omluc/google_sheets:0.0.2@' + '1'.repeat(64) + '\n' +
+  'workflow:\n  graph:\n    nodes:\n    - data:\n        type: tool\n        tool_label: Google Sheets\n';
+
+describe('spec 067 S5b — the tool checklist survives a resolved hash', () => {
+  test('tool node + RESOLVED dependencies (no TODO) → checklist STILL rendered', async () => {
+    seedWorkflow(TOOL_RESOLVED);
+    const task = await createTask(dir, { requirement: 'z', project: PROJECT, slug: SLUG, deploy: 'none' });
+    const rep = await runReport(dir, task, log);
+    const report = JSON.parse(readFileSync(join(dir, rep.reportRel), 'utf8'));
+    assert.equal(report.unresolved_plugin_todo, false, 'the hash IS resolved — no TODO left');
+    assert.match(report.notes, /Google Sheets/, 'the checklist names the tool (061 survives 067 S1)');
+    assert.match(report.notes, /install/i, 'the user is still told to install it');
+    assert.equal(rep.lintClean, true, 'still advisory — never flips the verdict');
+  });
+
+  test('tool node → the generic plugin line is suppressed (checklist supersedes it, no double-telling)', async () => {
+    seedWorkflow('dependencies: []\n# TODO: add plugin hash\nworkflow:\n  graph:\n    nodes:\n' +
+      '    - data:\n        type: tool\n        tool_label: Google Sheets\n');
+    const task = await createTask(dir, { requirement: 'w', project: PROJECT, slug: SLUG, deploy: 'none' });
+    const rep = await runReport(dir, task, log);
+    const report = JSON.parse(readFileSync(join(dir, rep.reportRel), 'utf8'));
+    assert.equal(report.unresolved_plugin_todo, true, 'the dev field still records the TODO');
+    assert.match(report.notes, /Google Sheets/, 'the specific checklist wins');
+    assert.doesNotMatch(report.notes, /relies on a Dify plugin/, 'no vague duplicate alongside it');
   });
 });
 
@@ -119,10 +160,13 @@ describe('runReport — spec 037 preflight recompute (AC 4/4b)', () => {
       const task = await createTask(dir, { requirement: 'p', project: PROJECT, slug: SLUG, deploy: 'none' });
       const rep = await runReport(dir, task, log);
       const report = JSON.parse(readFileSync(join(dir, rep.reportRel), 'utf8'));
-      assert.match(report.notes, /preflight: not runnable out-of-the-box/);
-      assert.match(report.notes, /model fill \(llm n1/);
-      // the D2 note's exact phrasing survives alongside (spec 037 AC 4)
-      assert.match(report.notes, /unresolved_plugin_todo: dependencies are empty but a "# TODO add plugin hash" remains/);
+      assert.match(report.notes, /Before this workflow can run, you need to: /); // spec 066 S5
+      // spec 064: the model advisory is PLAIN reassurance and carries NO raw node id (`llm n1`
+      // stays on the structured blocker, out of the human text).
+      assert.match(report.notes, /the AI model \(filled in automatically when you test/);
+      assert.ok(!report.notes.includes('n1'), 'no raw node id in the human note (spec 064)');
+      // the D2 advisory still rides alongside (spec 037 AC 4) — now in plain language.
+      assert.match(report.notes, /relies on a Dify plugin/);
       assert.equal(rep.lintClean, true, 'preflight can never flip the lint verdict');
     } finally {
       delete process.env.PREFLIGHT_FACTS;
@@ -139,11 +183,11 @@ describe('runReport — spec 037 preflight recompute (AC 4/4b)', () => {
     try {
       seedWorkflow('workflow:\n  graph:\n    nodes: []\n'); // fixed at the gate: no TODO, model filled
       const task = await createTask(dir, { requirement: 'q', project: PROJECT, slug: SLUG, deploy: 'none' });
-      task.preflightNote = 'preflight: not runnable out-of-the-box — needs: STALE. Advisory — does not block the build.';
+      task.preflightNote = 'Before this workflow can run, you need to: STALE. (The build itself is finished — these are setup steps in Dify.)';
       const rep = await runReport(dir, task, log);
       const report = JSON.parse(readFileSync(join(dir, rep.reportRel), 'utf8'));
       assert.equal(task.preflightNote, undefined, 'stale note cleared by the ④ recompute');
-      assert.doesNotMatch(report.notes, /preflight:/);
+      assert.doesNotMatch(report.notes, /STALE|Before this workflow can run/);
     } finally {
       delete process.env.PREFLIGHT_FACTS;
     }

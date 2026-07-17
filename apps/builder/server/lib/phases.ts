@@ -29,7 +29,30 @@ const runArtifact = (task: Task, file: string): string =>
 /** Spec 028: `trivial` on the fast path (the merged draft turn), else `standard`. */
 const depth = (task: Task): string => (task.fastMode ? 'trivial' : 'standard');
 
-/** Full 10-token map (was mislabeled "8" — DEPTH/028 and KNOWLEDGE/037 joined later); unused tokens
+/**
+ * Spec 065 — the repo-relative path of the pattern ① already chose (`analyze.json.pattern`, folded onto
+ * the task by analysis.ts), or `''` for custom/absent. Without it the ③ turn hunts the filesystem for a
+ * file the backend already knows: on run 1784185934247 that hunt was 18 of 32 tool calls (8 of them
+ * failing), because the prompt named the pattern but not where it lives.
+ *
+ * Pure (no fs) — phases.ts is io-free by contract, so a stale/typo'd `analysisPattern` yields a path the
+ * turn will find missing, exactly as it would have today. Mirrors analysis.ts's `.yml` normalization.
+ */
+const patternPath = (task: Task): string => {
+  const p = (task.analysisPattern ?? '').trim();
+  if (!p || p === 'custom') return '';
+  // NOT trusted input: `analysisPattern` is whatever the ① turn wrote into analyze.json
+  // (applyAnalysisToTask takes `parsed.pattern.trim()` verbatim), and that turn reads an untrusted seed
+  // (015 D4) while read-confinement is still a deferred fork (026). Since implement.md tells the turn to
+  // open this path WITHOUT searching, a traversal here would be handed straight to it. Allowlist a bare
+  // pattern filename; anything else degrades to '' → the find.py branch (i.e. today's behavior).
+  // `.yml` only (never `.yaml`): every pattern on disk is `.yml`, spec 039 treats an extension twin as a
+  // hard error, and accepting `.yaml` here would append a second suffix (`x.yaml.yml`) — a path to nowhere.
+  if (!/^[A-Za-z0-9_-]+(\.yml)?$/.test(p)) return '';
+  return `templates/patterns/${p.endsWith('.yml') ? p : `${p}.yml`}`;
+};
+
+/** Full 11-token map (was mislabeled "8" — DEPTH/028, KNOWLEDGE/037 and PATTERN_PATH/065 joined later); unused tokens
  *  default to "" (DEPTH to 'standard') so the render leaves no `{{...}}` behind — the "every known
  *  token is always substituted" contract (SKILL.md token table). KNOWLEDGE stays '' HERE — phases.ts
  *  is pure/io-free; the orchestrator (which owns the render seam) overrides it for Implement from
@@ -47,6 +70,7 @@ const vars = (partial: Partial<Record<string, string>>): Record<string, string> 
   DEPLOY: '',
   DEPTH: 'standard',
   KNOWLEDGE: '',
+  PATTERN_PATH: '',
   ...partial,
 });
 
@@ -107,6 +131,9 @@ export const PHASES: PhaseDef[] = [
         // implement.md re-reads it fresh so a manual edit wins (last-writer).
         PRIOR_ARTIFACT: t.artifacts.spec ?? `${workflowDir(t)}/SPEC.md`,
         DEPTH: depth(t), // spec 028 B3: implement.md skips the find.py re-pick when `trivial`
+        // Spec 065: hand ③ the path of the pattern ① chose instead of making it hunt (18/32 tool
+        // calls on run 1784185934247). '' for custom/trivial — implement.md then keeps today's wording.
+        PATTERN_PATH: patternPath(t),
       }),
   },
   {

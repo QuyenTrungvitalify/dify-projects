@@ -230,6 +230,8 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   display: flex; align-items: center; gap: 8px;
   /* right inset = 12px so the New-project button's right edge lines up with the New-task button below. */
   padding: 18px 12px 10px 18px;
+  /* anchor for the dev-only rebuild toast (.sb-rebuild-msg), which floats just below the header. */
+  position: relative;
 }
 .sb-title {
   font-size: 12px; font-weight: 500; letter-spacing: 0.06em;
@@ -256,6 +258,29 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .sb-head-actions .icon-btn:hover { background: var(--bg-elevated-2); border-color: var(--border-strong); color: var(--tx-1); }
 .sb-head-actions .icon-btn svg { width: 16px; height: 16px; }
+
+/* Dev-only rebuild (spec 059) — sits left of New-project in the header. Accent-tinted so it reads as a
+   dev affordance, spins while building, and floats its status as a toast just below the header. */
+.sb-rebuild { color: var(--accent-tx); }
+.sb-rebuild:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-tx); }
+.sb-rebuild:disabled { cursor: default; opacity: 0.7; }
+.sb-rebuild.spinning svg { animation: sb-rebuild-spin 0.9s linear infinite; }
+@keyframes sb-rebuild-spin { to { transform: rotate(360deg); } }
+.sb-rebuild-msg {
+  position: absolute;
+  top: calc(100% - 4px);
+  right: 12px;
+  max-width: calc(100% - 24px);
+  z-index: 20;
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: var(--bg-elevated-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  font-size: 11px; line-height: 1.35;
+  color: var(--tx-muted);
+}
+.sb-rebuild-msg.ok { color: var(--ok); border-color: var(--accent-line); }
 
 .sb-newtask {
   margin: 4px 12px 6px;
@@ -358,6 +383,9 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .sidebar.collapsed .sb-title,
 .sidebar.collapsed .sb-newtask span,
 .sidebar.collapsed .sb-scroll,
+/* the 60px rail fits ONE header button — hide the dev-only rebuild (+ its toast); expand to reach it. */
+.sidebar.collapsed .sb-rebuild,
+.sidebar.collapsed .sb-rebuild-msg,
 .sidebar.collapsed .sb-foot .tw-name { display: none; }
 .sidebar.collapsed .sb-newtask { justify-content: center; padding: 9px; }
 .sidebar.collapsed .sb-head { justify-content: center; padding: 18px 0 10px; }
@@ -1327,7 +1355,6 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .dev-collapsed { padding-bottom: 6px; }
 .dev-strip .tw-twist { color: var(--tx-faint); cursor: pointer; }
 .dev-strip .tw-twist:hover { color: var(--tx-strong); }
-.dev-msg--ok { color: var(--ok); }
 .dev-tag {
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1350,9 +1377,6 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .dev-copy:hover { color: var(--tx-strong); border-color: var(--border-strong); }
 .dev-copy:disabled { opacity: 0.6; cursor: default; }
-.dev-rebuild { color: var(--accent-tx); border-color: var(--accent-line); }
-.dev-rebuild:hover:not(:disabled) { border-color: var(--accent); }
-.dev-msg { color: var(--tx-faint); }
 .dev-cost { margin-top: 5px; border-collapse: collapse; white-space: nowrap; }
 .dev-cost th, .dev-cost td { text-align: right; padding: 1px 10px; }
 .dev-cost th { color: var(--tx-faint); font-weight: 500; }

@@ -83,7 +83,30 @@ say so and build normal; the §5 guard would stop a fast build there anyway.)
      ALSO runs `check` (correctness + cost gate). `implement` is usually the dominant phase. Caveat:
      one run's turns/latency wobble — compare **medians of ≥3 runs**, not one pair, before trusting a
      small delta.
-6. **Emit the verdict.** One table: per-phase ①②③④ PASS/FAIL with one-line evidence, then the
+6. **Judge as a NAIVE user, not the developer (spec 063).** The structural check above judges on
+   the dev view (features/YAML/lint) — it will pass output a real non-technical user can't act on.
+   To test that user's experience:
+   - **`e2e-run.sh userview <taskId>`** prints ONLY what the user reads in chat (digest + notes),
+     hiding the dev view. Read THIS, not the artifacts, when judging user experience. (It is a
+     reconstruction proxy — not the literal Chat.tsx render; a full localization port + component
+     contract test is a follow-up slice.)
+   - **`e2e-run.sh comprehension <taskId>`** is the OBJECTIVE jargon check: a fixed blocklist
+     (`plugin hash`, `dependencies`, `# TODO`, `deploy=none`, `プラグインハッシュ`, …) over the
+     user-facing text → AUTO-FAIL per hit, reproducible, exit-code-affecting. This is the 061
+     before/after oracle a substring grep can't be.
+   - **`--persona naive` (each_step) — MUST be context-isolated, not "un-know".** The default
+     reviewer has already read the artifacts (features/YAML/linters), so telling it to "drop that
+     knowledge" is unenforceable. Instead **spawn a FRESH subagent** and hand it ONLY the `userview`
+     output (never the artifacts) with: *"You are a non-technical user. Based only on this chat, is
+     the plan clear? Would you accept it? Ask only questions a layperson would — do NOT suggest tools
+     or schema changes."* Its inability to self-correct is structural (it never saw the schema), which
+     is what spec 063 S2/AC4 requires. It's a propensity, not a property — run ≥3 subagents, take the
+     majority.
+   - **The open-ended `next_step_clear` LLM judgment** (does the user know what to do next?) is a
+     PROXY: report it in a separate **COMPREHENSION** note, label it non-reproducible, and NEVER
+     compare it across runs as a regression signal. **Hand the hard call to a human** — print the
+     `userview` for any flagged case with *"a real non-technical user should eyeball this."*
+7. **Emit the verdict.** One table: per-phase ①②③④ PASS/FAIL with one-line evidence, then the
    AUTO-PASS / AUTO-FAIL / **MANUAL-residue** section. The MANUAL section is mandatory even when
    everything auto-passed.
 

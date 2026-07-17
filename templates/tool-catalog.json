@@ -1,0 +1,1310 @@
+{
+  "_README": [
+    "Spec 067 S2 — the curated tool catalog (使用頻度の高いツール). Generated, never hand-edited:",
+    "  .venv/bin/python tools/dify_base/marketplace.py catalog <org>/<name>/<version> … > templates/tool-catalog.json",
+    "",
+    "IDENTIFIERS: every dependency_identifier is the PUBLIC marketplace package checksum, keyed to",
+    "(plugin, version) — the same in every workspace, resolvable with no login and no install. Verified",
+    "byte-for-byte against this repo own workspace exports (projects/_drafts/3_3/workflows/main.yml:12,15).",
+    "VERSIONS ARE PINNED because the hash is version-keyed. Re-run the generator to bump.",
+    "",
+    "NODE SHAPE — two counter-intuitive rules, both from docs/runtime-supplement.md (verified against a",
+    "lint-clean build) and confirmed in vendor/dify-src:",
+    "  * provider_type is \"builtin\", NOT \"plugin\" — tool_manager.py:985-987 dispatches BUILT_IN to the",
+    "    PluginToolProviderController; all 16 real tool nodes in corpus/ use builtin.",
+    "  * provider_name is the FULL 3-segment path, identical to provider_id (\"provider name doubled\").",
+    "    A 2-segment value raises ValueError in provider_ids.py GenericProviderID.",
+    "plugin_id (org/plugin) is the dependency-identifier prefix — the key tying a tool node to its",
+    "dependencies entry (lint_plugin_hashes.py coverage gate).",
+    "",
+    "A plugin listed here is BUILDABLE even if nobody has installed it: Dify accepts the import and",
+    "raises its own install prompt — but ONLY if the DSL carries a non-empty top-level dependencies",
+    "array (the graph-derived fallback is dead above DSL 0.1.5). So: emit the tool node AND the",
+    "dependencies entry. Never drop a tool node because the workspace lacks the plugin."
+  ],
+  "generated_from": "https://marketplace.dify.ai/api/v1/plugins",
+  "resolved_on": "2026-07-17",
+  "plugins": [
+    {
+      "provider_id": "omluc/google_sheets/google_sheets",
+      "provider_type": "builtin",
+      "provider_name": "omluc/google_sheets/google_sheets",
+      "plugin_id": "omluc/google_sheets",
+      "category": "tool",
+      "dependency_identifier": "omluc/google_sheets:0.0.2@17f06eaa1d905595e1a76460e7249707a722142353d551cf14aed3d8517c134f",
+      "version": "0.0.2",
+      "tools": [
+        {
+          "tool_name": "batch_get",
+          "tool_label": "Batch Get",
+          "parameters": [
+            {
+              "name": "spreadsheet_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "ranges",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "date_time_render_option",
+              "type": "select",
+              "required": false
+            },
+            {
+              "name": "major_dimension",
+              "type": "select",
+              "required": false
+            },
+            {
+              "name": "value_render_option",
+              "type": "select",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "batch_update",
+          "tool_label": "Batch Update",
+          "parameters": [
+            {
+              "name": "spreadsheet_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "data",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "value_input_option",
+              "type": "select",
+              "required": false
+            },
+            {
+              "name": "include_values_in_response",
+              "type": "boolean",
+              "required": false
+            },
+            {
+              "name": "response_value_render_option",
+              "type": "select",
+              "required": false
+            },
+            {
+              "name": "response_date_time_render_option",
+              "type": "select",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "provider_id": "langgenius/slack/slack",
+      "provider_type": "builtin",
+      "provider_name": "langgenius/slack/slack",
+      "plugin_id": "langgenius/slack",
+      "category": "tool",
+      "dependency_identifier": "langgenius/slack:0.0.9@438c468962bf4befd871407a494b3888550741e37c4abc9430182f2621e38d61",
+      "version": "0.0.9",
+      "tools": [
+        {
+          "tool_name": "slack_webhook",
+          "tool_label": "Incoming Webhook to send message",
+          "parameters": [
+            {
+              "name": "webhook_url",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "content",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "provider_id": "langgenius/google/google",
+      "provider_type": "builtin",
+      "provider_name": "langgenius/google/google",
+      "plugin_id": "langgenius/google",
+      "category": "tool",
+      "dependency_identifier": "langgenius/google:0.1.5@cbe3d3ef2530384c1d23653e6b3f6d527839db2dc60a47a0c14ac774f0bbe856",
+      "version": "0.1.5",
+      "tools": [
+        {
+          "tool_name": "google_search",
+          "tool_label": "GoogleSearch",
+          "parameters": [
+            {
+              "name": "query",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "language_code",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "country_code",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "as_agent_tool",
+              "type": "boolean",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "google_image_search",
+          "tool_label": "Google Image Search",
+          "parameters": [
+            {
+              "name": "query",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "hl",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "gl",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "location",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "max_results",
+              "type": "number",
+              "required": true
+            },
+            {
+              "name": "imgsz",
+              "type": "select",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "provider_id": "bowenliang123/md_exporter/md_exporter",
+      "provider_type": "builtin",
+      "provider_name": "bowenliang123/md_exporter/md_exporter",
+      "plugin_id": "bowenliang123/md_exporter",
+      "category": "tool",
+      "dependency_identifier": "bowenliang123/md_exporter:3.6.9@3f027d63e80b44d5d5a9f706871afaef37905b8f8a89a2d152dc530211a8acb1",
+      "version": "3.6.9",
+      "tools": [
+        {
+          "tool_name": "md_to_docx",
+          "tool_label": "Markdown ⮕ DOCX",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "docx_template_file",
+              "type": "file",
+              "required": false
+            },
+            {
+              "name": "output_filename",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "md_to_pdf",
+          "tool_label": "Markdown ⮕ PDF",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "output_filename",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "md_to_xlsx",
+          "tool_label": "Markdown tables ⮕ XLSX",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "force_text_value",
+              "type": "select",
+              "required": true
+            },
+            {
+              "name": "output_filename",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "md_to_pptx",
+          "tool_label": "Markdown ⮕ PPTX",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "pptx_template_file",
+              "type": "file",
+              "required": false
+            },
+            {
+              "name": "output_filename",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "md_to_ipynb",
+          "tool_label": "Markdown ⮕ Jupyter Notebook",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "output_filename",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "md_to_html",
+          "tool_label": "Markdown ⮕ HTML",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "output_filename",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "md_to_html_text",
+          "tool_label": "Markdown ⮕ HTML Text",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "tool_name": "md_to_md",
+          "tool_label": "Markdown ⮕ MD",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "output_filename",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "md_to_png",
+          "tool_label": "Markdown ⮕ PNG",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "output_filename",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "is_compress",
+              "type": "select",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "md_to_csv",
+          "tool_label": "Markdown tables ⮕ CSV",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "output_filename",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "md_to_json",
+          "tool_label": "Markdown tables ⮕ JSON",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "output_style",
+              "type": "select",
+              "required": true
+            },
+            {
+              "name": "output_filename",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "md_to_xml",
+          "tool_label": "Markdown ⮕ XML",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "output_filename",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "md_to_latex",
+          "tool_label": "Markdown tables ⮕ LaTeX",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "output_filename",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "md_to_codeblock",
+          "tool_label": "Codeblocks in Markdown ⮕ Script Files",
+          "parameters": [
+            {
+              "name": "md_text",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "output_filename",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "is_compress",
+              "type": "select",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "provider_id": "langgenius/github/github",
+      "provider_type": "builtin",
+      "provider_name": "langgenius/github/github",
+      "plugin_id": "langgenius/github",
+      "category": "tool",
+      "dependency_identifier": "langgenius/github:0.3.7@b73d4e2e2006d4412b564c529ca976d95d8a66f36963b3891b146234e80ae64c",
+      "version": "0.3.7",
+      "tools": [
+        {
+          "tool_name": "github_repositories",
+          "tool_label": "Search Repositories",
+          "parameters": [
+            {
+              "name": "query",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "top_n",
+              "type": "number",
+              "required": true
+            }
+          ]
+        },
+        {
+          "tool_name": "github_repository_readme",
+          "tool_label": "Get README content",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "ref",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "dir",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_repository_info",
+          "tool_label": "Repository Info",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "tool_name": "github_repository_issues",
+          "tool_label": "Repository Issues",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "state",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "per_page",
+              "type": "number",
+              "required": false
+            },
+            {
+              "name": "sort",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "direction",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_repository_pulls",
+          "tool_label": "Repository Pull Requests",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "state",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "per_page",
+              "type": "number",
+              "required": false
+            },
+            {
+              "name": "sort",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "direction",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_repository_releases",
+          "tool_label": "Repository Releases",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "per_page",
+              "type": "number",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_repository_contributors",
+          "tool_label": "Repository Contributors",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "per_page",
+              "type": "number",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_repository_commits",
+          "tool_label": "Repository Commits",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "per_page",
+              "type": "number",
+              "required": false
+            },
+            {
+              "name": "sha",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "path",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_repository_contents",
+          "tool_label": "Repository Contents",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "path",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "ref",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_user_info",
+          "tool_label": "User Info",
+          "parameters": [
+            {
+              "name": "username",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "tool_name": "github_user_repos",
+          "tool_label": "User Repositories",
+          "parameters": [
+            {
+              "name": "username",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "per_page",
+              "type": "number",
+              "required": false
+            },
+            {
+              "name": "sort",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "direction",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_search_code",
+          "tool_label": "Search Code",
+          "parameters": [
+            {
+              "name": "query",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "per_page",
+              "type": "number",
+              "required": false
+            },
+            {
+              "name": "sort",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "order",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_pull_detail",
+          "tool_label": "Get Pull Request Detail",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "pull_number",
+              "type": "number",
+              "required": true
+            }
+          ]
+        },
+        {
+          "tool_name": "github_pull_files",
+          "tool_label": "Get Pull Request Files",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "pull_number",
+              "type": "number",
+              "required": true
+            },
+            {
+              "name": "per_page",
+              "type": "number",
+              "required": false
+            },
+            {
+              "name": "include_patch",
+              "type": "boolean",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_pull_comments",
+          "tool_label": "Get Pull Request Comments",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "pull_number",
+              "type": "number",
+              "required": true
+            },
+            {
+              "name": "comment_type",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "per_page",
+              "type": "number",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_pull_reviews",
+          "tool_label": "Get Pull Request Reviews",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "pull_number",
+              "type": "number",
+              "required": true
+            },
+            {
+              "name": "per_page",
+              "type": "number",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_create_pull",
+          "tool_label": "Create Pull Request",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "title",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "head",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "base",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "body",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "draft",
+              "type": "boolean",
+              "required": false
+            },
+            {
+              "name": "maintainer_can_modify",
+              "type": "boolean",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_merge_pull",
+          "tool_label": "Merge Pull Request",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "pull_number",
+              "type": "number",
+              "required": true
+            },
+            {
+              "name": "merge_method",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "commit_title",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "commit_message",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "sha",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_update_pull",
+          "tool_label": "Update Pull Request",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "pull_number",
+              "type": "number",
+              "required": true
+            },
+            {
+              "name": "title",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "body",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "state",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "base",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "maintainer_can_modify",
+              "type": "boolean",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_create_pull_review",
+          "tool_label": "Create Pull Request Review",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "pull_number",
+              "type": "number",
+              "required": true
+            },
+            {
+              "name": "event",
+              "type": "select",
+              "required": true
+            },
+            {
+              "name": "body",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "commit_id",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "github_issue_comment",
+          "tool_label": "Create Issue Comment",
+          "parameters": [
+            {
+              "name": "owner",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "repo",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "issue_number",
+              "type": "number",
+              "required": true
+            },
+            {
+              "name": "body",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "provider_id": "langgenius/notion/notion",
+      "provider_type": "builtin",
+      "provider_name": "langgenius/notion/notion",
+      "plugin_id": "langgenius/notion",
+      "category": "tool",
+      "dependency_identifier": "langgenius/notion:0.0.13@3fd35c10a3866dfd3609fa613102853acf3a1943c9f530f9f4536631e4daee50",
+      "version": "0.0.13",
+      "tools": [
+        {
+          "tool_name": "search_notion",
+          "tool_label": "Search Notion",
+          "parameters": [
+            {
+              "name": "query",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "limit",
+              "type": "number",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "query_database",
+          "tool_label": "Query Notion Database",
+          "parameters": [
+            {
+              "name": "database_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "filter_property",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "filter_value",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "filter_condition",
+              "type": "select",
+              "required": false
+            },
+            {
+              "name": "limit",
+              "type": "number",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "create_page",
+          "tool_label": "Create Notion Page",
+          "parameters": [
+            {
+              "name": "title",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "title_property_name",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "content",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "parent_id",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "parent_type",
+              "type": "select",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "retrieve_page",
+          "tool_label": "Retrieve Notion Page",
+          "parameters": [
+            {
+              "name": "page_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "include_content",
+              "type": "boolean",
+              "required": false
+            },
+            {
+              "name": "max_depth",
+              "type": "number",
+              "required": false
+            },
+            {
+              "name": "max_api_calls",
+              "type": "number",
+              "required": false
+            },
+            {
+              "name": "max_images",
+              "type": "number",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "update_page",
+          "tool_label": "Update Notion Page",
+          "parameters": [
+            {
+              "name": "page_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "title",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "content",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "archive",
+              "type": "boolean",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "retrieve_database",
+          "tool_label": "Retrieve Notion Database",
+          "parameters": [
+            {
+              "name": "database_id",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "tool_name": "create_database",
+          "tool_label": "Create Notion Database",
+          "parameters": [
+            {
+              "name": "parent_page_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "title",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "properties",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "tool_name": "update_database",
+          "tool_label": "Update Notion Database",
+          "parameters": [
+            {
+              "name": "database_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "title",
+              "type": "string",
+              "required": false
+            },
+            {
+              "name": "properties",
+              "type": "string",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "retrieve_comments",
+          "tool_label": "Retrieve Notion Comments",
+          "parameters": [
+            {
+              "name": "block_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "page_size",
+              "type": "number",
+              "required": false
+            }
+          ]
+        },
+        {
+          "tool_name": "create_comment",
+          "tool_label": "Create Notion Comment",
+          "parameters": [
+            {
+              "name": "page_id",
+              "type": "string",
+              "required": true
+            },
+            {
+              "name": "content",
+              "type": "string",
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

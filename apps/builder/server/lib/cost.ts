@@ -33,5 +33,22 @@ export function costFromResult(result: ClaudeStreamEvent | null | undefined): Ph
   ];
   const cost: PhaseCost = {};
   for (const [k, v] of fields) if (v !== undefined) (cost as Record<string, number>)[k] = v;
-  return Object.keys(cost).length ? cost : null;
+  // Preserve the 059 contract: nothing numeric recognized ⇒ NO entry (not a model-only husk).
+  if (!Object.keys(cost).length) return null;
+  // Spec 062 #1: the model that ran, for fleet correlation. Recent claude stream-json result events
+  // carry `modelUsage` (a map keyed by model id); older shapes may carry a bare `model`. Presence-
+  // guarded like every other field — absent ⇒ omitted, never throws.
+  const model = modelFromResult(r);
+  if (model) cost.model = model;
+  return cost;
+}
+
+/** Extract the model id from a result event: the first `modelUsage` key, else a bare `model` string. */
+function modelFromResult(r: Record<string, unknown>): string | undefined {
+  const mu = r.modelUsage;
+  if (mu && typeof mu === 'object') {
+    const keys = Object.keys(mu as Record<string, unknown>);
+    if (keys.length) return keys[0];
+  }
+  return typeof r.model === 'string' ? r.model : undefined;
 }

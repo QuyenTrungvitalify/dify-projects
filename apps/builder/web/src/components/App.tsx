@@ -40,6 +40,17 @@ function availableTabs(task: WireTask): ArtifactTab[] {
   return tabs;
 }
 
+/** Spec 062 S4 — trigger the browser download of the run dossier zip. The endpoint responds with
+ *  `Content-Disposition: attachment`, so the click downloads (server-named) without navigating away. */
+function downloadBundle(taskId: string): void {
+  const a = document.createElement('a');
+  a.href = `/api/tasks/${encodeURIComponent(taskId)}/bundle`;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 export function App() {
   const [sbCollapsed, setSb] = useState(false);
   // theme: initial value already set on <html> pre-mount by the index.html script.
@@ -373,6 +384,14 @@ export function App() {
               {view === 'conversation' && tabs.length > 0 && !artifactOpen && (
                 <button className="ghost-pill" onClick={() => setArtifactOpen(true)}>
                   <I.panel />{tr('artifact')}
+                </button>
+              )}
+              {/* spec 062 S4: "Export" — download a zip that explains this run (dossier + artifacts +
+                  per-phase transcripts + timeline + attachments). Shown once the run has any artifact
+                  (running/done/error); a first-class user feature (NOT dev-gated). */}
+              {view === 'conversation' && task && task.kind !== 'promote' && tabs.length > 0 && (
+                <button className="ghost-pill" onClick={() => downloadBundle(task.taskId)} title={tr('exportRunHint')}>
+                  <I.download />{tr('exportRun')}
                 </button>
               )}
               {/* "Edit this workflow" — always-visible in the header while viewing a build whose workflow

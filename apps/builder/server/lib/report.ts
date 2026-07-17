@@ -15,6 +15,7 @@ import { stat, writeFile, readFile } from 'node:fs/promises';
 import { runPython } from './shell.js';
 import { LINTERS, LINT_DETAIL_LINES, lintClean, type LintCodes } from './linters.js';
 import { checkRunnability, preflightNote, hasUnresolvedPluginTodo } from './runnability.js';
+import { loadWorkspaceFacts, enabledModelCount } from './dify-io.js'; // spec 066 S3 / 067 S6
 import type { Task } from '../state/task.js';
 import type { SessionLogger } from './claude-session.js';
 
@@ -73,11 +74,134 @@ export const TRIGGER_ENTRY_NOTE =
   'trigger-entry workflow: an API run is a manual fire — the schedule/webhook only runs ' +
   'automatically after you ENABLE the trigger in Dify Studio Quick Settings';
 
+/**
+ * Spec 066 S4(a) — the SAME advisory for a `deploy: 'none'` build, which is the DEFAULT
+ * (`task.ts` createTask) and the terminal state of any auto-mode run.
+ *
+ * Why a variant instead of ungating `TRIGGER_ENTRY_NOTE`: that string opens with "an API run is a
+ * manual fire", which presumes a test run against Dify. A `none` build never contacts Dify at all, so
+ * the clause would describe something that did not happen. (It is correct where it is used — the
+ * selfhost/cloud report and `live-test.ts`'s parked-result reason, both of which DID run.)
+ *
+ * This is the note whose absence made the dossier lie: `analyze.json`'s digest promised
+ * 「毎朝9時に自動起動…自走ワークフロー」 while the one sentence that would have saved the user — enable the
+ * trigger, or it never fires — was written, tested, localized, and then withheld from precisely the
+ * mode that needed it most.
+ */
+// wording-stable (NOTE_JA keys off this)
+export const TRIGGER_ENABLE_NOTE =
+  'This workflow starts on a schedule (or a webhook), so it does not run just because it exists: ' +
+  'after you import it, turn the trigger ON in Dify Studio → Quick Settings. Until you do, it never fires.';
+
+/**
+ * Spec 049 D2 / 066 S4 — the ④ import-probe verdicts, in ONE place.
+ *
+ * There are two probes (`orchestrator.ts`'s per-build one and `base-import.ts`'s per-base one) and
+ * they used to carry their own copies of these four strings. That duplication is exactly why 066's
+ * first pass rewrote one set and left the other emitting `import-probe: OK — Dify accepted this DSL
+ * (probe app deleted)` — a divergence no test could see, because each producer was tested against its
+ * own copy. One source, two callers.
+ *
+ * Wording (066 S4): plain, self-terminating, and NOTE_JA-framed. The old success line was four
+ * internal terms plus an announcement that an app had been deleted — which a user reads as "my
+ * workflow was thrown away". The FAILED branch keeps Dify's verbatim tail: 049 D3 needs it for a
+ * ④ fix-turn, and `localizeNotes` leaves an unmapped tail literal by design.
+ */
+// wording-stable (NOTE_JA keys off these)
+export const probeVerdict = {
+  ok: (strayName?: string): string =>
+    strayName
+      ? `Checked automatically: Dify accepts this workflow file. (A temporary copy named "${strayName}" was left in Dify — you can delete it.)`
+      : 'Checked automatically: Dify accepts this workflow file.',
+  rejected: (detail: string): string =>
+    `Dify rejected this workflow file — ${detail || 'no reason was reported'}`,
+  parked: (): string =>
+    "Could not check the import automatically: Dify held it for confirmation, which usually means the file's version and your Dify server don't match.",
+  skipped: (reason: string): string => `Could not check the import automatically (${reason})`,
+};
+
+/** Spec 066 S4(b) — where the file IS, and what to do with it, for the `deploy: 'none'` default.
+ *  `cloudStudioNote` was the ONLY note naming `wfRel`, and it is gated to `cloud` — so the default
+ *  path left the user holding a YAML they did not know existed. It also opens with "Cloud deploy:
+ *  auto-import is blocked by CSRF", which is both jargon and untrue here, so it cannot be reused. */
+export function importFileNote(wfRel: string): string {
+  return (
+    `Your workflow file is ${wfRel} (you can copy it from the main.yml tab). ` +
+    'To use it: in Dify Studio choose Create app → "Import DSL", then paste the file in.'
+  );
+}
+
 /** Spec 057 S4 — pure-text predicate (the hasUnresolvedPluginTodo precedent): does the workflow
  *  YAML declare a trigger-* entry node (trigger-schedule / trigger-webhook / trigger-plugin)?
  *  Matches the node-body `type:` line, quoted or not. */
 export function hasTriggerEntry(yamlText: string): boolean {
   return /^\s*type:\s*['"]?trigger-/m.test(yamlText);
+}
+
+/** Spec 061 — does the workflow declare a `tool` node (a plugin tool the target workspace must have)?
+ *  Matches a node-body `type: tool` line; tolerates a trailing quote/comment but not `type: tool-*`. */
+export function hasToolNode(yamlText: string): boolean {
+  return /^\s*type:\s*['"]?tool(['"]|\s|$)/m.test(yamlText);
+}
+
+/** Spec 061 — the friendly name of EACH distinct `tool` node (prefer its own `tool_label`, else its
+ *  `provider_name`). Pure text (no YAML parse — the backend delegates parsing to the python probes,
+ *  and these predicates must tolerate malformed input like their siblings). Deduped, ordered.
+ *
+ *  Split by LIST ITEM, not by `type:`. The first cut split at each line-start `type:` and then read
+ *  the label from the text AFTER the marker — which silently assumed `type: tool` precedes the label
+ *  fields. It does in hand-written YAML, but a Dify export (and any `yaml.safe_dump` round-trip)
+ *  sorts each `data:` block alphabetically, putting `type` LAST: every label then falls into the
+ *  PREVIOUS segment and is lost. `hasToolNode` still fires, so the checklist rendered while naming
+ *  nothing — "install each from Studio → Plugins" with no plugin named. A node is one `- ` item, so
+ *  cutting there is order-independent by construction. */
+export function toolLabels(yamlText: string): string[] {
+  const seen = new Set<string>();
+  // `^[ \t]*-[ \t]+` = a YAML list item at any indent (a node under `nodes:`). A node's own fields
+  // are more deeply indented, so they never split. Non-node items (edges, prompt_template roles)
+  // simply never contain a `type: tool` line.
+  for (const block of yamlText.split(/^[ \t]*-[ \t]+/m)) {
+    if (!/^[ \t]*type:[ \t]*['"]?tool['"]?[ \t]*$/m.test(block)) continue;
+    const label =
+      block.match(/^[ \t]*tool_label:[ \t]*['"]?([^'"\n]+?)['"]?[ \t]*$/m)?.[1] ??
+      block.match(/^[ \t]*provider_name:[ \t]*['"]?([^'"\n]+?)['"]?[ \t]*$/m)?.[1];
+    if (label) seen.add(label.trim());
+  }
+  return [...seen];
+}
+
+/** Spec 061 — the plain-language post-import checklist that REPLACES the developer-jargon plugin-hash
+ *  note for a tool workflow. Names EVERY tool (not just the first). Wording-stable (i18n NOTE_JA keys
+ *  off it); deliberately jargon-free — no "plugin hash"/"dependencies"/"provider_id" reaches the user
+ *  (it also passes the spec-063 comprehension gate). Generic key wording ("any that need an API key")
+ *  is honest across a multi-tool mix rather than mis-claiming a key for a keyless tool. */
+/**
+ * Spec 066 S5 — join the note parts so two sentences can NEVER fuse again. The real dossier read
+ * "all linters passed preflight: not runnable out-of-the-box …" because `lintLine` shipped without a
+ * terminator and `join(' ')` glued it to the next part — the result parses as a PASS and buries the
+ * actual verdict mid-sentence. Rewording the offender fixes today's note; normalising at the SEAM
+ * fixes every future note too, including parts this file doesn't own (`task.probeNote` comes from
+ * orchestrator.ts, and its error/skip branches end with a verbatim tail nobody can punctuate at the
+ * source). Structural, not cosmetic: it is what makes "every part self-terminates" TRUE rather than
+ * a convention people remember to follow.
+ * Terminators already present are left alone; `)` and `。` count (a JA-localized part, and the
+ * "(… delete it.)" parenthetical). Empty/blank parts are dropped.
+ */
+export function joinNotes(parts: string[]): string {
+  return parts
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => (/[.!?。)]$/.test(p) ? p : `${p}.`))
+    .join(' ');
+}
+
+export function toolInstallNote(labels: string[]): string {
+  const list = labels.length ? labels.join(', ') : 'the tool it needs';
+  return (
+    `this workflow uses these Dify tools: ${list}. Before you can run it: ` +
+    `(1) install each from Studio → Plugins → Marketplace, (2) add an API key in the tool settings ` +
+    `for any that need one, (3) run the workflow to test it.`
+  );
 }
 
 /** The Dify Studio manual-import steps for the cloud path (AC #9) — copyable YAML lives in main.yml. */
@@ -130,10 +254,12 @@ export async function runReport(
   // Spec 057 S4: same read also feeds the trigger-entry predicate (one file read, two advisories).
   let unresolvedPluginTodo = false;
   let triggerEntry = false;
+  let toolNote = ''; // spec 061: the plain-language tool checklist (empty ⇒ not a tool workflow)
   try {
     const yamlText = await readFile(join(projectsDir, wfRel), 'utf8');
     unresolvedPluginTodo = hasUnresolvedPluginTodo(yamlText);
     triggerEntry = hasTriggerEntry(yamlText);
+    if (hasToolNode(yamlText)) toolNote = toolInstallNote(toolLabels(yamlText));
   } catch {
     /* unreadable workflow → the lint gate above already recorded the real failure; not our concern */
   }
@@ -145,7 +271,14 @@ export async function runReport(
   // task.preflightNote in ③'s verify over this identical file; only a windowed path can go stale.
   if (!reuse) {
     try {
-      task.preflightNote = preflightNote(await checkRunnability(projectsDir, wfRel)) ?? undefined;
+      // Spec 066 S3: hand the classifier the fact that decides whether the model advisory may promise
+      // auto-fill (043) — the workspace's enabled-model count. `enabledModelCount` returns undefined
+      // when that number is not EVIDENCE (no harvest, or the models arm failed and wrote a `[]` that
+      // means nothing — 067 S6); undefined keeps the pre-066 wording rather than inventing a scare.
+      const pf = await checkRunnability(projectsDir, wfRel, undefined, {
+        workspaceModelCount: enabledModelCount(await loadWorkspaceFacts(projectsDir, task.taskId)),
+      });
+      task.preflightNote = preflightNote(pf) ?? undefined;
     } catch {
       /* advisory — the lint gate above already surfaced any real unreadability */
     }
@@ -158,9 +291,14 @@ export async function runReport(
   // D7 (spec 014): selfhost passes its own post-push warning via `opts.duplicateWarning`; for the paths
   // with no separate import step (cloud/none edit-existing) we auto-compute it so they carry it too.
   const duplicateWarning = opts?.duplicateWarning ?? editExistingDuplicateWarning(task);
+  // Spec 066 S5: plain + SELF-TERMINATING. "all linters passed" is jargon ("linter" → 「リンター」 is a
+  // word a JA office worker never knew in English either), and it was the ONE note part with no
+  // terminating punctuation — so `noteParts.join(' ')` below fused it into the next sentence, yielding
+  // "all linters passed preflight: not runnable…", which parses as a PASS and buries the real verdict.
+  // The lint-failure branch keeps its machine detail (dev-facing; localizeNotes leaves the tail literal).
   const lintLine = lintNotes.length
     ? `lint failures recorded: ${lintNotes.join('; ')}`
-    : 'all linters passed';
+    : 'The workflow file passed every automated check.';
 
   const noteParts: string[] = [lintLine];
   // F4 (spec 010): a derived-slug collision was auto-suffixed at the Spec gate — record it so an `auto`
@@ -177,26 +315,41 @@ export async function runReport(
   // fix-turn needs (D3 recovery path).
   if (task.probeNote) noteParts.push(task.probeNote);
   if (accepted) noteParts.unshift('ACCEPTED with failing linters (human "Accept anyway" override).');
-  if (task.deploy === 'none') noteParts.push('deploy=none (no Dify contact).');
+  // spec 064: `deploy=none` is a dev detail with no meaning to a user — kept on the structured
+  // report.deploy field (below), dropped from the human note text.
   if (task.deploy === 'cloud') noteParts.push(cloudStudioNote(wfRel));
+  // Spec 066 S4(b): the `none` default gets its own plain import line. Without it this path — the one
+  // the dossier ran — named the file NOWHERE, and S5 had just retired its only other Dify-related
+  // line (`deploy=none (no Dify contact).`), leaving it strictly less informative than before 066.
+  if (task.deploy === 'none') noteParts.push(importFileNote(wfRel));
   if (task.deploy === 'selfhost') {
     if (appUrl) noteParts.push(`imported to Dify: ${appUrl}`);
     if (opts?.importNote) noteParts.push(opts.importNote);
   }
-  // D2 (017): the unresolved-plugin-TODO advisory. Pushed (not unshifted) so the duplicate warning
-  // still leads; phrased as "before import" only for the deploy paths that actually import.
-  if (unresolvedPluginTodo) {
+  // Spec 061: a tool workflow gets a PLAIN post-import checklist (install → set up → test) naming the
+  // tool. Spec 067 S5b — gated on hasToolNode, NOT on the TODO marker: the plugin hash is public and
+  // version-keyed, so a resolved `dependencies:` entry is now the CORRECT output (067 S1/S5), which
+  // makes `unresolvedPluginTodo` false. Nesting this under the TODO would silently retire the checklist
+  // exactly when a build finally uses a tool — the user still has to install the plugin and add its API
+  // key, whether or not we resolved the hash for them.
+  if (toolNote) noteParts.push(toolNote);
+  // D2 (017): the unresolved-plugin-TODO advisory — the NON-tool remainder (a model-provider plugin).
+  // Pushed (not unshifted) so the duplicate warning still leads.
+  if (unresolvedPluginTodo && !toolNote) {
+    // spec 064: plain — no "plugin hash"/"dependencies"/"# TODO" jargon (the raw
+    // `unresolved_plugin_todo: true` field stays on report.json for dev/`/report`).
     const tail =
       task.deploy === 'none'
-        ? 'add the plugin hash before deploying.'
-        : 'add the plugin hash from the target workspace BEFORE import (the import will fail otherwise).';
-    noteParts.push(`unresolved_plugin_todo: dependencies are empty but a "# TODO add plugin hash" remains — ${tail}`);
+        ? 'install it in Dify Studio → Plugins if a run reports it missing.'
+        : 'install the plugins this workflow needs in Dify Studio → Plugins before importing (otherwise the import fails).';
+    noteParts.push(`this workflow relies on a Dify plugin — ${tail}`);
   }
-  // Spec 057 S4: trigger-entry advisory — an imported trigger workflow does NOTHING on its own until
-  // the trigger is ENABLED in Dify Studio Quick Settings. Only the deploy paths that import (selfhost/
-  // cloud) carry it; advisory only — never feeds lintClean or the gate.
-  if (triggerEntry && (task.deploy === 'selfhost' || task.deploy === 'cloud')) {
-    noteParts.push(TRIGGER_ENTRY_NOTE);
+  // Spec 057 S4 + 066 S4(a): a trigger workflow does NOTHING on its own until the trigger is ENABLED
+  // in Dify Studio Quick Settings. EVERY deploy mode needs to hear that — 057 gated it to the paths
+  // the app imports for, which silently excluded `none`, the DEFAULT. The `none` variant drops the
+  // "an API run is a manual fire" clause (no run happened). Advisory only — never feeds lintClean.
+  if (triggerEntry) {
+    noteParts.push(task.deploy === 'none' ? TRIGGER_ENABLE_NOTE : TRIGGER_ENTRY_NOTE);
   }
   // The duplicate warning leads the notes so the UI surfaces it prominently (spec footgun).
   if (duplicateWarning) noteParts.unshift(`⚠ ${duplicateWarning}`);
@@ -215,7 +368,7 @@ export async function runReport(
     accepted_lint_failure: accepted,
     // D2 (017): advisory only — recorded for the deploy step / UI; does NOT affect `lintClean`.
     unresolved_plugin_todo: unresolvedPluginTodo,
-    notes: noteParts.join(' '),
+    notes: joinNotes(noteParts),
   };
   const reportRel = `apps/builder/.runs/${task.taskId}/report.json`;
   const reportAbs = join(projectsDir, reportRel);

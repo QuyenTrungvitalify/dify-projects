@@ -1,0 +1,298 @@
+# Pattern: Scheduled → Dify Tool — trigger-entry that writes to a real SaaS via a marketplace tool
+#
+# Use case: a recurring job that must land data in a real service the team already uses — a
+# spreadsheet row, a Slack post, a Notion page — with NO operator present. This is the shape a
+# stakeholder asks for as 「毎朝…スプレッドシートに書き込む」 / 「Slackに通知」.
+#
+# WHY THIS PATTERN EXISTS (spec 067). Until now the repo had NO precedent combining a trigger with a
+# `type: tool` node — `find.py --has tool --has trigger` returned nothing across all 221 YAMLs — so
+# every scheduled request could only land on `scheduled-fetch-notify.yml`, which models the delivery
+# step as a raw `http-request` to a webhook the user must create by hand. Three consecutive real
+# builds did exactly that for 「Slackに通知」 while `langgenius/slack` sat in the marketplace with 14k
+# installs. Use THIS pattern when a catalogued tool covers the destination; use
+# `scheduled-fetch-notify.yml` when it genuinely is a custom endpoint.
+#
+# Flow:
+#   Trigger: Schedule (visual mode, daily, explicit timezone Asia/Tokyo)
+#     → HTTP: GET fetch the source data (machine-fetchable — API / JSON / feed)
+#     → Code: parse + shape the payload the tool wants (defensive, never raises)
+#     → LLM: compose the human-readable text
+#     → Tool: Google Sheets `batch_update` (swap for any catalogued tool)
+#     → End (status)
+#
+# Customization points (`# TODO:`):
+#   1. Schedule time in the trigger node (12-hour visual format) — keep the timezone explicit.
+#   2. Data URL in "Fetch data" — must be reachable by the Dify server itself.
+#   3. Parse logic in "Shape rows" — build the exact structure YOUR tool parameter expects.
+#   4. LLM prompt — tone + language.
+#   5. THE TOOL: swap provider_id/provider_name/tool_name/tool_parameters for the tool you need, AND
+#      swap the matching `dependencies:` entry. Both come from `templates/tool-catalog.json`, or
+#      `.venv/bin/python tools/dify_base/marketplace.py resolve <org>/<name>` for anything else.
+#   6. SPREADSHEET_ID / the tool's own required parameters — see the env var below.
+#   7. Model choice (provider/name are blank placeholders — configure in Dify or let the builder
+#      inject at test/deploy).
+#
+# GOTCHA: `dependencies:` is FILLED here, on purpose, and must stay filled. Dify raises its own
+#   "install this plugin" prompt ONLY when the imported DSL carries a NON-EMPTY top-level
+#   `dependencies:` array — the graph-derived fallback is dead above DSL 0.1.5
+#   (vendor/dify-src/api/services/app_dsl_service.py:272-285). With `dependencies: []` the import
+#   still SUCCEEDS, nothing prompts, and the tool node fails at runtime with no explanation. The hash
+#   is the PUBLIC package checksum, keyed to (plugin, version) — identical in every workspace, so it
+#   is safe to check in. `lint_plugin_hashes.py` fails a tool node whose plugin is unlisted.
+# GOTCHA: the plugin does NOT need to be installed for this file to import. Dify prompts the user;
+#   that is the intended flow — never drop the tool node because a workspace lacks the plugin.
+# GOTCHA: the tool's CREDENTIALS are still the user's job (Google Sheets needs an OAuth/API-key
+#   setup in the tool's settings). The ④ report's checklist tells them; the DSL cannot carry it.
+# GOTCHA: Dify schedule triggers default to timezone UTC — a "9:00 AM" JST job silently fires at
+#   18:00 JST unless `timezone: Asia/Tokyo` is explicit. Always set it.
+# GOTCHA: publishing is NOT enough — the schedule only fires after you also ENABLE the trigger in
+#   Dify Studio (Quick Settings).
+# GOTCHA: a trigger entry has NO operator present — every input must be machine-fetchable or come
+#   from an env var. Never design a required Start variable into this shape (spec 056).
+# GOTCHA: env vars are declared with `name:` (NOT `variable:`) or the import fails (spec 057).
+#
+# Provenance: tool identity + identifier resolved from the public marketplace 2026-07-17 via
+#   tools/dify_base/marketplace.py; trigger/edge shape seeded from scheduled-fetch-notify.yml
+#   (2026-07-13 live trigger probe DSL).
+app:
+  description: 'Schedule trigger → fetch over HTTP → shape rows → LLM compose → write via a Dify marketplace tool (Google Sheets); runs by itself once published AND the trigger is enabled (trigger-entry shape, spec 057/067)'
+  icon: "\U0001F4C5"
+  icon_background: '#E4FBCC'
+  icon_type: emoji
+  mode: workflow
+  name: scheduled_tool_append
+  use_icon_as_answer_icon: false
+# TODO: swap for YOUR tool's identifier (templates/tool-catalog.json). Version-pinned on purpose:
+# the hash is keyed to (plugin, version), so bumping the version REQUIRES re-resolving the hash.
+dependencies:
+- type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: omluc/google_sheets:0.0.2@17f06eaa1d905595e1a76460e7249707a722142353d551cf14aed3d8517c134f
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables:
+  # TODO: the spreadsheet the job writes into. `secret` keeps it out of the exported DSL; the user
+  # pastes it in Dify. The ④ preflight flags an empty referenced env var (spec 066 S2), so leaving
+  # this blank is SAFE — the user is told, not silently failed.
+  - name: SPREADSHEET_ID
+    value_type: secret
+    value: ''
+  features:
+    file_upload:
+      enabled: false
+    opening_statement: ''
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+  graph:
+    edges:
+    - id: 1784240000001-source-1784240000002-target
+      source: '1784240000001'
+      target: '1784240000002'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: trigger-schedule, targetType: http-request }
+      zIndex: 0
+    - id: 1784240000002-source-1784240000003-target
+      source: '1784240000002'
+      target: '1784240000003'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: http-request, targetType: code }
+      zIndex: 0
+    - id: 1784240000003-source-1784240000004-target
+      source: '1784240000003'
+      target: '1784240000004'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: llm }
+      zIndex: 0
+    - id: 1784240000004-source-1784240000005-target
+      source: '1784240000004'
+      target: '1784240000005'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: tool }
+      zIndex: 0
+    - id: 1784240000005-source-1784240000006-target
+      source: '1784240000005'
+      target: '1784240000006'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: tool, targetType: end }
+      zIndex: 0
+    nodes:
+    - id: '1784240000001'
+      type: custom
+      data:
+        title: Every morning (Schedule)
+        type: trigger-schedule
+        mode: visual
+        frequency: daily
+        # TODO: your time, 12-hour visual format.
+        visual_config:
+          time: 9:00 AM
+        # GOTCHA: never omit — Dify defaults to UTC.
+        timezone: Asia/Tokyo
+      position: { x: 0, y: 100 }
+      positionAbsolute: { x: 0, y: 100 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+    - id: '1784240000002'
+      type: custom
+      data:
+        title: Fetch data
+        type: http-request
+        method: get
+        # TODO: a source the Dify SERVER can reach (not localhost, not your laptop).
+        url: https://hn.algolia.com/api/v1/search?tags=front_page
+        authorization: { type: no-auth }
+        headers: ''
+        params: ''
+        body: { type: none, data: [] }
+        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 10 }
+      position: { x: 300, y: 100 }
+      positionAbsolute: { x: 300, y: 100 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    - id: '1784240000003'
+      type: custom
+      data:
+        title: Shape rows
+        type: code
+        code_language: python3
+        # TODO: build the exact structure your tool parameter wants. Defensive by construction —
+        # a raise here kills the whole unattended run at 9am with nobody watching.
+        code: |
+          import json
+
+          def main(payload: str) -> dict:
+              try:
+                  data = json.loads(payload or "{}")
+              except Exception:
+                  return {"rows_json": "[]", "summary_src": ""}
+              hits = data.get("hits") or []
+              rows = []
+              for h in hits[:5]:
+                  title = (h.get("title") or "").strip()
+                  url = h.get("url") or ""
+                  if title:
+                      rows.append([title, url])
+              return {
+                  "rows_json": json.dumps(rows, ensure_ascii=False),
+                  "summary_src": "\n".join(r[0] for r in rows),
+              }
+        variables:
+        - variable: payload
+          value_selector: ['1784240000002', body]
+        outputs:
+          rows_json: { type: string, children: null }
+          summary_src: { type: string, children: null }
+      position: { x: 600, y: 100 }
+      positionAbsolute: { x: 600, y: 100 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+    - id: '1784240000004'
+      type: custom
+      data:
+        title: Compose text
+        type: llm
+        # B5: provider/name stay EMPTY — auto-injected at live test/deploy (spec 043).
+        model:
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params: { temperature: 0.3 }
+        prompt_template:
+        # TODO: your tone + language.
+        - role: system
+          text: 'You write one short Japanese line summarising the items. No preamble.'
+        - role: user
+          text: '{{#1784240000003.summary_src#}}'
+        vision: { enabled: false }
+        context: { enabled: false, variable_selector: [] }
+      position: { x: 900, y: 100 }
+      positionAbsolute: { x: 900, y: 100 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    # ── THE TOOL NODE. This is the point of the pattern. ──────────────────────────────────────────
+    - id: '1784240000005'
+      type: custom
+      data:
+        title: Write to the spreadsheet
+        type: tool
+        # TODO: swap all five identity fields + tool_parameters for YOUR tool, and swap the matching
+        # `dependencies:` entry above. Both come from templates/tool-catalog.json.
+        # GOTCHA (docs/runtime-supplement.md, verified against a lint-clean build):
+        #   * `provider_type: builtin` — NOT `plugin`. Counter-intuitive but correct: Dify dispatches
+        #     BUILT_IN to the PluginToolProviderController (tool_manager.py:985-987), and every real
+        #     tool node in corpus/ uses `builtin`.
+        #   * `provider_name` is the FULL 3-segment path, IDENTICAL to `provider_id` ("provider name
+        #     doubled"). A 2-segment value raises ValueError in Dify's GenericProviderID.
+        provider_id: omluc/google_sheets/google_sheets
+        provider_type: builtin
+        provider_name: omluc/google_sheets/google_sheets
+        tool_name: batch_update
+        tool_label: Batch Update
+        tool_configurations: {}
+        # Every tool_parameters entry is a ToolInput = {type, value} — BOTH required
+        # (schemas/dify-dsl-0.6.0.json → NodeData_ToolNodeData.$defs.ToolInput). `mixed` interpolates
+        # `{{#…#}}` inside `value`; `constant` is a literal; there is no `value_selector` here (that
+        # spelling belongs to code-node variables / end outputs, and lint_node_bodies rejects it).
+        # TODO: these are `batch_update`'s parameters. Swapping the tool means swapping these — read
+        # the tool's own `parameters` list in templates/tool-catalog.json; passing a name the tool does
+        # not declare is silently ignored by Dify, and omitting a REQUIRED one fails at runtime.
+        # `batch_update` requires exactly: spreadsheet_id, data.
+        tool_parameters:
+          spreadsheet_id:
+            type: mixed
+            # The env reference — spec 066 S2's preflight flags an empty referenced env var, so the
+            # user is TOLD to paste this rather than discovering it missing at 9am with nobody watching.
+            value: '{{#env.SPREADSHEET_ID#}}'
+          data:
+            type: mixed
+            value: '{{#1784240000003.rows_json#}}'
+      position: { x: 1200, y: 100 }
+      positionAbsolute: { x: 1200, y: 100 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+    - id: '1784240000006'
+      type: custom
+      data:
+        title: Output
+        type: end
+        outputs:
+        - variable: status
+          value_selector: ['1784240000004', text]
+          value_type: string
+      position: { x: 1500, y: 100 }
+      positionAbsolute: { x: 1500, y: 100 }
+      width: 241
+      height: 90
+      sourcePosition: right
+      targetPosition: left

@@ -340,6 +340,75 @@ def test_build_baseline_and_roundtrip(tmp_path):
     assert "at" not in ec._read_baselines(str(p))["my-entry"]  # committed snapshot stays stable
 
 
+# ── spec 063: deterministic comprehension (jargon blocklist) ──────────────────
+
+def test_comprehension_flags_jargon_note():
+    # the spec-061 defect: a note full of developer jargon the JA user can't act on
+    note = ('all linters passed preflight: not runnable — needs: plugin hash (dependencies TODO). '
+            'unresolved_plugin_todo: a "# TODO add plugin hash" remains — add the plugin hash before deploying.')
+    rows = ec.evaluate_comprehension(note)
+    fails = [r for r in rows if r["bucket"] == "AUTO-FAIL"]
+    assert fails, rows
+    hit_terms = " ".join(r["check"] for r in fails)
+    assert "plugin hash" in hit_terms and "dependencies" in hit_terms and "# TODO" in hit_terms
+
+
+def test_comprehension_passes_plain_text():
+    plain = ("このワークフローは毎朝ニュースを取得して要約し、Slackに送ります。"
+             "使うには、Difyでこのファイルをインポートしてください。")
+    rows = ec.evaluate_comprehension(plain)
+    assert rows and all(r["bucket"] == "AUTO-PASS" for r in rows), rows
+
+
+def test_comprehension_is_deterministic():
+    # same input → identical rows (no LLM, reproducible — the objectivity guarantee)
+    txt = "add the plugin hash before deploying (dependencies TODO)"
+    assert ec.evaluate_comprehension(txt) == ec.evaluate_comprehension(txt)
+
+
+def test_comprehension_catches_ja_katakana_jargon():
+    rows = ec.evaluate_comprehension("デプロイ前にプラグインハッシュを追加してください。")
+    assert any(r["bucket"] == "AUTO-FAIL" for r in rows), rows
+
+
+# impl-review fixes — empty→MANUAL (no false green), word boundaries, leaked patterns.
+def test_comprehension_empty_is_manual_not_false_pass():
+    rows = ec.evaluate_comprehension("")
+    assert rows and all(r["bucket"] == "MANUAL" for r in rows), rows
+    assert "nothing to judge" in rows[0]["detail"]
+
+
+def test_comprehension_word_boundary_no_false_positive():
+    # 'dependencies' as a bare word fails; but it must NOT fire inside an unrelated longer word,
+    # and a clean sentence with none of the tokens passes.
+    assert any(r["bucket"] == "AUTO-FAIL" for r in ec.evaluate_comprehension("check the dependencies list"))
+    clean = ec.evaluate_comprehension("This reads a webpage and summarizes it in three lines.")
+    assert all(r["bucket"] == "AUTO-PASS" for r in clean), clean
+
+
+def test_comprehension_catches_leaked_patterns():
+    assert any(r["bucket"] == "AUTO-FAIL" for r in ec.evaluate_comprehension("output: {{#1784.text#}}"))
+    assert any(r["bucket"] == "AUTO-FAIL" for r in ec.evaluate_comprehension("node 1784042926327 failed"))
+
+
+def test_build_userview_hides_dev_and_keeps_user_text():
+    uv = ec.build_userview("毎朝ニュースを要約するワークフロー", "all linters passed; plugin hash TODO")
+    assert "digest" in uv and "毎朝ニュース" in uv and "plugin hash" in uv
+    assert "features" not in uv and "type:" not in uv  # dev tokens never injected by the builder
+    assert ec.build_userview("", "") == ""            # nothing to show → empty, not a fake block
+
+
+def test_comprehension_before_after_oracle():
+    # the 061 oracle: the current jargon note FAILS; a plain-language checklist PASSES.
+    before = 'plugin hash (dependencies TODO) — add the plugin hash before deploying.'
+    after = ('このワークフローは Jina Reader ツールを使います。Dify にインポートした後、'
+             'プラグインを入れて、APIキーを設定してから、テストしてください。')
+    assert any(r["bucket"] == "AUTO-FAIL" for r in ec.evaluate_comprehension(before))
+    # NOTE: "プラグイン" (plugin) alone is NOT blocklisted — only プラグインハッシュ — so a plain
+    # checklist that says "install the plugin" without "hash" passes the deterministic gate.
+    assert all(r["bucket"] == "AUTO-PASS" for r in ec.evaluate_comprehension(after))
+
+
 def test_shipped_suite_parses_and_emits_fire():
     import subprocess
     suite = SCRIPT.parent / "e2e-suite.yml"

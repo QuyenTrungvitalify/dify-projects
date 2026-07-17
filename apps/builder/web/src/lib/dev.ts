@@ -24,6 +24,32 @@ function readDevFlag(): boolean {
 /** True when the dev panel should render (taskId + per-phase cost). Evaluated at load. */
 export const devMode = readDevFlag();
 
+/** Try-wrapped localStorage — a missing/blocked `localStorage` (node test env, private mode)
+ *  degrades to a no-op / null instead of throwing. Shared by the dev-only surfaces. */
+export const ls = {
+  get(k: string): string | null {
+    try {
+      return localStorage.getItem(k);
+    } catch {
+      return null;
+    }
+  },
+  set(k: string, v: string): void {
+    try {
+      localStorage.setItem(k, v);
+    } catch {
+      /* no-op */
+    }
+  },
+  del(k: string): void {
+    try {
+      localStorage.removeItem(k);
+    } catch {
+      /* no-op */
+    }
+  },
+};
+
 /** cache-hit % = cacheRead / (cacheRead + input). `null` when neither is known (nothing to divide) —
  *  the caller renders `—` rather than a misleading 0%. */
 export function cachePct(c: WirePhaseCost | undefined): number | null {

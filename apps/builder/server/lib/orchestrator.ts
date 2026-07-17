@@ -31,11 +31,16 @@ import { deriveSlugName, firstFreeSlug } from './slug.js';
 import { difySeedScaffoldAndPull, localEditSeed, scaffoldAtSpecGate, relocateRunArtifacts } from './scaffold.js';
 import { runImportAndFinish, finishWithoutImport } from './import.js';
 import { runLiveTest, finishLiveAccepted, cleanupTestApps } from './live-test.js';
-import { difyTargets, harvestWorkspaceFacts, knowledgeBlock, loadWorkspaceFacts, redactSecrets } from './dify-io.js';
+import { difyTargets, enabledModelCount, harvestWorkspaceFacts, knowledgeBlock, loadWorkspaceFacts, redactSecrets } from './dify-io.js';
 import { applyAnalysisToTask } from './analysis.js';
+// `probeVerdict` only — the report RUNNER still arrives via resolveRunners (the 013 D2 test seam);
+// these are pure wording (spec 066 S4), shared so the two probes cannot drift apart again.
+import { probeVerdict } from './report.js';
 import { checkRunnability, preflightNote } from './runnability.js';
 import { persistCriteria } from './criteria.js';
-import { saveTask, type Task } from '../state/task.js';
+import { AttemptRecorder } from './run-transcript.js';
+import { logEvent } from './run-events.js';
+import { saveTask, taskDir, type Task } from '../state/task.js';
 
 // L2 (spec 019): the runner seams, ctx types, ConfirmPayload, and emit/errMsg/httpError moved to
 // orchestrator-shared.ts (a leaf the extracted scaffold/import modules can import without a cycle); the
@@ -125,6 +130,7 @@ export async function confirmAdvance(
   if (!action) {
     throw httpError(409, `'${actionId}' is not a current confirm action for ${task.taskId}`);
   }
+  await logEvent(taskDir(ctx.projectsDir, task.taskId), { kind: 'gate_action', phase: task.phase, detail: actionId }); // S1b
 
   const cur = task.phase;
   // Spec 048 D2: the ③ verify captured here (spec branch) rides to the tail's maybeAutoAdvance — the
@@ -220,6 +226,13 @@ export async function confirmAdvance(
  * pauses for the next decision (even in `auto`).
  */
 export async function replyWithin(task: Task, text: string, ctx: OrchestratorCtx): Promise<void> {
+  // Spec 062 S1b: capture the USER'S steering — a Retry out of error vs a "Request changes" revision —
+  // with the change text, so the dossier can explain WHY the build changed direction.
+  await logEvent(taskDir(ctx.projectsDir, task.taskId), {
+    kind: task.status === 'error' ? 'retry' : 'request_changes',
+    phase: task.phase,
+    detail: text,
+  });
   if (task.phase === 'test') {
     // Spec 041 (generalizes the spec-032→036 fix): a "Request changes" at ANY ④ gate is a REVISION —
     // the human wants the WORKFLOW changed per their feedback. Route it back through the IMPLEMENT phase
@@ -282,11 +295,17 @@ async function gateAfterPhase(task: Task, verify: PhaseVerify, ctx: Orchestrator
     task.status = 'error';
     task.error = verify.reasons.filter(Boolean).join(' | ') || 'phase failed';
     await emit(task, ctx);
+    await logEvent(taskDir(ctx.projectsDir, task.taskId), { kind: 'error', phase: task.phase, detail: task.error }); // S1b
     return;
   }
   task.status = 'awaiting_confirm'; // success or still_failing → park (the turn lock frees on settle)
   task.error = undefined;
   await emit(task, ctx);
+  await logEvent(taskDir(ctx.projectsDir, task.taskId), {
+    kind: 'gate_reached',
+    phase: task.phase,
+    detail: task.gate?.flag ?? verify.outcome,
+  }); // S1b
 }
 
 /** Spec 028 §5: true iff `features` is a NON-EMPTY array whose every entry is 'llm'. Deliberately
@@ -366,6 +385,12 @@ async function runPhase(
   task.error = undefined;
   task.fastReviewNote = undefined; // spec 028: a re-run/reply re-evaluates the §5 guard from scratch
   await emit(task, ctx);
+  // Spec 062 S1b: record the phase start on the run timeline (non-fatal — logEvent swallows its own IO).
+  await logEvent(taskDir(projectsDir, task.taskId), {
+    kind: 'phase_start',
+    phase: phaseId,
+    detail: opts?.replyText ? 'reply' : opts?.resumeId ? 'resume' : 'fresh',
+  });
 
   const body = await readFile(join(projectsDir, phase.promptFile!(task)), 'utf8');
   // Spec 037 S2+S3 (Implement only): harvest the workspace facts (D5 — degrades to nothing without
@@ -410,7 +435,12 @@ async function runPhase(
   // Confinement baseline for THIS turn (captured just before spawn — after any scaffold).
   const baseline = await gitDirtyPaths(projectsDir);
 
-  const spawnOnce = async (resumeSessionId: string | undefined, prompt: string): Promise<TurnResult> => {
+  const runDir = taskDir(projectsDir, task.taskId);
+  const spawnOnce = async (
+    resumeSessionId: string | undefined,
+    prompt: string,
+    attempt: number
+  ): Promise<TurnResult> => {
     const session = new ClaudeSession(`${task.taskId}:${phaseId}${resumeSessionId ? ':resume' : ''}`, {
       taskId: task.taskId,
       workingDir: projectsDir,
@@ -419,6 +449,10 @@ async function runPhase(
       resumeSessionId,
     });
     setSession(task.taskId, session); // hand the child to /cancel
+    // Spec 062 S1: record THIS attempt (prompt + output + tool calls + result). Best-effort — every
+    // recorder callback is try-wrapped so it can never affect the turn; the SSE broadcast fires FIRST
+    // and unchanged (AC #6).
+    const rec = new AttemptRecorder({ phase: phaseId, attempt, resume: !!resumeSessionId, prompt });
     const turn = await runTurn(
       session,
       prompt,
@@ -430,10 +464,20 @@ async function runPhase(
       {
         timeoutMs: TURN_TIMEOUT_MS,
         // Relay each assistant fragment to the SSE clients live (Lát 4) — high-volume, not buffered.
-        onText: (text) => ctx.broadcast?.(task.taskId, 'phase:output', { phase: phaseId, text }),
+        onText: (text) => {
+          ctx.broadcast?.(task.taskId, 'phase:output', { phase: phaseId, text });
+          try {
+            rec.onText(text);
+          } catch {
+            /* transcript is best-effort */
+          }
+        },
+        onEvent: (event) => rec.onEvent(event),
       }
     );
     clearSession(task.taskId);
+    // Append this attempt's transcript block (append, never overwrite — an error→retry keeps both, S1).
+    await rec.flush(runDir, { cost: costFromResult(turn.result), note: turn.note });
     // Don't write a `running`-bearing task AFTER a /cancel flipped it (would clobber `cancelled`).
     if (turn.sessionId && !isCancelled(task.taskId)) {
       task.sessionIds[sessKey] = turn.sessionId;
@@ -456,7 +500,7 @@ async function runPhase(
   }
 
   log.info({ taskId: task.taskId, phase: phaseId, resume: !!opts?.resumeId }, 'spawning turn');
-  let turn = await spawnOnce(opts?.resumeId, opts?.resumeId ? resumePrompt : freshPrompt);
+  let turn = await spawnOnce(opts?.resumeId, opts?.resumeId ? resumePrompt : freshPrompt, 1);
 
   // Resume-failure fallback (spec §A persistence caveat / Q3): a bad/expired session id makes the
   // child exit before any result event — re-run as a FRESH turn seeded with the artifact PATH.
@@ -465,7 +509,7 @@ async function runPhase(
   // parks at error like a fresh-turn timeout instead of doubling the budget (spec 014 D4 / C4).
   if (opts?.resumeId && turn.isError && !turn.result && !turn.note) {
     log.warn({ taskId: task.taskId, phase: phaseId }, 'resume failed → fresh turn seeded with artifact');
-    turn = await spawnOnce(undefined, freshPrompt);
+    turn = await spawnOnce(undefined, freshPrompt, 2);
   }
 
   // Spec 059: record THIS phase's cost/metrics from the turn's terminal `result` event. Pure
@@ -573,7 +617,12 @@ async function verifyPhase(
     // a detector throw (unparseable artifact etc.) logs and never fails the phase. Deliberately
     // NOT in gateAfterPhase (036's seam) — the two specs edit disjoint code (D4/D8).
     try {
-      const pf = await checkRunnability(projectsDir, phase.artifactRel(task), resolveRunners(ctx).runPython);
+      // Spec 066 S3: the ③ gate card shares preflightNote with the ④ report, so it must make the
+      // same promise — the harvest ran moments ago (harvestWorkspaceFacts precedes every Implement
+      // spawn), so its model count is fresh here.
+      const pf = await checkRunnability(projectsDir, phase.artifactRel(task), resolveRunners(ctx).runPython, {
+        workspaceModelCount: enabledModelCount(await loadWorkspaceFacts(projectsDir, task.taskId)),
+      });
       await writeFile(
         join(projectsDir, `apps/builder/.runs/${task.taskId}/preflight.json`),
         JSON.stringify(pf, null, 2)
@@ -678,12 +727,15 @@ export async function runImportProbe(task: Task, ctx: OrchestratorCtx): Promise<
     if (res.ok && res.appId) {
       // Best-effort cleanup — a failed delete leaves one stray probe app, never fails the build.
       const deleted = await ops.deleteApp(ctx.projectsDir, res.appId).catch(() => false);
-      return `import-probe: OK — Dify accepted this DSL${deleted ? ' (probe app deleted)' : ' (probe app cleanup failed — delete it in Dify)'}`;
+      // Spec 066 S4: the SHARED verdict strings (report.ts `probeVerdict`) — plain, framed for JA, and
+      // impossible to reword in only one of the two probes. The cleanup-failure variant names the
+      // stray app, because THAT one is a real user action.
+      return probeVerdict.ok(deleted ? undefined : probeName);
     }
     if (res.ok && res.status === 'pending') {
       // HTTP 202: version-mismatch park (app NOT created; needs /confirm) — inconclusive, not a
       // DSL rejection. Exit code 0 + no app id would otherwise mislabel it FAILED (r3, review 3.3).
-      return `import-probe: skipped (Dify parked the import as 'pending' — DSL version vs server mismatch; align the version or confirm manually)`;
+      return probeVerdict.parked();
     }
     // FAILED — sweep the possible orphan (see probeName note), then surface the VERBATIM (redacted)
     // Dify error: it is exactly what a ④ "Request changes" fix-turn needs (D3) — e.g. HTTP 400
@@ -691,9 +743,9 @@ export async function runImportProbe(task: Task, ctx: OrchestratorCtx): Promise<
     const rec = await ops.reconcileAppIdByName(ctx.projectsDir, probeName).catch(() => ({ appId: null, ambiguous: false }));
     if (rec.appId) await ops.deleteApp(ctx.projectsDir, rec.appId).catch(() => false);
     const detail = redactSecrets(res.stderr ?? '').trim().split('\n').slice(-3).join(' ⏎ ');
-    return `import-probe FAILED: ${detail || 'import rejected (no detail captured)'}`;
+    return probeVerdict.rejected(detail);
   } catch (e) {
-    return `import-probe: skipped (${redactSecrets(errMsg(e))})`;
+    return probeVerdict.skipped(redactSecrets(errMsg(e)));
   }
 }
 
@@ -725,6 +777,7 @@ async function runTestAndFinish(
     task.error = res.reasons.join(' | ');
     task.gate = computeGate('test', { outcome: 'error' }, task.deploy);
     await emit(task, ctx);
+    await logEvent(taskDir(projectsDir, task.taskId), { kind: 'error', phase: 'test', detail: task.error }); // S1b
     return; // the dispatch `finally` frees the turn lock (§I)
   }
 
@@ -760,6 +813,7 @@ async function runTestAndFinish(
   task.status = 'done';
   task.gate = computeGate('test', { outcome: 'success' }, task.deploy); // terminal: no actions
   await emit(task, ctx);
+  await logEvent(taskDir(projectsDir, task.taskId), { kind: 'gate_reached', phase: 'test', detail: 'done' }); // S1b
 }
 
 

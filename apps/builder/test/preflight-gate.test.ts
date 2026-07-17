@@ -141,10 +141,20 @@ describe('spec 037 — preflight at the ③ gate (advisory, recompute-per-verify
     const { task } = await driveToImplementGate({ facts: BLOCKED_FACTS, implementYaml: TODO_YAML });
 
     assert.ok(task.preflightNote, 'preflightNote set');
-    assert.match(task.preflightNote!, /^preflight: not runnable out-of-the-box — needs: /);
-    for (const frag of ['model fill', 'non-stdlib', 'plugin hash', 'dataset_ids']) {
+    assert.match(task.preflightNote!, /^Before this workflow can run, you need to: /); // spec 066 S5
+    // spec 064: the note still itemizes every blocker class — now in PLAIN language (the model and
+    // plugin details lost their jargon; sandbox/dataset details are unchanged).
+    // The note still itemizes every blocker class — each in plain language, naming the thing the
+    // user can act on (the module name, the knowledge base) rather than the node it lives in.
+    for (const frag of ['the AI model', 'a code step uses requests', 'a plugin this workflow needs',
+      'a knowledge base to search']) {
       assert.ok(task.preflightNote!.includes(frag), `note itemizes "${frag}": ${task.preflightNote}`);
     }
+    for (const jargon of ['plugin hash', 'dependencies TODO', 'preflight', 'Advisory',
+      'non-stdlib', 'dataset_ids', 'knowledge-retrieval', 'code node']) {
+      assert.ok(!task.preflightNote!.includes(jargon), `no jargon "${jargon}" reaches the user`);
+    }
+    assert.doesNotMatch(task.preflightNote!, /\b\d{13}\b/, 'no bare node id reaches the user');
     const pfPath = join(dir, `apps/builder/.runs/${task.taskId}/preflight.json`);
     assert.ok(existsSync(pfPath), 'preflight.json persisted');
     const pf = JSON.parse(readFileSync(pfPath, 'utf8'));

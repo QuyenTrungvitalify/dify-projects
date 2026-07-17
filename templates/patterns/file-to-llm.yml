@@ -20,8 +20,12 @@
 #      target Dify workspace.
 #   3. System prompt — the actual instruction (the user-prompt just passes the
 #      extracted text in).
-#   4. Plugin hash in `dependencies[]` — obtain from a YAML exported by your
-#      target workspace (see AGENTS.md §4.3 "How to obtain a real plugin hash").
+#   4. Plugin hash in `dependencies[]` — RESOLVE it (spec 067): the hash is the public marketplace
+#      package checksum, keyed to (plugin, version) and identical in every workspace. Copy it from
+#      `templates/tool-catalog.json`, or run
+#      `.venv/bin/python tools/dify_base/marketplace.py resolve <org>/<name>` — no login, no install.
+#      (This line used to say "obtain from a YAML exported by your target workspace"; that was the
+#      workspace-specific-hash myth, retired in AGENTS.md §4.3.)
 
 app:
   description: 'Upload a file, extract text, run one LLM call, return the answer.'

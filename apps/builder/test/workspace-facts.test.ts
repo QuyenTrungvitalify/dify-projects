@@ -16,6 +16,7 @@ import {
   harvestWorkspaceFacts,
   loadWorkspaceFacts,
   knowledgeBlock,
+  enabledModelCount,
   parsePlugins,
   parseDatasets,
   type WorkspaceFacts,
@@ -56,6 +57,83 @@ const okSync: FakeSync = async (_d, args) => {
 };
 
 const wsPath = (): string => join(dir, 'apps', 'builder', '.runs', TASK, 'workspace.json');
+
+// ── spec 067 S6: a PARTIAL harvest failure must be falsifiable ───────────────────────────────────
+// The guard only bails when ALL THREE arms fail, so one failed arm wrote `[]` that no reader could
+// distinguish from a genuinely-empty workspace — and the Implement prompt keys off exactly that
+// field. This is the mechanism by which "the lookup broke" became "the plugin doesn't exist".
+describe('spec 067 S6 — per-arm harvest provenance', () => {
+  const pluginsFailSync: FakeSync = async (d, args) =>
+    args[0] === 'plugins'
+      ? { code: 1, stdout: '', stderr: 'HTTP 500 from /console/api/workspaces/current/plugin/list' }
+      : okSync(d, args);
+
+  test('one failed arm → the file is still written, and `sources` says WHICH arm lied', async () => {
+    await harvestWorkspaceFacts(dir, TASK, log, pluginsFailSync);
+    const facts = JSON.parse(readFileSync(wsPath(), 'utf8')) as WorkspaceFacts;
+    assert.deepEqual(facts.plugins, [], 'the empty array is still written (unchanged behaviour)');
+    assert.equal(facts.sources?.plugins.ok, false, 'but it is now marked as NOT a real answer');
+    assert.match(facts.sources!.plugins.error!, /HTTP 500/, 'with the reason, for a dev reading logs');
+    assert.equal(facts.sources?.models.ok, true, 'the arms that worked are marked as authoritative');
+    assert.equal(facts.sources?.models.count, 1);
+  });
+
+  test('all arms OK → every source ok:true with its count (an empty list is then REAL)', async () => {
+    await harvestWorkspaceFacts(dir, TASK, log, okSync);
+    const facts = JSON.parse(readFileSync(wsPath(), 'utf8')) as WorkspaceFacts;
+    assert.deepEqual(
+      Object.fromEntries(Object.entries(facts.sources!).map(([k, v]) => [k, v.ok])),
+      { models: true, plugins: true, datasets: true }
+    );
+  });
+
+  test('knowledgeBlock TELLS the turn a lookup failed — silence used to read as "none exist"', () => {
+    const block = knowledgeBlock({
+      harvestedAt: 'now', target: 'selfhost', models: [], plugins: [], datasets: [],
+      sources: { models: { ok: true, count: 0 }, plugins: { ok: false, count: 0, error: 'HTTP 500' }, datasets: { ok: true, count: 0 } },
+    } as WorkspaceFacts);
+    assert.match(block, /plugins lookup FAILED/, 'the turn must know the absence proves nothing');
+    assert.match(block, /NOT evidence/);
+  });
+
+  // The two slices in this changeset nearly shipped past each other: S6 added `sources` so a `[]`
+  // could be recognised as meaningless, and 066 S3 then read `models.length` without consulting it —
+  // which would tell a user with GPT-4o enabled to "add an AI model in Dify first". `enabledModelCount`
+  // is the one reader; these pin it.
+  test('S6→S3 seam: a FAILED models arm yields undefined (unknown), never a confident 0', async () => {
+    const modelsFailSync: FakeSync = async (d, args) =>
+      args[0] === 'models' ? { code: 1, stdout: '', stderr: 'HTTP 500' } : okSync(d, args);
+    await harvestWorkspaceFacts(dir, TASK, log, modelsFailSync);
+    const facts = JSON.parse(readFileSync(wsPath(), 'utf8')) as WorkspaceFacts;
+    assert.deepEqual(facts.models, [], 'the empty array is still on disk');
+    assert.equal(facts.sources?.models.ok, false);
+    assert.equal(enabledModelCount(facts), undefined,
+      'a failed arm is UNKNOWN — reading its [] as 0 is the lie 067 S6 exists to prevent');
+  });
+
+  test('a SUCCESSFUL models arm yields the real count — including a genuine 0', async () => {
+    await harvestWorkspaceFacts(dir, TASK, log, okSync);
+    const facts = JSON.parse(readFileSync(wsPath(), 'utf8')) as WorkspaceFacts;
+    assert.equal(enabledModelCount(facts), 1, 'ok:true ⇒ the count IS evidence');
+    assert.equal(enabledModelCount({ ...facts, models: [], sources: { ...facts.sources!, models: { ok: true, count: 0 } } }), 0,
+      'a genuine empty workspace must still reach the honest wording');
+  });
+
+  test('no harvest at all (null) or a pre-067 file (no sources) keeps the pre-066 reading', () => {
+    assert.equal(enabledModelCount(null), undefined, 'no creds / no file → unknown');
+    const legacy = { harvestedAt: 'x', target: 'selfhost', models: [], plugins: [], datasets: [] } as WorkspaceFacts;
+    assert.equal(enabledModelCount(legacy), 0, 'a pre-067 file has no `sources` — trust it as before (?? true)');
+  });
+
+  test('knowledgeBlock never tells a turn to drop a tool: an unlisted plugin is still buildable (067 S1)', () => {
+    const block = knowledgeBlock({
+      harvestedAt: 'now', target: 'selfhost', models: [], plugins: [], datasets: [],
+      sources: { models: { ok: true, count: 0 }, plugins: { ok: true, count: 0 }, datasets: { ok: true, count: 0 } },
+    } as WorkspaceFacts);
+    assert.match(block, /NOT listed is still buildable/, 'resolve it — never drop the node');
+    assert.ok(!/FAILED/.test(block), 'a clean harvest carries no failure note');
+  });
+});
 
 describe('spec 037 S2 — harvestWorkspaceFacts', () => {
   test('AC 5: writes the §2 schema with harvestedAt stamped', async () => {

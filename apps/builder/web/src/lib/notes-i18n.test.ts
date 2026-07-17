@@ -9,11 +9,64 @@ import { localizeNotes, setLang } from './i18n';
 
 afterEach(() => setLang('en'));
 
-// The exact notes blob a from-scratch JP build produced (the reported case: workflow_12).
+// The exact notes blob a from-scratch JP build produces (the reported case: workflow_12).
+// Spec 064: the plugin advisory is now PLAIN (the old `deploy=none` / `unresolved_plugin_todo` /
+// "plugin hash" jargon is no longer emitted into the human note).
 const SAMPLE =
-  `all linters passed 'workflow' already exists in this project — using 'workflow_12' to avoid overwriting it. ` +
-  `deploy=none (no Dify contact). unresolved_plugin_todo: dependencies are empty but a ` +
-  `"# TODO add plugin hash" remains — add the plugin hash before deploying.`;
+  `The workflow file passed every automated check. 'workflow' already exists in this project — using 'workflow_12' to avoid overwriting it. ` +
+  `this workflow relies on a Dify plugin — install it in Dify Studio → Plugins if a run reports it missing.`;
+
+// ── spec 066 S2/S3: the details this spec ADDS must localize ─────────────────────────────────────
+// The preflight WRAPPER is framed, and it keeps `$1` (the needs-list) literal — so an unframed detail
+// renders as a Japanese sentence with an English list inside it. That mixed render is the exact thing
+// spec 064 set out to end, and the whole 066 finding came from a JP prompt, so the JA path is the
+// primary audience. A test for the wrapper alone would have passed while the payload stayed English.
+describe('localizeNotes (spec 066 — every ADDED string ships its frame)', () => {
+  const ADDED: Array<[label: string, en: string, jaFragment: string]> = [
+    ['S3 model (honest variant)',
+      "an AI model — add one in Dify first (this workflow can't summarize or write without it)",
+      'AI モデル — 先に Dify で追加してください'],
+    ['S2 env_secret_empty',
+      "a value for SLACK_WEBHOOK_URL — you'll paste this into Dify (the workflow can't run without it)",
+      'SLACK_WEBHOOK_URL の値 — Dify に貼り付けてください'],
+    ['S4 probe OK',
+      'Checked automatically: Dify accepts this workflow file.',
+      '自動チェック済み: このワークフローファイルは Dify に取り込めます。'],
+    ['S4 probe OK + stray copy',
+      'Checked automatically: Dify accepts this workflow file. (A temporary copy named "[probe] 123" was left in Dify — you can delete it.)',
+      '"[probe] 123" という一時コピーが Dify に残っています'],
+    ['S4 probe rejected', 'Dify rejected this workflow file — HTTP 400', 'Dify がこのワークフローファイルを受け付けませんでした'],
+    ['S4 probe catch-branch', 'Could not check the import automatically (timeout)', '取り込みの自動チェックができませんでした（'],
+  ];
+
+  it('ja: each added string translates — no English payload survives', () => {
+    setLang('ja');
+    for (const [label, en, ja] of ADDED) {
+      expect(localizeNotes(en), label).toContain(ja);
+    }
+  });
+
+  it('ja: the real preflight blob localizes WHOLE — wrapper AND both details', () => {
+    setLang('ja');
+    // Exactly what runnability.ts emits for the dossier scenario (0-model workspace + an empty
+    // referenced Slack secret) — the case that started spec 066.
+    const out = localizeNotes(
+      "Before this workflow can run, you need to: an AI model — add one in Dify first (this workflow " +
+      "can't summarize or write without it); a value for SLACK_WEBHOOK_URL — you'll paste this into " +
+      "Dify (the workflow can't run without it). (The build itself is finished — these are setup steps in Dify.)"
+    );
+    expect(out).toContain('次の準備が必要です');
+    expect(out).toContain('AI モデル');
+    expect(out).toContain('SLACK_WEBHOOK_URL の値');
+    expect(out).not.toContain('add one in Dify first');
+    expect(out).not.toContain("you'll paste this");
+  });
+
+  it('en: passes through unchanged', () => {
+    setLang('en');
+    for (const [label, en] of ADDED) expect(localizeNotes(en), label).toBe(en);
+  });
+});
 
 describe('localizeNotes (spec 030 P2 — report notes follow the toggle)', () => {
   it('en: passes through unchanged (behaviour-equivalent to today)', () => {
@@ -25,18 +78,24 @@ describe('localizeNotes (spec 030 P2 — report notes follow the toggle)', () =>
     setLang('ja');
     const out = localizeNotes(SAMPLE);
     // frames translated
-    expect(out).toContain('すべてのリンターが成功しました');
+    expect(out).toContain('ワークフローファイルは自動チェックをすべて通過しました');
     expect(out).toContain('このプロジェクトに既に存在するため');
-    expect(out).toContain('Dify への接続なし');
-    expect(out).toContain('プラグインハッシュを追加');
+    // spec 064: the plain plugin advisory localizes WHOLE (no jargon in either language)
+    expect(out).toContain('Dify のプラグインを使用します');
+    expect(out).toContain('Studio → Plugins でインストール');
     // interpolated identifiers preserved verbatim
     expect(out).toContain("'workflow'");
     expect(out).toContain("'workflow_12'");
     // no English frame text survives
-    expect(out).not.toContain('all linters passed');
+    expect(out).not.toContain('passed every automated check');
     expect(out).not.toContain('already exists');
-    expect(out).not.toContain('no Dify contact');
-    expect(out).not.toContain('before deploying');
+    expect(out).not.toContain('relies on a Dify plugin');
+    // spec 064/066: the retired jargon must not reappear in either language
+    expect(out).not.toContain('プラグインハッシュ');
+    expect(out).not.toContain('plugin hash');
+    expect(out).not.toContain('リンター');
+    expect(out).not.toContain('プリフライト');
+    expect(out).not.toContain('アドバイザリ');
   });
 
   it('ja: unknown text passes through untouched (graceful on wording drift)', () => {
@@ -116,8 +175,8 @@ describe('localizeNotes (spec 057 S4 — trigger-entry frame)', () => {
 
   it('ja: translates it embedded in a larger notes blob / appended to the live reason', () => {
     setLang('ja');
-    const out = localizeNotes(`all linters passed ${EN}`);
-    expect(out).toContain('すべてのリンターが成功しました');
+    const out = localizeNotes(`The workflow file passed every automated check. ${EN}`);
+    expect(out).toContain('ワークフローファイルは自動チェックをすべて通過しました');
     expect(out).toContain('トリガー起動のワークフローです');
     expect(out).not.toContain('manual fire');
   });

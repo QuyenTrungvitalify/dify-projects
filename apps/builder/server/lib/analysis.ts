@@ -69,7 +69,12 @@ export function patternAdvisory(
 ): string | null {
   const gap = patternFeatureGap(projectsDir, pattern, needed);
   if (gap.length === 0) return null;
-  return `advisory: pattern '${pattern}' is missing feature(s) the analysis needs — ${gap.join(', ')}. Verify the generated graph or pick a closer pattern (this does not block the build).`;
+  // Spec 066 S5: plain. This was `advisory: pattern '<p>' is missing feature(s) the analysis needs —
+  // <gap>. Verify the generated graph or pick a closer pattern (this does not block the build).` —
+  // "advisory"/"pattern"/"feature(s)"/"graph" are all builder-internal vocabulary, and the review
+  // caught that adding `advisory` to the jargon blocklist would have bricked every pattern-gap run
+  // (permanent AUTO-FAIL) because no slice retired this line. Same meaning, said to the user.
+  return `Heads up: the template this build started from doesn't cover everything you asked for (${gap.join(', ')}). The workflow was still built — worth checking it does what you need.`;
 }
 
 /** The subset of analyze.json O2 reads. Everything optional — an old/minimal analyze.json is fine. */

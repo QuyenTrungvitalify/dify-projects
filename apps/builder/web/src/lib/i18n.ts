@@ -55,6 +55,8 @@ const EN: Dict = {
   live: 'Live',
   reconnecting: 'Reconnecting…',
   artifact: 'Artifact',
+  exportRun: 'Export',
+  exportRunHint: 'Download a zip that explains this run — dossier, artifacts, per-phase transcripts (prompt + tools), timeline, and your attachments',
   switchToDark: 'Switch to dark theme',
   switchToLight: 'Switch to light theme',
   switchToEnglish: 'Switch to English',
@@ -358,6 +360,8 @@ const JA: Dict = {
   live: 'ライブ',
   reconnecting: '再接続中…',
   artifact: '成果物',
+  exportRun: 'エクスポート',
+  exportRunHint: 'このビルドを説明するzipをダウンロード — ダイジェスト・成果物・各フェーズの記録（プロンプト＋ツール）・タイムライン・添付ファイル',
   switchToDark: 'ダークテーマに切り替え',
   switchToLight: 'ライトテーマに切り替え',
   switchToEnglish: 'Switch to English',
@@ -699,7 +703,9 @@ export function tAction(label: string): string {
    report.ts) passes through in English — graceful, never a crash. Same client-side-map spirit as
    ACTION_JA: the toggle drives it, so notes stay consistent with the already-localized report labels. */
 const NOTE_JA: [RegExp, string][] = [
-  [/all linters passed/g, 'すべてのリンターが成功しました'],
+  // spec 066 S5: plain + self-terminating (the old 'all linters passed' had no period, so the join
+  // fused it into the next sentence; 「リンター」 was katakana for a word a user never knew anyway).
+  [/The workflow file passed every automated check\./g, 'ワークフローファイルは自動チェックをすべて通過しました。'],
   [/lint failures recorded: /g, 'リンター失敗を記録: '],
   [
     /ACCEPTED with failing linters \(human "Accept anyway" override\)\./g,
@@ -709,34 +715,107 @@ const NOTE_JA: [RegExp, string][] = [
     /'([^']+)' already exists in this project — using '([^']+)' to avoid overwriting it\./g,
     "'$1' はこのプロジェクトに既に存在するため、上書きを避けて '$2' を使用します。",
   ],
+  // spec 066 S5: reworded plain (the old frame opened with 「アドバイザリ」 and named the internal
+  // pattern/feature/graph vocabulary). `$1` = the gap list — 019's feature names, kept literal.
   [
-    /advisory: pattern '([^']+)' is missing feature\(s\) the analysis needs — (.+?)\. Verify the generated graph or pick a closer pattern \(this does not block the build\)\./g,
-    "アドバイザリ: パターン '$1' に分析が必要とする機能が不足しています — $2。生成されたグラフを確認するか、より近いパターンを選択してください（ビルドはブロックされません）。",
+    /Heads up: the template this build started from doesn't cover everything you asked for \((.+?)\)\. The workflow was still built — worth checking it does what you need\./g,
+    'お知らせ: このビルドの元にしたテンプレートは、ご依頼の内容をすべてはカバーしていません（$1）。ワークフローは作成済みですが、意図どおりか確認することをおすすめします。',
   ],
-  [/deploy=none \(no Dify contact\)\./g, 'deploy=none（Dify への接続なし）。'],
+  // spec 064: `deploy=none (no Dify contact).` is no longer emitted into the human note (dev detail —
+  // it lives on report.deploy), so its frame is retired.
   [
     /Cloud deploy: auto-import is blocked by CSRF, so import manually\. The copyable YAML is the produced workflow \((.+?), shown in the main\.yml tab\)\. Steps in Dify Studio: ① Studio → Create app → "Import DSL" → ② paste the YAML \(or upload the file\) → ③ Create\./g,
     'クラウドデプロイ: 自動インポートは CSRF によりブロックされるため手動でインポートします。コピー可能な YAML は生成されたワークフロー（$1、main.yml タブに表示）です。Dify Studio の手順: ① Studio → アプリ作成 →「DSL をインポート」→ ② YAML を貼り付け（またはファイルをアップロード）→ ③ 作成。',
   ],
   [/imported to Dify: /g, 'Dify にインポート済み: '],
+  // spec 064: the plugin advisory is now PLAIN (the old "unresolved_plugin_todo / plugin hash /
+  // dependencies" jargon frames are retired — that jargon no longer reaches the user). Two deploy
+  // variants, translated whole.
   [
-    /unresolved_plugin_todo: dependencies are empty but a "# TODO add plugin hash" remains — /g,
-    'unresolved_plugin_todo: dependencies が空ですが "# TODO add plugin hash" が残っています — ',
+    /this workflow relies on a Dify plugin — install it in Dify Studio → Plugins if a run reports it missing\./g,
+    'このワークフローは Dify のプラグインを使用します — 実行時に「プラグインがありません」と出たら、Studio → Plugins でインストールしてください。',
   ],
   [
-    /add the plugin hash from the target workspace BEFORE import \(the import will fail otherwise\)\./g,
-    'インポート前に対象ワークスペースからプラグインハッシュを追加してください（さもないとインポートは失敗します）。',
+    /this workflow relies on a Dify plugin — install the plugins this workflow needs in Dify Studio → Plugins before importing \(otherwise the import fails\)\./g,
+    'このワークフローは Dify のプラグインを使用します — インポート前に、必要なプラグインを Studio → Plugins でインストールしてください（未インストールだとインポートに失敗します）。',
   ],
-  [/add the plugin hash before deploying\./g, 'デプロイ前にプラグインハッシュを追加してください。'],
+  // spec 064: the preflight blocker details are now plain-language (runnability.ts), translated here
+  // so the JA user reads them in Japanese rather than as a literal English needs-list.
+  [
+    /the AI model \(filled in automatically when you test — nothing to set up\)/g,
+    'AI モデル（テスト実行時に自動で設定されます — 何もする必要はありません）',
+  ],
+  [
+    /a plugin this workflow needs — install it in Dify Studio → Plugins if a run reports it missing/g,
+    'このワークフローに必要なプラグイン — 実行時に不足と出たら Studio → Plugins でインストールしてください',
+  ],
+  // spec 061: the plain-language tool post-import checklist (report.ts toolInstallNote — wording-stable).
+  // $1 = the comma-joined tool name list, kept literal.
+  [
+    /this workflow uses these Dify tools: (.+?)\. Before you can run it: \(1\) install each from Studio → Plugins → Marketplace, \(2\) add an API key in the tool settings for any that need one, \(3\) run the workflow to test it\./g,
+    'このワークフローは次の Dify ツールを使用します: $1。実行する前に: (1) Studio → Plugins → Marketplace から各ツールをインストール、(2) API キーが必要なツールはツール設定でキーを追加、(3) ワークフローを実行してテストしてください。',
+  ],
   [
     /editing "([^"]+)": a Dify import always creates a NEW app \(a duplicate of "([^"]+)"\), never an in-place update — delete\/replace the old app in Dify after importing\./g,
     '"$1" を編集中: Dify インポートは常に新規アプリ（"$2" の複製）を作成し、既存アプリをその場で更新しません — インポート後に Dify で旧アプリを削除/置換してください。',
   ],
-  // spec 037 S1: the runnability preflight advisory (report notes + phase ③ summary). `$1` = the raw
-  // `needs:` list (plugin hash / dataset ids …) — kept literal as it names technical fields.
+  // spec 037 S1 → reworded by spec 066 S5. `$1` = the blocker list; spec 064 already made each item
+  // plain prose, so localizing the frame no longer leaves a literal English needs-list behind.
   [
-    /preflight: not runnable out-of-the-box — needs: (.+?)\. Advisory — does not block the build\./g,
-    'プリフライト: そのままでは実行できません — 必要: $1。アドバイザリ — ビルドはブロックされません。',
+    /Before this workflow can run, you need to: (.+?)\. \(The build itself is finished — these are setup steps in Dify\.\)/g,
+    'このワークフローを実行する前に、次の準備が必要です: $1。（ビルド自体は完了しています — これらは Dify 側での設定作業です。）',
+  ],
+  // spec 066 S4 — the `deploy=none` (DEFAULT) path's two missing items. 057's trigger advisory was
+  // gated to selfhost|cloud, and the only note naming the workflow file was gated to cloud, so the
+  // default build was told neither to enable its trigger nor that the file exists — while its own
+  // digest promised 「自動起動・自走」.
+  [
+    /This workflow starts on a schedule \(or a webhook\), so it does not run just because it exists: after you import it, turn the trigger ON in Dify Studio → Quick Settings\. Until you do, it never fires\./g,
+    'このワークフローはスケジュール（または Webhook）で起動するため、存在するだけでは実行されません。取り込んだあと、Dify Studio → Quick Settings でトリガーを ON にしてください。ONにするまで一度も起動しません。',
+  ],
+  [
+    /Your workflow file is (.+?) \(you can copy it from the main\.yml tab\)\. To use it: in Dify Studio choose Create app → "Import DSL", then paste the file in\./g,
+    'ワークフローファイルは $1 です（main.yml タブからコピーできます）。使い方: Dify Studio で Create app →「Import DSL」を選び、ファイルの内容を貼り付けてください。',
+  ],
+  // The remaining two blocker details. `$1` = the module list, kept literal (they are import names).
+  [
+    /a code step uses (.+?), which Dify's sandbox does not provide — it needs rewriting with the standard library/g,
+    'コードのステップが $1 を使っていますが、Dify のサンドボックスには入っていません — 標準ライブラリで書き直す必要があります',
+  ],
+  [
+    /a knowledge base to search — pick one in Dify \(this step has none selected yet\)/g,
+    '検索対象のナレッジベース — Dify で選択してください（このステップにはまだ未設定です）',
+  ],
+  // spec 066 S2/S3 — the two blocker DETAILS this spec adds. The wrapper frame above localizes and
+  // keeps `$1` (the needs-list) literal, so without these a JA user reads a Japanese sentence with an
+  // English list inside it: exactly the mixed render 064 set out to end. The whole 066 finding came
+  // from a JP naive prompt, so this IS the primary audience.
+  [
+    /an AI model — add one in Dify first \(this workflow can't summarize or write without it\)/g,
+    'AI モデル — 先に Dify で追加してください（これがないと要約や文章生成ができません）',
+  ],
+  [
+    /a value for ([A-Za-z0-9_]+) — you'll paste this into Dify \(the workflow can't run without it\)/g,
+    '$1 の値 — Dify に貼り付けてください（これがないとワークフローは実行できません）',
+  ],
+  // spec 066 S4: the ④ import-probe verdicts. Previously had NO frame at all, so a JA user read
+  // "import-probe: OK — Dify accepted this DSL (probe app deleted)" in raw English.
+  [
+    /Checked automatically: Dify accepts this workflow file\. \(A temporary copy named "([^"]+)" was left in Dify — you can delete it\.\)/g,
+    '自動チェック済み: このワークフローファイルは Dify に取り込めます。（"$1" という一時コピーが Dify に残っています — 削除して構いません。）',
+  ],
+  [
+    /Checked automatically: Dify accepts this workflow file\./g,
+    '自動チェック済み: このワークフローファイルは Dify に取り込めます。',
+  ],
+  [
+    /Could not check the import automatically \(/g,
+    '取り込みの自動チェックができませんでした（',
+  ],
+  [/Dify rejected this workflow file — /g, 'Dify がこのワークフローファイルを受け付けませんでした — '],
+  [
+    /Could not check the import automatically: Dify held it for confirmation, which usually means the file's version and your Dify server don't match\./g,
+    '取り込みの自動チェックができませんでした: Dify が確認待ちで保留したため — 通常はファイルのバージョンと Dify サーバーが一致していないことを意味します。',
   ],
   // spec 032: the live-test `reason` line (phase ④ summary). Two success variants + two failure variants.
   [

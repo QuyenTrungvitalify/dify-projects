@@ -21,10 +21,28 @@ import { readFile } from 'node:fs/promises';
 import { runPython } from './shell.js';
 
 export interface RunnabilityBlocker {
-  class: 'model_empty' | 'sandbox_trap' | 'plugin_todo' | 'dataset_empty';
+  class: 'model_empty' | 'sandbox_trap' | 'plugin_todo' | 'dataset_empty' | 'env_secret_empty';
   nodeId?: string;
   nodeType?: string;
+  /** spec 066 S2: the env var's NAME for `env_secret_empty` (dev-readable; the human `detail` says it too). */
+  varName?: string;
   detail: string;
+}
+
+/**
+ * Spec 066 S3 — what the model advisory is allowed to PROMISE. Spec 043 auto-injects the model at
+ * live-test/deploy, so 064 phrased the advisory as reassurance ("filled in automatically when you
+ * test — nothing to set up"). That promise is FALSE when the workspace has no enabled model to inject:
+ * `live-test.ts:269-270` then takes the 0-model degrade instead, and the llm node keeps `provider: ''`.
+ * The real dossier (run 1784192313811) had `models: []` and was told "nothing to set up".
+ *
+ * Deliberately NOT keyed on `task.deploy`: a `deploy: 'none'` run can still be live-tested from the UI
+ * (live-test.ts never consults the deploy mode), so "none ⇒ never auto-fills" would be a fresh lie in
+ * the opposite direction. Omitting the field keeps the pre-066 wording, so existing callers are unchanged.
+ */
+export interface RunnabilityContext {
+  /** enabled models harvested from the workspace; 0 ⇒ nothing to auto-inject. `undefined` ⇒ unknown. */
+  workspaceModelCount?: number;
 }
 
 export interface Preflight {
@@ -54,6 +72,8 @@ export interface RunnabilityFacts {
   model_nodes: { id: string; type: string; empty: boolean }[];
   code_nodes: { id: string; nonstdlib: string[] }[];
   kr_nodes: { id: string; empty: boolean }[];
+  /** spec 066 S2 — OPTIONAL: a pre-066 probe/shim emits no `env_vars`; treat absent as []. */
+  env_vars?: { name: string; value_type: string; empty: boolean; referenced: boolean }[];
 }
 
 // Inline python: extract runnability FACTS from the workflow (marker string `runnability_facts`
@@ -77,8 +97,34 @@ except AttributeError:
 STDLIB |= {'__future__'}
 IMPORT_RE = re.compile(r'^\\s*(?:from|import)\\s+([a-zA-Z0-9_]+)', re.M)
 MODEL_TYPES = {'llm', 'parameter-extractor', 'question-classifier'}
-nodes = (((doc.get('workflow') or {}).get('graph') or {}).get('nodes')) or []
-out = {'kind': 'runnability_facts', 'model_nodes': [], 'code_nodes': [], 'kr_nodes': []}
+wf = doc.get('workflow') or {}
+nodes = ((wf.get('graph') or {}).get('nodes')) or []
+out = {'kind': 'runnability_facts', 'model_nodes': [], 'code_nodes': [], 'kr_nodes': [], 'env_vars': []}
+# spec 066 S2: an env var declared with an EMPTY value that a node actually consumes is a human setup
+# step (a Slack webhook URL, an API key) that no other class sees.
+# REFERENCED-ONLY by design: a workflow may legitimately declare an env var it does not use yet, and
+# an unused empty var costs the user nothing at runtime — flagging it would be a false alarm.
+# TWO reference forms, both first-class in Dify (mirrors tools/dify_base/lint_refs.py, which already
+# walks both: REF_PATTERN + walk_value_selectors, with SPECIAL_NS = {conversation, env, sys}):
+#   1. the template form  {{#env.NAME#}}          — a string anywhere in the graph
+#   2. the selector form  value_selector: [env, NAME]  — vendor/dify-src variable_factory.py:84 builds
+#      env refs as [ENVIRONMENT_VARIABLE_NODE_ID='env', name], so a probe that greps only form 1
+#      silently MISSES form 2 — a false negative, i.e. the exact "we never told the user" failure
+#      this class exists to end.
+ENV_REF_RE = re.compile(r'{{\\s*#env\\.([A-Za-z0-9_]+)#\\s*}}')
+graph_dump = yaml.safe_dump(wf.get('graph') or {}, allow_unicode=True, default_flow_style=False)
+referenced = set(ENV_REF_RE.findall(graph_dump))
+def _walk_selectors(o):
+    if isinstance(o, dict):
+        for k, v in o.items():
+            if k == 'value_selector' and isinstance(v, list) and len(v) >= 2:
+                if str(v[0]) == 'env':
+                    referenced.add(str(v[1]))
+            else:
+                _walk_selectors(v)
+    elif isinstance(o, list):
+        for it in o: _walk_selectors(it)
+_walk_selectors(wf.get('graph') or {})
 for n in nodes:
     if not isinstance(n, dict): continue
     d = n.get('data') or {}
@@ -93,36 +139,76 @@ for n in nodes:
         out['code_nodes'].append({'id': nid, 'nonstdlib': sorted(mods - STDLIB)})
     if t == 'knowledge-retrieval':
         out['kr_nodes'].append({'id': nid, 'empty': not d.get('dataset_ids')})
+for ev in (wf.get('environment_variables') or []):
+    if not isinstance(ev, dict): continue
+    # Dify declares env vars with \`name:\` (spec 057 gotcha: \`variable:\` breaks the import).
+    name = ev.get('name') or ev.get('variable')
+    if not name: continue
+    out['env_vars'].append({'name': str(name),
+                            'value_type': str(ev.get('value_type') or ''),
+                            'empty': not ev.get('value'),
+                            'referenced': str(name) in referenced})
 print(json.dumps(out))
 `;
 
-/** PURE — facts + raw text → the four blocker classes (D2). Exported for direct unit tests. */
-export function classifyRunnability(facts: RunnabilityFacts, yamlText: string): Preflight {
+/** PURE — facts + raw text → the blocker classes (D2). Exported for direct unit tests.
+ *  `ctx` (spec 066 S3) is OPTIONAL: omitted ⇒ the pre-066 reassuring model wording. */
+export function classifyRunnability(
+  facts: RunnabilityFacts,
+  yamlText: string,
+  ctx: RunnabilityContext = {}
+): Preflight {
   const blockers: RunnabilityBlocker[] = [];
+  // spec 066 S3: can the auto-fill (043) actually happen? Only if the workspace HAS a model to
+  // inject. `undefined` = not told → assume yes (pre-066 wording, byte-identical).
+  const noModelInWorkspace = ctx.workspaceModelCount === 0;
   for (const m of facts.model_nodes) {
     if (m.empty) {
       blockers.push({
+        // spec 064: plain-language detail (the node id stays on the object for dev, OUT of the human
+        // text). spec 066 S3: reassurance ONLY when it is TRUE. The naive dossier (run 1784192313811)
+        // had workspace `models: []` and was still told "nothing to set up" — the most reassuring
+        // phrase in the note, about the one thing that guaranteed the workflow could never run.
         class: 'model_empty', nodeId: m.id, nodeType: m.type,
-        detail: `model fill (${m.type} ${m.id}; auto-injected at live test/deploy)`,
+        detail: noModelInWorkspace
+          ? 'an AI model — add one in Dify first (this workflow can\'t summarize or write without it)'
+          : 'the AI model (filled in automatically when you test — nothing to set up)',
       });
     }
   }
   for (const c of facts.code_nodes) {
     if (c.nonstdlib.length) {
       blockers.push({
+        // The node id stays on the object for dev; the human text names the MODULES, which is the
+        // part a user could act on, and drops the id — a bare 13-digit id is unreadable and fails the
+        // comprehension gate. (`model_empty`/`plugin_todo` were cleaned earlier; these two were not.)
         class: 'sandbox_trap', nodeId: c.id, nodeType: 'code',
-        detail: `code node ${c.id} imports non-stdlib (${c.nonstdlib.join(', ')}) — fails in the Dify sandbox`,
+        detail: `a code step uses ${c.nonstdlib.join(', ')}, which Dify's sandbox does not provide — it needs rewriting with the standard library`,
       });
     }
   }
   if (hasUnresolvedPluginTodo(yamlText)) {
-    blockers.push({ class: 'plugin_todo', detail: 'plugin hash (dependencies TODO)' });
+    // spec 064: plain — no "plugin hash"/"dependencies" jargon reaches the user.
+    blockers.push({ class: 'plugin_todo', detail: 'a plugin this workflow needs — install it in Dify Studio → Plugins if a run reports it missing' });
   }
   for (const k of facts.kr_nodes) {
     if (k.empty) {
       blockers.push({
         class: 'dataset_empty', nodeId: k.id, nodeType: 'knowledge-retrieval',
-        detail: `dataset_ids (knowledge-retrieval ${k.id})`,
+        detail: 'a knowledge base to search — pick one in Dify (this step has none selected yet)',
+      });
+    }
+  }
+  // spec 066 S2 — the fifth class. The real naive build (run 1784192313811) declared
+  // `SLACK_WEBHOOK_URL` with `value: ''` and POSTed to `{{#env.SLACK_WEBHOOK_URL#}}`; the preflight
+  // read only `graph.nodes`, so it saw nothing and the note told the user "nothing to set up". At 9am
+  // the POST fired at an empty URL and the Slack message — the whole point of the request — never came.
+  // `?? []` keeps a pre-066 probe (or a test shim) working: no field ⇒ no blockers, never a crash.
+  for (const e of facts.env_vars ?? []) {
+    if (e.empty && e.referenced) {
+      blockers.push({
+        class: 'env_secret_empty', varName: e.name,
+        detail: `a value for ${e.name} — you'll paste this into Dify (the workflow can't run without it)`,
       });
     }
   }
@@ -134,7 +220,13 @@ export function classifyRunnability(facts: RunnabilityFacts, yamlText: string): 
 export function preflightNote(p: Preflight): string | null {
   if (!p.blockers.length) return null;
   const parts = p.blockers.map((b) => b.detail);
-  return `preflight: not runnable out-of-the-box — needs: ${parts.join(', ')}. Advisory — does not block the build.`;
+  // Spec 066 S5: the FRAME goes plain too. Spec 064 made each blocker `detail` readable but left this
+  // wrapper as `preflight: not runnable out-of-the-box — needs: … Advisory — does not block the build.`
+  // — "preflight"/"Advisory" are internal vocabulary (an aviation/CI term and a status word), and the
+  // sentence opened with a lowercase "preflight:" that `join(' ')` fused onto the lint line into the
+  // nonsense run-on "all linters passed preflight". Self-terminating, capitalised, and it says WHO does
+  // what: the build is finished; these are the user's remaining steps.
+  return `Before this workflow can run, you need to: ${parts.join('; ')}. (The build itself is finished — these are setup steps in Dify.)`;
 }
 
 /** Probe + classify one workflow file. Throws on unreadable/unparseable input — callers (the ③
@@ -144,7 +236,8 @@ export function preflightNote(p: Preflight): string | null {
 export async function checkRunnability(
   projectsDir: string,
   workflowRel: string,
-  python: typeof runPython = runPython
+  python: typeof runPython = runPython,
+  ctx: RunnabilityContext = {} // spec 066 S3 — omitted ⇒ pre-066 wording (callers opt in)
 ): Promise<Preflight> {
   const probe = await python(projectsDir, ['-c', RUNNABILITY_PROBE, workflowRel]);
   if (probe.code !== 0) {
@@ -152,5 +245,5 @@ export async function checkRunnability(
   }
   const facts = JSON.parse(probe.stdout) as RunnabilityFacts;
   const yamlText = await readFile(join(projectsDir, workflowRel), 'utf8');
-  return classifyRunnability(facts, yamlText);
+  return classifyRunnability(facts, yamlText, ctx);
 }

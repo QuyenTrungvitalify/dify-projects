@@ -486,12 +486,23 @@ export interface WorkspaceDataset {
   id: string;
   name: string;
 }
+/** Spec 067 S6 — per-arm harvest outcome. Without this, `plugins: []` is UNFALSIFIABLE: "the call
+ *  failed" and "the workspace genuinely has none" serialize identically, and the Implement prompt keys
+ *  off exactly that field. `ok:false` ⇒ the `[]` beside it means NOTHING — never read it as evidence. */
+export interface HarvestSource {
+  ok: boolean;
+  count: number;
+  error?: string;
+}
+
 export interface WorkspaceFacts {
   harvestedAt: string;
   target: 'selfhost';
   models: LlmModel[];
   plugins: WorkspacePlugin[];
   datasets: WorkspaceDataset[];
+  /** spec 067 S6 — OPTIONAL: a file written before 067 has none; absent ⇒ outcome unknown. */
+  sources?: { models: HarvestSource; plugins: HarvestSource; datasets: HarvestSource };
 }
 
 /** §4 content policy: values are length-clamped before writing (a hostile workspace-controlled NAME
@@ -546,12 +557,28 @@ export async function harvestWorkspaceFacts(
       return;
     }
     const models = mr.code === 0 ? parseModels(mr.stdout).enabled : [];
+    const plugins = pr.code === 0 ? parsePlugins(pr.stdout) : [];
+    const datasets = dr.code === 0 ? parseDatasets(dr.stdout) : [];
+    // Spec 067 S6 — record the PER-ARM outcome. This guard only bails when ALL THREE fail, so a single
+    // failed arm used to write a confident `[]` that no reader could tell from a genuinely empty
+    // workspace — and the doc comment above promised "partial failure → write what succeeded (logged)"
+    // while no such log existed. Both halves are fixed here: the field, and the warn.
+    const src = (r: SyncResult, count: number): HarvestSource =>
+      r.code === 0
+        ? { ok: true, count }
+        : { ok: false, count: 0, error: (r.stderr.trim().split('\n').slice(-1)[0] || `exit ${r.code}`).slice(0, 200) };
+    const sources = { models: src(mr, models.length), plugins: src(pr, plugins.length), datasets: src(dr, datasets.length) };
+    const failed = Object.entries(sources).filter(([, s]) => !s.ok).map(([k]) => k);
+    if (failed.length) {
+      log.warn({ taskId, failed, sources }, 'workspace-facts harvest PARTIALLY failed — the [] beside a failed arm is not evidence of an empty workspace');
+    }
     const facts: WorkspaceFacts = {
       harvestedAt: new Date().toISOString(),
       target: 'selfhost',
       models,
-      plugins: pr.code === 0 ? parsePlugins(pr.stdout) : [],
-      datasets: dr.code === 0 ? parseDatasets(dr.stdout) : [],
+      plugins,
+      datasets,
+      sources,
     };
     // §4/AC 5b: no secrets by construction (names/identifiers/ids only) — and the serialized JSON
     // still passes redactSecrets as a backstop before touching disk.
@@ -561,6 +588,23 @@ export async function harvestWorkspaceFacts(
   } catch (e) {
     log.warn({ taskId, err: e instanceof Error ? e.message : String(e) }, 'workspace-facts harvest failed (non-fatal)');
   }
+}
+
+/**
+ * Spec 067 S6 — the enabled-model count, or `undefined` when the number is NOT EVIDENCE.
+ *
+ * `models: []` means "the workspace has no model" ONLY if the models arm actually answered.
+ * `harvestWorkspaceFacts` bails only when ALL THREE arms fail, so one failed arm still writes a
+ * confident `[]`. Reading that as zero is the mistake this whole slice exists to prevent — and it
+ * would produce the exact inverse of the lie spec 066 S3 set out to kill: telling a user with GPT-4o
+ * enabled to "add an AI model in Dify first".
+ *
+ * `sources` absent (a workspace.json written before 067) → `?? true`: keep the pre-067 reading rather
+ * than invent a scare out of an old file.
+ */
+export function enabledModelCount(facts: WorkspaceFacts | null): number | undefined {
+  if (!facts) return undefined; // no harvest at all (no creds / pre-037) — unknown, not zero
+  return (facts.sources?.models.ok ?? true) ? facts.models.length : undefined;
 }
 
 /** Read back `.runs/<taskId>/workspace.json` (null on absent/unparseable — degrade, D5). */
@@ -594,7 +638,19 @@ export function knowledgeBlock(facts: WorkspaceFacts | null): string {
   if (facts.datasets.length) {
     lines.push(`- datasets: ${facts.datasets.map((d) => `${d.id} "${d.name}"`).join(', ')}`);
   }
-  lines.push(`(harvested ${facts.harvestedAt}; if a needed value is NOT listed, leave the documented TODO form)`);
+  // Spec 067 S6: say WHICH lookups failed. An absent line previously read as "this workspace has none",
+  // which — combined with the NEVER-invent header — is how a turn concluded a plugin did not exist.
+  const failed = Object.entries(facts.sources ?? {}).filter(([, s]) => !s.ok).map(([k]) => k);
+  if (failed.length) {
+    lines.push(`- NOTE: the ${failed.join(' and ')} lookup FAILED this run — the absence of ${failed.join('/')} below is NOT evidence that none exist. Do not conclude anything from it.`);
+  }
+  // Spec 067 S1: an absent PLUGIN line never means "no such plugin" — the hash is public and
+  // version-keyed, so resolve it (§4.3). Only dataset ids are workspace-local and TODO-able.
+  lines.push(
+    `(harvested ${facts.harvestedAt}; a plugin that is NOT listed is still buildable — resolve its ` +
+      `identifier from the marketplace (§4.3), never drop the tool node. A dataset id that is not ` +
+      `listed has no public source: leave the documented TODO form.)`
+  );
   return lines.join('\n');
 }
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -38,6 +39,79 @@ SETTLED_BUCKETS = ("AUTO-PASS", "AUTO-FAIL", "MANUAL")
 
 def _row(bucket: str, check: str, detail: str) -> dict:
     return {"bucket": bucket, "check": check, "detail": detail}
+
+
+# ── spec 063: comprehension — the DETERMINISTIC half (objective, regression-safe) ─────────────────
+# Technical tokens a non-technical user won't understand, checked against the user-facing text (the
+# digest + the notes as the user reads them). A hit → AUTO-FAIL. This is the objective core: a fixed
+# list, reproducible run-to-run, no LLM. It catches the untranslated-jargon defect (spec 061) that a
+# substring `notes_include` grep never flags as unclear. Both English (escaped localization) and the
+# JA katakana equivalents a layperson still won't get are listed. Extend deliberately.
+JARGON_BLOCKLIST: tuple[str, ...] = (
+    # English technical terms that reach the user when localization doesn't cover them
+    "plugin hash", "dependencies", "provider_id", "provider_name", "provider_type",
+    "tool_name", "tool_configurations", "# TODO", "deploy=none", "unresolved_plugin_todo",
+    "value_selector", "node id",
+    # ── spec 066 S1 — the FRAME vocabulary spec 064 left behind ──────────────────────────────────
+    # 064 made every blocker DETAIL plain and this oracle scored the result PASS — while the note
+    # still read "all linters passed preflight: … Advisory … import-probe: OK — Dify accepted this
+    # DSL (probe app deleted)". The oracle was blind, not the note clean. Each token below is bound
+    # to the slice that retires it (066 S5 frames · S4 probe tail); do NOT add a token here without
+    # the slice that removes it, or the FAIL→PASS proof can never close.
+    # ("linter" AND "linters": _jargon_hit is word-boundary, so the singular never matches the plural.)
+    "linter", "linters", "preflight", "import-probe", "probe app", "advisory",
+    # NOT "dsl": `cloudStudioNote` (report.ts:126) tells a deploy=cloud user to click Dify Studio's
+    # literal button — '① Studio → Create app → "Import DSL" → …'. That is an AFFORDANCE the user must
+    # find on screen, not jargon; blocklisting it AUTO-FAILed every cloud run forever. A name the user
+    # must read off a button is exempt by definition — the point is what THEY can act on.
+    # JA katakana jargon. NOTE: the offline check currently scans the ENGLISH report.notes (the JA
+    # localize happens browser-side, Chat.tsx). So these tokens only fire once the NOTE_JA port lands
+    # (the deferred slice); on a real run today the ENGLISH tokens above are the load-bearing ones.
+    "プラグインハッシュ", "リンター", "プリフライト", "アドバイザリ",
+)
+# Leaked template/id jargon (regex): a raw variable ref or a bare node id the user should never see.
+JARGON_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"\{\{#[^}]+#\}\}", "raw {{#…#}} variable ref"),
+    (r"\b\d{13}\b", "bare 13-digit node id"),
+)
+
+
+def _jargon_hit(token: str, text: str, low: str) -> bool:
+    """Word-boundary for plain-word tokens (so 'dependencies' can't fire inside normal prose); raw
+    substring for symbol/non-ASCII tokens (deploy=none, # TODO, katakana) that can't hide in words."""
+    if token.isascii() and all(c.isalnum() or c.isspace() for c in token):
+        return re.search(r"\b" + re.escape(token.lower()) + r"\b", low) is not None
+    return token.lower() in low
+
+
+def build_userview(digest: str, notes: str) -> str:
+    """Spec 063 S1 (pragmatic) — the USER-facing text block from a run's digest + notes, hiding the
+    dev view. A reconstruction proxy, NOT the literal Chat.tsx render (full NOTE_JA localization port
+    + component contract test are a follow-up slice, AC1). Excludes features/planned_nodes/YAML/lint."""
+    d = str(digest or "").strip()
+    n = str(notes or "").strip()
+    if not d and not n:
+        return ""
+    return f"— digest —\n{d}\n\n— notes (as the user reads them) —\n{n}".strip()
+
+
+def evaluate_comprehension(userview_text: str) -> list[dict]:
+    """Deterministic jargon check over the user-facing text. AUTO-FAIL per blocklist hit; AUTO-PASS
+    when clean; **MANUAL when there is NO user-facing text** (a parked/incomplete/corrupt run — never
+    a false AUTO-PASS, matching the harness's missing-artifact contract). Reproducible — no LLM. (The
+    open-ended `next_step_clear` LLM proxy is the skill's job, kept OUT of this exit path per S3.)"""
+    text = str(userview_text or "").strip()
+    if not text:
+        return [_row("MANUAL", "comprehension",
+                     "no user-facing text captured — run parked/incomplete; nothing to judge")]
+    low = text.lower()
+    rows = [_row("AUTO-FAIL", f"comprehension.jargon[{t}]",
+                 "a non-technical user won't understand this term in the chat")
+            for t in JARGON_BLOCKLIST if _jargon_hit(t, text, low)]
+    rows += [_row("AUTO-FAIL", f"comprehension.jargon[{desc}]",
+                  "a leaked technical reference the user should never see")
+             for pat, desc in JARGON_PATTERNS if re.search(pat, text)]
+    return rows or [_row("AUTO-PASS", "comprehension.jargon", "no blocklisted jargon in the user-facing text")]
 
 
 def _load_json(path: Path) -> tuple[dict | None, str | None]:
@@ -456,8 +530,40 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--baselines", help="e2e-baselines.json path — for cost drift (spec 060)")
     ap.add_argument("--save-baseline", action="store_true",
                     help="write this run's cost profile into --baselines under the entry id")
+    ap.add_argument("--userview", action="store_true",
+                    help="spec 063: print ONLY the user-facing text (digest + notes), hiding the dev view")
+    ap.add_argument("--comprehension", action="store_true",
+                    help="spec 063: deterministic jargon check over the user-facing text (needs --analyze/--report)")
     ap.add_argument("--json", action="store_true", help="machine output instead of the table")
     args = ap.parse_args(argv)
+
+    # ── spec 063: userview / comprehension — user-facing text only, no suite ──
+    if args.userview or args.comprehension:
+        digest = ""
+        if args.analyze and Path(args.analyze).is_file():
+            aj, _e = _load_json(Path(args.analyze))
+            digest = str((aj or {}).get("overview") or "")
+        notes = ""
+        if args.report and Path(args.report).is_file():
+            rj, _e = _load_json(Path(args.report))
+            notes = str((rj or {}).get("notes") or "")
+        userview = build_userview(digest, notes)
+        if args.userview:
+            print("== e2e userview · (reconstruction proxy — not the literal Chat.tsx render) ==")
+            print(userview or "(no user-facing text found)")
+            print("\nNOTE: excludes features/planned_nodes/YAML/lint by design. Localization port + "
+                  "Chat.tsx contract test are a follow-up slice (spec 063 AC1).")
+            return 0
+        # comprehension — scan the EXACT string build_userview produces (one source of truth)
+        rows = evaluate_comprehension(userview)
+        auto_fail = sum(1 for r in rows if r["bucket"] == "AUTO-FAIL")
+        nothing_to_judge = not auto_fail and all(r["bucket"] == "MANUAL" for r in rows)
+        print(render_table("comprehension", rows) if not args.json
+              else json.dumps({"rows": rows, "auto_ok": auto_fail == 0}, ensure_ascii=False, indent=2))
+        print("\nNOTE: DETERMINISTIC jargon half (objective; scans the ENGLISH notes today — the JA "
+              "localize + katakana tokens land with the deferred NOTE_JA port). The open-ended "
+              "'next_step_clear' judgment is the /e2e skill's quarantined LLM proxy, not this exit code.")
+        return 1 if auto_fail else (2 if nothing_to_judge else 0)
 
     # ── timing mode: no suite needed, pure filesystem ────────────────────────
     if args.timing:

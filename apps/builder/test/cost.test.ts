@@ -58,6 +58,22 @@ describe('costFromResult (spec 059)', () => {
     assert.deepEqual(costFromResult(ev({ usage: { output_tokens: 100 } })), { outputTokens: 100 });
   });
 
+  test('spec 062 #1: captures the model id from result.modelUsage (else a bare model)', () => {
+    // recent claude stream-json result events carry modelUsage keyed by model id
+    assert.equal(
+      costFromResult(ev({ num_turns: 5, modelUsage: { 'claude-opus-4-8': { input_tokens: 10 } } }))?.model,
+      'claude-opus-4-8'
+    );
+    // fallback: a bare `model` field
+    assert.equal(costFromResult(ev({ num_turns: 5, model: 'claude-sonnet-5' }))?.model, 'claude-sonnet-5');
+    // no model info → the field is simply absent (still returns the numeric cost)
+    const c = costFromResult(ev({ num_turns: 5 }));
+    assert.equal(c?.numTurns, 5);
+    assert.ok(c && !('model' in c), 'no phantom model field');
+    // a model with NO numeric fields still records nothing (059 contract: no numeric ⇒ null)
+    assert.equal(costFromResult(ev({ model: 'claude-x' })), null);
+  });
+
   test('shape-drifted event (wrong types / non-object usage / unknown keys) → no throw', () => {
     assert.doesNotThrow(() =>
       costFromResult(ev({ duration_ms: 'nope', usage: 'not-an-object', weird: {} }))

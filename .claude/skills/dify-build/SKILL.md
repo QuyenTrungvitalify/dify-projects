@@ -28,10 +28,14 @@ Read, do not restate: [AGENTS.md](../../../AGENTS.md) **§3** (5-step build sequ
   `outputs` and the source node MUST be upstream. `lint_refs.py` checks the id-exists + field-in-
   `outputs` part (not graph reachability — keeping refs upstream is on you). The #1 cause of
   silent-import-then-fail (§4.2).
-- **Plugin hashes:** NEVER fabricate `@<sha256>`. New pattern / any build → `dependencies: []` + a
-  `# TODO: add plugin hash from target workspace` comment (§4.3). A fully-filled `dependencies:` entry
-  (with `current_identifier` / the real `@<sha256>`) is workspace-specific and **intentionally never
-  checked in** — do NOT go hunting the repo/corpus for a populated example; leave `[]` + `# TODO`.
+- **Plugin hashes:** never *invent* a `@<sha256>` — **resolve** it. The hash is the public marketplace
+  package checksum, keyed to (plugin, version), the **same in every workspace**: `GET
+  https://marketplace.dify.ai/api/v1/plugins/<org>/<name>/<version>` → `unique_identifier` (§4.3). A
+  plugin the workspace has not installed is still resolvable and still buildable — Dify accepts the
+  import and raises its own install prompt, **but only if `dependencies:` is non-empty**. So: a build
+  that uses a marketplace plugin **fills `dependencies:`**; `[]` + `# TODO` is not a safe default, it is
+  the case where Dify stays silent and the tool fails at runtime (spec 067). Never drop a tool node
+  because its plugin is not installed.
 - **DSL version:** top-level `version: 0.6.0` (or the project's `dsl_version`).
 - **Code nodes:** `code_language: python3`, `def main(...) -> dict`, stdlib-only sandbox (no
   `requests`/`pip`), defend against `None`/`""` from upstream (§4.5).
@@ -68,7 +72,8 @@ Read, do not restate: [AGENTS.md](../../../AGENTS.md) **§3** (5-step build sequ
   Write as if the reader has never seen this repo or its tools.
 
 `{{TASK_ID}}` `{{PROJECT}}` `{{WORKFLOW_SLUG}}` `{{WORKFLOW_FILE}}` `{{SEED_PATH}}` `{{REQUIREMENT}}`
-`{{PRIOR_ARTIFACT}}` `{{DEPLOY}}` `{{DEPTH}}` `{{KNOWLEDGE}}` — all 10 always substituted (`""` when unused).
+`{{PRIOR_ARTIFACT}}` `{{DEPLOY}}` `{{DEPTH}}` `{{KNOWLEDGE}}` `{{PATTERN_PATH}}` — all 11 always
+substituted (`""` when unused).
 
 - `{{PROJECT}}` / `{{WORKFLOW_SLUG}}` — the on-disk hierarchy is `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/`
   (spec 030). `{{WORKFLOW_SLUG}}` is empty until the Spec gate proposes one (new-workflow path);

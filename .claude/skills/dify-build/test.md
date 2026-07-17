@@ -26,9 +26,11 @@ importing into Dify. Read [SKILL.md](SKILL.md) ground rules first.
    workflow is the "done-but-broken" trap: `lint_refs`/id failures import fine but break at runtime.
    - **Unresolved plugin TODO (017 D2, advisory):** if the workflow still ships `dependencies: []`
      alongside a `# TODO: add plugin hash` marker, the linters pass (an empty `dependencies` is valid
-     format) but a `selfhost`/`cloud` import will fail for the missing marketplace plugin. Record it as
-     `"unresolved_plugin_todo": true` so the deploy step surfaces it **before** import. This is a NOTE,
-     not a failure — it never flips the lint verdict and never blocks a `none` build.
+     format). The import does **NOT** fail — Dify never consults installed-ness on the import path — but
+     that is the problem, not the reassurance: with `dependencies:` empty, Dify also never raises its
+     install prompt, so the plugin silently stays missing and the node fails at **runtime** (spec 067).
+     Record it as `"unresolved_plugin_todo": true` so the deploy step surfaces it **before** import.
+     This is a NOTE, not a failure — it never flips the lint verdict and never blocks a `none` build.
 2. **By `{{DEPLOY}}`:**
    - **`none`** (default, always safe): no Dify contact. Just validate + write the report below.
    - **`selfhost`**: requires `DIFY_CONSOLE_URL`/`DIFY_CONSOLE_TOKEN` in the environment. Import

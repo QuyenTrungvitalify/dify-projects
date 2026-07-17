@@ -92,12 +92,16 @@ export function classifyTurnFailure(
  * @param opts.onText optional (Lát 4) — invoked with each assistant text fragment as the turn
  *   streams, so the orchestrator can `broadcast('phase:output', …)` to the SSE clients live. Pure
  *   forwarding: it never affects the turn outcome (post-turn.ts remains authoritative).
+ * @param opts.onEvent optional (spec 062 S1) — invoked with EVERY raw stream event (before the
+ *   text/result filtering below), so the orchestrator's per-attempt transcript recorder can extract
+ *   the `tool_use`/`tool_result` blocks. Try/catch-wrapped here so a throwing recorder can NEVER break
+ *   the turn; the SSE `onText` path stays byte-identical (AC #6).
  */
 export async function runTurn(
   session: ClaudeSession,
   prompt: string,
   onSessionId?: (sessionId: string) => void,
-  opts?: { timeoutMs?: number; onText?: (text: string) => void }
+  opts?: { timeoutMs?: number; onText?: (text: string) => void; onEvent?: (event: ClaudeStreamEvent) => void }
 ): Promise<TurnResult> {
   return new Promise<TurnResult>((resolve) => {
     let capturedSessionId: string | null = null;
@@ -128,6 +132,15 @@ export async function runTurn(
     }
 
     session.onEvent = (event) => {
+      // Spec 062 S1: hand the RAW event to the transcript recorder (tool_use/tool_result extraction).
+      // Wrapped so a recorder throw can never break the turn; runs BEFORE the outcome-bearing logic.
+      if (opts?.onEvent) {
+        try {
+          opts.onEvent(event);
+        } catch {
+          /* the transcript is best-effort — never let it affect the turn */
+        }
+      }
       // session_id from the system/init event (nexus :60-64)
       if (event.type === 'system' && event.subtype === 'init' && event.session_id) {
         capturedSessionId = event.session_id as string;

@@ -1,0 +1,150 @@
+# Spec 066 AC-1 — the FROZEN before-case: the shape of the real naive build that started this spec.
+#
+# Provenance: run 1784192313811, exported via the spec-062 dossier. A JP naive prompt
+# (「毎朝9時に…トップ記事を取得して、日本語で3行に要約し、Slackに通知する」) produced a lint-clean,
+# import-probe-OK workflow whose ④ note told the user "nothing to set up" — while FOUR things were
+# required of them. The dossier lives outside the repo, so the note could not be re-derived from it in
+# a test; freezing the shape here is what turns a one-off observation into a reproducible gate.
+#
+# Every element below is load-bearing for the AC:
+#   * llm node with provider/name EMPTY (B5) + a workspace with 0 models  → "add an AI model"
+#   * SLACK_WEBHOOK_URL declared `value: ''` AND consumed at the POST url  → "paste a value for it"
+#   * trigger-schedule entry                                              → "enable the trigger"
+#   * deploy: 'none' (the DEFAULT)                                        → "import the file"
+# The first pass shipped only the first two and reported the spec as Implemented. This fixture is the
+# instrument that says otherwise.
+app:
+  description: 'naive-user shape — frozen from run 1784192313811 (spec 066 AC-1)'
+  icon: "\U0001F4F0"
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: naive_slack_digest
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables:
+  # The real build's own answer for a webhook URL: an env secret the human must paste in.
+  - name: SLACK_WEBHOOK_URL
+    value_type: secret
+    value: ''
+  features:
+    file_upload:
+      enabled: false
+    opening_statement: ''
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+  graph:
+    edges:
+    - id: 1784192635190-source-1784192635197-target
+      source: '1784192635190'
+      target: '1784192635197'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: trigger-schedule, targetType: llm }
+      zIndex: 0
+    - id: 1784192635197-source-1784192635199-target
+      source: '1784192635197'
+      target: '1784192635199'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: http-request }
+      zIndex: 0
+    - id: 1784192635199-source-1784192635201-target
+      source: '1784192635199'
+      target: '1784192635201'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: http-request, targetType: end }
+      zIndex: 0
+    nodes:
+    - id: '1784192635190'
+      type: custom
+      data:
+        title: Every morning 9:00 (Schedule)
+        type: trigger-schedule
+        mode: visual
+        frequency: daily
+        visual_config:
+          time: 9:00 AM
+        timezone: Asia/Tokyo
+      position: { x: 0, y: 100 }
+      positionAbsolute: { x: 0, y: 100 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+    - id: '1784192635197'
+      type: custom
+      data:
+        title: Summarize in 3 lines
+        type: llm
+        # B5: EMPTY on purpose — the auto-inject (043) is what 066 S3 must stop over-promising.
+        model:
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params: { temperature: 0.3 }
+        prompt_template:
+        - role: system
+          text: '日本語で3行に要約してください。'
+        vision: { enabled: false }
+        context: { enabled: false, variable_selector: [] }
+      position: { x: 300, y: 100 }
+      positionAbsolute: { x: 300, y: 100 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    - id: '1784192635199'
+      type: custom
+      data:
+        title: Notify Slack
+        type: http-request
+        method: post
+        # The empty secret is CONSUMED here — that is what makes it a blocker rather than an unused
+        # declaration (066 S2's referenced-only predicate).
+        url: '{{#env.SLACK_WEBHOOK_URL#}}'
+        authorization: { type: no-auth }
+        headers: ''
+        params: ''
+        body:
+          type: json
+          data: '{"text": "{{#1784192635197.text#}}"}'
+        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 10 }
+      position: { x: 600, y: 100 }
+      positionAbsolute: { x: 600, y: 100 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+    - id: '1784192635201'
+      type: custom
+      data:
+        title: Output
+        type: end
+        outputs:
+        - variable: status
+          value_selector: ['1784192635197', text]
+          value_type: string
+      position: { x: 900, y: 100 }
+      positionAbsolute: { x: 900, y: 100 }
+      width: 241
+      height: 90
+      sourcePosition: right
+      targetPosition: left

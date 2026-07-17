@@ -20,6 +20,7 @@ import {
   hasUnresolvedPluginTodo,
   RUNNABILITY_PROBE,
   type RunnabilityFacts,
+  type RunnabilityBlocker,
 } from '../server/lib/runnability.js';
 
 const REPO = join(import.meta.dirname, '..', '..', '..');
@@ -67,9 +68,104 @@ describe('classifyRunnability (pure — AC 1/1b/1c semantics)', () => {
       ''
     );
     const note = preflightNote(p)!;
-    assert.match(note, /^preflight: not runnable out-of-the-box — needs: /);
-    assert.match(note, /llm n1/);
-    assert.match(note, /Advisory — does not block the build\.$/);
+    // spec 066 S5: the FRAME is plain too — no "preflight"/"Advisory", capitalised and
+    // self-terminating so `noteParts.join(' ')` can never fuse it onto the lint line again.
+    assert.match(note, /^Before this workflow can run, you need to: /);
+    for (const jargon of ['preflight', 'Advisory', 'out-of-the-box']) {
+      assert.ok(!note.includes(jargon), `frame jargon "${jargon}" must not reach the user`);
+    }
+    // spec 064: the human detail is PLAIN reassurance and carries NO raw node id — `n1` stays on
+    // the structured blocker (asserted below) for dev/`/report`, out of the text a user reads.
+    assert.match(note, /the AI model \(filled in automatically when you test/);
+    assert.ok(!note.includes('n1'), 'no raw node id in the human note (spec 064)');
+    assert.equal(p.blockers[0].nodeId, 'n1', 'the id still rides the structured blocker');
+    assert.match(note, /\(The build itself is finished — these are setup steps in Dify\.\)$/,
+      'still self-declares as non-blocking — in words a user parses, and it TERMINATES (066 S5)');
+  });
+
+  // ── spec 066 S3: the model advisory may only PROMISE auto-fill when auto-fill can happen ────────
+  test('S3: the model reassurance is only made when a model EXISTS to auto-fill', () => {
+    const f = facts({ model_nodes: [{ id: 'n1', type: 'llm', empty: true }] });
+    // no ctx → the pre-066 wording, byte-identical (every existing caller unchanged)
+    assert.match(classifyRunnability(f, '').blockers[0].detail, /filled in automatically when you test/);
+    // the REAL dossier's shape: workspace `models: []` → live-test.ts:269-270 takes the 0-model
+    // degrade, so the llm node keeps provider:'' and the user MUST add a model. 064 told them
+    // "nothing to set up" — the most reassuring line in the note, about the guaranteed failure.
+    const lying = classifyRunnability(f, '', { workspaceModelCount: 0 }).blockers[0].detail;
+    assert.ok(!lying.includes('nothing to set up'), 'must NOT promise auto-fill with no model to inject');
+    assert.match(lying, /add one in Dify/);
+    // a model exists → the reassurance is TRUE, so keep it
+    assert.match(classifyRunnability(f, '', { workspaceModelCount: 3 }).blockers[0].detail,
+      /filled in automatically when you test/);
+    // NOT keyed on deploy: a `none` run can still be live-tested from the UI (live-test.ts never
+    // reads task.deploy), so flipping the wording on deploy alone would be a lie in the other
+    // direction. This assertion pins that deliberate scope.
+    assert.match(classifyRunnability(f, '', { workspaceModelCount: 3 }).blockers[0].detail,
+      /nothing to set up/);
+  });
+
+  // ── spec 066 S2: the fifth class ────────────────────────────────────────────────────────────────
+  test('S2: env_secret_empty fires only when a var is BOTH empty AND referenced', () => {
+    const withEnv = (env: RunnabilityFacts['env_vars']): RunnabilityBlocker[] =>
+      classifyRunnability(facts({ env_vars: env }), '').blockers;
+
+    assert.deepEqual(
+      withEnv([{ name: 'SLACK_WEBHOOK_URL', value_type: 'secret', empty: true, referenced: true }])
+        .map((b) => b.class),
+      ['env_secret_empty'], 'empty + used → the user must paste a value'
+    );
+    assert.deepEqual(
+      withEnv([{ name: 'UNUSED', value_type: 'string', empty: true, referenced: false }]), [],
+      'empty but referenced by NOBODY → not a blocker (an unused var costs the user nothing)'
+    );
+    assert.deepEqual(
+      withEnv([{ name: 'PRESET', value_type: 'string', empty: false, referenced: true }]), [],
+      'already has a value → nothing to do'
+    );
+    const b = withEnv([{ name: 'SLACK_WEBHOOK_URL', value_type: 'secret', empty: true, referenced: true }])[0];
+    assert.equal(b.varName, 'SLACK_WEBHOOK_URL', 'the name rides the structured blocker for dev');
+    assert.match(b.detail, /SLACK_WEBHOOK_URL/, 'and the human text NAMES it — the user must find it in Dify');
+    for (const jargon of ['env_secret_empty', 'value_selector', 'environment_variables']) {
+      assert.ok(!b.detail.includes(jargon), `no jargon "${jargon}" in the human text`);
+    }
+  });
+
+  test('S2: a pre-066 probe (no env_vars field) degrades to no blockers, never a crash', () => {
+    assert.deepEqual(classifyRunnability(facts({}), '').blockers, []);
+  });
+
+  // The guard that was missing. The id-free / jargon-free invariant was only ever asserted for
+  // `model_empty` (the test above builds `p` from model_nodes alone), so `sandbox_trap` and
+  // `dataset_empty` kept shipping a bare 13-digit node id and `dataset_ids` into the text a user
+  // reads — and failed the project's own comprehension gate. Assert it for EVERY class at once, so
+  // a new class cannot be added without meeting the same bar.
+  test('EVERY blocker detail is free of node ids and machine jargon — all five classes', () => {
+    const p = classifyRunnability(
+      facts({
+        model_nodes: [{ id: '1784192635197', type: 'llm', empty: true }],
+        code_nodes: [{ id: '1784192635198', nonstdlib: ['requests'] }],
+        kr_nodes: [{ id: '1784192635199', empty: true }],
+        env_vars: [{ name: 'SLACK_WEBHOOK_URL', value_type: 'secret', empty: true, referenced: true }],
+      }),
+      'dependencies: []  # TODO add plugin hash\n'
+    );
+    assert.equal(p.blockers.length, 5, 'all five classes fire — otherwise this test proves nothing');
+
+    for (const b of p.blockers) {
+      assert.doesNotMatch(b.detail, /\b\d{13}\b/, `${b.class}: a bare node id must not reach the user`);
+      for (const jargon of ['dataset_ids', 'value_selector', 'provider_', 'tool_name', 'plugin hash',
+        'dependencies', '# TODO', 'non-stdlib', 'knowledge-retrieval']) {
+        assert.ok(!b.detail.includes(jargon), `${b.class}: leaks "${jargon}" into the human text`);
+      }
+    }
+    // …and the ids are still on the structured object, for dev / `/report`.
+    const byClass = Object.fromEntries(p.blockers.map((b) => [b.class, b]));
+    assert.equal(byClass.model_empty.nodeId, '1784192635197');
+    assert.equal(byClass.sandbox_trap.nodeId, '1784192635198');
+    assert.equal(byClass.dataset_empty.nodeId, '1784192635199');
+    assert.equal(byClass.env_secret_empty.varName, 'SLACK_WEBHOOK_URL');
+    // sandbox_trap must still name the MODULES — that is the part the user can act on.
+    assert.match(byClass.sandbox_trap.detail, /requests/);
   });
 
   test('plugin_todo rides hasUnresolvedPluginTodo (moved here from report.ts — same semantics)', () => {

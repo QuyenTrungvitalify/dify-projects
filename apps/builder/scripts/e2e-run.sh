@@ -9,6 +9,8 @@
 #   reply <taskId> "<feedback>"
 #   check <taskId> --expect <suite-id> [--suite <path>] [--save-baseline]  # OFFLINE; cost gate (060)
 #   time <taskId>                      # OFFLINE per-phase + total wall-clock (before/after speed fix)
+#   userview <taskId>                  # OFFLINE user-facing text only (digest+notes), hide dev-view (063)
+#   comprehension <taskId>             # OFFLINE deterministic jargon check over the user-facing text (063)
 #   bench "<prompt>" | bench --entry <id>  # fire → wait → timing + check, one command one number
 #   suite                              # list suite entry ids
 #
@@ -167,6 +169,19 @@ cmd_time() {
   exec "$PY" "$SCRIPT_DIR/e2e_check.py" "${args[@]}"
 }
 
+# spec 063 — user-facing text only (userview) / deterministic jargon check (comprehension). OFFLINE.
+cmd_uv() {   # <mode-flag> <taskId>
+  local mode=$1 id=${2:-}
+  [ -n "$id" ] || { echo "${mode#--}: taskId required" >&2; usage; }
+  local tj="$ROOT/apps/builder/.runs/$id/task.json"
+  [ -f "$tj" ] || { echo "${mode#--}: no $tj — wrong taskId or run pruned" >&2; exit 6; }
+  local a r args=("$mode")
+  a=$(jq -r '.artifacts.analyze // empty' "$tj"); r=$(jq -r '.artifacts.report // empty' "$tj")
+  [ -n "$a" ] && args+=(--analyze "$ROOT/$a")
+  [ -n "$r" ] && args+=(--report  "$ROOT/$r")
+  "$PY" "$SCRIPT_DIR/e2e_check.py" "${args[@]}"
+}
+
 cmd_bench() {
   # One command → fire (auto) → wait → [check, for --entry] → timing + cost table. For the
   # before/after speed-comparison workflow. Accepts a raw prompt OR --entry <suite-id>. With
@@ -234,6 +249,8 @@ case "${1:-}" in
   cancel)  shift; cmd_cancel "$@" ;;
   time)    shift; cmd_time "$@" ;;
   bench)   shift; cmd_bench "$@" ;;
+  userview)      shift; cmd_uv --userview "$@" ;;
+  comprehension) shift; cmd_uv --comprehension "$@" ;;
   check)   shift; cmd_check "$@" ;;
   suite)   exec "$PY" "$SCRIPT_DIR/e2e_check.py" --suite "$SUITE" --list ;;
   *) usage ;;

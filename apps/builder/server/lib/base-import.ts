@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { runPython as realRunPython } from './shell.js';
 import { LINTERS, LINT_DETAIL_LINES } from './linters.js';
+import { probeVerdict } from './report.js'; // spec 066 S4: ONE source for the probe verdicts
 import { deriveSlugName, firstFreeSlug, titleCaseSlug } from './slug.js';
 import { readNestedScalar } from './artifacts.js';
 import { scaffoldProjectTier, scaffoldWorkflowTier } from './project-create.js';
@@ -78,17 +79,19 @@ export async function probeImportedBase(projectsDir: string, project: string, sl
     const res = await importForTest(projectsDir, project, slug, wfRel, probeName);
     if (res.ok && res.appId) {
       const deleted = await deleteApp(projectsDir, res.appId).catch(() => false);
-      return `import-probe: OK — Dify accepted this DSL${deleted ? ' (probe app deleted)' : ' (probe app cleanup failed — delete it in Dify)'}`;
+      // spec 066 S4: the SHARED verdict strings — this producer used to carry its own copy and was
+      // left behind when the orchestrator's copy was reworded.
+      return probeVerdict.ok(deleted ? undefined : probeName);
     }
     if (res.ok && res.status === 'pending') {
-      return `import-probe: skipped (Dify parked the import as 'pending' — DSL version vs server mismatch; align the version or confirm manually)`;
+      return probeVerdict.parked();
     }
     const rec = await reconcileAppIdByName(projectsDir, probeName).catch(() => ({ appId: null, ambiguous: false }));
     if (rec.appId) await deleteApp(projectsDir, rec.appId).catch(() => false);
     const detail = redactSecrets(res.stderr ?? '').trim().split('\n').slice(-3).join(' ⏎ ');
-    return `import-probe FAILED: ${detail || 'import rejected (no detail captured)'}`;
+    return probeVerdict.rejected(detail);
   } catch (e) {
-    return `import-probe: skipped (${redactSecrets(e instanceof Error ? e.message : String(e))})`;
+    return probeVerdict.skipped(redactSecrets(e instanceof Error ? e.message : String(e)));
   }
 }
 

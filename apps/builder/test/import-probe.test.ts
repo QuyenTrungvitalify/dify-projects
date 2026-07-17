@@ -141,7 +141,9 @@ describe('spec 049 D2 — the ④ import-probe (advisory oracle)', () => {
     assert.ok(cap.importCalls[0].srcFileRel.endsWith('/workflows/main.yml'));
     assert.deepEqual(cap.deleteCalls, ['app-777'], 'the probe app is deleted immediately');
     assert.equal(cap.reconcileCalls.length, 0, 'no orphan sweep needed on success');
-    assert.match(task.probeNote!, /^import-probe: OK/);
+    // spec 066 S4: the success line is plain — "import-probe: OK — Dify accepted this DSL (probe app
+    // deleted)" was four internal terms plus a deletion announcement a user reads as "it was thrown away".
+    assert.match(task.probeNote!, /^Checked automatically: Dify accepts this workflow file\.$/);
   });
 
   test('AC 3/4: probe FAILURE → redacted verbatim error, ORPHAN SWEEP (Dify commits the app row before validating vars), verdict unchanged', async () => {
@@ -160,7 +162,7 @@ describe('spec 049 D2 — the ④ import-probe (advisory oracle)', () => {
     } finally {
       unregisterSecret('tok-probe-049');
     }
-    assert.match(task.probeNote!, /^import-probe FAILED:/);
+    assert.match(task.probeNote!, /^Dify rejected this workflow file — /); // spec 066 S4: plain frame
     assert.ok(task.probeNote!.includes('missing name'), 'Dify error verbatim — the /reply fix-turn input');
     assert.ok(!task.probeNote!.includes('tok-probe-049'), 'secret redacted');
     // r3 (review 3.1): a FAILED import can still have committed the app row — the probe reconciles
@@ -183,8 +185,8 @@ describe('spec 049 D2 — the ④ import-probe (advisory oracle)', () => {
     const task = await createTask(dir, { requirement: 'r', confirmMode: 'each_step', deploy: 'none' });
     current = task;
     await driveToTest(ctx, task);
-    assert.match(task.probeNote!, /^import-probe: skipped .*pending/);
-    assert.ok(!task.probeNote!.includes('FAILED'), 'a version park is not a DSL rejection');
+    assert.match(task.probeNote!, /^Could not check the import automatically: Dify held it for confirmation/);
+    assert.ok(!task.probeNote!.includes('rejected'), 'a version park is not a DSL rejection');
     assert.equal(cap.deleteCalls.length, 0);
     assert.equal(cap.reconcileCalls.length, 0, 'pending creates no app — nothing to sweep');
   });
@@ -226,10 +228,10 @@ describe('spec 049 D2 — the ④ import-probe (advisory oracle)', () => {
     const task = await createTask(dir, { requirement: 'r', deploy: 'none' });
     task.project = 'p';
     task.workflowSlug = 'w';
-    task.probeNote = 'import-probe FAILED: HTTP 400 — missing name';
+    task.probeNote = 'Dify rejected this workflow file — HTTP 400 — missing name';
     const CLEAN = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 };
     await realRunReport(dir, task, log, { reuseLint: CLEAN });
     const report = JSON.parse(readFileSync(join(dir, `apps/builder/.runs/${task.taskId}/report.json`), 'utf8'));
-    assert.ok(report.notes.includes('import-probe FAILED: HTTP 400 — missing name'), report.notes);
+    assert.ok(report.notes.includes('Dify rejected this workflow file — HTTP 400 — missing name'), report.notes);
   });
 });

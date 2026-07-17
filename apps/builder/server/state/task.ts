@@ -159,6 +159,9 @@ export interface PhaseCost {
   cacheCreationTokens?: number; // usage.cache_creation_input_tokens
   totalCostUsd?: number; // result.total_cost_usd — may be absent on a subscription login
   at?: number; // capture stamp (Date.now at persist) — stamped by the orchestrator, not the pure reader
+  // Spec 062 #1: the claude model that ran this turn (from result.modelUsage / result.model). Lets a
+  // fleet of client exports correlate behavior ↔ model. Optional/back-compat; the pure reader fills it.
+  model?: string;
 }
 
 export interface Task {

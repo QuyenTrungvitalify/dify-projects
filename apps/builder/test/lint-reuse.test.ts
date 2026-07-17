@@ -198,7 +198,7 @@ describe('spec 048 D2 — the REAL runReport skips the spawns on a clean reuse (
     const report = JSON.parse(readFileSync(join(dir, `apps/builder/.runs/${task.taskId}/report.json`), 'utf8'));
     assert.deepEqual(report.lint, CLEAN, 'reused verbatim — zero spawns in a dir where spawns fail');
     assert.equal(res.lintClean, true);
-    assert.match(report.notes, /all linters passed/);
+    assert.match(report.notes, /The workflow file passed every automated check\./); // spec 066 S5
     assert.equal(task.preflightNote, 'planted-by-③', 'preflight recompute shares the reuse guard');
     assert.match(report.notes, /planted-by-③/, 'the ③-fresh note is carried, not recomputed');
 
