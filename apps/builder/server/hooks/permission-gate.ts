@@ -30,7 +30,7 @@
  * the turn's cwd is the repo root). The pure decision functions are exported for unit tests; `main()`
  * runs only when this file is the process entry (so a test `import` never blocks on stdin).
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 
@@ -316,6 +316,66 @@ function pathIsProtectedWrite(rawPath: string, taskId?: string, cwd?: string): b
   return true; // EVERYTHING else → protected
 }
 
+/**
+ * Does this path leave the repo? The READ twin of {@link pathIsProtectedWrite}'s escape test.
+ *
+ * WHY. The sensitive list below it is a DENY-list — `.env`/`.ssh`/`.aws`/credentials — so everything
+ * NOT on it was readable anywhere on the machine: `cat /etc/passwd`, `cat ~/Documents/x` and
+ * `ls -R /Users/<me>` all returned `allow`. That is not academic. A turn may write `projects/`
+ * (pathIsProtectedWrite permits it) and the build IMPORTS that file into Dify — so read-anything +
+ * write-workflow + import = an exfil channel that never touches the network `curl`/`wget` bans.
+ * The write side has always been repo-scoped; the read side never was. This closes that asymmetry.
+ *
+ * `resolve` collapses `..`, so path-math traversal is caught. `realpathSync` additionally catches a
+ * SYMLINK out (`vendor/dify-src` → ../../dify-workspace, 8.5 GB of Dify source outside the tree);
+ * when the path is not on disk there is nothing to resolve and the collapsed form is the best answer —
+ * a read of a non-existent file fails on its own anyway.
+ */
+function resolvesOutsideRepo(rawPath: string, cwd?: string): boolean {
+  const rootRaw = (cwd && cwd.startsWith('/') ? cwd : process.cwd()).replace(/\/+$/, '');
+  const lexical = resolve(rootRaw, rawPath); // '..' collapsed — honest about traversal, blind to symlinks
+  // `.venv/` is EXEMPT from the symlink half, and must be: `.venv/bin/python` is a symlink to the
+  // uv/system interpreter (~/.local/share/uv/…) by design, so realpath'ing it says "outside" and would
+  // deny `.venv/bin/python tools/dify_base/find.py` — i.e. every build. It is not an exfil path: what a
+  // turn may RUN through it is already pinned to ALLOWED_PYTHON_SCRIPTS (`python -c` is denied), and
+  // `.venv/` is not a writable root. The exemption is LEXICAL, so `.venv/bin/../../../etc/passwd`
+  // collapses out of `.venv/` above and is still checked.
+  if (lexical.startsWith(rootRaw + '/.venv/')) return false;
+  const real = (p: string): string => {
+    try {
+      return realpathSync(p);
+    } catch {
+      return p; // not on disk → path math already collapsed '..'; nothing more to learn
+    }
+  };
+  const root = real(rootRaw);
+  const abs = real(lexical);
+  return abs !== root && !abs.startsWith(root + '/');
+}
+
+/**
+ * A Bash command touching anything outside the repo. Same tokenizer as {@link commandReferencesSecret}
+ * (SIMPLE_COMMAND has already guaranteed no quotes/metachars, so a token IS what the shell sees).
+ *
+ * Non-path tokens cost nothing: a flag like `-la` resolves to `<root>/-la` — inside — so only a token
+ * that leaves the tree can trip this. That keeps the false-positive surface at essentially zero for the
+ * fixed command set, while `cat /etc/passwd` and `ls -R /Users/<me>` stop.
+ *
+ * Every token with a `/` is resolved, not just absolute/`..` ones: a RELATIVE token escapes too when it
+ * crosses a symlink — `ls vendor/dify-src` looks repo-local and lands on ../../dify-workspace. (A first
+ * cut skipped those to save a syscall and let exactly that through.) A bare word cannot escape: it
+ * resolves under the root, and only a symlink AT the root could change that — none exists, and a turn
+ * cannot make one (`ln` is denied, Write writes files).
+ */
+function commandReachesOutsideRepo(command: string, cwd?: string): string | null {
+  for (const raw of command.split(/\s+/)) {
+    const tok = raw.includes('=') ? raw.slice(raw.indexOf('=') + 1) : raw;
+    if (!tok || !tok.includes('/')) continue; // a bare word/flag resolves under the root
+    if (resolvesOutsideRepo(tok, cwd)) return tok;
+  }
+  return null;
+}
+
 /** Bash commands referencing a secret BY PATH (catches `cat apps/builder/.env`). Tokenizes — the
  *  SIMPLE_COMMAND gate guarantees no quotes/metachars, so a token IS what the shell sees — and reuses
  *  pathIsSensitiveRead per token (incl. `--flag=<path>` values). This both broadens the secret set and
@@ -348,12 +408,18 @@ export function checkForbiddenPath(
     }
     if (toolName === 'Read') {
       if (pathIsSensitiveRead(filePath)) return `forbidden: read of a sensitive file (${filePath})`;
+      if (resolvesOutsideRepo(filePath, cwd)) {
+        return `forbidden: read outside the repo (${filePath}) — a turn only ever needs files in this repo`;
+      }
     }
   }
   // Glob/Grep search root + pattern.
   if (toolName === 'Glob' || toolName === 'Grep') {
     const searchPath = typeof toolInput?.path === 'string' ? toolInput.path : undefined;
     if (searchPath && pathIsSensitiveRead(searchPath)) return `forbidden: ${toolName} on a sensitive path (${searchPath})`;
+    if (searchPath && resolvesOutsideRepo(searchPath, cwd)) {
+      return `forbidden: ${toolName} outside the repo (${searchPath})`;
+    }
     for (const key of ['pattern', 'glob']) {
       const v = toolInput?.[key];
       if (typeof v === 'string' && (v.includes('.env') || v.includes('.ssh') || v.includes('.aws') || v.includes('.gnupg'))) {
@@ -365,6 +431,14 @@ export function checkForbiddenPath(
   if (toolName === 'Bash' && typeof toolInput?.command === 'string') {
     if (commandReferencesSecret(toolInput.command)) {
       return `forbidden: command references a protected secret path (.env/.ssh/.aws/.gnupg)`;
+    }
+    // …and the same command reaching OUT of the repo at all. The secret list above is a deny-list; this
+    // is the allow-list half — everything a phase legitimately reads lives in this tree (measured over
+    // runs 1784263317775 / 1784265851924 / 1784267358546: .claude, .runs, apps, docs, projects, skills,
+    // templates, tools — nothing else). Mirrors the write side, which has always been repo-scoped.
+    const escapee = commandReachesOutsideRepo(toolInput.command, cwd);
+    if (escapee) {
+      return `forbidden: command reaches outside the repo (${escapee}) — a turn only ever needs files in this repo`;
     }
   }
   return null;
