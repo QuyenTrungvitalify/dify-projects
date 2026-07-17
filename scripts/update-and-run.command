@@ -48,4 +48,5 @@ echo "   停止したいときは  Ctrl + C"
 echo "======================================================"
 echo ""
 
+(sleep 3 && open http://127.0.0.1:4123) &
 cd apps/builder && npm start
