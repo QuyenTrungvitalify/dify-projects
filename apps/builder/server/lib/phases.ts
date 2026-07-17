@@ -71,6 +71,10 @@ const vars = (partial: Partial<Record<string, string>>): Record<string, string> 
   DEPTH: 'standard',
   KNOWLEDGE: '',
   PATTERN_PATH: '',
+  // The vetted files covering what PATTERN_PATH lacks. Resolving them needs index.json, and phases.ts
+  // is io-free by contract — so, exactly like KNOWLEDGE above, it stays '' here and the orchestrator
+  // (which owns the render seam) fills it for Implement. '' = the pattern covers everything.
+  REFERENCES: '',
   ...partial,
 });
 

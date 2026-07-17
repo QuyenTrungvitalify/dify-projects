@@ -92,8 +92,19 @@ const DENY_EXECUTABLES = new Set<string>([
  * Edit/Glob/Grep) — never name a way out that is itself denied.
  */
 const SUBSTITUTE: Record<string, string> = {
-  grep: 'the Grep tool', rg: 'the Grep tool', ack: 'the Grep tool',
-  find: 'the Glob tool', fd: 'the Glob tool', locate: 'the Glob tool',
+  // NOT "the Grep tool" — the first version of this map said exactly that, and run 1784267358546 shows
+  // why it was wrong: ③ called Grep twice, got an error BOTH times (it is deferred in the child
+  // session — callable only after a ToolSearch), fell back to shell `grep`, and thrashed 25 times. A
+  // hint is only as good as the door it points at, and "allowed by headless-settings" (which Grep is)
+  // does not mean "callable right now". Point at what is PROVEN to work in a turn: find.py answers the
+  // question ③ was actually asking — `--has iteration` returns 11 vetted paths in ONE allowed call —
+  // and Read never fails.
+  grep: 'the Read tool on a known file, or `.venv/bin/python tools/dify_base/find.py --has <feature>` to locate a workflow example (one call, returns paths)',
+  rg: 'the Read tool, or `.venv/bin/python tools/dify_base/find.py --has <feature>` for a workflow example',
+  ack: 'the Read tool',
+  find: '`.venv/bin/python tools/dify_base/find.py --has <feature>` for a workflow example, or `ls` for a directory',
+  fd: '`ls`, or `.venv/bin/python tools/dify_base/find.py --has <feature>` for a workflow example',
+  locate: '`ls`',
   sed: 'the Edit tool', awk: 'the Read tool (then process the text yourself)',
   cp: 'the Read + Write tools', mv: 'the Read + Write tools (then delete is not needed — leave the original)',
   mkdir: 'the Write tool (it creates parent directories for you)',
@@ -167,8 +178,8 @@ export function analyzeBashCommand(rawCommand: string): DecisionResult {
       decision: 'deny',
       reason:
         'command contains a shell metacharacter (chaining/redirect/subshell/pipe/expansion are not allowed) — ' +
-        're-run it as ONE plain command with no pipe/redirect/`;`. To search, use the Grep or Glob tool; ' +
-        'output is returned in full, so `| head` is unnecessary.',
+        're-run it as ONE plain command with no pipe/redirect/`;`. Output is returned in full, so ' +
+        '`| head` is unnecessary.',
     };
   }
 

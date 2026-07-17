@@ -24,9 +24,12 @@ import { analyzeBashCommand } from '../server/hooks/permission-gate.js';
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 describe('a denial names the sanctioned alternative', () => {
-  test('the search verbs point at the tools that replace them', () => {
-    assert.match(analyzeBashCommand('grep -in chatwork templates/tool-catalog.json').reason, /Grep tool/);
-    assert.match(analyzeBashCommand('find . -name find.py').reason, /Glob tool/);
+  test('the search verbs point at find.py — the one search a turn can actually run', () => {
+    // NOT the Grep tool: it is deferred in the child session and errored 2/2 in run 1784267358546,
+    // so ③ fell back to shell grep and thrashed 25×. find.py --has answers the same question in ONE
+    // allowed call and returns paths.
+    assert.match(analyzeBashCommand('grep -in chatwork templates/tool-catalog.json').reason, /find\.py --has/);
+    assert.match(analyzeBashCommand('find . -name find.py').reason, /find\.py --has/);
     assert.match(analyzeBashCommand('sed -i s/a/b/ x.yml').reason, /Edit tool/);
   });
 
@@ -57,18 +60,32 @@ describe('a denial names the sanctioned alternative', () => {
 });
 
 describe('the invariants that keep the hints honest', () => {
-  test('every tool a hint names is one headless-settings actually ALLOWS', () => {
-    // A hint pointing at a denied tool would swap one dead end for another — worse than silence.
-    const settings = JSON.parse(readFileSync(join(REPO, 'apps/builder/headless-settings.json'), 'utf8'));
-    const allowed = new Set<string>(settings.permissions.allow);
-    const denied: string[] = [];
-    for (const cmd of ['grep x y', 'find . -name x', 'sed -i s/a/b/ f', 'awk {print} f', 'cp a b', 'mv a b', 'mkdir d', 'touch f', 'tee f']) {
+  test('a hint never names a door that is not open in a turn', () => {
+    // The FIRST version of this test asserted "the named tool is in permissions.allow" — and passed,
+    // because Grep IS listed there. It proved nothing: permission is not availability. Grep is deferred
+    // in the child session, errored 2/2 in run 1784267358546, and the hint sent ③ straight at it.
+    // So assert what actually matters instead: (a) never name Grep/Glob until they are proven callable
+    // from a turn, and (b) every shell command a hint suggests must itself pass this very gate.
+    const cmds = ['grep x y', 'find . -name x', 'sed -i s/a/b/ f', 'awk {print} f', 'cp a b', 'mv a b', 'mkdir d', 'touch f', 'tee f', 'rg x y'];
+    for (const cmd of cmds) {
       const reason = analyzeBashCommand(cmd).reason;
-      for (const tool of reason.match(/\b(Read|Write|Edit|Glob|Grep|Bash)\b/g) ?? []) {
-        if (!allowed.has(tool)) denied.push(`${cmd} → names "${tool}", which is not in permissions.allow`);
+      assert.ok(
+        !/\b(Grep|Glob) tool\b/.test(reason),
+        `${cmd} → hint names the ${reason.match(/\b(Grep|Glob) tool\b/)?.[0]}, which errored 2/2 in a real turn`
+      );
+      // Any shell command inside a hint (backticked) must be one this gate allows — or the hint is a trap.
+      for (const suggested of reason.match(/`([^`]*\.venv\/bin\/python[^`]*)`/g) ?? []) {
+        const bare = suggested.replace(/`/g, '').replace(/<[^>]+>/g, 'llm'); // fill the placeholder
+        assert.equal(analyzeBashCommand(bare).decision, 'allow', `hint suggests "${bare}", which this gate denies`);
       }
     }
-    assert.deepEqual(denied, []);
+  });
+
+  test('the tools a hint DOES name are the ones that never failed in a real turn', () => {
+    // Read/ls/find.py: used successfully in every one of the three measured runs.
+    const settings = JSON.parse(readFileSync(join(REPO, 'apps/builder/headless-settings.json'), 'utf8'));
+    assert.ok(new Set<string>(settings.permissions.allow).has('Read'), 'Read must stay permitted');
+    assert.match(analyzeBashCommand('grep x y').reason, /Read tool/);
   });
 
   test('the hints changed the REASON only — every decision is untouched', () => {

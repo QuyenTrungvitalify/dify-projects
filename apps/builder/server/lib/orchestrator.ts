@@ -32,7 +32,7 @@ import { difySeedScaffoldAndPull, localEditSeed, scaffoldAtSpecGate, relocateRun
 import { runImportAndFinish, finishWithoutImport } from './import.js';
 import { runLiveTest, finishLiveAccepted, cleanupTestApps } from './live-test.js';
 import { difyTargets, enabledModelCount, harvestWorkspaceFacts, knowledgeBlock, loadWorkspaceFacts, redactSecrets } from './dify-io.js';
-import { applyAnalysisToTask } from './analysis.js';
+import { applyAnalysisToTask, gapReferences } from './analysis.js';
 // `probeVerdict` only — the report RUNNER still arrives via resolveRunners (the 013 D2 test seam);
 // these are pure wording (spec 066 S4), shared so the two probes cannot drift apart again.
 import { probeVerdict } from './report.js';
@@ -417,11 +417,24 @@ async function runPhase(
   // this — phases.ts stays pure/io-free (r2); the vars() default '' keeps every other phase (and a
   // facts-less Implement) byte-identical.
   let knowledge = '';
+  let references = '';
   if (phaseId === 'implement') {
     await harvestWorkspaceFacts(projectsDir, task.taskId, log);
     knowledge = knowledgeBlock(await loadWorkspaceFacts(projectsDir, task.taskId));
+    // The vetted files covering what the approved pattern LACKS. ③ is told to build from that one
+    // pattern and never to search for another — but a build composes shapes, and one file rarely
+    // carries them all. Handing ③ the missing example costs one Read; making it hunt costs ~38 turns
+    // (run 1784267358546: 25 hook-denied greps for an `iteration` example the index could have named).
+    // The pointer belongs HERE, not in SPEC.md: naming a path there is exactly what SKILL.md forbids
+    // ("never surface the machinery … don't cite where it lives") — correct for the human at the ②
+    // gate, fatal for the machine reading the same file. Same io-in-the-orchestrator seam as KNOWLEDGE.
+    references = gapReferences(projectsDir, task.analysisPattern ?? '', task.analysisFeatures).join(' · ');
   }
-  const renderedFresh = renderPrompt(body, { ...phase.injectVars(task), KNOWLEDGE: knowledge });
+  const renderedFresh = renderPrompt(body, {
+    ...phase.injectVars(task),
+    KNOWLEDGE: knowledge,
+    REFERENCES: references,
+  });
   // Spec 012: the trailing `添付画像:` path block (empty string when no images). Appended ONCE to
   // whichever prompt string is finally sent — this is the single seam BOTH the fresh render and the
   // /reply resume prompt pass through (the resume prompt skips phases.ts injectVars entirely), so it is
