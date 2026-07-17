@@ -1,0 +1,21 @@
+{
+  "trigger-per-row-chatwork": {
+    "phases": {
+      "analyze": {
+        "numTurns": 6,
+        "outputTokens": 4800
+      },
+      "implement": {
+        "numTurns": 18,
+        "outputTokens": 14097
+      },
+      "spec": {
+        "numTurns": 11,
+        "outputTokens": 10991
+      }
+    },
+    "total": {
+      "numTurns": 35
+    }
+  }
+}
