@@ -8,7 +8,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { I } from './Icon';
 import { richText } from './Chat';
 import { t as tr, tf } from '../lib/i18n';
-import { createProject, importBase, tree } from '../store';
+import { createProject, importBase, promoteExternalYaml, tree } from '../store';
 import { isValidProjectName, projectSlug } from '../lib/slug';
 
 /**
@@ -87,34 +87,46 @@ export function CreateProjectModal({ onClose, onSkip, onOpenProject }: {
   );
 }
 
+/** spec 070: SPDX ids offered for an external-YAML distill. The permissive set redistributes cleanly;
+ *  `unknown`/`private` stamp honestly and let `check_provenance.py` flag them (warn-only). */
+const INTAKE_LICENSES = ['unknown', 'MIT', 'Apache-2.0', 'BSD-3-Clause', 'ISC', 'CC0-1.0', 'CC-BY-4.0', 'private'];
+
 /**
- * ImportBaseModal (spec 051 D5) — upload or paste a standalone workflow YAML → POST /api/bases validates
- * it (the same 4-linter gate the ③ build gate runs), lands it as a local edit-existing base under
- * `projects/`, and `onImported({project, workflow})` auto-selects it (the caller's `newTask({baseWorkflow})`).
- * The Japanese `app.name` is preserved as the display label (the folder slug is a separate ASCII concern,
- * derived server-side). A validation reject returns the linter's verbatim message, shown inline.
+ * IntakeYamlModal (spec 051 D5 → generalized in spec 070) — the ONE door for a workflow YAML that comes
+ * from OUTSIDE (doesn't exist in a project yet). Upload or paste it ONCE, then choose what to DO with it:
  *
- * The optional project override is a select of EXISTING projects (blank = the `_drafts` staging default,
- * which is gitignored/throwaway — surfaced in the hint); creating a brand-new project for a base uses the
- * sidebar project-"+" first, then upload into it.
+ *   • Use as base   → POST /api/bases: validate (4-linter) → land as a local edit-existing base under
+ *                     `projects/`; `onImported` auto-selects it (the caller's `newTask({baseWorkflow})`).
+ *   • Distill       → POST /api/promote {origin:'paste'}: validate → stage → run the B1/distill/review
+ *                     pipeline; hands off to the promote panel (a review you Approve). Provenance is stamped
+ *                     HONESTLY (source=external + the declared license) — never source=original/MIT (D3).
+ *
+ * The Japanese `app.name` is preserved as the display label (the slug is a separate ASCII concern, derived
+ * server-side). A validation reject returns the linter's verbatim message, shown inline for either action.
  */
-export function ImportBaseModal({ onClose, onImported }: {
+export function IntakeYamlModal({ onClose, onImported }: {
   onClose: () => void;
   onImported: (r: { project: string; workflow: string }) => void;
 }) {
   const [yaml, setYaml] = useState('');
   const [fileName, setFileName] = useState<string | null>(null);
+  const [action, setAction] = useState<'base' | 'distill'>('base');
+  // base-only fields
   const [name, setName] = useState('');
   const [project, setProject] = useState(''); // '' = _drafts default
+  // distill-only fields (spec 070)
+  const [sourceLabel, setSourceLabel] = useState('');
+  const [license, setLicense] = useState('unknown');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // spec 051: on success with an advisory note (a slug auto-suffix and/or an import-probe verdict) we
-  // pause on a notice step instead of auto-advancing, so the message isn't lost when the modal closes.
+  // spec 051: on a base success with an advisory note (a slug auto-suffix and/or an import-probe verdict)
+  // we pause on a notice step instead of auto-advancing, so the message isn't lost when the modal closes.
   const [notice, setNotice] = useState<{ project: string; workflow: string; notes: string[] } | null>(null);
 
   // Existing projects for the override select, minus the reserved `_drafts` (it IS the blank default).
   const projects = tree.value.filter((p) => p.id !== '_drafts');
   const canSubmit = yaml.trim().length > 0 && !submitting;
+  const setAct = (a: 'base' | 'distill'): void => { setAction(a); if (error) setError(null); };
 
   function onFile(e: Event): void {
     const f = (e.currentTarget as HTMLInputElement).files?.[0];
@@ -129,6 +141,20 @@ export function ImportBaseModal({ onClose, onImported }: {
     if (!yaml.trim()) { setError(tr('importBaseEmpty')); return; }
     setSubmitting(true);
     setError(null);
+    if (action === 'distill') {
+      // spec 070: distill an EXTERNAL YAML. On success the promote build opens in the panel (task set) —
+      // just close the modal; a 400 (bad YAML / linter reject) renders inline, same as the base action.
+      const d = await promoteExternalYaml({
+        yaml,
+        ...(sourceLabel.trim() ? { sourceLabel: sourceLabel.trim() } : {}),
+        ...(fileName ? { fileName } : {}),
+        license,
+      });
+      if (d === true) { onClose(); return; }
+      setSubmitting(false);
+      setError(d.error);
+      return;
+    }
     const r = await importBase({
       yaml,
       ...(name.trim() ? { name: name.trim() } : {}),
@@ -151,9 +177,9 @@ export function ImportBaseModal({ onClose, onImported }: {
   if (notice) {
     return (
       <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onImported(notice); }}>
-        <div className="modal" role="dialog" aria-modal="true" aria-label={tr('importBaseTitle')}>
+        <div className="modal" role="dialog" aria-modal="true" aria-label={tr('intakeTitle')}>
           <div className="modal-head">
-            <span className="modal-title">{tr('importBaseTitle')}</span>
+            <span className="modal-title">{tr('intakeTitle')}</span>
             <button className="icon-btn modal-x" onClick={() => onImported(notice)} aria-label={tr('close')}><I.close /></button>
           </div>
           <div className="modal-field">
@@ -174,14 +200,14 @@ export function ImportBaseModal({ onClose, onImported }: {
 
   return (
     <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={tr('importBaseTitle')}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={tr('intakeTitle')}>
         <div className="modal-head">
-          <span className="modal-title">{tr('importBaseTitle')}</span>
+          <span className="modal-title">{tr('intakeTitle')}</span>
           <button className="icon-btn modal-x" onClick={onClose} aria-label={tr('close')}><I.close /></button>
         </div>
 
         <div className="modal-field">
-          <div className="modal-hint" style={{ marginBottom: 10 }}>{tr('importBaseHint')}</div>
+          <div className="modal-hint" style={{ marginBottom: 10 }}>{tr('intakeHint')}</div>
 
           <label className="btn ghost" style={{ display: 'inline-flex', cursor: 'pointer' }}>
             <I.paperclip />{tr('importBaseFile')}
@@ -196,15 +222,39 @@ export function ImportBaseModal({ onClose, onImported }: {
             onInput={(e) => { setYaml(e.currentTarget.value); setFileName(null); if (error) setError(null); }}
           />
 
-          <div className="modal-label" style={{ marginTop: 12 }}>{tr('importBaseName')}</div>
-          <input className="modal-input" value={name} placeholder={tr('phImportBaseName')}
-            onInput={(e) => setName(e.currentTarget.value)} />
+          {/* spec 070: pick what to DO with this external YAML — the input above is shared (no re-paste). */}
+          <div className="modal-label" style={{ marginTop: 14 }}>{tr('intakeActionLabel')}</div>
+          <div className="artifact-tabs intake-actions" style={{ marginTop: 4 }}>
+            <button className={'atab' + (action === 'base' ? ' active' : '')} onClick={() => setAct('base')}>{tr('intakeActionBase')}</button>
+            <button className={'atab' + (action === 'distill' ? ' active' : '')} onClick={() => setAct('distill')}>{tr('intakeActionDistill')}</button>
+          </div>
 
-          <div className="modal-label" style={{ marginTop: 12 }}>{tr('importBaseProject')}</div>
-          <select className="modal-input" value={project} onChange={(e) => setProject(e.currentTarget.value)}>
-            <option value="">{tr('importBaseDrafts')}</option>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          {action === 'base' ? (
+            <>
+              <div className="modal-label" style={{ marginTop: 12 }}>{tr('importBaseName')}</div>
+              <input className="modal-input" value={name} placeholder={tr('phImportBaseName')}
+                onInput={(e) => setName(e.currentTarget.value)} />
+
+              <div className="modal-label" style={{ marginTop: 12 }}>{tr('importBaseProject')}</div>
+              <select className="modal-input" value={project} onChange={(e) => setProject(e.currentTarget.value)}>
+                <option value="">{tr('importBaseDrafts')}</option>
+                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </>
+          ) : (
+            <>
+              <div className="modal-hint" style={{ marginTop: 10 }}>{tr('intakeDistillHint')}</div>
+
+              <div className="modal-label" style={{ marginTop: 12 }}>{tr('intakeSourceLabel')}</div>
+              <input className="modal-input" value={sourceLabel} placeholder={tr('phIntakeSourceLabel')}
+                onInput={(e) => setSourceLabel(e.currentTarget.value)} />
+
+              <div className="modal-label" style={{ marginTop: 12 }}>{tr('intakeLicense')}</div>
+              <select className="modal-input" value={license} onChange={(e) => setLicense(e.currentTarget.value)}>
+                {INTAKE_LICENSES.map((l) => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </>
+          )}
 
           {error && (
             <div className="modal-error" role="alert" style={{ whiteSpace: 'pre-wrap', maxHeight: 160, overflowY: 'auto' }}>
@@ -216,7 +266,7 @@ export function ImportBaseModal({ onClose, onImported }: {
         <div className="modal-foot">
           <button className="modal-skip" onClick={onClose}>{tr('cancel')}</button>
           <button className="btn primary modal-create" disabled={!canSubmit} onClick={() => void submit()}>
-            <I.check />{tr('importBaseSubmit')}
+            <I.check />{action === 'distill' ? tr('intakeDistillSubmit') : tr('importBaseSubmit')}
           </button>
         </div>
       </div>

@@ -140,6 +140,15 @@ export interface PromoteState {
   rules?: string[];
   /** a one-line human-facing note (a blocked reason summary, a slug collision, an index-rebuild warning). */
   note?: string;
+  /** spec 070 — source ORIGIN. Absent ⇒ 'local' (a project workflow → source=original, back-compat). 'external'
+   *  is a pasted/uploaded YAML that exists in no project — staged into the run dir + stamped honestly (D3). */
+  origin?: 'local' | 'external';
+  /** spec 070 (external only): the human label stamped as `file="..."` (a source name / uploaded filename). */
+  originLabel?: string;
+  /** spec 070 (external only): sha256 of the pasted bytes (dedup / re-promote detection; informational). */
+  originSha256?: string;
+  /** spec 070 (external only): the user-declared license (default 'unknown'), stamped verbatim into the header. */
+  license?: string;
 }
 
 /** Spec 059 — per-phase cost/metrics captured from a `claude` turn's terminal `result` stream-json
@@ -479,23 +488,37 @@ export async function createTask(projectsDir: string, input: CreateTaskInput): P
  *  is otherwise unused; the promote flow never runs the phase FSM). `slug` is the house-style pattern name. */
 export async function createPromoteTask(
   projectsDir: string,
-  input: { project: string; workflow: string; sourceFile: string; slug: string }
+  input: {
+    project: string; workflow: string; sourceFile: string; slug: string;
+    // spec 070: an EXTERNAL (pasted/uploaded) source that exists in no project. Staged into the run dir
+    // (the B1 gate + distill turn read the source from disk) + carried so finalize stamps source=external.
+    external?: { yaml: string; label?: string; sha256?: string; license?: string };
+  }
 ): Promise<Task> {
   const taskId = mintTaskId();
+  const ext = input.external;
+  // spec 070: for an external source the on-disk file lives at the run-dir ROOT (no project workflow
+  // exists); else the resolved projects/ path (unchanged local door). NOT under promote/ — the distill
+  // turn's promote/ dir may be `rename`d in from the `.runs/<id>` shorthand by relocateRunArtifacts, and
+  // a rename onto a non-empty dest ENOTEMPTY-fails; the root keeps promote/ holding ONLY the turn's output.
+  const sourceFile = ext ? `apps/builder/.runs/${taskId}/source.yml` : input.sourceFile;
   const task: Task = {
     taskId,
     kind: 'promote',
     promote: {
-      sourceFile: input.sourceFile,
+      sourceFile,
       project: input.project,
       workflow: input.workflow,
       slug: input.slug,
+      ...(ext ? { origin: 'external', originLabel: ext.label, originSha256: ext.sha256, license: ext.license } : {}),
     },
     project: input.project,
     workflowSlug: input.workflow,
     workflow: input.workflow,
     workflowFile: 'main.yml',
-    requirement: `Promote projects/${input.project}/${input.workflow} to a reusable pattern`,
+    requirement: ext
+      ? 'Distill an external workflow YAML into a reusable pattern'
+      : `Promote projects/${input.project}/${input.workflow} to a reusable pattern`,
     seedPath: null,
     seedAppId: null,
     deploy: 'none',
@@ -513,6 +536,11 @@ export async function createPromoteTask(
     artifacts: {},
   };
   await mkdir(taskDir(projectsDir, taskId), { recursive: true });
+  if (ext) {
+    // spec 070: stage the pasted YAML at the run-dir ROOT where promote_gate.py check + the distill turn
+    // read it — before any turn spawns or artifacts relocate. (Root, not promote/, per sourceFile above.)
+    await writeFile(join(taskDir(projectsDir, taskId), 'source.yml'), ext.yaml, 'utf8');
+  }
   await saveTask(projectsDir, task);
   return task;
 }

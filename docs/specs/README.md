@@ -16,6 +16,7 @@ Chỉ những spec mô tả việc **chưa làm** mới nằm ở đây. Làm xo
 | [065](065-seed-provenance-cost-dimension.md) | Seed-provenance cost dimension | Draft — ngưỡng go/no-go chốt trước (≥20% thì làm, <10% thì bỏ) |
 | [068](068-carryover-backlog.md) | Carryover backlog — nợ tồn đọng từ các spec đã xóa | Open |
 | [069](069-chunk-tier-and-fragments-injection.md) | Chunk tier (`nodes: N`) + `{{FRAGMENTS}}` vào ③ | Draft — chờ review/go-ahead |
+| [070](070-external-yaml-intake-base-and-distill.md) | Cửa nạp YAML ngoài: base + chưng cất trực tiếp, provenance thật | Implemented — chờ review (xóa sau khi duyệt diff) |
 
 ## Quy ước status
 
@@ -34,7 +35,7 @@ Chỉ những spec mô tả việc **chưa làm** mới nằm ở đây. Làm xo
 
 ## Đánh số
 
-- Spec mới bắt đầu từ **070**.
+- Spec mới bắt đầu từ **071**.
 - **044 bỏ trống vĩnh viễn** — commit `18941c7` tự nhận là "spec 044" nhưng file spec chưa bao giờ
   được viết. Đừng tái dùng số này.
 - Một số một spec. Trước reset có 8 vụ trùng số (009 có tới 5 file) vì spec chính bị lẫn với

@@ -3,7 +3,8 @@
 Builder làm gì **sau khi** YAML đã có: xác định user còn phải làm gì, nói ra, và thực thi các luật
 plugin khiến điều đó đúng.
 
-Phạm vi: `runnability.ts` · `report.ts` · `dify-io.ts` · `lint_plugin_hashes.py` · `marketplace.py` ·
+Phạm vi: `runnability.ts` · `report.ts` · `dify-io.ts` (**nửa workspace-facts** — xem `dify-io.md` §0) ·
+`lint_plugin_hashes.py` · `marketplace.py` ·
 `tool-catalog.json` · `e2e_check.py`.
 
 > - Chuỗi trong backtick là **nguyên văn** code phát ra hoặc đọc — không dịch.

@@ -211,8 +211,22 @@ describe('AC 9 — live shape pin (skipped without real creds)', () => {
     } catch {
       return t.skip('live Dify unreachable — pin runs on demand');
     }
+    // How many plugins DIFY itself reported, independent of our parser. This separates the two ways
+    // `parsePlugins` can return []: (a) the workspace genuinely has none — nothing to pin, skip; (b) Dify
+    // DID report plugins but the parser dropped every one — that IS the shape drift this pin exists to
+    // catch, so it must stay a hard failure. Asserting `length >= 1` alone conflated the two, so a
+    // plugin-less workspace (a legitimate state: the harvest records `plugins: []` with
+    // `sources.plugins.ok: true`) turned the whole suite red.
+    let rawCount: number | null = null;
+    try {
+      const raw = JSON.parse(plugins) as { plugins?: unknown };
+      if (Array.isArray(raw.plugins)) rawCount = raw.plugins.length;
+    } catch {
+      rawCount = null; // unparseable stdout — fall through to the drift assertion below
+    }
+    if (rawCount === 0) return t.skip('workspace has no plugins installed — no shape to pin');
     const parsedP = parsePlugins(plugins);
-    assert.ok(parsedP.length >= 1, 'at least one plugin installed');
+    assert.ok(parsedP.length >= 1, `Dify reported ${rawCount ?? 'un-parseable'} plugin(s) but the parser kept none — shape drift`);
     assert.match(parsedP[0].identifier, /@[0-9a-f]{64}$/, 'bare hex64 after @, NO sha256: literal (verified live 2026-07-06)');
 
     const datasets = execFileSync(venv, [join(repo, 'tools/dify_base/sync.py'), 'datasets'], { env, encoding: 'utf8', timeout: 20000 });

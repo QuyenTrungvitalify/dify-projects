@@ -790,6 +790,32 @@ export async function promote(project: string, workflow: string): Promise<boolea
   }
 }
 
+/** spec 070 — distill an EXTERNAL (pasted/uploaded) YAML into a reusable pattern. Mirrors {@link promote}
+ *  but the source exists in no project: the backend validates + stages the bytes, then runs the same
+ *  B1/distill/review/Approve pipeline, stamping HONEST provenance (source=external). On success the promote
+ *  build opens in the conversation view (`true`); a 400 (bad YAML / linter reject) is returned as an error
+ *  shape so the modal renders it INLINE (like importBase) rather than blowing away the current view. */
+export async function promoteExternalYaml(
+  body: { yaml: string; sourceLabel?: string; license?: string; fileName?: string }
+): Promise<true | { error: string }> {
+  clearErrors();
+  try {
+    const t = await api.promote({ origin: 'paste', ...body });
+    _lastPersisted = '';
+    thread.value = [{ id: uid(), kind: 'user', text: tf('promoteExternalThreadOpen', { label: body.sourceLabel || body.fileName || 'external YAML' }) }];
+    task.value = null;
+    applyTask(t);
+    openStream(t.taskId);
+    void loadTree();
+    void loadActive();
+    return true;
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 400) return { error: e.message };
+    surfaceError(e);
+    return { error: e instanceof ApiError ? e.message : String(e) };
+  }
+}
+
 /** Confirm a gate action (kind:'confirm'). Slug/name carried at the Spec gate (AC #18); spec 036
  *  `keepCurrent` carried on a `cleanup_apps` delete (delete only OLD test apps vs all). */
 export async function confirm(action: WireGateAction, extra?: { slug?: string; name?: string; keepCurrent?: boolean }): Promise<void> {

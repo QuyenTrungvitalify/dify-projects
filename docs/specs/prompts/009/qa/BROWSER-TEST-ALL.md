@@ -6,7 +6,8 @@
 >
 > **Trước khi chạy** (người thao tác): backend đang chạy tại `http://127.0.0.1:4123`
 > (`cd apps/builder && npm start`), và nếu test import thì `apps/builder/.env` đã có creds Dify
-> (`DEFAULT_DEPLOY=selfhost`, admin key, workspace id) — Dify đang chạy ở `http://localhost:8090`.
+> (`DIFY_CONSOLE_URL`, admin key, workspace id) — Dify đang chạy ở `http://localhost:8090`. Không
+> cần khai trước đích deploy: hễ creds với tới được Dify, các nút chạm Dify tự hiện ở gate.
 
 ---
 

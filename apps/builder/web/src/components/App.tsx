@@ -10,7 +10,7 @@ import { useState, useRef, useEffect } from 'preact/hooks';
 import { Sidebar } from './Sidebar';
 import { PhaseTrack, Disclosure, GateCard, GateActions, QaAnswer, Composer } from './Chat';
 import { ArtifactPanel } from './ArtifactPanel';
-import { CreateProjectModal, ImportBaseModal, ConfirmModal } from './Modal';
+import { CreateProjectModal, IntakeYamlModal, ConfirmModal } from './Modal';
 import { DevPanel } from './DevPanel';
 import { devMode } from '../lib/dev';
 import { I } from './Icon';
@@ -335,6 +335,7 @@ export function App() {
         onCancel={(id) => void store.cancelById(id)}
         onNewTask={newTask}
         onNewProject={() => setCreateOpen(true)}
+        onAddYaml={() => setImportBaseOpen(true)}
         onToggle={() => setSb((c) => !c)}
       />
 
@@ -430,7 +431,6 @@ export function App() {
               crumb={crumb} onClearCrumb={clearNewTaskCrumb}
               seeds={seeds} selectedSeed={settings.seed}
               onSeed={(id) => { store.settings.value = { ...store.settings.value, seed: id }; }}
-              onAddBase={() => setImportBaseOpen(true)}
               startError={startError} busyHolder={busyHolder}
               files={files} onAddFiles={(f) => void addFiles(f)} onRemoveFile={removeFile}
             />
@@ -570,7 +570,7 @@ export function App() {
       {/* spec 051 D5: import a standalone YAML → a local edit-existing base, then auto-select it via the
           SAME newTask({baseWorkflow}) the sidebar "+" / "Edit this workflow" use. */}
       {importBaseOpen && (
-        <ImportBaseModal
+        <IntakeYamlModal
           onClose={() => setImportBaseOpen(false)}
           onImported={({ project, workflow }) => { setImportBaseOpen(false); newTask({ baseWorkflow: { project, workflow } }); }}
         />
@@ -617,7 +617,7 @@ function StartErrorBanner({ startError, busyHolder, onOpen = (id) => void store.
 }
 
 /* ---------- empty / new-task surface ---------- */
-function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, crumb, onClearCrumb, seeds, selectedSeed, onSeed, onAddBase, startError, busyHolder, files, onAddFiles, onRemoveFile }: {
+function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, crumb, onClearCrumb, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile }: {
   draft: string;
   setDraft: (s: string) => void;
   send: (text?: string) => void;
@@ -629,7 +629,6 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, cr
   seeds: Seed[];
   selectedSeed: string | null;
   onSeed: (id: string | null) => void;
-  onAddBase: () => void;
   startError: string | null;
   busyHolder: string | null;
   files: ComposerAttachment[];
@@ -660,8 +659,8 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, cr
         <div className="seed-picker">
           <div className="suggest-label seed-label-row">
             <span>{tr('seedFrom')}</span>
-            {/* spec 051 D5: the third base door — import a standalone YAML on disk as a local base. */}
-            <button className="gs-link add-base-btn" onClick={onAddBase}>{tr('addYamlAsBase')}</button>
+            {/* spec 070: the external-YAML door moved to the Projects sidebar header (a general intake for
+                base OR distill) — it is no longer a per-surface link here. */}
           </div>
           {seeds.length === 0 ? (
             <div className="secret-note" style={{ padding: '6px 0' }}>

@@ -4,11 +4,12 @@ Builder chạy một phase như thế nào: spawn `claude` con ra sao, nó đư�
 kiểm lại gì sau khi nó xong.
 
 Phạm vi: `claude-session.ts` · `turn-runner.ts` · `shell.ts` · `hooks/permission-gate.ts` ·
-`hook-check.ts` · `post-turn.ts` · `lock.ts` · `ask.ts` · `headless-settings.json`.
+`hook-check.ts` · `post-turn.ts` · `ask.ts` · `headless-settings.json`.
 
 > - Chuỗi trong backtick là **nguyên văn** code phát ra hoặc đọc — không dịch.
 > - Tài liệu này mô tả **bất biến**, không chứa số đo.
 > - Gate/flow (`gate.ts`) và nội dung prompt từng phase: doc khác. Đây chỉ là **cơ chế thực thi một turn**.
+> - `lock.ts`: [build-lifecycle.md](build-lifecycle.md) §5 sở hữu.
 
 ---
 
@@ -255,13 +256,11 @@ như rỗng, vì thế là làm mù luôn phép so byte.
 
 ## 6. Run lock
 
-`lock.ts` giữ bất biến **một turn tại một thời điểm** (`turnHolder`) — chính bất biến khiến
-confinement baseline-delta ở §4 đúng được.
+Bất biến **một turn tại một thời điểm** (`lock.ts`, `turnHolder`) là thứ khiến confinement
+baseline-delta ở §4 đúng được: nhiều nhất một build ghi cây file tại một thời điểm, nên delta so
+với baseline `git status` không bao giờ lẫn dấu vết turn của build khác.
 
-`acquireTurn()` **strict**: đã có **bất kỳ** turn nào đang chạy ⇒ `false` ⇒ caller trả **409**. Kể cả
-holder cùng-task đã cũ (về lý thuyết không tồn tại: mọi acquire đều ghép với một release).
-
-Build **đang park ở gate không giữ lock** — chỉ va chạm turn thật mới thấy busy.
+Cơ chế đầy đủ (ai giữ, khi nào nhả, 409 nghĩa là gì): [build-lifecycle.md](build-lifecycle.md) §5.
 
 ## 7. Backend chạy tool thế nào (không phải turn)
 
@@ -281,7 +280,6 @@ con**: linter và `init_project.py` không cần token. Token vào **đúng mộ
 | `apps/builder/test/confinement.test.ts` | baseline-delta, whitelist, chỉ-revert-trong-`projects/` |
 | `apps/builder/test/post-turn-ids.test.ts` · `post-turn-multi-lint.test.ts` | regex node id; nhiều file lint |
 | `apps/builder/test/ask.test.ts` · `ask-route.test.ts` | hai lớp Ask, anomaly, restore theo từng file |
-| `apps/builder/test/lock.test.ts` | strict acquire, 409, release |
 | `apps/builder/test/claude-session.test.ts` | flag spawn, lọc env |
 | `apps/builder/test/turn-failure-triage.test.ts` | `classifyTurnFailure` |
 

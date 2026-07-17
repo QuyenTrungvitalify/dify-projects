@@ -96,6 +96,36 @@ export async function probeImportedBase(projectsDir: string, project: string, sl
 }
 
 /**
+ * spec 070 — lint a standalone YAML string with the SAME 4-linter set the ③ build gate and base-import
+ * run, against a TEMP file (never under `projects/`). Returns the verbatim failure messages (empty ⇒
+ * clean). Shared by the base door (below) and the distill-from-paste door (`POST /api/promote`, D2) so a
+ * poisonous YAML is rejected identically at either entrance. `runPython` is the 013-D2 seam.
+ */
+export async function lintStandaloneYaml(
+  projectsDir: string,
+  yaml: string,
+  runPython: typeof realRunPython
+): Promise<string[]> {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'dify-yaml-lint-'));
+  const tmpFile = join(tmpDir, 'main.yml');
+  try {
+    await writeFile(tmpFile, yaml, 'utf8');
+    const results = await Promise.all(LINTERS.map((lint) => runPython(projectsDir, [lint.script, tmpFile])));
+    const failures: string[] = [];
+    LINTERS.forEach((lint, i) => {
+      const r = results[i];
+      if (r.code !== 0) {
+        const detail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-LINT_DETAIL_LINES).join(' ⏎ ');
+        failures.push(`${lint.name} exit ${r.code}: ${detail}`);
+      }
+    });
+    return failures;
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
+/**
  * Import a standalone YAML as a local edit-existing base. PURE of HTTP — returns a discriminated result
  * the route maps to a status code. `runPython` is the 013-D2 seam (a test injects a fake; production
  * passes the real `init_project.py`/linter runner).
@@ -132,25 +162,11 @@ export async function importYamlAsBase(
 
   // 4. Validation gate (D2) — run the SAME 4-linter set the ③ build gate runs, against a TEMP file, and
   //    reject before writing anything to `projects/`. A base seeds every build from it, so a dangling
-  //    ref / fabricated hash / bad node body is as poisonous as an import-blocker.
-  const tmpDir = await mkdtemp(join(tmpdir(), 'dify-base-import-'));
-  const tmpFile = join(tmpDir, 'main.yml');
-  try {
-    await writeFile(tmpFile, yaml, 'utf8');
-    const results = await Promise.all(LINTERS.map((lint) => runPython(projectsDir, [lint.script, tmpFile])));
-    const failures: string[] = [];
-    LINTERS.forEach((lint, i) => {
-      const r = results[i];
-      if (r.code !== 0) {
-        const detail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-LINT_DETAIL_LINES).join(' ⏎ ');
-        failures.push(`${lint.name} exit ${r.code}: ${detail}`);
-      }
-    });
-    if (failures.length) {
-      return { ok: false, status: 400, error: failures.join('\n') };
-    }
-  } finally {
-    await rm(tmpDir, { recursive: true, force: true });
+  //    ref / fabricated hash / bad node body is as poisonous as an import-blocker. (spec 070: the shared
+  //    `lintStandaloneYaml` — the distill-from-paste door reuses this identical gate.)
+  const failures = await lintStandaloneYaml(projectsDir, yaml, runPython);
+  if (failures.length) {
+    return { ok: false, status: 400, error: failures.join('\n') };
   }
 
   // 5. Derive the folder slug (JP `app.name` → `workflow`, then auto-suffix a per-project collision).

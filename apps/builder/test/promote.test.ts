@@ -23,6 +23,7 @@ import {
   parseVerdict,
   provenanceHeader,
   resolvePromoteSource,
+  resolvePastedPromoteSource,
   firstFreePatternSlug,
 } from '../server/lib/promote.js';
 import { createPromoteTask, loadTask } from '../server/state/task.js';
@@ -46,6 +47,7 @@ describe('promote flow (spec 052)', () => {
   let stagedContent: string | null; // what the distill turn writes (null → writes nothing = fail)
   let notes: unknown | null; // the turn's notes.json (null → none)
   let indexCode: number;
+  let turnWritesShorthand: boolean; // spec 070: force the .runs shorthand → relocateRunArtifacts runs
 
   const fakeRunPython = async (_cwd: string, args: string[]): Promise<ShellResult> => {
     calls.push(args);
@@ -62,10 +64,15 @@ describe('promote flow (spec 052)', () => {
     // Simulate the distill turn's on-disk effect: write the staged pattern (+ optional notes).
     const t = await loadTask(dir, currentTaskId);
     if (stagedContent != null) {
-      const staged = join(dir, `apps/builder/.runs/${t.taskId}/promote/${t.promote!.slug}.yml`);
-      await writeFile(staged, stagedContent, 'utf8');
+      // spec 070: when `turnWritesShorthand`, write under the `.runs/<id>` shorthand (production's turn
+      // cwd=repo root) so relocateRunArtifacts actually runs — the path that ENOTEMPTY-collides if a staged
+      // source sat under promote/. Default writes the canonical path (relocate is then a no-op).
+      const root = turnWritesShorthand ? '.runs' : 'apps/builder/.runs';
+      const dstDir = join(dir, `${root}/${t.taskId}/promote`);
+      await mkdir(dstDir, { recursive: true });
+      await writeFile(join(dstDir, `${t.promote!.slug}.yml`), stagedContent, 'utf8');
       if (notes != null) {
-        await writeFile(join(dir, `apps/builder/.runs/${t.taskId}/promote/notes.json`), JSON.stringify(notes), 'utf8');
+        await writeFile(join(dstDir, 'notes.json'), JSON.stringify(notes), 'utf8');
       }
     }
     return { sessionId: 's1', result: { type: 'result' }, isError: false };
@@ -107,6 +114,7 @@ describe('promote flow (spec 052)', () => {
     stagedContent = '# Pattern: demo\napp:\n  name: Demo Pattern\n  description: a demo\n';
     notes = null;
     indexCode = 0;
+    turnWritesShorthand = false;
     // the skill body the distill turn reads (rendered, but the fake turn ignores it) must exist on disk.
     await mkdir(join(dir, '.claude/skills/dify-build'), { recursive: true });
     await writeFile(join(dir, '.claude/skills/dify-build/promote.md'), 'distill {{SOURCE_PATH}} → {{STAGED_PATH}}', 'utf8');
@@ -309,5 +317,85 @@ describe('promote flow (spec 052)', () => {
     await writeFile(join(dir, 'templates/patterns/x-2.yml'), '', 'utf8');
     assert.equal(firstFreePatternSlug(dir, 'x'), 'x-3');
     assert.equal(firstFreePatternSlug(dir, 'y'), 'y');
+  });
+
+  // ── spec 070: distill from an EXTERNAL (pasted/uploaded) YAML — honest provenance (D3, G3) ──
+  test('070 unit — provenanceHeader external branch stamps source=external + license + hash + spec=070', () => {
+    const h = provenanceHeader('apps/builder/.runs/1/promote/source.yml', '', {
+      label: 'colleague blog', sha256: 'deadbeef', license: 'Apache-2.0',
+    });
+    assert.match(h, /# x-provenance: source=external/);
+    assert.match(h, /file="colleague blog"/);
+    assert.match(h, /orig_sha256=deadbeef/);
+    assert.match(h, /license=Apache-2\.0 spec=070/);
+    assert.doesNotMatch(h, /source=original/);
+    // an omitted license defaults to `unknown` (never silently MIT).
+    assert.match(provenanceHeader('x', '', {}), /license=unknown/);
+  });
+
+  test('070 unit — resolvePastedPromoteSource: slug from app.name (hyphenated) + sha256; empty → 400', () => {
+    const r = resolvePastedPromoteSource('app:\n  name: My Cool Flow\n');
+    assert.ok(r.ok);
+    assert.equal((r as { slug: string }).slug, 'my-cool-flow');
+    assert.match((r as { sha256: string }).sha256, /^[0-9a-f]{64}$/);
+    assert.equal((resolvePastedPromoteSource('   ') as { status: number }).status, 400);
+  });
+
+  /** Drive the flow from a PASTED source (no project workflow) up to the review gate. */
+  async function startEligibleExternal(license = 'unknown'): Promise<string> {
+    const yaml = 'app:\n  name: External Flow\n';
+    const src = resolvePastedPromoteSource(yaml);
+    assert.ok(src.ok);
+    const s = src as { slug: string; sha256: string };
+    const task = await createPromoteTask(dir, {
+      project: '(external)', workflow: s.slug, sourceFile: '', slug: s.slug,
+      external: { yaml, label: 'External Flow', sha256: s.sha256, license },
+    });
+    currentTaskId = task.taskId;
+    assert.ok(acquireTurn(task.taskId));
+    try {
+      await startPromote(task, makeCtx());
+    } finally {
+      releaseTurn(task.taskId);
+    }
+    return task.taskId;
+  }
+
+  test('070 — a pasted source is staged at the run-dir ROOT + carries origin=external, then parks at review', async () => {
+    const id = await startEligibleExternal();
+    assert.ok(existsSync(join(dir, `apps/builder/.runs/${id}/source.yml`)), 'pasted YAML staged at the run-dir root');
+    assert.ok(!existsSync(join(dir, `apps/builder/.runs/${id}/promote/source.yml`)), 'NOT under promote/ (relocate hazard)');
+    const t = await loadTask(dir, id);
+    assert.equal(t.promote!.origin, 'external');
+    assert.equal(t.promote!.sourceFile, `apps/builder/.runs/${id}/source.yml`);
+    assert.equal(t.gate?.flag, 'promote_review');
+  });
+
+  test('070 — a shorthand-writing distill turn relocates cleanly (the ENOTEMPTY hazard if source sat in promote/)', async () => {
+    turnWritesShorthand = true; // force relocateRunArtifacts to actually run (production cwd=repo root)
+    const id = await startEligibleExternal();
+    const t = await loadTask(dir, id);
+    assert.equal(t.gate?.flag, 'promote_review', 'relocate did not throw → the flow reached review');
+    assert.ok(existsSync(join(dir, `apps/builder/.runs/${id}/source.yml`)), 'staged source survived relocate');
+    assert.ok(existsSync(join(dir, t.promote!.staged!)), 'distilled output relocated into the canonical promote/');
+  });
+
+  test('070 (G3) — Approve an external distill stamps source=external + the declared license, NOT source=original/MIT', async () => {
+    const id = await startEligibleExternal('CC-BY-4.0');
+    let t = await loadTask(dir, id);
+    assert.ok(acquireTurn(id));
+    try {
+      await promoteConfirm(t, 'approve', makeCtx());
+    } finally {
+      releaseTurn(id);
+    }
+    t = await loadTask(dir, id);
+    assert.equal(t.status, 'done');
+    const written = await readFile(join(dir, `templates/patterns/${t.promote!.slug}.yml`), 'utf8');
+    assert.match(written, /# x-provenance: source=external/);
+    assert.match(written, /license=CC-BY-4\.0 spec=070/);
+    assert.match(written, /file="External Flow"/);
+    assert.doesNotMatch(written, /source=original/);
+    assert.doesNotMatch(written, /license=MIT/);
   });
 });

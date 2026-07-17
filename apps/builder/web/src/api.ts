@@ -122,10 +122,15 @@ export const api = {
    *  400 (bad YAML / limits / linter reject) surfaces as ApiError with the verbatim message. */
   importBase: (body: { yaml: string; name?: string; project?: string; fileName?: string }): Promise<{ project: string; workflow: string; slugNote?: string; probeNote?: string }> =>
     request('POST', '/api/bases', body),
-  /** spec 052: POST /api/promote → start a `kind:'promote'` build (distill a proven build into a
+  /** spec 052/070: POST /api/promote → start a `kind:'promote'` build (distill a source into a
    *  templates/patterns/ pattern behind the B1 gate → distill turn → review → Approve pipeline). Returns
-   *  the promote Task (opened in the conversation view like a build); 400/404 (bad source) → ApiError. */
-  promote: (body: { project: string; workflow: string }): Promise<WireTask> =>
+   *  the promote Task (opened in the conversation view like a build); 400/404 (bad source) → ApiError.
+   *  Two source doors: a LOCAL project workflow `{project, workflow}` (source=original), or spec 070's
+   *  EXTERNAL pasted/uploaded YAML `{origin:'paste', yaml, ...}` (stamped source=external). */
+  promote: (body:
+    | { project: string; workflow: string }
+    | { origin: 'paste'; yaml: string; sourceLabel?: string; license?: string; fileName?: string }
+  ): Promise<WireTask> =>
     request('POST', '/api/promote', body),
   /** GET /api/tree → the Project ▸ Workflow ▸ Task sidebar tree (AC #13). */
   tree: (): Promise<{ projects: WireTreeProject[] }> => request('GET', '/api/tree'),

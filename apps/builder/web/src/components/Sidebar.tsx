@@ -188,7 +188,7 @@ function ActiveSection({ active, activeTask, onOpen, onCancel }: {
   );
 }
 
-export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, tree, active, onOpen, onCancel, onNewTask, onNewProject }: {
+export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, tree, active, onOpen, onCancel, onNewTask, onNewProject, onAddYaml }: {
   collapsed: boolean;
   activeTask: string | null;
   /** The active/selected project folder (open build's project, or the pre-selected target). */
@@ -201,6 +201,8 @@ export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, 
   onCancel: (taskId: string) => void;
   onNewTask: (opts?: NewTaskOpts) => void;
   onNewProject: () => void;
+  /** spec 070: open the external-YAML intake modal (base OR distill) — the general Projects-header door. */
+  onAddYaml: () => void;
   onToggle: () => void;
 }) {
   // Default-open the SELECTED project (menu highlight / new-project target), else the one holding the
@@ -218,6 +220,11 @@ export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, 
           {/* spec 059: the dev-only rebuild moved here (from the per-task DevPanel) so it's reachable
               from any view. Left of New-project → the latter keeps its right-edge alignment. */}
           {devMode && <RebuildButton />}
+          {/* spec 070: the general external-YAML intake door (base OR distill) — was a per-surface link on
+              the empty state; now a header action reachable from any view, left of New-project. The
+              paperclip matches the modal's own "Choose a .yml file" affordance (clean line-icon; the boxy
+              I.yaml glyph read as a mis-sized "YL" chip next to the document icon). */}
+          <button className="icon-btn" title={tr('intakeYamlBtn')} aria-label={tr('intakeYamlBtn')} onClick={onAddYaml}><I.paperclip /></button>
           <button className="icon-btn" title={tr('newProject')} onClick={onNewProject}><I.newFile /></button>
         </div>
       </div>

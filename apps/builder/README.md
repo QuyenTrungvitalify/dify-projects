@@ -81,9 +81,8 @@ Copy [`.env.example`](.env.example) to `.env` (gitignored). Keys (spec §F):
 | Key | Default | Notes |
 |---|---|---|
 | `DIFY_PROJECTS_DIR` | repo root | Where `.venv/`, `tools/`, `projects/` live. |
-| `DEFAULT_DEPLOY` | `none` | Default deploy target: `none` \| `selfhost` \| `cloud`. |
 | `BUILDER_PORT` | `4123` | The only configurable bind knob; host stays `127.0.0.1`. |
-| `DIFY_CONSOLE_URL` | — | `https://<host>/console/api`. **Only** for `deploy=selfhost` or Dify-seed. |
+| `DIFY_CONSOLE_URL` | — | `https://<host>/console/api`. Enables the Dify-reaching actions (seed, live test, import) — these are offered per *reachable creds* at the gate, not declared up-front. |
 | `DIFY_CONSOLE_TOKEN` | — | Either (a) a browser-session bearer token (expires) or (b) an Admin API key + `DIFY_WORKSPACE_ID` (stable, recommended) — see [`.env.example`](.env.example). **Backend-only.** |
 | `DIFY_WORKSPACE_ID` | — | Tenant id, sent as the `X-WORKSPACE-ID` header. **Required** when `DIFY_CONSOLE_TOKEN` is an Admin API key; leave unset for a session token. |
 | `BUILDER_TURN_TIMEOUT_MS` | `600000` | Wall-clock budget (ms) for one `claude` phase turn (spec 048). |

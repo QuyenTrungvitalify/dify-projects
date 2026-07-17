@@ -46,8 +46,10 @@ Mở [apps/builder/.env](apps/builder/.env) và điền, dùng **Admin API key**
 DIFY_CONSOLE_URL=http://localhost:8090/console/api    # đổi host/port cho đúng Dify của bạn
 DIFY_CONSOLE_TOKEN=<ADMIN_API_KEY>
 DIFY_WORKSPACE_ID=<tenant/workspace id>
-DEFAULT_DEPLOY=selfhost
 ```
+
+> Chỉ cần ba dòng này. Builder **không** cần khai trước đích deploy: hễ với tới được Dify bằng creds
+> ở trên, các nút chạm Dify (seed, "Test with workflow", Import) tự hiện ra ở gate.
 
 > 📄 Cách lấy `ADMIN_API_KEY`, `DIFY_WORKSPACE_ID` và các thông số liên quan sẽ được hướng dẫn ở một tài liệu riêng.
 

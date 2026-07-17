@@ -22,7 +22,10 @@
  */
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { readNestedScalar } from './artifacts.js';
+import { deriveSlugName } from './slug.js';
 import { ClaudeSession } from './claude-session.js';
 import { renderPrompt } from './phases.js';
 import { relocateRunArtifacts } from './scaffold.js';
@@ -318,7 +321,13 @@ async function finalizePromotion(task: Task, ctx: OrchestratorCtx, slug: string)
   const stagedAbs = join(projectsDir, p.staged!);
   const targetAbs = join(projectsDir, target);
   const stagedContent = await readFile(stagedAbs, 'utf8');
-  const header = provenanceHeader(p.sourceFile, p.verdict?.knownGoodDify ?? '');
+  // spec 070: an external (pasted) source stamps honest provenance (source=external + declared license +
+  // content hash); a local project workflow stays byte-identical to spec 052 (source=original/MIT).
+  const header = provenanceHeader(
+    p.sourceFile,
+    p.verdict?.knownGoodDify ?? '',
+    p.origin === 'external' ? { label: p.originLabel, sha256: p.originSha256, license: p.license } : undefined
+  );
   // Stamp the x-provenance header (LAST-write comment convention) and move to the curated tier.
   await mkdir(join(projectsDir, 'templates/patterns'), { recursive: true });
   await writeFile(targetAbs, header + stagedContent);
@@ -349,13 +358,44 @@ async function finalizePromotion(task: Task, ctx: OrchestratorCtx, slug: string)
  *  `orig_sha256` is deliberately empty — a `source=original` pattern has no upstream file to hash against;
  *  `check_provenance.py`'s content axis skips it for originals (the committed per-row-notify.yml, which has
  *  the same empty field, classifies `current`). */
-export function provenanceHeader(sourceFile: string, knownGoodDify: string): string {
+export function provenanceHeader(
+  sourceFile: string,
+  knownGoodDify: string,
+  external?: { label?: string; sha256?: string; license?: string }
+): string {
   const today = new Date().toISOString().slice(0, 10);
+  // spec 070 D3 — an EXTERNAL (pasted/uploaded) source is NEVER stamped source=original/MIT: that would
+  // falsely claim third-party work as ours on a redistributed shelf. Stamp honestly (source=external + the
+  // declared license + a content hash); check_provenance.py then CORRECTLY classifies it orphan/license-
+  // review (warn-only in CI). The local (project-workflow) path below is byte-identical to spec 052.
+  if (external) {
+    const label = external.label || sourceFile;
+    const license = external.license || 'unknown';
+    return (
+      `# x-provenance: source=external repo=\n` +
+      `#   commit= file="${label}" orig_sha256=${external.sha256 ?? ''} promoted=${today}\n` +
+      `#   license=${license} spec=070 known_good_dify=${knownGoodDify}\n`
+    );
+  }
   return (
     `# x-provenance: source=original repo=\n` +
     `#   commit= file="${sourceFile}" orig_sha256= promoted=${today}\n` +
     `#   license=MIT spec=052 known_good_dify=${knownGoodDify}\n`
   );
+}
+
+/** spec 070 — resolve a PASTED/uploaded YAML (a source that exists in no project) into a house-style
+ *  pattern slug + a content hash. The slug derives from `app.name` (`deriveSlugName` handles JP → ASCII),
+ *  then is hyphenated to the templates/patterns/ convention. The bytes are hashed for honest provenance. */
+export function resolvePastedPromoteSource(
+  yaml: string
+): { ok: true; slug: string; sha256: string } | { ok: false; status: number; error: string } {
+  if (!yaml.trim()) return { ok: false, status: 400, error: 'yaml is required (the workflow contents)' };
+  const appName = readNestedScalar(yaml, 'app', 'name') ?? '';
+  const base = deriveSlugName(appName).slug; // JP-only app.name → GENERIC_SLUG 'workflow'
+  const slug = base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'pattern';
+  const sha256 = createHash('sha256').update(yaml, 'utf8').digest('hex');
+  return { ok: true, slug, sha256 };
 }
 
 /** The first free `templates/patterns/<slug>[-2,-3,…].yml` (hyphen-suffixed to match the pattern

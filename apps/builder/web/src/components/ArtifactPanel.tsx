@@ -15,9 +15,10 @@ import { t as tr, tf, localizeNotes } from '../lib/i18n';
 import type { ArtifactTab, WireTask, WireArtifacts, FileChange } from '../types';
 
 type SpecMode = 'edit' | 'preview' | 'split';
+// Preview FIRST (review-before-edit): the panel opens on the rendered spec; Edit is one click away.
 const SPEC_MODES: { key: SpecMode; labelKey: string }[] = [
-  { key: 'edit', labelKey: 'specEdit' },
   { key: 'preview', labelKey: 'specPreview' },
+  { key: 'edit', labelKey: 'specEdit' },
   { key: 'split', labelKey: 'specSplit' },
 ];
 
@@ -35,7 +36,7 @@ function SpecTab({ task, content, onSave }: { task: WireTask; content: string; o
   const [val, setVal] = useState(content);
   const [saved, setSaved] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [mode, setMode] = useState<SpecMode>('edit');
+  const [mode, setMode] = useState<SpecMode>('preview'); // review-before-edit: open on the rendered spec
   const taRef = useRef<HTMLTextAreaElement>(null);
   // After a toolbar edit re-renders the controlled textarea, re-apply focus + selection here (the
   // value isn't in the DOM until the next render, so it can't be set synchronously in the handler).

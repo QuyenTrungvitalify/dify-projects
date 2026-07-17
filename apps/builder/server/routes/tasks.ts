@@ -31,7 +31,9 @@ import {
 import { computeGate } from '../lib/gate.js';
 import { difyTargets } from '../lib/dify-io.js';
 import { runLiveTest } from '../lib/live-test.js';
-import { promoteConfirm, promoteReply, resolvePromoteSource, startPromote } from '../lib/promote.js';
+import { promoteConfirm, promoteReply, resolvePastedPromoteSource, resolvePromoteSource, startPromote } from '../lib/promote.js';
+import { lintStandaloneYaml } from '../lib/base-import.js';
+import { resolveRunners } from '../lib/orchestrator-shared.js';
 import {
   confirmAdvance,
   replyWithin,
@@ -42,7 +44,7 @@ import {
 import { askWithin, askTestWithin } from '../lib/ask.js';
 import { acquireTurn, evictCancelled, isCancelled, liveKind, liveSession, markCancelled, releaseTurn, requestAskCancel, turnBusy, turnHolderId, unmarkCancelled } from '../lib/lock.js';
 import { readArtifactContents } from '../lib/artifacts.js';
-import { saveAttachments, validateAttachments } from '../lib/attachments.js';
+import { MAX_ATTACHMENT_BYTES, saveAttachments, validateAttachments } from '../lib/attachments.js';
 
 export interface TasksRoutesOptions {
   projectsDir: string;
@@ -50,6 +52,18 @@ export interface TasksRoutesOptions {
   settingsPath: string;
   /** Lát 4 SSE relay (orchestrator broadcasts phase/status/gate transitions + streamed output). */
   broadcast?: (taskId: string, event: string, data: unknown) => void;
+  /**
+   * The 013 D2 subprocess seams, forwarded onto the ctx this plugin builds. Same contract as
+   * `OrchestratorCtx.runners`: absent ⇒ the real impls, so production is byte-identical and only tests
+   * inject fakes.
+   *
+   * Without this the seam stopped at the plugin boundary: every FSM test had to call
+   * startTask/confirmAdvance DIRECTLY and drive acquireTurn/releaseTurn by hand, so nothing exercised
+   * `dispatch()` itself — the release-exactly-once `finally`, `failSafe`, and the terminal-only
+   * evictCancelled all sat behind an untestable wall (they are precisely the parts a hand-driven test
+   * has to ASSUME). See dispatch-lifecycle.test.ts.
+   */
+  runners?: OrchestratorCtx['runners'];
 }
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -62,8 +76,8 @@ const turnBusyError = (): { error: string; holder: string | null } => ({
 });
 
 const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) => {
-  const { projectsDir, settingsPath, broadcast } = opts;
-  const ctx: OrchestratorCtx = { projectsDir, settingsPath, log: app.log, broadcast };
+  const { projectsDir, settingsPath, broadcast, runners } = opts;
+  const ctx: OrchestratorCtx = { projectsDir, settingsPath, log: app.log, broadcast, runners };
 
   /** Last-resort: on an UNEXPECTED throw, mark the task error and relay it. The turn lock is freed by
    *  the dispatch `finally` (which runs after this), so failSafe never touches the lock itself. */
@@ -93,9 +107,16 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
    */
   function dispatch(taskId: string, work: Promise<void>): void {
     void work
-      .catch((e) => {
+      .catch(async (e) => {
         app.log.error({ err: errMsg(e), taskId }, 'orchestrator dispatch threw');
-        void failSafe(taskId, errMsg(e));
+        // AWAIT it: `finally` must observe the SETTLED state. Fire-and-forget (`void failSafe(…)`) let
+        // the finally run while failSafe's loadTask→saveTask was still in flight, which broke both
+        // halves below — the lock was released while task.json still said `running` (contradicting this
+        // function's own contract), and the evict check re-read that stale `running`, saw "not terminal",
+        // and LEAKED the cancelled flag for a build that was cancelled and then threw — precisely the
+        // case the spec-014-D7 bound exists for. failSafe swallows its own IO errors, so awaiting it
+        // cannot turn a converged error into an unhandled rejection.
+        await failSafe(taskId, errMsg(e));
       })
       .finally(() => {
         releaseTurn(taskId);
@@ -152,8 +173,10 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       workflow: (body.workflow as string | null | undefined) ?? null,
       // Accept the spec's public `confirm_mode` (verbose) AND the internal token; normalized in createTask.
       confirmMode: (body.confirm_mode ?? body.confirmMode) as string | undefined,
-      // Deploy target (Lát 5): body value, else the operator default DEFAULT_DEPLOY, else 'none'.
-      deploy: (body.deploy as string | undefined) ?? process.env.DEFAULT_DEPLOY ?? undefined,
+      // NOTE: `deploy`/`test_mode` are deliberately NOT forwarded (spec 036 D3). They are stamped at
+      // GATE-time from reachable creds, never start-bound — createTask hard-codes 'none'/'static' and
+      // does not read them. Forwarding them (and a `DEFAULT_DEPLOY` env fallback) only made a dead knob
+      // look alive; a client may still send them, they are simply ignored. See test-mode.test.ts.
       // Chosen Dify seed app id from the seed picker (Lát 5); null/absent = no Dify seed.
       seed: (body.seed as string | null | undefined) ?? null,
       // Spec 030: the proposed WORKFLOW slug (public `workflow_slug`, legacy `slug`).
@@ -165,9 +188,6 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       // Spec 028: `⚡ Fast build` — accept `fast_mode` (public) or `fast`; createTask force-offs it
       // when a seed/workflow/slug is present, so it is honored only on a from-scratch build.
       fast: (body.fast_mode ?? body.fast) as boolean | string | null | undefined,
-      // Spec 032: Phase ④ test mode (`test_mode` public / `testMode`); createTask force-offs it to
-      // `static` unless deploy=selfhost, so it can never reach Dify on a non-selfhost build.
-      testMode: (body.test_mode ?? body.testMode) as string | undefined,
     });
 
     // Persist the files to `.runs/<taskId>/uploads/` + record the paths on the task, BEFORE acquiring
@@ -205,6 +225,45 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
   //    NOT the ①②③④ FSM — startPromote/promoteConfirm/promoteReply drive it. Origin-checked (index.ts). ──
   app.post('/api/promote', async (req, reply) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
+
+    // spec 070: TWO source doors. `origin:'paste'` (or a `yaml` payload) distills an EXTERNAL YAML that
+    // exists in no project — validate the same 4-linter gate as base-import (G5: reject inline, no task),
+    // stage it into the run dir, and stamp HONEST provenance (source=external, D3). Else the original
+    // {project, workflow} local-workflow door below (unchanged: source=original).
+    if (body.origin === 'paste' || typeof body.yaml === 'string') {
+      const yaml = typeof body.yaml === 'string' ? body.yaml : '';
+      if (!yaml.trim()) return reply.code(400).send({ error: 'yaml is required (the workflow contents)' });
+      if (Buffer.byteLength(yaml, 'utf8') > MAX_ATTACHMENT_BYTES) {
+        return reply.code(400).send({ error: 'file is over the size limit' });
+      }
+      // G5 — reject a poisonous YAML inline BEFORE minting a task (same gate as POST /api/bases).
+      const { runPython } = resolveRunners(ctx);
+      const failures = await lintStandaloneYaml(projectsDir, yaml, runPython);
+      if (failures.length) return reply.code(400).send({ error: failures.join('\n') });
+
+      const src = resolvePastedPromoteSource(yaml);
+      if (!src.ok) return reply.code(src.status).send({ error: src.error });
+
+      if (turnBusy()) return reply.code(409).send(turnBusyError());
+      const label =
+        typeof body.sourceLabel === 'string' && body.sourceLabel.trim() ? body.sourceLabel.trim()
+        : typeof body.fileName === 'string' && body.fileName.trim() ? body.fileName.trim()
+        : 'external YAML';
+      const license = typeof body.license === 'string' && body.license.trim() ? body.license.trim() : 'unknown';
+      const task = await createPromoteTask(projectsDir, {
+        project: '(external)', workflow: src.slug, sourceFile: '', slug: src.slug,
+        external: { yaml, label, sha256: src.sha256, license },
+      });
+      if (!acquireTurn(task.taskId)) {
+        task.status = 'error';
+        task.error = 'rejected — another turn is running';
+        await saveTask(projectsDir, task);
+        return reply.code(409).send(turnBusyError());
+      }
+      dispatch(task.taskId, startPromote(task, ctx));
+      return reply.send(task);
+    }
+
     const project = String(body.project ?? '').trim();
     const workflow = String(body.workflow ?? '').trim();
     const src = resolvePromoteSource(projectsDir, project, workflow);
