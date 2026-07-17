@@ -17,5 +17,24 @@
     "total": {
       "numTurns": 35
     }
+  },
+  "webhook-per-row-chatwork": {
+    "phases": {
+      "analyze": {
+        "numTurns": 7,
+        "outputTokens": 3899
+      },
+      "implement": {
+        "numTurns": 27,
+        "outputTokens": 16970
+      },
+      "spec": {
+        "numTurns": 10,
+        "outputTokens": 9485
+      }
+    },
+    "total": {
+      "numTurns": 44
+    }
   }
 }
