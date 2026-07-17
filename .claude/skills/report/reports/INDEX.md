@@ -6,23 +6,31 @@ Runtime is manual spot-check → `runtime` stays `NOT VERIFIED` until a `/report
 
 | # | run / slug | analyze | spec | implement (lint) | mode | requirement-fit | runtime | verdict |
 |---|---|---|---|---|---|---|---|---|
-| 1 | 1782530543357 · workflow | ✅ honest | ✅ lean | ✅ 0/0/0 | workflow ✅ | core start→llm→end (GT's 3-step omitted = allow_diff) | NOT VERIFIED (model empty) | **PASS** |
-| 2 | 1782539119087 · workflow_2 | ✅ honest (risk#3 saw multi-pass) | ✅ no drift | ✅ 0/0/0 | workflow ✅ | 3/3 (translate→review→revise); GT if-else+aggregator = allow_diff | NOT VERIFIED (model empty) | **PASS** (high) |
-| 3 | 1782540870113 · workflow_3 | ✅ honest | ✅ lean (chose simple, rejected multi-step) | ✅ 0/0/0 | workflow ✅ | 3/3; GT code node = allow_diff | NOT VERIFIED (model empty) | **PASS** (report self-flagged 2 process imprecisions, fixed) |
-| 4 | 1782542318045 · url_web | ✅ honest | ✅ lean (http-request vs Jina/Tavily) | ✅ 0/0/0 | workflow ✅ | 3/3; code stdlib-only (no §4.5 trap); **more faithful than store** (GT takes a Question, not a URL) | NOT VERIFIED (model empty) | **PASS** (clean) |
-| 5 | 1782548987196 · web_url | ✅ honest | ✅ lean (rejected agent pattern; 6 open-Qs) | ✅ 0/0/0 | workflow ✅ | 4/4 (URL→fetch→rewrite→image-gen); GT localScrape/imageSearch/iteration = allow_diff; code stdlib-only (no §4.5 trap) | NOT VERIFIED (plugin TODO + image tool unconfirmed; **model filled**) | **PASS** (clean stress-test; no fabricated plugin on no-precedent node) |
-| 6 | 1782550624237 · workflow_4 | ✅ honest (deferred upload-vs-KB fork) | ✅ lean (chose per-conv upload; re-targeted pattern→chatflow) | ✅ refs 0 / hash 0; **validate 1 = workflow-only validator limitation, not a defect** | **advanced-chat** ✅ (correct for chatbot; GT is workflow) | 2/2 (document-extractor→grounded LLM); GT's KB/question-classifier = allow_diff | NOT VERIFIED (plugin TODO; **model filled**, **no KB needed**) | **PASS (caveat)** — gated `still_failing` by integrity (refused fake `end`); needs Accept-anyway + repo: teach validator chatflow mode |
-| 7 | 1782553916005 · llm_4 | ✅ honest (risk#3 saw chatbot→adv-chat) | ✅ lean (rejected GT llm2o1 as over-built; 5 open-Qs) | ✅ 0/0/0 (lint_refs pass1 false-positive on own comment prose, reworded+clean) | **advanced-chat** ✅ (correct for chatbot; **1st chatflow to pass validator at exit 0** post-#6 fix) | 2/2 (adv-chat + reason→answer chain); GT iterative CoT = allow_diff; +free memory (window 10) | NOT VERIFIED (model empty + plugin TODO; reasoning hidden by design) | **PASS** (clean) |
-| 8 | 1782555150388 · python | ✅ honest (risks nailed §4.5 trap pre-code) | ✅ lean (trap→design: hand-built SVG; 4 open-Qs) | ✅ 0/0/0 (lint_refs 3× = chain-reject re-run, no real fix) | **advanced-chat** ✅ | 3/3 (extract→code-draws→image); SVG string = allow_diff | NOT VERIFIED (model empty + plugin TODO; **SVG data-URI inline render = make-or-break**) | **PASS** (clean) — **§4.5 trap PASSED: stdlib SVG, NOT matplotlib** |
-| 9 | 1782556755872 · workflow_5 | ✅ honest (features anticipate split→iterate) | ✅ lean (file-iteration pattern; specialised Code→LLM; borrowed ≤30 batching) | ✅ 0/0/0 (lint_refs 3× = chain-reject re-run, no real fix) | workflow ✅ | **4/4 — incl. mandatory iteration/chunking** (the genuine-miss trap); GT llm×4/template-transform = allow_diff | NOT VERIFIED (plugin TODO; **model filled** gpt-4o-mini) | **PASS (high)** — `still_failing` was a **builder-gate bug** (post-turn idsOk regex rejected the legit iteration-start id, NOW FIXED), **not** plugin-TODO; build was always success-worthy |
-| 10 | 1782559476926 · workflow_6 | ✅ honest (features anticipate outline→iterate→assemble) | ✅ lean (file-iteration pattern + corpus purpose-ref; per-chapter ≤8 to stay under ≤30 cap; 5 open-Qs) | ✅ 0/0/0 (lint_refs 3× = chain-reject re-run, no real fix) | workflow ✅ | **3/3 — real section-by-section iteration** (avoided single-LLM partial-miss trap); GT +1 code node = allow_diff | NOT VERIFIED (plugin TODO; **models filled** gpt-4o/gpt-4o-mini) | **PASS (high)** — first iteration run to **auto-complete** post-#9 gate fix (`1782559789920start` no longer false-parks); structure near-identical to GT |
-| 11 | 1782560698430 · workflow_7 | ✅ honest (risks anticipated adv-chat memory mechanism) | ✅ lean (chose+reduced Python Coding Prompt.yml → start→llm→answer w/ memory.window; 4 open-Qs) | ✅ 0/0/0 (lint_refs 3× = chain-reject re-run, no real fix) | **advanced-chat** ✅ (correct for chatbot; GT also adv-chat) | **3/3 — adv-chat + LLM memory.window enabled (size 10) + history-aware prompt**; GT 38-node assigner/conv-var build = allow_diff | NOT VERIFIED (plugin TODO; **model filled** gpt-4o; needs multi-turn chat UI) | **PASS (high)** — auto-completed (not parked); minimal faithful memory shape, all must_do met |
-| 12 | 1782561915666 · sns | ✅ honest (features anticipate search→synthesize→iterate→assemble) | ✅ lean (multi-step-llm spine + news_automation search front-end + iteration assembly; rejected cloning 23-node ArticleRewrite; 5 open-Qs) | ✅ 0/0/0 (lint_refs 3× = chain-reject re-run, no real fix) | workflow ✅ | **3/3 — research stage + generation-consumes-research + multi-stage pipeline** (avoided 1-LLM miss & monster-hallucination traps) | NOT VERIFIED (model empty + plugin TODO + search API key) | **PASS (high)** — auto-completed (not parked); coped with MAX-STRESS "do everything" via a lean 9-node honest pipeline vs GT's 51-node/31-template monster |
+
+_No runs yet — the 2026-07-17 workspace reset cleared the previous campaign. Fill one row per `/report #N`._
 
 ## Notes / lessons
-- Common (expected, not a defect): `model.provider/name` empty + `# TODO` plugin hash → builds are `deploy=none`, not runnable as-is. Fill before a manual run.
-- Report-quality watch: error *characterization* is the recurring slip (#3 undercount + "Simp" fabrication; #4 "chained" lumping). Fixed at source — `trace_phases.py` now auto-counts + classifies each error with its command; the report echoes the `class` verbatim.
-- `report_structure.py` mechanizes node histogram + `model_empty` + code `nonstdlib_imports` (§4.5 trap) + `runnable_blockers` — run it every report so large workflows (#5/#11/#12) aren't hand-counted.
-- **Chatflow vs the validator (#6) — RESOLVED:** `tools/dify_base/validate_workflow.py` was **workflow-mode-only** (rejected every `mode: advanced-chat` file: wanted `mode:workflow` + an `end` node). #6 (first chatflow) parked at `still_failing` despite being correct — builder honestly refused to fake an `end` node. **Fixed:** validator now accepts `advanced-chat` and requires an `answer` node instead of `end` (workflow path unchanged; +4 tests; builder gate uses this vendored copy via linters.ts, so #7/#11 chatflows now pass the gate cleanly). #6's existing run keeps its parked status (accept-anyway), but re-running would pass.
-- **Iteration-start vs the gate (#9) — RESOLVED:** the implement gate's `idsOk` check ([apps/builder/server/lib/post-turn.ts:148](../../../../apps/builder/server/lib/post-turn.ts#L148)) filtered node ids with `/^\d{13}$/`, rejecting the **legitimate iteration-start child id `<id>start`** (valid per AGENTS.md §4.1 + `validate_workflow.py`). So every *iteration* workflow false-parked at `still_failing` despite lint 0/0/0. **Fixed** → `/^\d{13}(start)?$/` (additive; golden-build e2e green). Affected #9; would have hit #10/#12. NB: `still_failing` = `!lintClean || !idsOk` ([orchestrator.ts:400](../../../../apps/builder/server/lib/orchestrator.ts#L400)) — it is **never** the plugin-TODO advisory (that's only a report.json NOTE).
-- **Report-quality lesson (#9):** report #9 *misdiagnosed* the `still_failing` cause as "plugin-TODO advisory" by assumption. When a run parks `still_failing`, `/report` must read the ACTUAL gate cause (re-run the 3 linters AND check node ids against `/^\d{13}(start)?$/` to reproduce `idsOk`), never assume — see SKILL Step 5 ④.
+
+_Empty. Add a lesson here only if it is NOT already enforced by code or by the skill — when a run
+exposes a bug, fix the bug; note it here only if the fix leaves a residual rule a human must remember._
+
+---
+
+## Previous campaign (2026-06-27 → 07-03) — archived
+
+12 JP prompts vs Workflow-Store, all 12 **PASS**. Retired in the reset: it graded a Builder that has
+since changed substantially (tool nodes, trigger entries, readiness checklist, and the naive-user
+oracle all landed after), and the runs it referenced lived in `apps/builder/.runs/`, which the reset
+cleared. Re-run against the current Builder rather than comparing against it.
+
+```bash
+git show 4bbf294:.claude/skills/report/reports/INDEX.md    # the full 12-row matrix + its lessons
+git show 4bbf294 --stat -- .claude/skills/report/reports/  # every per-run report
+```
+
+Its two technical lessons were **fixed at the source** and need no re-reading:
+
+- chatflow vs the validator — `validate_workflow.py` now accepts `mode: advanced-chat` (it requires an
+  `answer` node instead of `end`).
+- iteration-start vs the implement gate — `post-turn.ts` `idsOk` now matches `^\d{13}(start)?$`, so a
+  legitimate `<id>start` child no longer false-parks the build at `still_failing`.
