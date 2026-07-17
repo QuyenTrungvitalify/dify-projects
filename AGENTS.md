@@ -164,7 +164,7 @@ apps/builder/scripts/e2e-run.sh fire "<prompt>" --mode auto          # needs bac
 | Repo overview, setup, roadmap | [README.md](README.md) |
 | Step-by-step operations + decision tree | [docs/GUIDE.md](docs/GUIDE.md) |
 | Architecture rationale | [docs/architecture.md](docs/architecture.md) |
-| Active specs (numbered) | Cleaned up — no open specs. New specs start at **071**. View retired specs: `git show ca5e39e:docs/specs/` |
+| Active specs (numbered) | [docs/specs/](docs/specs/) — open work only; a spec is deleted when it ships. Retired specs: `git show ca5e39e:docs/specs/` |
 | Node-type schema reference | [skills/mango-svip/references/node_types.md](skills/mango-svip/references/node_types.md) |
 | Runtime constraints & gotchas (sandbox limits, iteration ≤30, plugin hash, md_exporter caveats) | [skills/mango-svip/references/constraints.md](skills/mango-svip/references/constraints.md) |
 | Project-discovered runtime findings (supplements skills clone — committable) | [docs/runtime-supplement.md](docs/runtime-supplement.md) |
