@@ -70,8 +70,13 @@
   deploy: none
   expect:
     analyze:
+      # features only — NO `pattern:` pin. NO pattern carries both trigger and iteration (checked
+      # against index.json), so this prompt has no exact fit and the pick is a judgment call that
+      # legitimately varies: 3 runs chose scheduled-fetch-notify, 1 chose `custom` — and `custom` gave
+      # the LEANEST ③ (15 turns), composing from per-row-notify + scheduled-fetch-notify by itself.
+      # Pinning the name would AUTO-FAIL a correct build ~1 run in 4. What the requirement actually
+      # demands is that ① RECOGNISE both needs; how it labels the pattern is downstream opinion.
       features_include: [trigger, iteration]
-      pattern: scheduled-fetch-notify
     workflow:
       # Asia/Tokyo: Dify defaults a schedule trigger to UTC, which silently shifts the "before today"
       # comparison this whole workflow turns on.
