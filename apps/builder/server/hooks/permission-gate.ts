@@ -91,7 +91,11 @@ const DENY_EXECUTABLES = new Set<string>([
  * Every substitute here must be a tool `headless-settings.json` actually allows (Bash/Read/Write/
  * Edit/Glob/Grep) — never name a way out that is itself denied.
  */
-const SUBSTITUTE: Record<string, string> = {
+// A Map, not an object literal, for the same reason every other lookup here is a Set: `base` is
+// attacker-shaped (it is the first token of the command), and `{}['constructor']` returns Object's
+// constructor — truthy — so an object literal spliced `use function Object() { [native code] } instead`
+// into the reason for `constructor foo`. The decision was never affected; the message was.
+const SUBSTITUTE = new Map<string, string>([
   // NOT "the Grep tool" — the first version of this map said exactly that, and run 1784267358546 shows
   // why it was wrong: ③ called Grep twice, got an error BOTH times (it is deferred in the child
   // session — callable only after a ToolSearch), fell back to shell `grep`, and thrashed 25 times. A
@@ -99,24 +103,29 @@ const SUBSTITUTE: Record<string, string> = {
   // does not mean "callable right now". Point at what is PROVEN to work in a turn: find.py answers the
   // question ③ was actually asking — `--has iteration` returns 11 vetted paths in ONE allowed call —
   // and Read never fails.
-  grep: 'the Read tool on a known file, or `.venv/bin/python tools/dify_base/find.py --has <feature>` to locate a workflow example (one call, returns paths)',
-  rg: 'the Read tool, or `.venv/bin/python tools/dify_base/find.py --has <feature>` for a workflow example',
-  ack: 'the Read tool',
-  find: '`.venv/bin/python tools/dify_base/find.py --has <feature>` for a workflow example, or `ls` for a directory',
-  fd: '`ls`, or `.venv/bin/python tools/dify_base/find.py --has <feature>` for a workflow example',
-  locate: '`ls`',
-  sed: 'the Edit tool', awk: 'the Read tool (then process the text yourself)',
-  cp: 'the Read + Write tools', mv: 'the Read + Write tools (then delete is not needed — leave the original)',
-  mkdir: 'the Write tool (it creates parent directories for you)',
-  touch: 'the Write tool', tee: 'the Write tool',
-  xargs: 'one plain command per call',
-  curl: 'nothing — a turn never reaches the network; the backend owns every Dify call',
-  wget: 'nothing — a turn never reaches the network; the backend owns every Dify call',
-};
+  ['grep', 'the Read tool on a known file, or `.venv/bin/python tools/dify_base/find.py --has <feature>` to locate a workflow example (one call, returns paths)'],
+  ['rg', 'the Read tool, or `.venv/bin/python tools/dify_base/find.py --has <feature>` for a workflow example'],
+  ['ack', 'the Read tool'],
+  ['find', '`.venv/bin/python tools/dify_base/find.py --has <feature>` for a workflow example, or `ls` for a directory'],
+  ['fd', '`ls`, or `.venv/bin/python tools/dify_base/find.py --has <feature>` for a workflow example'],
+  ['locate', '`ls`'],
+  ['sed', 'the Edit tool'],
+  ['awk', 'the Read tool (then process the text yourself)'],
+  ['cp', 'the Read + Write tools'],
+  ['mv', 'the Read + Write tools (then delete is not needed — leave the original)'],
+  ['mkdir', 'the Write tool (it creates parent directories for you)'],
+  ['touch', 'the Write tool'],
+  ['tee', 'the Write tool'],
+  ['xargs', 'one plain command per call'],
+  ['curl', 'nothing — a turn never reaches the network; the backend owns every Dify call'],
+  ['wget', 'nothing — a turn never reaches the network; the backend owns every Dify call'],
+]);
 
 /** Append the sanctioned alternative to a denial, when one exists. Reason text only — never a decision. */
-const withHint = (reason: string, base: string): string =>
-  SUBSTITUTE[base] ? `${reason} — use ${SUBSTITUTE[base]} instead` : reason;
+const withHint = (reason: string, base: string): string => {
+  const sub = SUBSTITUTE.get(base);
+  return sub ? `${reason} — use ${sub} instead` : reason;
+};
 
 const INTERPRETERS = new Set<string>(['python', 'python3', 'node', 'nodejs', 'perl', 'ruby', 'php', 'deno', 'bun']);
 const SHELLS = new Set<string>(['bash', 'sh', 'zsh', 'dash', 'csh', 'ksh', 'fish']);
@@ -208,7 +217,7 @@ export function analyzeBashCommand(rawCommand: string): DecisionResult {
   if (DENY_EXECUTABLES.has(base)) {
     return {
       decision: 'deny',
-      reason: SUBSTITUTE[base]
+      reason: SUBSTITUTE.has(base)
         ? withHint(`${base} is not available to a Builder turn`, base)
         : `dangerous executable: ${base}`,
     };

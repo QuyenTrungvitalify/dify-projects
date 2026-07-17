@@ -50,6 +50,17 @@ describe('a denial names the sanctioned alternative', () => {
     assert.match(r.reason, /returned in full/, 'and why `| head` was pointless to begin with');
   });
 
+  test('a command named after an Object member gets no hint (the lookup is prototype-safe)', () => {
+    // `base` is the first token of an attacker-shaped command. With an object literal,
+    // SUBSTITUTE['constructor'] returned Object's constructor — truthy — and the reason read
+    // "use function Object() { [native code] } instead". The decision was never wrong; the message was.
+    for (const base of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__']) {
+      const r = analyzeBashCommand(`${base} foo`);
+      assert.equal(r.decision, 'deny');
+      assert.ok(!/native code|function |\[object/.test(r.reason), `${base} → leaked an Object member: ${r.reason}`);
+    }
+  });
+
   test('the destructive verbs keep the blunt refusal — for them redirection is not the point', () => {
     for (const cmd of ['rm -rf /', 'sudo ls', 'dd if=/dev/zero of=/dev/sda', 'chmod 777 /etc']) {
       const r = analyzeBashCommand(cmd);
