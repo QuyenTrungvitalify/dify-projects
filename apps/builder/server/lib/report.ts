@@ -15,6 +15,7 @@ import { stat, writeFile, readFile } from 'node:fs/promises';
 import { runPython } from './shell.js';
 import { LINTERS, LINT_DETAIL_LINES, lintClean, type LintCodes } from './linters.js';
 import { checkRunnability, preflightNote, hasUnresolvedPluginTodo } from './runnability.js';
+import { patternFeatureGap, patternAdvisoryLine } from './analysis.js';
 import { loadWorkspaceFacts, enabledModelCount } from './dify-io.js'; // spec 066 S3 / 067 S6
 import type { Task } from '../state/task.js';
 import type { SessionLogger } from './claude-session.js';
@@ -144,6 +145,20 @@ export function hasToolNode(yamlText: string): boolean {
   return /^\s*type:\s*['"]?tool(['"]|\s|$)/m.test(yamlText);
 }
 
+/** Does the DELIVERED workflow actually contain a node providing this analysis feature? The same
+ *  pure-text `type:` predicate as hasTriggerEntry/hasToolNode, generalised over the feature vocabulary
+ *  `patternFeatures` reads out of index.json (`has_<type>` → `<type>`, plus the computed `trigger`
+ *  family key — mirror build_index.py, which sets has_trigger for ANY `trigger-*` node).
+ *
+ *  `file-input` is deliberately unhandled (it is a START-variable property, not a node type): it falls
+ *  through to a `type:` match that cannot hit, so it stays in the gap — i.e. it degrades to today's
+ *  ①-computed answer rather than being silently declared covered. */
+export function deliveredFeature(yamlText: string, feature: string): boolean {
+  if (feature === 'trigger') return hasTriggerEntry(yamlText);
+  const esc = feature.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^\\s*type:\\s*['"]?${esc}(['"]|\\s|$)`, 'm').test(yamlText);
+}
+
 /** Spec 061 — the friendly name of EACH distinct `tool` node (prefer its own `tool_label`, else its
  *  `provider_name`). Pure text (no YAML parse — the backend delegates parsing to the python probes,
  *  and these predicates must tolerate malformed input like their siblings). Deduped, ordered.
@@ -255,11 +270,25 @@ export async function runReport(
   let unresolvedPluginTodo = false;
   let triggerEntry = false;
   let toolNote = ''; // spec 061: the plain-language tool checklist (empty ⇒ not a tool workflow)
+  // The pattern-coverage advisory, RE-CHECKED against the delivered workflow. Seeded with ①'s line so
+  // an unreadable file degrades to exactly today's behaviour (fail-open — never silently drop a warning).
+  let patternNote: string | null = task.patternAdvisory ?? null;
   try {
     const yamlText = await readFile(join(projectsDir, wfRel), 'utf8');
     unresolvedPluginTodo = hasUnresolvedPluginTodo(yamlText);
     triggerEntry = hasTriggerEntry(yamlText);
     if (hasToolNode(yamlText)) toolNote = toolInstallNote(toolLabels(yamlText));
+    // task.patternAdvisory was computed at ① — BEFORE ③ wrote any YAML — so it can only compare the
+    // analysis against the SEED template. ③ routinely closes that gap itself (a scheduled-fetch-notify
+    // seed has no `iteration`, yet the build adds one for a per-row send), and a feature can also be
+    // met by a different shape on purpose (row filtering folded into a `code` node instead of if-else).
+    // Repeating ①'s line verbatim at ④ therefore sends the user hunting for a hole that isn't there.
+    // Re-derive the gap and keep only what the delivered file really lacks.
+    patternNote = patternAdvisoryLine(
+      patternFeatureGap(projectsDir, task.analysisPattern ?? '', task.analysisFeatures).filter(
+        (f) => !deliveredFeature(yamlText, f)
+      )
+    );
   } catch {
     /* unreadable workflow → the lint gate above already recorded the real failure; not our concern */
   }
@@ -305,8 +334,9 @@ export async function runReport(
   // run (which never showed a gate) still surfaces the rename, and each_step has it in the report too.
   if (task.slugNote) noteParts.push(task.slugNote);
   // O2 (spec 019): carry the pattern-coverage advisory into the report too (an `auto` run never shows
-  // the Analyze gate where it first appears). Advisory only — it never fails the build.
-  if (task.patternAdvisory) noteParts.push(task.patternAdvisory);
+  // the Analyze gate where it first appears). Advisory only — it never fails the build. Re-checked
+  // against the delivered workflow above, so it names only what is STILL missing.
+  if (patternNote) noteParts.push(patternNote);
   // Spec 037 S1: the runnability preflight line — an `auto` run never shows the ③ gate where it
   // first appears, so the report carries it too (the patternAdvisory precedent). Advisory only.
   if (task.preflightNote) noteParts.push(task.preflightNote);

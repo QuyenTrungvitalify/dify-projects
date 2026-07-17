@@ -61,13 +61,10 @@ export function patternFeatureGap(
   return needed.filter((f) => !provided.has(f) && !provided.has(featureKey(f).slice(4).replace(/_/g, '-')));
 }
 
-/** A human advisory line, or null when there is nothing to warn about (pattern covers all / N/A). */
-export function patternAdvisory(
-  projectsDir: string,
-  pattern: string,
-  needed: string[] | undefined
-): string | null {
-  const gap = patternFeatureGap(projectsDir, pattern, needed);
+/** The advisory sentence for an ALREADY-COMPUTED gap, or null for an empty one. Split out so ④ can
+ *  re-word the SAME line from a gap it re-checked against the delivered workflow (report.ts) without
+ *  re-deriving the sentence — the web i18n keys off this exact wording (i18n.ts, JA translation). */
+export function patternAdvisoryLine(gap: string[]): string | null {
   if (gap.length === 0) return null;
   // Spec 066 S5: plain. This was `advisory: pattern '<p>' is missing feature(s) the analysis needs —
   // <gap>. Verify the generated graph or pick a closer pattern (this does not block the build).` —
@@ -75,6 +72,20 @@ export function patternAdvisory(
   // caught that adding `advisory` to the jargon blocklist would have bricked every pattern-gap run
   // (permanent AUTO-FAIL) because no slice retired this line. Same meaning, said to the user.
   return `Heads up: the template this build started from doesn't cover everything you asked for (${gap.join(', ')}). The workflow was still built — worth checking it does what you need.`;
+}
+
+/** A human advisory line, or null when there is nothing to warn about (pattern covers all / N/A).
+ *
+ *  This is the ① voice: it runs BEFORE ③ writes any YAML, so the only thing it can compare is
+ *  "what the analysis says it needs" vs "what the seed template ships" — a genuine heads-up at the
+ *  Analyze gate. It is NOT the ④ voice: by then the workflow exists and ③ may have built the missing
+ *  feature itself, so report.ts re-checks the gap against the delivered file (see deliveredFeature). */
+export function patternAdvisory(
+  projectsDir: string,
+  pattern: string,
+  needed: string[] | undefined
+): string | null {
+  return patternAdvisoryLine(patternFeatureGap(projectsDir, pattern, needed));
 }
 
 /** The subset of analyze.json O2 reads. Everything optional — an old/minimal analyze.json is fine. */

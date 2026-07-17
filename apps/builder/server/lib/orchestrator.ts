@@ -15,7 +15,7 @@
  * move) is re-homed from Lát 2's raw advance to the ②→③ `/confirm` (AC #18).
  */
 import { readFile, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { ClaudeSession } from './claude-session.js';
 import { confinementCheck, gitDirtyPaths, type PostTurnDetail } from './post-turn.js';
 import { type TurnResult } from './turn-runner.js';
@@ -361,6 +361,17 @@ export function boundaryAutoAdvances(mode: Task['confirmMode'], phase: Task['pha
   return false; // each_step (and any unknown/corrupt value)
 }
 
+/** The header that tells an inlined phase doc where it lives, so its relative links resolve. Kept
+ *  ASCII and one short block: it sits between the language pin (which must stay token-one) and the
+ *  doc body, and every phase pays for its length on every turn. */
+export function docOrigin(rel: string): string {
+  return (
+    `> The document below is the file \`${rel}\`, inlined here. Resolve every relative link in it ` +
+    `from \`${dirname(rel)}/\`, and read paths from the repo root — e.g. \`[SKILL.md](SKILL.md)\` ` +
+    `means \`${join(dirname(rel), 'SKILL.md')}\`.\n\n`
+  );
+}
+
 /**
  * runPhase — spawn exactly ONE fresh `claude` turn for `phaseId` (model C; `/reply` adds --resume),
  * persist its session id per-phase, then post-turn verify → PhaseVerify. For ③ the verify resolves
@@ -392,7 +403,15 @@ async function runPhase(
     detail: opts?.replyText ? 'reply' : opts?.resumeId ? 'resume' : 'fresh',
   });
 
-  const body = await readFile(join(projectsDir, phase.promptFile!(task)), 'utf8');
+  // The phase doc is INLINED into the prompt, so the subprocess receives its TEXT and never learns
+  // which file that text came from. Every relative link inside it then resolves against the cwd (the
+  // repo root) and misses: `[SKILL.md](SKILL.md)` — the ground rules each phase is ordered to read
+  // FIRST — is looked for at the repo root and isn't there, and `[AGENTS.md](../../../AGENTS.md)`
+  // climbs OUT of the repo. So no phase read the ground rules; each re-derived the shell-sandbox
+  // rules by trial and error (one Analyze burned 8 consecutive hook-denied `find` calls). Naming the
+  // origin costs two lines and fixes it for every phase of every build.
+  const promptRel = phase.promptFile!(task);
+  const body = docOrigin(promptRel) + (await readFile(join(projectsDir, promptRel), 'utf8'));
   // Spec 037 S2+S3 (Implement only): harvest the workspace facts (D5 — degrades to nothing without
   // creds/Dify; never blocks), then render them into the {{KNOWLEDGE}} token. The orchestrator owns
   // this — phases.ts stays pure/io-free (r2); the vars() default '' keeps every other phase (and a
