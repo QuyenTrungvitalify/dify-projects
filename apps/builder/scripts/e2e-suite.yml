@@ -29,7 +29,9 @@
       grep_present: ["type: trigger-schedule", "timezone: Asia/Tokyo"]
       grep_absent: ["type: start"]
     report:
-      notes_include: ["all linters passed"]
+      # NOT "all linters passed" — spec 066 S5 retired that line as jargon ("linter" → 「リンター」) and
+      # report.ts now emits this plain sentence. The old expectation would AUTO-FAIL every green run.
+      notes_include: ["passed every automated check"]
   cost:                      # spec 060 — gross-regression guard (generous; real ③≈20 turns, cache≈98%)
     implement_turns_max: 40  # AUTO-FAIL if the ③ lint→fix loop churns way past its ~20-turn norm
     total_turns_max: 90
@@ -51,6 +53,51 @@
       grep_absent: ["type: trigger-schedule"]
   manual:
     - "Runtime: paste a paragraph, confirm the summary is 3 lines"
+
+- id: trigger-per-row-chatwork
+  # The build that exposed the {{REFERENCES}} gap. It needs TWO shapes at once — the approved pattern
+  # (scheduled-fetch-notify: trigger/http/llm) AND an `iteration` example, which that pattern has none
+  # of. ③ is told never to search for one, so before the fix it searched anyway and the sandbox denied
+  # it 25 times: implement 53 turns (run 1784267358546) vs 15 when SPEC.md happened to name
+  # per-row-notify (run 1784263317775). This entry is that difference, pinned.
+  prompt: >-
+    スプレッドシート内のD列記載の月日が本日より以前で、T列が空の場合、催促文をLLMで作成させて
+    ChatWorkに自動送信するフローを作成したい。 ワークフローのスタートはトリガーに設定し、GASで
+    スプレッドシートと連携させたい。 ChatWorkはAPIで連携させ、F列の使用者名からGAS連携された
+    ID一覧スプレッドシートを元に送信先IDを探して個別ChatWork自動送信させて。チャット送信文は
+    LLMに経理担当の負担軽減への依頼である事を伝える文面を作成させたい。
+  mode: auto
+  deploy: none
+  expect:
+    analyze:
+      features_include: [trigger, iteration]
+      pattern: scheduled-fetch-notify
+    workflow:
+      # Asia/Tokyo: Dify defaults a schedule trigger to UTC, which silently shifts the "before today"
+      # comparison this whole workflow turns on.
+      grep_present:
+        - "type: trigger-schedule"
+        - "timezone: Asia/Tokyo"
+        - "type: iteration"
+        - "X-ChatWorkToken"          # AGENTS.md §9: a custom auth header…
+        - "type: no-auth"            # …needs no-auth, or api-key auth rewrites it away
+      grep_absent: ["type: start"]
+    report:
+      notes_include: ["passed every automated check"]
+  cost:
+    # The regression this entry exists for. Measured ③: 15 turns (pointer present) · 17 · 53 (pointer
+    # withheld → 25 denied greps). 30 separates the failure mode from run-to-run wobble; it is a gross
+    # guard, not a target — tightening it to chase a few turns would just make the suite cry wolf.
+    implement_turns_max: 30
+    total_turns_max: 60          # 39 / 50 measured green; the thrashing run totalled 69
+    cache_min_pct: 50
+  manual:
+    - "The GAS Web App URL ships as TODO_GAS_DEPLOYMENT_ID — deploy the script and paste the real URL"
+    - "The GAS response shape ({today, rows[], id_map{}}) is the build's ASSUMPTION; the real script must match it or the code node breaks"
+    - "Fill CHATWORK_API_TOKEN + GAS_SHARED_TOKEN in Dify (env secrets ship empty by design) and add a model"
+    - "Enable the trigger in Dify Studio → Quick Settings, or it never fires (S5 deferred — no enable API)"
+    - "SPEC asks an open question the harness cannot answer: schedule-Pull vs GAS-Push. A human decides"
+    - "Runtime: each overdue row reaches the right ChatWork room, one message per person"
 
 - id: excel-per-row-notify
   prompt: >-
