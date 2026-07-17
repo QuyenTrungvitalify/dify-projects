@@ -76,6 +76,37 @@ const DENY_EXECUTABLES = new Set<string>([
   'ln', 'xargs', 'eval', 'find', 'sed', 'awk', 'git-upload-pack',
 ]);
 
+/**
+ * What to reach for INSTEAD, per denied command. The denial is the one teaching moment that ALWAYS
+ * lands: it arrives exactly when the agent is wrong, so — unlike a doc — it needs no link to resolve
+ * and costs no turn to fetch.
+ *
+ * Measured on run 1784263317775 / 1784265851924: a bare "not in the allow-set" / "dangerous
+ * executable" tells the agent WHAT failed but not WHAT TO DO, so it reads as a syntax complaint and
+ * the model retries with different FLAGS — `grep` 3× (-i -E → -in → -in), `find` 6× (varying
+ * -maxdepth). ~9 turns burned re-asking a question that was never about the flags. "dangerous
+ * executable: find" is actively misleading on top: `find` is refused because the Glob tool covers it,
+ * not because it is unsafe.
+ *
+ * Every substitute here must be a tool `headless-settings.json` actually allows (Bash/Read/Write/
+ * Edit/Glob/Grep) — never name a way out that is itself denied.
+ */
+const SUBSTITUTE: Record<string, string> = {
+  grep: 'the Grep tool', rg: 'the Grep tool', ack: 'the Grep tool',
+  find: 'the Glob tool', fd: 'the Glob tool', locate: 'the Glob tool',
+  sed: 'the Edit tool', awk: 'the Read tool (then process the text yourself)',
+  cp: 'the Read + Write tools', mv: 'the Read + Write tools (then delete is not needed — leave the original)',
+  mkdir: 'the Write tool (it creates parent directories for you)',
+  touch: 'the Write tool', tee: 'the Write tool',
+  xargs: 'one plain command per call',
+  curl: 'nothing — a turn never reaches the network; the backend owns every Dify call',
+  wget: 'nothing — a turn never reaches the network; the backend owns every Dify call',
+};
+
+/** Append the sanctioned alternative to a denial, when one exists. Reason text only — never a decision. */
+const withHint = (reason: string, base: string): string =>
+  SUBSTITUTE[base] ? `${reason} — use ${SUBSTITUTE[base]} instead` : reason;
+
 const INTERPRETERS = new Set<string>(['python', 'python3', 'node', 'nodejs', 'perl', 'ruby', 'php', 'deno', 'bun']);
 const SHELLS = new Set<string>(['bash', 'sh', 'zsh', 'dash', 'csh', 'ksh', 'fish']);
 
@@ -129,7 +160,16 @@ export function analyzeBashCommand(rawCommand: string): DecisionResult {
   // 1. Structural gate — reject any shell metacharacter (chaining / redirect / subshell / pipe /
   //    expansion / glob / background). The legit phase commands contain none.
   if (!SIMPLE_COMMAND.test(command)) {
-    return { decision: 'deny', reason: 'command contains a shell metacharacter (chaining/redirect/subshell/pipe/expansion are not allowed)' };
+    // The observed shape is `<allowed cmd> … | head` or `… 2>&1` — the pipe alone is what fails, so the
+    // model retries the WHOLE command instead of just dropping the tail. Say what to do: the tool result
+    // comes back whole, so `| head` was never buying anything.
+    return {
+      decision: 'deny',
+      reason:
+        'command contains a shell metacharacter (chaining/redirect/subshell/pipe/expansion are not allowed) — ' +
+        're-run it as ONE plain command with no pipe/redirect/`;`. To search, use the Grep or Glob tool; ' +
+        'output is returned in full, so `| head` is unnecessary.',
+    };
   }
 
   const tokens = command.split(/\s+/).map(normToken).filter(Boolean);
@@ -150,7 +190,18 @@ export function analyzeBashCommand(rawCommand: string): DecisionResult {
   }
 
   // 3. Explicit dangerous verbs — clear reason before the default-deny tail.
-  if (DENY_EXECUTABLES.has(base)) return { decision: 'deny', reason: `dangerous executable: ${base}` };
+  // `find`/`sed`/`awk`/`cp`/`mv` sit in DENY_EXECUTABLES beside `rm`/`sudo`, but they are refused
+  // because an allowed TOOL already covers them — calling that "dangerous" sent the model hunting for
+  // a safer invocation (6 `find` retries, run 1784265851924). Name the substitute when there is one;
+  // the genuinely destructive verbs keep the blunt wording, which for them is the whole point.
+  if (DENY_EXECUTABLES.has(base)) {
+    return {
+      decision: 'deny',
+      reason: SUBSTITUTE[base]
+        ? withHint(`${base} is not available to a Builder turn`, base)
+        : `dangerous executable: ${base}`,
+    };
+  }
   if (SHELLS.has(base)) return { decision: 'deny', reason: `shell interpreter: ${base} (use the fixed phase commands)` };
   if (INTERPRETERS.has(base)) {
     return { decision: 'deny', reason: `bare interpreter '${base}' is denied — use .venv/bin/python on a fixed phase script` };
@@ -180,7 +231,7 @@ export function analyzeBashCommand(rawCommand: string): DecisionResult {
   if (ALLOWED_READONLY.has(base)) return { decision: 'allow', reason: `read-only command: ${base}` };
 
   // 6. Default-deny tail (the Builder runs a fixed, small command set).
-  return { decision: 'deny', reason: `command not in the Builder allow-set: ${base}` };
+  return { decision: 'deny', reason: withHint(`command not in the Builder allow-set: ${base}`, base) };
 }
 
 // ─── forbidden-paths (hard deny, content-aware) ─────────────────────────────────────────────────
