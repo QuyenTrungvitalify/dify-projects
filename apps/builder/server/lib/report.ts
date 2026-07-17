@@ -207,7 +207,7 @@ export function joinNotes(parts: string[]): string {
     .map((p) => p.trim())
     .filter(Boolean)
     .map((p) => (/[.!?。)]$/.test(p) ? p : `${p}.`))
-    .join(' ');
+    .join('\n');
 }
 
 export function toolInstallNote(labels: string[]): string {

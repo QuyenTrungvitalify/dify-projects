@@ -1117,6 +1117,28 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .secret-note svg { width: 12px; height: 12px; }
 
+/* report notes — bullet list */
+.report-notes-list {
+  list-style: none; margin: 0; padding: 0;
+}
+.report-note-item {
+  display: flex; align-items: flex-start; gap: 6px;
+  padding: 3px 0;
+}
+.note-bullet {
+  flex-shrink: 0;
+  font-size: 11.5px; color: var(--tx-faint); font-family: var(--mono);
+  line-height: 1.6;
+}
+.note-text {
+  flex: 1; min-width: 0;
+  word-break: break-word; overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+/* ※ deploy-off note — shown last, slightly dimmer */
+.deploy-off-note {
+  opacity: 0.75; font-style: italic;
+}
 /* ============================================================
    PROTOTYPE SCENARIO SWITCHER (not part of product)
    ============================================================ */

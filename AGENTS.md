@@ -164,7 +164,7 @@ apps/builder/scripts/e2e-run.sh fire "<prompt>" --mode auto          # needs bac
 | Repo overview, setup, roadmap | [README.md](README.md) |
 | Step-by-step operations + decision tree | [docs/GUIDE.md](docs/GUIDE.md) |
 | Architecture rationale | [docs/architecture.md](docs/architecture.md) |
-| Active specs (numbered) | [docs/specs/](docs/specs/) |
+| Active specs (numbered) | Cleaned up — no open specs. New specs start at **071**. View retired specs: `git show ca5e39e:docs/specs/` |
 | Node-type schema reference | [skills/mango-svip/references/node_types.md](skills/mango-svip/references/node_types.md) |
 | Runtime constraints & gotchas (sandbox limits, iteration ≤30, plugin hash, md_exporter caveats) | [skills/mango-svip/references/constraints.md](skills/mango-svip/references/constraints.md) |
 | Project-discovered runtime findings (supplements skills clone — committable) | [docs/runtime-supplement.md](docs/runtime-supplement.md) |
@@ -214,12 +214,10 @@ the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.
   your own risk.
 - **Tests**: server `npm test` (node:test via tsx, in `apps/builder/test/`), web `npm test` (vitest,
   `apps/builder/web/src/**/*.test.ts`). The pure safety logic (gate / run-lock / Origin-CSRF / slug /
-  auto-advance) is unit-tested; browser end-to-end is the **manual** QA suite at
-  [docs/specs/prompts/009/qa/](docs/specs/prompts/009/qa/).
-- **Specs**: the app's specs shipped and were retired in the 2026-07-17 reset. Open work lives in
-  [docs/specs/](docs/specs/); carried-over debt in
-  [docs/specs/068-carryover-backlog.md](docs/specs/068-carryover-backlog.md). To read a retired spec:
-  `git show ca5e39e:docs/specs/009-browser-workflow-builder.md`.
+  auto-advance) is unit-tested; browser end-to-end was a manual QA suite (deleted 2026-07-17 — view via
+  `git show ca5e39e:docs/specs/prompts/009/qa/`).
+- **Specs**: all builder specs shipped and retired. `docs/specs/` deleted 2026-07-17. To read any spec:
+  `git show ca5e39e:docs/specs/<filename>` or `git show ca5e39e:docs/specs/` to list all 77 files.
 - **Ask vs Request-changes** (spec 033): at a parked Analyze/Spec/Implement gate, the composer's Send
   defaults to **Ask** — a resumed, answer-only turn (message↔message, no phase re-run) that can never
   write `SPEC.md`/`main.yml`, enforced by two independent layers (`BUILDER_ASK_MODE` permission-gate

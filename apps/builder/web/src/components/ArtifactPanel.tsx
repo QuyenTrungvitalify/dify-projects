@@ -302,12 +302,22 @@ function ReportTab({ report, onReveal }: { report: ReportShape | null; onReveal:
         <div className="secret-note" style={{ marginTop: 14 }}>
           <I.lock />{tr('noteSelfhost')}
         </div>
-      ) : (
-        <div className="secret-note" style={{ marginTop: 14 }}>
-          <I.lock />{tr('noteDeployOff')}
+      ) : null}
+      {report.notes && (
+        <ul className="report-notes-list" style={{ marginTop: 10 }}>
+          {localizeNotes(report.notes).split('\n').filter(Boolean).map((line, i) => (
+            <li key={i} className="report-note-item">
+              <span className="note-bullet">·</span>
+              <span className="note-text secret-note">{line}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!report.app_url && report.deploy !== 'cloud' && report.deploy !== 'selfhost' && (
+        <div className="secret-note deploy-off-note" style={{ marginTop: 10 }}>
+          <I.lock />※ {tr('noteDeployOff')}
         </div>
       )}
-      {report.notes && <div className="secret-note" style={{ marginTop: 10 }}>{localizeNotes(report.notes)}</div>}
     </div>
   );
 }

@@ -675,7 +675,7 @@ const JA: Dict = {
   open: '開く',
   noteCloud: 'クラウドデプロイ — Dify Studio で YAML を手動インポートしてください（手順は下記のノート、YAML は main.yml タブにあります）。',
   noteSelfhost: '未インポート — インポートボタンを使うか、Dify を確認してください（ノート参照）。',
-  noteDeployOff: 'Dify ターゲット未設定 — アプリ URL はありません。インポートしてリンクを得るには DIFY_CONSOLE_URL / DIFY_CONSOLE_TOKEN を設定してください。',
+  noteDeployOff: 'Dify ターゲット未設定 — アプリ URL はありません。（ワークフローでテスト実行したい場合は DIFY_CONSOLE_URL / DIFY_CONSOLE_TOKEN を設定してください。）',
 };
 
 const DICT: Record<Lang, Dict> = { en: EN, ja: JA };
