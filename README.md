@@ -5,7 +5,7 @@
 Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 
 - Reference skills + corpus + node-type schema để build YAML workflow nhanh
-- CLI search ~46 template theo feature/complexity/plugin
+- CLI search ~43 template theo feature/complexity/plugin
 - Cấu trúc folder 2 tầng cho từng dự án (`projects/<project>/<workflow>/`, spec 030)
 - GitOps sync (pull/push/diff giữa Dify workspace ↔ git)
 - pytest harness + pre-commit hooks
@@ -239,14 +239,12 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **Phase 1.D** — pytest harness ([tests/](tests/)) — minimal `DifyWorkflowClient` + env-loading fixtures + syrupy snapshot example. Skips cleanly without creds.
 - ✅ **Phase 2.A** — GitOps sync ([tools/dify_base/sync.py](tools/dify_base/sync.py)) — 13 subcommands via Console API: `list/pull/diff/push` + `models/plugins/datasets/api-key/publish/delete/inject-model/run/upload`. 12 tests passing (mocked HTTP, no real Dify needed). Polish: clean error messages for connection/timeout/HTTP failures.
 - ✅ **Phase 2.B** — pre-commit hooks ([.pre-commit-config.yaml](.pre-commit-config.yaml), 13 hooks: yamllint + check-jsonschema + skill validator + DSL version guard + agents-md-refs + dify-lint-refs + dify-lint-node-bodies (spec 038) + dify-lint-plugin-hashes + 5 built-in) + bootstrap script ([scripts/setup.sh](scripts/setup.sh))
-- ✅ **Builder app** (specs [009](docs/specs/009-browser-workflow-builder.md)–055) — web UI local cho build 4 phase có gate; đã ship: turn sandbox (015/018), linter gates + graph reachability (020), template library (022), file attachments (025), live workflow test trên Dify thật (032 S1–S5, file inputs 047, model-optional 043), Ask mode tại gate (033–035), capability-aware test targets (036), workspace facts + runnability preflight (037), Request changes ở mọi gate (041), turn-failure triage (045), timeout knobs (048), chống import-blocker + import-probe (049), promote build → pattern (050/052), upload YAML làm base (051), one-click retry khi lỗi (053), Analyze digest cho build từ đầu (055)
-- ✅ **Curated template library** ([templates/library/](templates/library/), spec 022) — promote qua `/template-promote`, provenance-stamped
-- ⏳ **Polish 1.A** — `http_request` schema-dump currently **fails** (`_error: SchemaSerializer` on `dify_config.HTTP_REQUEST_MAX_*` defaults); 25/25 node modules import and 29 schemas generate, but this one ships with an `_error` marker rather than a clean dump. Tracked as spec 024 **S1** (make a dump-fail fatal in `gen_schema.py`, then fix the stub).
-- ✅ **Spec 039** — post-turn gate lint mọi `workflows/*.ya?ml` mà turn chạm + extension-twin hard error; 5 hook pre-commit DSL mở rộng sang `.ya?ml`
-- ✅ **Specs 037–038** (implemented 2026-07-07) — runnability preflight + workspace facts `{{KNOWLEDGE}}` (037), node-body schema linter thành linter thứ 4 của gate + pre-commit hook (038)
-- ✅ **Specs 040–055** (field hardening, 2026-07-07 → 07-10) — đã ship gần hết: UAT fixes (040), Request-changes-everywhere (041), live-test model-optional (043) + file inputs (047), turn-failure triage (045), phase latency (046), timeout knobs + auto-lint-reuse (048), import-blocker defense (049), promote-to-pattern (050/052/054), upload-YAML-as-base (051), one-click retry (053), from-scratch Analyze digest (055). Còn mở: 042 (foreign-residue preflight, Draft), 032 S6. Index: [docs/specs/README.md](docs/specs/README.md)
-- ✅ **Specs 056–057** (trigger entry, 2026-07-13 → 07-15) — start-node-as-trigger + raw file inputs (056); trigger-entry support cho workflow tự chạy theo lịch/webhook (057) — validator/lint_refs nhận `trigger-schedule|webhook|plugin`, skill nhận keyword tự-chạy, pattern `scheduled-fetch-notify`. ④ test nhắc bật trigger trong Studio Quick Settings (S5 enable-API deferred).
-- ✅ **Spec 058** — E2E simulation harness (`apps/builder/scripts/e2e-run.sh` + skill `/e2e`): bắn prompt vào Builder như user thật, chấm cơ học theo 3 bucket **AUTO-PASS / AUTO-FAIL / MANUAL** (phần không tự test được luôn báo cáo, không im lặng bỏ qua), tái dùng `/report` để chấm nội dung.
+- ✅ **Builder app** ([apps/builder/](apps/builder/)) — web UI local, build workflow qua 4 phase có gate người duyệt. Đã có: turn sandbox + write-allowlist, 4 linter gate (refs, node bodies, plugin hashes, graph reachability), file/image attachments, live-test trên Dify thật (kể cả file input, và workflow không có LLM), Ask mode tại mọi gate, Request-changes ở mọi gate, workspace facts + runnability preflight, chống import-blocker, promote build → pattern, upload YAML làm base, one-click retry khi lỗi, trigger-entry (workflow tự chạy theo lịch/webhook), tool-node support, run dossier export, cost instrumentation theo phase.
+- ✅ **Curated template library** ([templates/library/](templates/library/)) — promote qua `/template-promote`, có provenance-stamp
+- ✅ **E2E simulation harness** ([apps/builder/scripts/e2e-run.sh](apps/builder/scripts/e2e-run.sh) + skill `/e2e`) — bắn prompt vào Builder như user thật, chấm cơ học theo 3 bucket **AUTO-PASS / AUTO-FAIL / MANUAL** (phần không tự test được luôn được báo cáo, không im lặng bỏ qua), tái dùng `/report` để chấm nội dung
+- ⏳ **Polish 1.A** — `http_request` schema-dump đang **fail** (`_error: SchemaSerializer` trên default `dify_config.HTTP_REQUEST_MAX_*`); 25/25 node module import được và 29 schema generate được, nhưng cái này ship kèm marker `_error` thay vì dump sạch.
+
+Việc còn nợ: [docs/specs/068-carryover-backlog.md](docs/specs/068-carryover-backlog.md). Spec đang mở: [docs/specs/README.md](docs/specs/README.md).
 
 Chi tiết design: xem [docs/architecture.md](docs/architecture.md).
 

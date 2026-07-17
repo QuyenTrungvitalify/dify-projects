@@ -38,9 +38,10 @@ and `--check` reports per-source fresh/stale. INDEX is rebuilt once at the end; 
 
 ## Follow-up
 
-- If the script warns the **DSL file count changed**, the lint baseline doc may be stale — offer
-  to update [`docs/specs/003-lint-refs-baseline.md`](../../../docs/specs/003-lint-refs-baseline.md)
-  (it records the corpus commit + file count).
+- If the script warns the **DSL file count changed**, report it — a corpus that grew or shrank means
+  the lint numbers moved, which is worth a human's attention even though nothing tracks a baseline
+  today. (A `003-lint-refs-baseline.md` used to record the corpus commit + file count; it was
+  retired in the 2026-07-17 reset. Read it with `git show ca5e39e:docs/specs/003-lint-refs-baseline.md`.)
 - `INDEX.md` / `index.json` are regenerated, not hand-edited. If they changed, that is expected.
 
 ## Notes

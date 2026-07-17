@@ -68,13 +68,13 @@ cp templates/patterns/multi-step-llm.yml projects/<project>/<workflow>/workflows
 ### 4.2 Variable references
 - Syntax: `{{#<node_id>.<field>#}}`. The `<field>` MUST exist in the source node's declared `outputs`.
 - The source `<node_id>` MUST be reachable upstream in the graph (no forward references).
-- Typos here are the **#1 cause of silent import success + runtime failure**. `lint_refs.py` (pre-commit) checks that the referenced `<node_id>` exists and that `<field>` is a declared output of that node, **and** — since [spec 020](docs/specs/020-builder-graph-reachability-linter.md) promoted it — verifies **graph reachability**: a forward/dangling ref whose source node is not upstream-reachable over the edge DAG makes the linter **exit 1** and gates the commit (it no longer just warns). One documented exception: consumers **inside a container** (iteration/loop body) are skipped (`lint_refs` E3 — their refs resolve in container scope, not the main DAG), and a rare legitimate shape the BFS can't model can be waived via the reachability allowlist. Do not ignore its failures.
+- Typos here are the **#1 cause of silent import success + runtime failure**. `lint_refs.py` (pre-commit) checks that the referenced `<node_id>` exists and that `<field>` is a declared output of that node, **and** verifies **graph reachability**: a forward/dangling ref whose source node is not upstream-reachable over the edge DAG makes the linter **exit 1** and gates the commit (it no longer just warns). One documented exception: consumers **inside a container** (iteration/loop body) are skipped (`lint_refs` E3 — their refs resolve in container scope, not the main DAG), and a rare legitimate shape the BFS can't model can be waived via the reachability allowlist. Do not ignore its failures.
 
 ### 4.3 Plugin marketplace hashes
 - Format: `<provider>/<plugin>:<version>@<sha256>` in `dependencies[].value.marketplace_plugin_unique_identifier`.
 - The `@<sha256>` part is **real, public, and keyed to (plugin, version)** — **not** workspace-specific. It is the marketplace package checksum: the same plugin+version yields the same hash in every workspace. **Resolve it, never invent it.** `tools/dify_base/lint_plugin_hashes.py` (pre-commit) enforces the format.
 - Resolving a hash needs **no login and no install**: `GET https://marketplace.dify.ai/api/v1/plugins/<org>/<name>/<version>` returns `unique_identifier` — paste that whole string into `dependencies[].value.marketplace_plugin_unique_identifier`. Verified 2026-07-16: exports from this repo's own workspace match the public API byte-for-byte (`langgenius/openai:0.2.8@aae2be09…`, `langgenius/gemini:0.9.1@324a17a2…`).
-- **A workflow that uses a marketplace plugin MUST list it in `dependencies:`.** An empty `dependencies: []` + a `# TODO` is *not* a safe default: Dify only raises its own "install this plugin" prompt when the imported DSL carries a **non-empty** top-level `dependencies:` (the graph-derived fallback is dead above DSL 0.1.5 — see [spec 067](docs/specs/067-tool-nodes-are-buildable.md)). With `dependencies: []` the import succeeds, nothing prompts, and the tool fails at runtime.
+- **A workflow that uses a marketplace plugin MUST list it in `dependencies:`.** An empty `dependencies: []` + a `# TODO` is *not* a safe default: Dify only raises its own "install this plugin" prompt when the imported DSL carries a **non-empty** top-level `dependencies:` (the graph-derived fallback is dead above DSL 0.1.5). With `dependencies: []` the import succeeds, nothing prompts, and the tool fails at runtime.
 - Pin the **version** you resolved. The hash changes when the plugin is upgraded, so `latest_package_identifier` drifts — use the version-specific endpoint. On a "plugin version mismatch" import error, re-resolve for the version the workspace has.
 
 > **History**: this section previously said the hash was "workspace-specific — copy it from a YAML exported by the target Dify workspace. NEVER fabricate", with a 7-step Export-DSL procedure. That was **false**, and it cost real user value: `②Spec` obeyed it and refused to build tool nodes at all (rationale in one real run: 「プラグインハッシュ依存が増えないため」), so three consecutive builds shipped `http-request` instead of the Dify tool, and a stakeholder asking for spreadsheet integration was told it could not be done. Resolve the hash; do not avoid the tool.
@@ -216,10 +216,10 @@ the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.
   `apps/builder/web/src/**/*.test.ts`). The pure safety logic (gate / run-lock / Origin-CSRF / slug /
   auto-advance) is unit-tested; browser end-to-end is the **manual** QA suite at
   [docs/specs/prompts/009/qa/](docs/specs/prompts/009/qa/).
-- **Specs**: [009](docs/specs/009-browser-workflow-builder.md) (the app),
-  [010](docs/specs/010-builder-ux-hardening.md) (UX hardening),
-  [011](docs/specs/011-builder-test-coverage-and-remediation.md) (tests + review remediation),
-  [033](docs/specs/033-builder-gate-qa-chat-mode.md) (Ask vs Request-changes at a gate — see below).
+- **Specs**: the app's specs shipped and were retired in the 2026-07-17 reset. Open work lives in
+  [docs/specs/](docs/specs/); carried-over debt in
+  [docs/specs/068-carryover-backlog.md](docs/specs/068-carryover-backlog.md). To read a retired spec:
+  `git show ca5e39e:docs/specs/009-browser-workflow-builder.md`.
 - **Ask vs Request-changes** (spec 033): at a parked Analyze/Spec/Implement gate, the composer's Send
   defaults to **Ask** — a resumed, answer-only turn (message↔message, no phase re-run) that can never
   write `SPEC.md`/`main.yml`, enforced by two independent layers (`BUILDER_ASK_MODE` permission-gate
@@ -242,7 +242,7 @@ the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.
 - **The gate runs 4 linters** (spec 038): `validate_workflow.py` + `lint_refs.py` +
   `lint_plugin_hashes.py` + `lint_node_bodies.py` (node bodies vs the generated `NodeData_*`
   schemas; escape hatch = a column-0 `# lint-bodies: allow <node_id>` line).
-- **Sanctioned sources of plugin hashes / dataset ids in a Builder turn** (spec 037 + [067](docs/specs/067-tool-nodes-are-buildable.md)):
+- **Sanctioned sources of plugin hashes / dataset ids in a Builder turn**:
   (1) the **workspace facts** the backend harvests into the `{{KNOWLEDGE}}` block — copy verbatim; these
   are authoritative for **dataset ids** (workspace-local) and for the plugin **versions** actually
   installed. (2) the **marketplace catalog/resolver** for plugin hashes — public and version-keyed

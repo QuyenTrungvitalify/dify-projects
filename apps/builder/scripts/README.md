@@ -2,9 +2,7 @@
 
 Drive the Builder the way a real user does — fire a prompt, walk the gates, grade the result — but
 scripted, so you (or any Claude session) can regression-test a change and watch build **speed**
-without clicking through the UI. Specs: [058](../../../docs/specs/058-e2e-simulation-harness.md)
-(the harness), [059](../../../docs/specs/059-phase-cost-instrumentation.md) (per-phase cost),
-[060](../../../docs/specs/060-e2e-cost-regression-gating.md) (cost gating).
+without clicking through the UI.
 
 - `e2e-run.sh` — the runner (curl + jq against the local API).
 - `e2e_check.py` — the mechanical grader (three-bucket + cost).
