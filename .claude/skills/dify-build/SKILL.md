@@ -45,8 +45,20 @@ Read, do not restate: [AGENTS.md](../../../AGENTS.md) **§3** (5-step build sequ
 - **Need a plugin / tool-node shape or a `dependencies` entry? READ THE DOC — don't search.** The
   answer is almost always already written down, so `Read` the known path directly instead of hunting:
   `docs/runtime-supplement.md` (the correct `md_to_xlsx` / tool-node YAML shape) ·
-  `docs/plugin-capabilities.md` (per-tool behavior) · AGENTS.md **§4.3** (plugin hashes / `dependencies`) ·
-  `skills/mango-svip/references/node_types.md` (node schemas). This alone avoids most of the search below.
+  `docs/plugin-capabilities.md` (per-tool behavior) · AGENTS.md **§4.3** (plugin hashes / `dependencies`).
+  This alone avoids most of the search below.
+- **Need the FIELDS of a node body? `schemas/dify-dsl-0.6.0.json` → `$defs.NodeData_<X>` is the truth.**
+  One `Read`, 29 node types, generated from Dify's own source — the same schema `lint_node_bodies.py`
+  gates you against, so what it lists is exactly what passes. `--list-coverage` names the `NodeData_*`
+  for a type; the schema says what is IN it.
+  > `skills/mango-svip/references/node_types.md` is a third-party clone that predates trigger support
+  > and is **WRONG for the trigger nodes**: it gives `trigger-webhook` a `variables:` field (there is
+  > none — the real body is `method`/`content_type`/`body`/`params`/`status_code`/`webhook_id`) and
+  > `trigger-schedule` a `schedule:` field (really `mode`/`frequency`/`cron_expression`/`timezone`/
+  > `visual_config`). Neither wrong shape is REJECTED — `NodeData_*` does not set
+  > `additionalProperties: false` — so following it imports clean and fails at runtime, the §4.2
+  > "silent import success" class. Use it for the ordinary nodes; for anything trigger-shaped, the
+  > generated schema wins. (It is a gitignored clone — `setup.sh` re-clones it, so it cannot be fixed here.)
 - **When you DO search, use the Grep / Glob / Read TOOLS — not the shell (the #1 time-waster in the app).**
   The Builder turn's sandbox **denies** shell `grep`/`find`/`sed`/`awk`/`rm`/`cp`/`mv`, every pipe/redirect,
   and `-c`; only `.venv/bin/python <the 6 known scripts>` + `ls`/`cat`/`head`/`tail`/`wc` shell out. But the

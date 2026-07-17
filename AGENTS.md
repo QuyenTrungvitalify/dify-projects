@@ -216,8 +216,8 @@ the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.
   `apps/builder/web/src/**/*.test.ts`). The pure safety logic (gate / run-lock / Origin-CSRF / slug /
   auto-advance) is unit-tested; browser end-to-end was a manual QA suite (deleted 2026-07-17 — view via
   `git show ca5e39e:docs/specs/prompts/009/qa/`).
-- **Specs**: all builder specs shipped and retired. `docs/specs/` deleted 2026-07-17. To read any spec:
-  `git show ca5e39e:docs/specs/<filename>` or `git show ca5e39e:docs/specs/` to list all 77 files.
+- **Specs**: all builder specs shipped and retired — the spec directory was deleted 2026-07-17. To read
+  any spec: `git show ca5e39e:docs/specs/<filename>`, or `git show ca5e39e:docs/specs/` to list all 77.
 - **Ask vs Request-changes** (spec 033): at a parked Analyze/Spec/Implement gate, the composer's Send
   defaults to **Ask** — a resumed, answer-only turn (message↔message, no phase re-run) that can never
   write `SPEC.md`/`main.yml`, enforced by two independent layers (`BUILDER_ASK_MODE` permission-gate

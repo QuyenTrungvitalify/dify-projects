@@ -136,6 +136,13 @@ You are producing a valid Dify workflow YAML that satisfies `SPEC.md`. Read
    > A `warn-skip` type is **not** a free pass — it means this gate cannot catch a wrong body, so
    > that shape must come from a vetted source (`docs/runtime-supplement.md`,
    > `templates/tool-catalog.json`, `templates/patterns/*`), not from guesswork.
+   >
+   > **`--list-coverage` names the `NodeData_*`; it does not say what is IN it.** For the FIELDS of an
+   > unfamiliar node body, `Read` `schemas/dify-dsl-0.6.0.json` → `$defs.NodeData_<X>` — one call, the
+   > same schema this linter gates you against, so what it lists is exactly what passes. Do NOT read
+   > `lint_node_bodies.py`'s source to infer it, and do NOT write a throwaway probe script (the sandbox
+   > denies running one). A real run burned 44 turns and 13 hook-denied `grep`s reconstructing
+   > `trigger-webhook` this way; the answer was one `Read` away.
    ```
    .venv/bin/python tools/dify_base/validate_workflow.py projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
    .venv/bin/python tools/dify_base/lint_refs.py            projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
