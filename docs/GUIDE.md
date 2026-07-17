@@ -347,7 +347,7 @@ python3 tools/dify_base/validate_workflow.py templates/<new_task>.yml
 |---|---|
 | DSL version | `0.6.0` — hiện tại từ Dify source (`api/services/app_dsl_service.py: CURRENT_DSL_VERSION`) |
 | Khi Dify update version | Re-run `python3 schemas/gen_schema.py` để regenerate JSON Schema; test 1 template với version mới trước khi migrate hàng loạt |
-| Plugin marketplace identifier | Copy nguyên hash từ workflow đã export ra từ target workspace (hash đổi theo plugin version) |
+| Plugin marketplace identifier | **Resolve** từ marketplace công khai (không cần login/cài): `GET https://marketplace.dify.ai/api/v1/plugins/<org>/<name>/<version>` → `unique_identifier`. Hash là checksum **toàn cục theo (plugin, version)**, KHÔNG phải workspace-specific — pin version vì hash đổi theo version. Workflow dùng plugin thì **bắt buộc** liệt kê trong `dependencies:`, nếu để rỗng thì Dify không hiện popup cài ([spec 067](specs/067-tool-nodes-are-buildable.md)) |
 
 ### 7.2 Naming
 

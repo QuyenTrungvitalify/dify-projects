@@ -62,9 +62,12 @@ Columns describe how each tool handles inline markdown / HTML / line-break token
   for xlsx, the plugin has no rich-text equivalent (see
   [test_openpyxl_feasibility.yml](../projects/eiken_stem_proofread/workflows/test_openpyxl_feasibility.yml)
   for the alternative-path investigation).
-- **Plugin hash** is workspace-specific (see [AGENTS.md §4.3](../AGENTS.md)).
-  The version above (v2.1.1) is the version eiken verified against; tool
-  behavior may differ on other versions — re-verify after upgrade.
+- **Plugin hash** is public and **version**-keyed — resolve it, never invent it
+  (see [AGENTS.md §4.3](../AGENTS.md) / [spec 067](specs/067-tool-nodes-are-buildable.md)).
+  *(This line previously said "workspace-specific"; that was the retired myth.)* The version above
+  (v2.1.1) is the version eiken verified against; tool behavior may differ on other versions — and
+  because the hash is keyed to the version, an upgrade means **re-resolving** the hash, not
+  re-exporting a YAML.
 
 ## Cross-references
 

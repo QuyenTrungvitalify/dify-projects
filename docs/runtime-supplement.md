@@ -35,13 +35,24 @@ that depends on them; use the alternative path in the rightmost column.
 ### `md_to_xlsx` tool node — the correct `builtin` shape (verbatim from a lint-clean build)
 
 This block is copied verbatim from a build whose 4 linters (incl. `lint_node_bodies.py` against the
-generated `NodeData_ToolNodeData` schema) passed — so it is **schema-valid**, though the `@sha256` still
-needs the workspace hash before a real import. `node_types.md §13`'s generic example shows
-`provider_type: api` and omits several required keys — it does **NOT** match a real marketplace-plugin tool
-node. Use this shape for `bowenliang123/md_exporter`
+generated `NodeData_ToolNodeData` schema) passed — so it is **schema-valid**. `node_types.md §13`'s
+generic example shows `provider_type: api` and omits several required keys — it does **NOT** match a
+real marketplace-plugin tool node. Use this shape for `bowenliang123/md_exporter`
 (`md_to_xlsx` / `md_to_csv` / `md_to_docx`) so a build does not have to reverse-engineer it. The tool node
-declares **no `outputs:`** — a downstream node reads its `files` (and `text`) via `value_selector`. Keep
-`dependencies: []` + the `# TODO:` hash comment (§4.3 — never fabricate the `@sha256`).
+declares **no `outputs:`** — a downstream node reads its `files` (and `text`) via `value_selector`.
+
+> **Updated by [spec 067](specs/067-tool-nodes-are-buildable.md) (2026-07-17).** This section used to
+> end: *"the `@sha256` still needs the workspace hash before a real import … Keep `dependencies: []` +
+> the `# TODO:` hash comment (never fabricate the `@sha256`)."* Both halves were wrong, and this file
+> is the one `SKILL.md` sends a build to **first** for exactly this question — so the error was
+> load-bearing. The truth: the hash is the **public marketplace package checksum**, keyed to
+> (plugin, version) and identical in every workspace — **resolve** it
+> (`.venv/bin/python tools/dify_base/marketplace.py resolve bowenliang123/md_exporter`, or copy from
+> `templates/tool-catalog.json`), never invent it. And **`dependencies:` MUST be filled**: Dify raises
+> its "install this plugin" prompt only when the imported DSL carries a **non-empty** top-level
+> `dependencies:` array (the graph-derived fallback is dead above DSL 0.1.5), so `[]` + `# TODO` is the
+> case where the import succeeds, nothing prompts, and the node fails at **runtime**.
+> `lint_plugin_hashes.py` now fails a tool node whose plugin is unlisted.
 
 ```yaml
 - data:

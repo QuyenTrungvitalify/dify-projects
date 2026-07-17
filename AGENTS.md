@@ -11,7 +11,7 @@
 ## 1. What this repo is — and is NOT
 
 This is a **base workspace** for authoring Dify workflow YAML across multiple projects. It
-provides: a JSON Schema for Dify DSL, scaffolding tools, 9 vetted workflow patterns, a
+provides: a JSON Schema for Dify DSL, scaffolding tools, 10 vetted workflow patterns, a
 ~27-example vendored corpus (45-file template index), pytest harness, and pre-commit hooks.
 
 **It is NOT** a fork of Dify, a Dify plugin, or a runtime. We only produce DSL YAML that gets
@@ -72,20 +72,12 @@ cp templates/patterns/multi-step-llm.yml projects/<project>/<workflow>/workflows
 
 ### 4.3 Plugin marketplace hashes
 - Format: `<provider>/<plugin>:<version>@<sha256>` in `dependencies[].value.marketplace_plugin_unique_identifier`.
-- The `@<sha256>` part is **real and workspace-specific** — copy it from a YAML exported by the target Dify workspace. NEVER fabricate. `tools/dify_base/lint_plugin_hashes.py` (pre-commit) enforces the format.
-- When authoring a new pattern in `templates/patterns/`, leave `dependencies: []` empty and put a `# TODO: add plugin hash from target workspace` comment near the node that needs it.
+- The `@<sha256>` part is **real, public, and keyed to (plugin, version)** — **not** workspace-specific. It is the marketplace package checksum: the same plugin+version yields the same hash in every workspace. **Resolve it, never invent it.** `tools/dify_base/lint_plugin_hashes.py` (pre-commit) enforces the format.
+- Resolving a hash needs **no login and no install**: `GET https://marketplace.dify.ai/api/v1/plugins/<org>/<name>/<version>` returns `unique_identifier` — paste that whole string into `dependencies[].value.marketplace_plugin_unique_identifier`. Verified 2026-07-16: exports from this repo's own workspace match the public API byte-for-byte (`langgenius/openai:0.2.8@aae2be09…`, `langgenius/gemini:0.9.1@324a17a2…`).
+- **A workflow that uses a marketplace plugin MUST list it in `dependencies:`.** An empty `dependencies: []` + a `# TODO` is *not* a safe default: Dify only raises its own "install this plugin" prompt when the imported DSL carries a **non-empty** top-level `dependencies:` (the graph-derived fallback is dead above DSL 0.1.5 — see [spec 067](docs/specs/067-tool-nodes-are-buildable.md)). With `dependencies: []` the import succeeds, nothing prompts, and the tool fails at runtime.
+- Pin the **version** you resolved. The hash changes when the plugin is upgraded, so `latest_package_identifier` drifts — use the version-specific endpoint. On a "plugin version mismatch" import error, re-resolve for the version the workspace has.
 
-**How to obtain a real plugin hash** (one-time per plugin per workspace):
-
-1. Log in to the target Dify workspace (Cloud or self-host).
-2. Studio → open any app that already uses the plugin you need (or install the plugin first if no app uses it).
-3. Click the `⋯` menu (top-right of the app editor) → **Export DSL**.
-4. Open the downloaded `.yml` in a text editor.
-5. Search for `marketplace_plugin_unique_identifier:` inside the `dependencies:` section.
-6. Copy the **full** value string — looks like `langgenius/openai:0.0.31@abc123...64-hex...`.
-7. Paste into your workflow's `dependencies[].value.marketplace_plugin_unique_identifier`.
-
-The hash changes when the plugin is upgraded in the workspace. If you see a "plugin version mismatch" error on import, re-export and copy the fresh hash.
+> **History**: this section previously said the hash was "workspace-specific — copy it from a YAML exported by the target Dify workspace. NEVER fabricate", with a 7-step Export-DSL procedure. That was **false**, and it cost real user value: `②Spec` obeyed it and refused to build tool nodes at all (rationale in one real run: 「プラグインハッシュ依存が増えないため」), so three consecutive builds shipped `http-request` instead of the Dify tool, and a stakeholder asking for spreadsheet integration was told it could not be done. Resolve the hash; do not avoid the tool.
 
 ### 4.4 DSL version
 - Every workflow YAML MUST have a top-level `version: 0.6.0` (or whatever the project's `dsl_version` says).
@@ -99,7 +91,7 @@ The hash changes when the plugin is upgraded in the workspace. If you see a "plu
 
 ## 5. DO NOT
 
-- Do NOT fabricate plugin sha256 hashes — leave `dependencies: []` empty + add `# TODO:` instead.
+- Do NOT fabricate plugin sha256 hashes — **resolve** them from the marketplace (§4.3). Do NOT drop a tool node just because the workspace has not installed its plugin, and do NOT ship a tool node with `dependencies: []` (Dify then never prompts to install it).
 - Do NOT mix DSL versions in one project's workflows.
 - Do NOT commit a new `templates/patterns/*.yml` without `# TODO:` markers on every customization point.
 - Do NOT commit `projects/*/envs/*.env` (gitignored — only `.example` files are tracked).
@@ -181,7 +173,8 @@ apps/builder/scripts/e2e-run.sh fire "<prompt>" --mode auto          # needs bac
 | Workflow examples (multilingual reference, bodies mostly Chinese) | [corpus/awesome-dify-workflow-en/Workflow-Store/](corpus/awesome-dify-workflow-en/) |
 | Vendored-source registry (one entry per corpus; add/refresh sources here) | [corpus/sources.yml](corpus/sources.yml) — read by `setup.sh`, `build_index.py`, `update_corpus.sh` (spec 022). Tagged `corpus:<name>` in INDEX. |
 | Promoted curated templates (standardized from a corpus example) | [templates/library/](templates/library/) — each carries an `x-provenance` header; promote via `/template-promote` (spec 022 D5). Staleness: `tools/dify_base/check_provenance.py`. Attributions: [THIRD_PARTY.md](THIRD_PARTY.md). |
-| 9 vetted starting patterns | [templates/patterns/](templates/patterns/) |
+| 10 vetted starting patterns | [templates/patterns/](templates/patterns/) |
+| Curated Dify tools + their real identifiers | [templates/tool-catalog.json](templates/tool-catalog.json) (§4.3; regenerate with `tools/dify_base/marketplace.py`) |
 | Project scaffold skeleton | [templates/_base/project/](templates/_base/project/) |
 | JSON Schema (DSL v0.6.0) | [schemas/dify-dsl-0.6.0.json](schemas/dify-dsl-0.6.0.json) |
 | Schema generator (regen on Dify upgrade) | [schemas/gen_schema.py](schemas/gen_schema.py) |
@@ -249,7 +242,12 @@ the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.
 - **The gate runs 4 linters** (spec 038): `validate_workflow.py` + `lint_refs.py` +
   `lint_plugin_hashes.py` + `lint_node_bodies.py` (node bodies vs the generated `NodeData_*`
   schemas; escape hatch = a column-0 `# lint-bodies: allow <node_id>` line).
-- **Workspace facts are the ONLY sanctioned source of plugin hashes / dataset ids in a Builder
-  turn** (spec 037): the backend harvests them into the `{{KNOWLEDGE}}` block — copy verbatim;
-  no block → leave the documented TODO form (§4.3's never-fabricate rule is unchanged). The ③
-  gate shows an advisory `preflight:` note when a build is not runnable out-of-the-box.
+- **Sanctioned sources of plugin hashes / dataset ids in a Builder turn** (spec 037 + [067](docs/specs/067-tool-nodes-are-buildable.md)):
+  (1) the **workspace facts** the backend harvests into the `{{KNOWLEDGE}}` block — copy verbatim; these
+  are authoritative for **dataset ids** (workspace-local) and for the plugin **versions** actually
+  installed. (2) the **marketplace catalog/resolver** for plugin hashes — public and version-keyed
+  (§4.3), so a plugin the workspace has not installed is still resolvable and still buildable.
+  Never *invent* a hash; resolving one is not inventing. An **empty** `{{KNOWLEDGE}}` block means the
+  harvest found nothing — it is **not** evidence that a plugin does not exist, and it is never a reason
+  to drop a tool node (§4.3's history note). Dataset ids have no public source: no fact → the TODO form.
+  The ③ gate shows an advisory `preflight:` note when a build is not runnable out-of-the-box.
