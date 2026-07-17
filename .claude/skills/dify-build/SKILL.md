@@ -47,10 +47,11 @@ Read, do not restate: [AGENTS.md](../../../AGENTS.md) **§3** (5-step build sequ
   `docs/runtime-supplement.md` (the correct `md_to_xlsx` / tool-node YAML shape) ·
   `docs/plugin-capabilities.md` (per-tool behavior) · AGENTS.md **§4.3** (plugin hashes / `dependencies`).
   This alone avoids most of the search below.
-- **Need the FIELDS of a node body? `schemas/dify-dsl-0.6.0.json` → `$defs.NodeData_<X>` is the truth.**
-  One `Read`, 29 node types, generated from Dify's own source — the same schema `lint_node_bodies.py`
-  gates you against, so what it lists is exactly what passes. `--list-coverage` names the `NodeData_*`
-  for a type; the schema says what is IN it.
+- **Need the FIELDS of a node body? One allowed call:**
+  `.venv/bin/python tools/dify_base/lint_node_bodies.py --dump-schema <node-type>` — prints the full
+  `$defs.NodeData_<X>` def from `schemas/dify-dsl-0.6.0.json` (generated from Dify's own source, and
+  the exact schema that linter gates you against, so what it lists is exactly what passes). Unknown
+  type → it lists the known ones. Do NOT hunt the 7,700-line schema file by hand.
   > `skills/mango-svip/references/node_types.md` is a third-party clone that predates trigger support
   > and is **WRONG for the trigger nodes**: it gives `trigger-webhook` a `variables:` field (there is
   > none — the real body is `method`/`content_type`/`body`/`params`/`status_code`/`webhook_id`) and

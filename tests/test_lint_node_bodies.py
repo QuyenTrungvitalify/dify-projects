@@ -226,3 +226,45 @@ def test_root_node_data_envelope_still_bare() -> None:
         "required": ["type"],
         "properties": {"type": {"type": "string"}},
     }
+
+
+# ── --dump-schema (the sanctioned one-call answer to "what is IN this node body?") ──────────────
+# Run 1784278684526 built a trigger-webhook (no pattern ships an example) and burned 44 turns / 13
+# hook-denied greps extracting the def from the 7,700-line schema — grep/rg/`python -c`/probe-script
+# are all sandbox-denied, so it Read 182KB three times and reverse-engineered THIS linter's source.
+# It literally tried `--dump-schema` before the flag existed. Now it exists; these pin its contract.
+
+
+def test_dump_schema_prints_the_real_def() -> None:
+    result = run_tool("--dump-schema", "trigger-webhook")
+    assert result.returncode == 0, result.stderr
+    doc = json.loads(result.stdout)
+    body = doc["NodeData_WebhookData"]
+    # The fields that run reconstructed by hand — if these vanish, the flag misleads.
+    for field in ("method", "content_type", "body", "params", "status_code", "webhook_id"):
+        assert field in body["properties"], f"missing `{field}`"
+    # The def must be self-contained (its own nested $defs), same property lint_file relies on.
+    assert "ContentType" in body.get("$defs", {})
+
+
+def test_dump_schema_unknown_type_lists_the_known_ones() -> None:
+    """`find.py --has <typo>` fails SILENTLY ("No matching templates") — indistinguishable from a
+    real empty result, and the 44-turn run fell into exactly that. This flag must not repeat it."""
+    result = run_tool("--dump-schema", "trigger-webook")  # typo
+    assert result.returncode == 2
+    assert "unknown node type" in result.stderr
+    assert "trigger-webhook" in result.stderr, "the known-type list must include the near-miss"
+    assert result.stdout == ""
+
+
+def test_dump_schema_warn_skip_type_explains_instead_of_stub() -> None:
+    result = run_tool("--dump-schema", "assigner")  # mapped to None (no def dumped)
+    assert result.returncode == 2
+    assert "warn-skip" in result.stderr
+    assert "vetted source" in result.stderr
+
+
+def test_dump_schema_requires_an_argument() -> None:
+    result = run_tool("--dump-schema")
+    assert result.returncode == 2
+    assert "requires a node type" in result.stderr

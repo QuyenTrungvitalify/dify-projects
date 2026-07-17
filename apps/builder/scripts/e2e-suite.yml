@@ -54,6 +54,47 @@
   manual:
     - "Runtime: paste a paragraph, confirm the summary is 3 lines"
 
+- id: webhook-per-row-chatwork
+  # The PUSH twin of trigger-per-row-chatwork, and a deterministic repro for the schema-extraction
+  # hole. The base prompt is ambiguous between Pull (schedule) and Push (webhook) — SPEC flags it as an
+  # open question — so builds pick webhook only ~1 run in 5. This prompt REMOVES the ambiguity: GAS
+  # POSTs to a Dify webhook, full stop. That forces ③ onto trigger-webhook, a node NO pattern ships an
+  # example of, where the manual run 1784278684526 burned 44 turns / 13 denied greps: it FOUND
+  # schemas/dify-dsl-0.6.0.json (7,704 lines; the def sits at line ~6,687) but had no allowed way to
+  # extract one $def — grep/rg/python -c all denied, `--dump-schema` didn't exist — so it Read all
+  # 182KB three times and reverse-engineered the linter source. The cost caps here are the tripwire:
+  # they FAIL on that behavior and pass once a sanctioned extraction path exists.
+  prompt: >-
+    GAS から Dify の Webhook トリガーへ POST でスプレッドシートの行データ（督促候補行 rows_json・
+    使用者名→ChatWork送信先の対応表 id_map_json・実行日 today）を送信するので、その Webhook 受信を
+    起点とするフローを作成したい。受信した行のうち「D列の月日が本日より以前 かつ T列が空」の行だけを
+    対象に、F列の使用者名から送信先IDを解決し、経理担当の負担軽減への依頼である事を伝える催促文を
+    LLMで作成して ChatWork API で1人ずつ個別送信して。スケジュール起動ではなく Webhook 受信起動で。
+  mode: auto
+  deploy: none
+  expect:
+    analyze:
+      features_include: [trigger, iteration]
+    workflow:
+      grep_present:
+        - "type: trigger-webhook"
+        - "type: iteration"
+        - "X-ChatWorkToken"
+        - "type: no-auth"
+      # the wrong shapes node_types.md teaches AND the schedule fallback — absent = built the real thing
+      grep_absent: ["type: start", "type: trigger-schedule"]
+    report:
+      notes_include: ["passed every automated check"]
+  cost:
+    implement_turns_max: 30   # the 44-turn schema hunt trips this; a pointed build (15–18) clears it
+    total_turns_max: 60
+    cache_min_pct: 50
+  manual:
+    - "GAS must actually POST {rows_json, id_map_json, today} to the webhook URL Dify shows after import"
+    - "Fill CHATWORK_API_TOKEN (+ any GAS shared secret) in Dify and add a model"
+    - "Enable the trigger in Dify Studio → Quick Settings, or it never fires"
+    - "Runtime: each overdue row reaches the right ChatWork room, one message per person"
+
 - id: trigger-per-row-chatwork
   # The build that exposed the {{REFERENCES}} gap. It needs TWO shapes at once — the approved pattern
   # (scheduled-fetch-notify: trigger/http/llm) AND an `iteration` example, which that pattern has none

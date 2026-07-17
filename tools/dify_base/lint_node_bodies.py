@@ -158,6 +158,34 @@ def coverage_rows(schema_path: Path) -> list[tuple[str, str, str]]:
     return rows
 
 
+def dump_schema(schema_path: Path, ntype: str) -> tuple[int, str]:
+    """→ (exit code, output) for `--dump-schema <node-type>`: the node's NodeData_* def as JSON.
+
+    WHY THIS EXISTS. `--list-coverage` names the def; nothing said what is IN it. The schema file is
+    7,700+ lines with the def a turn needs sitting ~6,700 lines deep, and the Builder sandbox denies
+    every extraction route — shell grep/rg, `python -c`, a throwaway probe script. Run 1784278684526
+    (trigger-webhook, a node no pattern ships an example of) knew EXACTLY where the answer lived and
+    still burned 44 turns: 13 denied greps, the 182KB file Read three times over, and finally this
+    linter's source reverse-engineered. This flag is the sanctioned one-call answer that hunt was
+    reaching for (it literally tried `--dump-schema` and `--help` before giving up).
+
+    Unknown type → exit 2 AND the known-type list on stderr: "no output" must be distinguishable from
+    "you misspelled it" (the find.py --has silence taught that lesson). warn-skip types explain
+    themselves instead of dumping a stub.
+    """
+    if ntype not in TYPE_TO_DEF:
+        known = ", ".join(sorted(TYPE_TO_DEF))
+        return 2, f"unknown node type '{ntype}'. Known types: {known}"
+    def_name = TYPE_TO_DEF[ntype]
+    if def_name is None:
+        return 2, f"'{ntype}' is warn-skip: no NodeData_* def was dumped for it — take the shape from a vetted source (docs/runtime-supplement.md, templates/)"
+    defs = load_schema(schema_path)["$defs"]
+    body = defs.get(def_name, {})
+    if "_error" in body:
+        return 2, f"'{ntype}' maps to {def_name}, which is an `_error` dump-stub — take the shape from a vetted source"
+    return 0, json.dumps({def_name: body}, indent=2, ensure_ascii=False)
+
+
 def node_lines(text: str) -> dict[str, int]:
     """Map node id → 1-based line of the node's own mapping start, via a mark-capturing
     `yaml.compose` pass (spec 038 §Design: safe_load discards marks; lint_refs' regex-scan
@@ -278,6 +306,16 @@ def main(argv: list[str]) -> int:
         if arg == "--list-coverage":
             list_coverage = True
             i += 1
+        elif arg == "--dump-schema":
+            if i + 1 >= len(argv):
+                print("usage: --dump-schema requires a node type (e.g. trigger-webhook)", file=sys.stderr)
+                return 2
+            if not schema_path.exists():
+                print(f"{schema_path}: schema file not found", file=sys.stderr)
+                return 2
+            code, out = dump_schema(schema_path, argv[i + 1])
+            print(out, file=sys.stderr if code else sys.stdout)
+            return code
         elif arg == "--schema":
             if i + 1 >= len(argv):
                 print("usage: --schema requires a path", file=sys.stderr)
@@ -307,7 +345,8 @@ def main(argv: list[str]) -> int:
         print(
             "usage: lint_node_bodies.py [--schema <path>] [--demote DEF:FIELD ...] "
             "<file.yml> [<file.yml> ...]\n"
-            "       lint_node_bodies.py --list-coverage [--schema <path>]",
+            "       lint_node_bodies.py --list-coverage [--schema <path>]\n"
+            "       lint_node_bodies.py --dump-schema <node-type>   # the NodeData_* def, one call",
             file=sys.stderr,
         )
         return 2
