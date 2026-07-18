@@ -5,7 +5,7 @@
 Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 
 - Reference skills + corpus + node-type schema để build YAML workflow nhanh
-- CLI search ~43 template theo feature/complexity/plugin
+- CLI search ~44 template theo feature/complexity/plugin
 - Cấu trúc folder 2 tầng cho từng dự án (`projects/<project>/<workflow>/`, spec 030)
 - GitOps sync (pull/push/diff giữa Dify workspace ↔ git)
 - pytest harness + pre-commit hooks
@@ -73,7 +73,7 @@ dify-projects/
 ├── templates/                 # Project starter, patterns + promoted library/ (spec 022)
 │   ├── _base/project/         # Scaffolded by init_project.py
 │   ├── library/               # Promoted, provenance-stamped templates (spec 022; curated English, v0.6.0)
-│   └── patterns/              # 10 reusable workflow skeletons
+│   └── patterns/              # 11 reusable workflow skeletons
 │       ├── file-to-llm.yml      # File upload → 1 LLM call → output (simplest)
 │       ├── file-iteration.yml   # File upload → split → iterate → aggregate
 │       ├── multi-step-llm.yml   # 3 chained LLM calls (refine pattern)
@@ -82,6 +82,7 @@ dify-projects/
 │       ├── per-row-notify.yml   # Iterate rows → judge per-row → notify external API (spec 050)
 │       ├── per-row-notify-excel.yml # Excel upload → extract/parse in-flow → per-row notify (spec 056)
 │       ├── scheduled-fetch-notify.yml # Schedule trigger → fetch data → LLM → notify (trigger entry, spec 057)
+│       ├── scheduled-tool-append.yml # Schedule trigger → tool node (marketplace, hash resolved) → append (spec 067)
 │       └── meta-workflow-builder.yml # NL requirement → generate + auto-import a Dify workflow
 │
 ├── examples/                  # Fully-worked projects (importable as-is)
@@ -89,7 +90,7 @@ dify-projects/
 │
 ├── apps/
 │   └── builder/               # Builder app: Fastify backend + Preact SPA, gated 4-phase
-│                              # AI build (specs 009–055). Own Node toolchain; see HUONG_DAN.md
+│                              # AI build (specs 009–067, retired). Own Node toolchain; see HUONG_DAN.md
 │
 ├── schemas/                   # Auto-generated JSON Schema for Dify DSL (Phase 1.A done)
 │   ├── gen_schema.py          # Reverse-engineer schema from dify pydantic models
@@ -108,7 +109,8 @@ dify-projects/
 ├── projects/                  # 2 tầng (spec 030): projects/<project>/<workflow>/{workflows/,SPEC.md,...}
 │
 └── docs/                      # GUIDE.md, architecture.md, project-overview-{vi,ja}.md,
-                               # specs/ (001–055), plugin-capabilities.md, runtime-supplement.md
+                               # state/ (hiện trạng hệ thống), specs/ (mới từ 071 — 001–067 đã retire),
+                               # prompts/ (12 prompt test), plugin-capabilities.md, runtime-supplement.md
 
 ```
 
@@ -190,6 +192,7 @@ Hệ thống 2 tầng (spec 030): `projects/<project>/` (manifest `.dify-workspa
 | `per-row-notify.yml` | Iterate rows → judge per-row condition → notify external API (ChatWork...) | 9 | iteration, if-else, llm, http-request |
 | `per-row-notify-excel.yml` | Upload 2 Excel (rows + mapping) → extract/parse in-flow → per-row judge → notify (start-node-as-trigger, spec 056) | 12 | file-input, document-extractor, iteration, if-else, llm, http-request |
 | `scheduled-fetch-notify.yml` | 定期実行: schedule trigger → fetch data → LLM → notify (chạy tự động sau khi enable) | 6 | trigger-schedule, http-request, llm |
+| `scheduled-tool-append.yml` | Schedule trigger → fetch → LLM → marketplace **tool node** (hash đã resolve) append kết quả (spec 067) | 6 | trigger-schedule, http-request, code, llm, tool |
 | `meta-workflow-builder.yml` | NL requirement → generate + auto-import a new Dify workflow (meta) | 11 | llm, http-request (Dify console API) |
 
 Mỗi pattern có comment `# TODO:` đánh dấu chỗ cần customize (model, prompt, plugin hash, dataset IDs, ...).
@@ -235,7 +238,7 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **Phase 0** — base setup (cấu trúc + tooling cũ)
 - ✅ **Phase 1.A** — JSON Schema generator
 - ✅ **Phase 1.B** — `tools/dify_base/init_project.py` interactive scaffolder + `templates/_base/project/` skeleton
-- ✅ **Phase 1.C** — 10 reusable patterns in `templates/patterns/`: file-to-llm, file-iteration, multi-step-llm, rag-qa, agent-with-tools, meta-workflow-builder, per-row-notify, per-row-notify-excel, scheduled-fetch-notify, scheduled-tool-append (all validate against the repo linters; the upstream skill-clone validator predates trigger entries)
+- ✅ **Phase 1.C** — 11 reusable patterns in `templates/patterns/`: file-to-llm, file-iteration, multi-step-llm, rag-qa, agent-with-tools, meta-workflow-builder, per-row-notify, per-row-notify-excel, scheduled-fetch-notify, scheduled-tool-append, webhook-per-row-notify (all validate against the repo linters; the upstream skill-clone validator predates trigger entries)
 - ✅ **Phase 1.D** — pytest harness ([tests/](tests/)) — minimal `DifyWorkflowClient` + env-loading fixtures + syrupy snapshot example. Skips cleanly without creds.
 - ✅ **Phase 2.A** — GitOps sync ([tools/dify_base/sync.py](tools/dify_base/sync.py)) — 13 subcommands via Console API: `list/pull/diff/push` + `models/plugins/datasets/api-key/publish/delete/inject-model/run/upload`. 12 tests passing (mocked HTTP, no real Dify needed). Polish: clean error messages for connection/timeout/HTTP failures.
 - ✅ **Phase 2.B** — pre-commit hooks ([.pre-commit-config.yaml](.pre-commit-config.yaml), 13 hooks: yamllint + check-jsonschema + skill validator + DSL version guard + agents-md-refs + dify-lint-refs + dify-lint-node-bodies (spec 038) + dify-lint-plugin-hashes + 5 built-in) + bootstrap script ([scripts/setup.sh](scripts/setup.sh))
@@ -244,7 +247,7 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **E2E simulation harness** ([apps/builder/scripts/e2e-run.sh](apps/builder/scripts/e2e-run.sh) + skill `/e2e`) — bắn prompt vào Builder như user thật, chấm cơ học theo 3 bucket **AUTO-PASS / AUTO-FAIL / MANUAL** (phần không tự test được luôn được báo cáo, không im lặng bỏ qua), tái dùng `/report` để chấm nội dung
 - ⏳ **Polish 1.A** — `http_request` schema-dump đang **fail** (`_error: SchemaSerializer` trên default `dify_config.HTTP_REQUEST_MAX_*`); 25/25 node module import được và 29 schema generate được, nhưng cái này ship kèm marker `_error` thay vì dump sạch.
 
-Việc còn nợ: [docs/specs/068-carryover-backlog.md](docs/specs/068-carryover-backlog.md). Spec đang mở: [docs/specs/README.md](docs/specs/README.md).
+Specs 001–067 đã hoàn thành và retire khỏi cây (xem `git show ca5e39e:docs/specs/`). Spec đang mở: [docs/specs/](docs/specs/) (mới từ 071).
 
 Chi tiết design: xem [docs/architecture.md](docs/architecture.md).
 

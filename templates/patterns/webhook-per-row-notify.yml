@@ -1,0 +1,410 @@
+# Pattern: Webhook Per-Row Notify (webhook receive → parse → iterate → notify per row → aggregate)
+#
+# Use case: an external system (Google Apps Script, a form backend, another service) PUSHES a batch
+# of rows to Dify over a webhook, and you must act on some rows and POST a message per row to a
+# destination looked up per row. The PUSH twin of scheduled-fetch-notify (which PULLs on a schedule).
+# Classic shapes: form-submission routing, per-row dunning/reminders, per-customer alerts.
+#
+# Distilled from a field-proven build (spec 071 — trigger-webhook, 4 linters clean, Dify accepted the
+# DSL on real import 2026-07-17). Customize every `# TODO:` marker before use.
+#
+# Flow:
+#   trigger-webhook (POST: rows_json + id_map_json + today)
+#     → Code: defensive parse → filter target rows → resolve destination per row → array[object]
+#     → Iteration (continue-on-error): per row  { LLM compose → HTTP POST to destination }
+#     → Code: aggregate send results
+#     → End (counts + summary)
+#
+# GOTCHAs (each cost a real debugging session — do not "simplify" them away):
+#   1. A webhook body arrives as a STRING (rows_json/id_map_json are `type: string`). Parse it INSIDE
+#      a code node with try/except — never assume valid JSON; empty/None/broken input must not raise.
+#   2. A custom auth header (X-ChatWorkToken, X-Api-Key, …) needs `authorization: {type: no-auth}` and
+#      the token in `headers:` via an env-var secret. An `api-key` auth type REWRITES the header away.
+#   3. A schedule/webhook trigger only fires after you ENABLE it in Dify Studio → Quick Settings.
+#      Importing the workflow is not enough. (And there is no enable-via-API yet.)
+#   4. `today` is passed IN by the caller (GAS), not computed with a naive now() — a date compared
+#      inside the sandbox drifts with the sandbox timezone. If you must default it, use JST explicitly.
+#   5. Iteration uses `error_handle_mode: continue-on-error` so one row's HTTP failure does not abort
+#      the whole batch — the un-notified rows are simply dropped from the result counts.
+#
+# TODO checklist:
+#   - app.name / app.description
+#   - node IDs: replace every 13-digit id (and the `<id>start` iteration-start child) with fresh ones
+#     from skills/mango-svip/scripts/generate_id.py — see AGENTS.md §4.1
+#   - the filter logic in "対象抽出＋宛先解決" (column indices, the due-date/done rules)
+#   - the HTTP node: destination URL, auth header name, env-secret name
+#   - the LLM prompt (tone, what to say)
+#   - environment_variables: rename the secret(s) your destination needs
+app:
+  description: 'TODO: webhook(POST) を起点に対象行を抽出し、行ごとに宛先を解決して個別通知する汎用パターン'
+  icon: "\U0001F4E8"
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: 'Webhook Per-Row Notify (TODO: rename)'
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables:
+  # TODO: rename to the secret your destination API needs (injected into a custom header; never inline the value)
+  - name: CHATWORK_API_TOKEN
+    value_type: secret
+    value: ''
+  features:
+    file_upload: { enabled: false }
+    opening_statement: ''
+    retriever_resource: { enabled: false }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: 1784284521456-source-1784284521458-target
+      source: '1784284521456'
+      target: '1784284521458'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: trigger-webhook, targetType: code }
+      zIndex: 0
+    - id: 1784284521458-source-1784284521461-target
+      source: '1784284521458'
+      target: '1784284521461'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: iteration }
+      zIndex: 0
+    - id: 1784284521461-source-1784284521468-target
+      source: '1784284521461'
+      target: '1784284521468'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: iteration, targetType: code }
+      zIndex: 0
+    - id: 1784284521468-source-1784284521470-target
+      source: '1784284521468'
+      target: '1784284521470'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: end }
+      zIndex: 0
+    - id: 1784284521461start-source-1784284521463-target
+      source: 1784284521461start
+      target: '1784284521463'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1784284521461', sourceType: iteration-start, targetType: llm }
+      zIndex: 1002
+    - id: 1784284521463-source-1784284521465-target
+      source: '1784284521463'
+      target: '1784284521465'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1784284521461', sourceType: llm, targetType: http-request }
+      zIndex: 1002
+    nodes:
+    - id: '1784284521456'
+      type: custom
+      data:
+        title: Webhook 受信（POST）
+        type: trigger-webhook
+        method: post
+        content_type: application/json
+        # TODO: the caller (GAS/form backend) POSTs these string fields. Keep them `type: string` —
+        # a webhook body is not parsed for you; the code node below does the JSON parsing.
+        headers: []
+        params: []
+        body:
+        - name: rows_json
+          type: string
+          required: true
+        - name: id_map_json
+          type: string
+          required: true
+        - name: today
+          type: string
+          required: true
+        status_code: 200
+        response_body: ''
+      position: { x: 0, y: 100 }
+      positionAbsolute: { x: 0, y: 100 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1784284521458'
+      type: custom
+      data:
+        title: 対象抽出＋宛先解決
+        type: code
+        code_language: python3
+        # TODO: adapt the column indices + the target rule (here: D-col date < today AND T-col empty),
+        # and the name→destination resolution via id_map. Defensive parse: empty/None/broken JSON must
+        # NOT raise — always return a list.
+        code: |
+          import json
+          from datetime import datetime
+
+
+          def _to_date(s):
+              t = str(s or "").strip()
+              if not t:
+                  return None
+              t = t.replace(".", "/").replace("-", "/")
+              for fmt in ("%Y/%m/%d", "%Y/%m/%d ", "%m/%d"):
+                  try:
+                      return datetime.strptime(t.strip(), fmt).date()
+                  except Exception:
+                      pass
+              return None
+
+
+          def main(rows_json: str, id_map_json: str, today: str) -> dict:
+              try:
+                  rows = json.loads(rows_json) if rows_json else []
+              except Exception:
+                  rows = []
+              if not isinstance(rows, list):
+                  rows = []
+              try:
+                  id_map = json.loads(id_map_json) if id_map_json else {}
+              except Exception:
+                  id_map = {}
+              if not isinstance(id_map, dict):
+                  id_map = {}
+
+              today_d = _to_date(today)
+              targets = []
+              for row in rows:
+                  if not isinstance(row, list):
+                      continue
+                  due_raw = row[3] if len(row) > 3 else ""
+                  name = str(row[5]).strip() if len(row) > 5 and row[5] is not None else ""
+                  done = str(row[19]).strip() if len(row) > 19 and row[19] is not None else ""
+                  if done:
+                      continue
+                  due_d = _to_date(due_raw)
+                  if today_d is None or due_d is None:
+                      continue
+                  if not (due_d < today_d):
+                      continue
+                  room_id = str(id_map.get(name, "") or "").strip()
+                  if not room_id:
+                      continue
+                  context = "使用者名: {} / 期日(D列): {} / 行データ: {}".format(
+                      name, str(due_raw), json.dumps(row, ensure_ascii=False))
+                  targets.append({"room_id": room_id, "name": name, "context": context})
+              return {"targets": targets, "target_count": len(targets)}
+        outputs:
+          targets: { type: 'array[object]', children: null }
+          target_count: { type: number, children: null }
+        variables:
+        - value_selector: ['1784284521456', rows_json]
+          value_type: string
+          variable: rows_json
+        - value_selector: ['1784284521456', id_map_json]
+          value_type: string
+          variable: id_map_json
+        - value_selector: ['1784284521456', today]
+          value_type: string
+          variable: today
+      position: { x: 320, y: 100 }
+      positionAbsolute: { x: 320, y: 100 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1784284521461'
+      type: custom
+      data:
+        title: 対象を 1 件ずつ処理（反復）
+        type: iteration
+        # GOTCHA #5: continue-on-error so one failed row does not abort the batch.
+        error_handle_mode: continue-on-error
+        is_parallel: false
+        iterator_input_type: 'array[object]'
+        iterator_selector: ['1784284521458', targets]
+        output_selector: ['1784284521465', status_code]
+        output_type: 'array[number]'
+        start_node_id: 1784284521461start
+        width: 1200
+        height: 360
+      position: { x: 640, y: 60 }
+      positionAbsolute: { x: 640, y: 60 }
+      width: 1200
+      height: 360
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1
+
+    - id: 1784284521461start
+      type: custom-iteration-start
+      data:
+        title: ''
+        type: iteration-start
+        desc: ''
+        isInIteration: true
+      parentId: '1784284521461'
+      position: { x: 24, y: 90 }
+      positionAbsolute: { x: 664, y: 150 }
+      width: 44
+      height: 48
+      sourcePosition: right
+      targetPosition: left
+      draggable: false
+      selectable: false
+      zIndex: 1002
+
+    - id: '1784284521463'
+      type: custom
+      data:
+        title: 通知文を作文（LLM）
+        type: llm
+        isInIteration: true
+        iteration_id: '1784284521461'
+        model:
+          # Builder injects provider/name at live-test/deploy; keep them EMPTY so the pattern is portable.
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.3
+        prompt_template:
+        # TODO: rewrite the system prompt for your message's tone and purpose.
+        - id: 1784284521463-prompt-system
+          role: system
+          text: 'あなたは日本語で丁寧な社内メッセージを書くアシスタントです。相手を責めず、対応をお願いする依頼調で、短く角の立たない文面を作成してください。メッセージ本文のみを出力し、前置きや署名、コードブロックは付けないでください。'
+        - id: 1784284521463-prompt-user
+          role: user
+          text: "次の対象者に向けたメッセージを 1 通作成してください。\n対象者名: {{#1784284521461.item.name#}}\n対象行の情報: {{#1784284521461.item.context#}}"
+        context:
+          enabled: false
+          variable_selector: []
+        vision:
+          enabled: false
+      parentId: '1784284521461'
+      extent: parent
+      position: { x: 120, y: 90 }
+      positionAbsolute: { x: 760, y: 150 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1784284521465'
+      type: custom
+      data:
+        title: 宛先へ個別送信（HTTP）
+        type: http-request
+        isInIteration: true
+        iteration_id: '1784284521461'
+        method: POST
+        # TODO: your destination endpoint. The per-row room_id is resolved above and embedded here.
+        url: 'https://api.chatwork.com/v2/rooms/{{#1784284521461.item.room_id#}}/messages'
+        # GOTCHA #2: custom auth header + no-auth type (token injected from an env secret).
+        authorization: { type: no-auth }
+        headers: |
+          X-ChatWorkToken: {{#env.CHATWORK_API_TOKEN#}}
+        params: ''
+        body:
+          type: x-www-form-urlencoded
+          data:
+          - key: body
+            type: text
+            value: '{{#1784284521463.text#}}'
+        timeout: { connect: 10, read: 30, write: 30 }
+        ssl_verify: true
+      parentId: '1784284521461'
+      extent: parent
+      position: { x: 440, y: 90 }
+      positionAbsolute: { x: 1080, y: 150 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+
+    - id: '1784284521468'
+      type: custom
+      data:
+        title: 送信結果を集計
+        type: code
+        code_language: python3
+        code: |
+          def main(statuses, target_count) -> dict:
+              if not isinstance(statuses, list):
+                  statuses = []
+              sent = 0
+              for s in statuses:
+                  try:
+                      code = int(s)
+                  except Exception:
+                      continue
+                  if 200 <= code < 300:
+                      sent += 1
+              try:
+                  tc = int(target_count)
+              except Exception:
+                  tc = 0
+              return {
+                  "target_count": tc,
+                  "sent_count": sent,
+                  "summary": "対象 {} 件中 {} 件を送信しました。".format(tc, sent),
+              }
+        outputs:
+          target_count: { type: number, children: null }
+          sent_count: { type: number, children: null }
+          summary: { type: string, children: null }
+        variables:
+        - value_selector: ['1784284521461', output]
+          value_type: 'array[number]'
+          variable: statuses
+        - value_selector: ['1784284521458', target_count]
+          value_type: number
+          variable: target_count
+      position: { x: 1900, y: 100 }
+      positionAbsolute: { x: 1900, y: 100 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1784284521470'
+      type: custom
+      data:
+        title: 結果を返す
+        type: end
+        outputs:
+        - variable: target_count
+          value_selector: ['1784284521468', target_count]
+          value_type: number
+        - variable: sent_count
+          value_selector: ['1784284521468', sent_count]
+          value_type: number
+        - variable: summary
+          value_selector: ['1784284521468', summary]
+          value_type: string
+        - variable: results
+          value_selector: ['1784284521461', output]
+          value_type: 'array[number]'
+      position: { x: 2220, y: 100 }
+      positionAbsolute: { x: 2220, y: 100 }
+      width: 241
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.5 }
