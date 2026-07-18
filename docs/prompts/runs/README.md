@@ -19,7 +19,10 @@ transcripts/…). Báo cáo ở đây là bản **chưng cất committed**; run 
 
 | 2026-07-18 | [P03](2026-07-18-P03-1784361257820.md) morning-news | 1784361257820 | ✅ PASS mạnh | 518.1s | weekday+timezone+dedup-state đều đúng; schedule sạch (0 denied) |
 
-**→ [Tổng kết đợt 2026-07-18](2026-07-18-SUMMARY.md)** — 4/4 build đạt chất lượng; lỗ hiệu năng webhook (071) xác nhận A/B.
+| 2026-07-18 | [P06](2026-07-18-P06-1784361880397.md) rag-chatbot | 1784361880397 | ✅ PASS mạnh | — | advanced-chat mode, dataset không bịa, nhánh từ chối |
+| 2026-07-18 | [P10](2026-07-18-P10-1784362368139.md) contract-VI | 1784362368139 | ✅ PASS mạnh | — | lang-sync VI cả digest+SPEC; disclaimer giữ |
+
+**→ [Tổng kết đợt 2026-07-18](2026-07-18-SUMMARY.md)** — **7/7 build đạt chất lượng**; lỗ hiệu năng duy nhất = webhook (071), 5 mẫu sạch vs 2 thrash.
 
 ## Điều kiện môi trường chung của đợt 2026-07-18
 
