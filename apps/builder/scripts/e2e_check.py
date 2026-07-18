@@ -233,12 +233,42 @@ def _phase_num(cost_map: dict, phase: str, field: str):
     return c.get(field) if isinstance(c, dict) else None
 
 
-def evaluate_cost(cost_block, cost_map, fast: bool = False, baseline: dict | None = None) -> list[dict]:
+def _denied_calls(run_dir, phase: str):
+    """Count tool-calls that FAILED (`✗`) in a phase's transcript. Spec 071 S2.
+
+    Why not turns: denied calls compress into few turns, so turn count is the WRONG axis for
+    search-thrash (measured 2026-07-18: same-Haiku webhook vs schedule ran 16 vs 22 turns —
+    BACKWARDS — while denied greps were 7 vs 2). `✗` = tool_result.is_error (run-transcript.ts),
+    which for grep/find/rg IS a hook denial. Returns None when the transcript is absent (pre-capture
+    run, or a build that never reached the phase) → the caller emits MANUAL, never a false PASS.
+    """
+    if not run_dir:
+        return None
+    from pathlib import Path as _P
+    t = _P(run_dir) / "transcripts" / f"{phase}.md"
+    if not t.exists():
+        return None
+    n, in_calls = 0, False
+    for line in t.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("### Tool calls"):
+            in_calls = True
+        elif line.startswith("### ") and in_calls:
+            in_calls = False
+        elif in_calls and line.startswith("- ") and line.rstrip().endswith("✗"):
+            n += 1
+    return n
+
+
+def evaluate_cost(cost_block, cost_map, fast: bool = False, baseline: dict | None = None,
+                  run_dir=None) -> list[dict]:
     """Spec 060 — evaluate an entry's `cost:` block against task.json.cost. Pure; three-bucket rows.
 
     Every missing-data path is decided (never a crash, never a silent green):
       per-phase metric absent → MANUAL · a `total_*` over a build missing an EXPECTED phase → AUTO-FAIL
       (build incomplete) · cache% with denom 0 → MANUAL · wholly missing cost → all MANUAL.
+
+    `denied_calls_max` (spec 071 S2) is the exception that reads the TRANSCRIPT (via run_dir), not
+    cost_map — so it is evaluated even on a pre-059 run that has no cost.
     """
     rows: list[dict] = []
     if not isinstance(cost_block, dict):
@@ -253,6 +283,23 @@ def evaluate_cost(cost_block, cost_map, fast: bool = False, baseline: dict | Non
         if key == "drift_pct":
             continue  # config, not a predicate
         check = f"cost.{key}"
+
+        # denied_calls_max reads the transcript, not cost — handle BEFORE the have_cost guard and
+        # before the `_max` suffix branches below (spec 071 S2).
+        if key == "denied_calls_max" or key.endswith("_denied_max"):
+            phase = "implement" if key == "denied_calls_max" else key[: -len("_denied_max")]
+            if not _finite(arg):
+                rows.append(_row("AUTO-FAIL", check, f"expects a number, got {type(arg).__name__}"))
+                continue
+            n = _denied_calls(run_dir, phase)
+            if n is None:
+                rows.append(_row("MANUAL", check, f"no transcript for {phase} — cannot count denied calls"))
+            elif n <= arg:
+                rows.append(_row("AUTO-PASS", check, f"{n} denied ≤ {arg}"))
+            else:
+                rows.append(_row("AUTO-FAIL", check, f"{n} denied > {arg} — ③ hunting (missing pattern/tool?)"))
+            continue
+
         if not have_cost:
             rows.append(_row("MANUAL", check, "no cost captured — pre-059 run"))
             continue
@@ -630,11 +677,13 @@ def main(argv: list[str] | None = None) -> int:
     cost_block = entry.get("cost")
     if isinstance(cost_block, dict):
         cost_map = {}
+        run_dir = None
         if args.task_json:
             cj, _err = _load_json(Path(args.task_json))
             cost_map = (cj or {}).get("cost") or {}
+            run_dir = Path(args.task_json).parent  # …/.runs/<id>/ → transcripts/ live here (071 S2)
         baselines = _read_baselines(args.baselines)
-        rows += evaluate_cost(cost_block, cost_map, fast=args.fast, baseline=baselines.get(args.entry))
+        rows += evaluate_cost(cost_block, cost_map, fast=args.fast, baseline=baselines.get(args.entry), run_dir=run_dir)
         if args.save_baseline and args.baselines:
             _save_baseline(args.baselines, args.entry, build_baseline(cost_map, fast=args.fast))
 

@@ -459,3 +459,52 @@ def test_timing_json_includes_cost_when_task_json_passed(tmp_path):
         capture_output=True, text=True, check=True).stdout
     data = _json.loads(out)
     assert data["cost"]["implement"]["numTurns"] == 7, data
+
+
+# ── denied_calls_max (spec 071 S2) — the correct oracle for search-thrash ─────────────────────────
+# Turn count is the WRONG axis: denied calls compress into few turns (measured 2026-07-18, same-Haiku
+# webhook vs schedule: 16 vs 22 turns BACKWARDS, while denied greps 7 vs 2). This predicate counts ✗
+# in the transcript instead.
+
+def _mk_transcript(tmp_path, phase: str, n_fail: int, n_ok: int = 3) -> Path:
+    """A minimal transcripts/<phase>.md with n_fail failed calls and n_ok good ones."""
+    d = tmp_path / "transcripts"
+    d.mkdir(parents=True, exist_ok=True)
+    lines = ["## phase", "### Tool calls"]
+    lines += [f"- Bash  grep -rn x .  ✗" for _ in range(n_fail)]
+    lines += [f"- Read  /repo/file.yml  ✓" for _ in range(n_ok)]
+    lines += ["### Result", "cost=$0"]
+    (d / f"{phase}.md").write_text("\n".join(lines), encoding="utf-8")
+    return tmp_path
+
+
+def test_denied_calls_pass_and_fail(tmp_path):
+    rd = _mk_transcript(tmp_path, "implement", n_fail=3)          # clean-ish
+    b = _cost_buckets(ec.evaluate_cost({"denied_calls_max": 8}, {}, run_dir=rd))
+    assert b["AUTO-PASS"] and not b["AUTO-FAIL"], b               # 3 ≤ 8, and evaluated WITHOUT cost_map
+
+    rd2 = _mk_transcript(tmp_path / "sick", "implement", n_fail=13)
+    b = _cost_buckets(ec.evaluate_cost({"denied_calls_max": 8}, {}, run_dir=rd2))
+    assert b["AUTO-FAIL"] and not b["AUTO-PASS"], b               # 13 > 8 → the webhook-thrash signature
+    assert "hunting" in b["AUTO-FAIL"][0]["detail"]
+
+
+def test_denied_calls_no_transcript_is_manual(tmp_path):
+    # A pre-capture run (no transcript dir) must be MANUAL, never a false PASS.
+    b = _cost_buckets(ec.evaluate_cost({"denied_calls_max": 5}, {}, run_dir=tmp_path))
+    assert b["MANUAL"] and not b["AUTO-PASS"] and not b["AUTO-FAIL"], b
+    b = _cost_buckets(ec.evaluate_cost({"denied_calls_max": 5}, {}, run_dir=None))
+    assert b["MANUAL"], "run_dir=None → MANUAL"
+
+
+def test_denied_calls_evaluated_even_without_cost(tmp_path):
+    # It reads the transcript, so it must fire on a pre-059 run (empty cost_map) — unlike turn caps.
+    rd = _mk_transcript(tmp_path, "implement", n_fail=20)
+    b = _cost_buckets(ec.evaluate_cost({"denied_calls_max": 8}, {}, run_dir=rd))
+    assert b["AUTO-FAIL"], "denied_calls_max must not be gated behind have_cost"
+
+
+def test_denied_calls_per_phase_key(tmp_path):
+    _mk_transcript(tmp_path, "spec", n_fail=9)
+    b = _cost_buckets(ec.evaluate_cost({"spec_denied_max": 4}, {}, run_dir=tmp_path))
+    assert b["AUTO-FAIL"], "the <phase>_denied_max form targets that phase's transcript"

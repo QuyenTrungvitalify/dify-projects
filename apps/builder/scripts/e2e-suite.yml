@@ -89,6 +89,12 @@
     implement_turns_max: 30   # the 44-turn schema hunt trips this; a pointed build (15–18) clears it
     total_turns_max: 60
     cache_min_pct: 50
+    # spec 071 S2 — the RIGHT axis for this entry. Turns hid the thrash (a 22-denied run passed the
+    # 30-turn cap); denied-call count does not. Measured: webhook-no-pattern 12–22 denied, a build
+    # with the pattern ~4. Threshold 8 splits them (clean ≤5, sick ≥12). This row is EXPECTED RED
+    # until spec 071 S1 lands templates/patterns/webhook-per-row-notify.yml — it is the tripwire that
+    # goes green when the fix lands, not a claim the current build is broken (it passes every other check).
+    denied_calls_max: 8
   manual:
     - "GAS must actually POST {rows_json, id_map_json, today} to the webhook URL Dify shows after import"
     - "Fill CHATWORK_API_TOKEN (+ any GAS shared secret) in Dify and add a model"
@@ -137,6 +143,8 @@
     implement_turns_max: 30
     total_turns_max: 60          # 39 / 50 measured green; the thrashing run totalled 69
     cache_min_pct: 50
+    denied_calls_max: 8          # spec 071 S2 — schedule has a pattern, so this stays green (~4); it
+                                 # is the same tripwire as the webhook entry, guarding a regression here.
   manual:
     - "The GAS Web App URL ships as TODO_GAS_DEPLOYMENT_ID — deploy the script and paste the real URL"
     - "The GAS response shape ({today, rows[], id_map{}}) is the build's ASSUMPTION; the real script must match it or the code node breaks"
