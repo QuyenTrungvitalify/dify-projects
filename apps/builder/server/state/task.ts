@@ -245,6 +245,9 @@ export interface Task {
   // EVERY implement verify and recomputed by the ④ report; itemizes what keeps the build from
   // running out-of-the-box (model fill / plugin hash / dataset_ids / sandbox trap).
   preflightNote?: string;
+  // Spec 072 S2: the external-input contract advisory — what the client's SOURCE must POST to the
+  // webhook. Set beside preflightNote (③ verify + ④ report) so it survives the reuse hop identically.
+  sourceContractNote?: string;
   // Spec 049 D2 advisory (NOT a hard-fail): the ④ import-probe verdict — the produced YAML was
   // really pushed to the configured Dify (probe app deleted immediately). Set/cleared per static ④
   // run; a Task field (not a ReportOpts) so it survives the Import/Skip re-report like preflightNote.

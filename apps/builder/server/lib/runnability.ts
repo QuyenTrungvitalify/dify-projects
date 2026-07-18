@@ -48,6 +48,9 @@ export interface RunnabilityContext {
 export interface Preflight {
   blockers: RunnabilityBlocker[];
   checkedAt: string;
+  /** spec 072 — the external-input contract carried through from facts (webhook body fields). NOT a
+   *  blocker (it does not stop the build); a separate advisory rendered by {@link sourceContractNote}. */
+  sourceInputs?: { name: string; type: string; required: boolean }[];
 }
 
 /**
@@ -74,6 +77,10 @@ export interface RunnabilityFacts {
   kr_nodes: { id: string; empty: boolean }[];
   /** spec 066 S2 — OPTIONAL: a pre-066 probe/shim emits no `env_vars`; treat absent as []. */
   env_vars?: { name: string; value_type: string; empty: boolean; referenced: boolean }[];
+  /** spec 072 S1 — the trigger-webhook body: the fields an EXTERNAL source must POST for the workflow
+   *  to start. OPTIONAL (an older probe/shim emits none → treat absent as []). This is the one
+   *  external-input seam declared in the YAML that no other class surfaces (env/tool already are). */
+  webhook_inputs?: { name: string; type: string; required: boolean }[];
 }
 
 // Inline python: extract runnability FACTS from the workflow (marker string `runnability_facts`
@@ -99,7 +106,7 @@ IMPORT_RE = re.compile(r'^\\s*(?:from|import)\\s+([a-zA-Z0-9_]+)', re.M)
 MODEL_TYPES = {'llm', 'parameter-extractor', 'question-classifier'}
 wf = doc.get('workflow') or {}
 nodes = ((wf.get('graph') or {}).get('nodes')) or []
-out = {'kind': 'runnability_facts', 'model_nodes': [], 'code_nodes': [], 'kr_nodes': [], 'env_vars': []}
+out = {'kind': 'runnability_facts', 'model_nodes': [], 'code_nodes': [], 'kr_nodes': [], 'env_vars': [], 'webhook_inputs': []}
 # spec 066 S2: an env var declared with an EMPTY value that a node actually consumes is a human setup
 # step (a Slack webhook URL, an API key) that no other class sees.
 # REFERENCED-ONLY by design: a workflow may legitimately declare an env var it does not use yet, and
@@ -139,6 +146,12 @@ for n in nodes:
         out['code_nodes'].append({'id': nid, 'nonstdlib': sorted(mods - STDLIB)})
     if t == 'knowledge-retrieval':
         out['kr_nodes'].append({'id': nid, 'empty': not d.get('dataset_ids')})
+    if t == 'trigger-webhook':  # spec 072 S1 — the external-source input contract, declared right here
+        for b in (d.get('body') or []):
+            if isinstance(b, dict) and b.get('name'):
+                out['webhook_inputs'].append({'name': str(b.get('name')),
+                                              'type': str(b.get('type') or ''),
+                                              'required': bool(b.get('required'))})
 for ev in (wf.get('environment_variables') or []):
     if not isinstance(ev, dict): continue
     # Dify declares env vars with \`name:\` (spec 057 gotcha: \`variable:\` breaks the import).
@@ -212,7 +225,33 @@ export function classifyRunnability(
       });
     }
   }
-  return { blockers, checkedAt: new Date().toISOString() };
+  // spec 072 S1 — carry the external-input contract (webhook body) so the ④ report can tell the client
+  // what their SOURCE must send. Not a blocker: the build runs; the SOURCE side is the client's to wire.
+  return { blockers, checkedAt: new Date().toISOString(), sourceInputs: facts.webhook_inputs ?? [] };
+}
+
+/**
+ * spec 072 S2 — the external-input contract advisory: what the client's SOURCE must provide.
+ *
+ * The google_slack build (run 1784367964063) was correct and the notes guided 5/6 setup steps, but
+ * omitted the 6th: the workflow starts on a webhook, and NOTHING told the client their source (a Google
+ * Form + Apps Script, or any service) must POST those fields to the webhook URL. Silent-import-success
+ * one layer up — at the SOURCE. This is the line that closes it. Plain-language (spec 064 lineage, no
+ * jargon → passes the 063 comprehension gate); a sibling to TRIGGER_ENABLE_NOTE, not a blocker.
+ *
+ * Returns null when there is no external-input seam (no webhook body) — most workflows.
+ */
+export function sourceContractNote(p: Preflight): string | null {
+  const fields = p.sourceInputs ?? [];
+  if (!fields.length) return null;
+  const named = fields
+    .map((f) => (f.required ? `${f.name} (required)` : f.name))
+    .join(', ');
+  return (
+    'This workflow starts from a webhook, so something outside Dify has to send it data: your source ' +
+    `(for example a Google Form + Apps Script, or any service that can POST) must call the webhook URL ` +
+    `Dify shows after you enable the trigger, sending these fields: ${named}.`
+  );
 }
 
 /** The ONE advisory line for the gate card / report notes (null = no blockers → clear the note).

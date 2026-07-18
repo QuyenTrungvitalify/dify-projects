@@ -12,11 +12,12 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   classifyRunnability,
   preflightNote,
+  sourceContractNote,
   hasUnresolvedPluginTodo,
   RUNNABILITY_PROBE,
   type RunnabilityFacts,
@@ -236,5 +237,85 @@ describe('AC 2 — Python↔TS parity over shared fixtures', () => {
     // 1c: parameter-extractor + question-classifier flag too — an llm-only port fails here.
     const mt = classesOf('model_types.yml');
     assert.deepEqual(mt, ['model_empty']);
+  });
+});
+
+
+// ── spec 072 — external-input contract (webhook body) ────────────────────────────────────────────
+// The google_slack build (run 1784367964063) was correct and guided 5/6 setup steps, but never told
+// the client their SOURCE must POST to the webhook — silent-import-success at the source. These pin
+// that classifyRunnability carries the webhook body and sourceContractNote renders it, jargon-free.
+
+describe('sourceContractNote (spec 072 S2)', () => {
+  test('a webhook build names the fields the source must POST, required-marked', () => {
+    const p = classifyRunnability(
+      facts({ webhook_inputs: [
+        { name: 'inquiry_body', type: 'string', required: true },
+        { name: 'company_name', type: 'string', required: true },
+        { name: 'contact_name', type: 'string', required: false },
+      ] }),
+      'workflow: {}'
+    );
+    const note = sourceContractNote(p);
+    assert.ok(note, 'a webhook seam must produce a note');
+    for (const f of ['inquiry_body', 'company_name', 'contact_name']) assert.ok(note!.includes(f), f);
+    assert.ok(note!.includes('inquiry_body (required)'), 'required fields are marked');
+    assert.ok(!note!.includes('contact_name (required)'), 'an optional field is not marked required');
+    assert.match(note!, /webhook/i);
+  });
+
+  test('a workflow with no webhook seam produces no note (most builds)', () => {
+    assert.equal(sourceContractNote(classifyRunnability(facts({}), 'workflow: {}')), null);
+    assert.equal(sourceContractNote(classifyRunnability(facts({ webhook_inputs: [] }), 'x')), null);
+  });
+
+  test('the note carries NO jargon — passes the spec-063 comprehension gate', () => {
+    const p = classifyRunnability(facts({ webhook_inputs: [{ name: 'payload', type: 'string', required: true }] }), 'x');
+    const note = sourceContractNote(p)!;
+    for (const jargon of ['trigger-webhook', 'body[]', 'value_selector', 'status_code', 'content_type', 'POST /']) {
+      assert.ok(!note.includes(jargon), `must not leak "${jargon}"`);
+    }
+  });
+
+  test('an OLD probe with no webhook_inputs field degrades safely (absent → no note)', () => {
+    // A pre-072 probe/shim emits no webhook_inputs; classifyRunnability must not crash or invent one.
+    const p = classifyRunnability(facts({}), 'workflow: {}');
+    assert.equal(p.sourceInputs?.length ?? 0, 0);
+    assert.equal(sourceContractNote(p), null);
+  });
+});
+
+describe('RUNNABILITY_PROBE extracts webhook body (spec 072 S1 — real python)', () => {
+  test('the probe returns the trigger-webhook body fields', () => {
+    const yaml = [
+      'workflow:',
+      '  graph:',
+      '    nodes:',
+      '    - id: "1"',
+      '      data:',
+      '        type: trigger-webhook',
+      '        method: post',
+      '        body:',
+      '        - name: rows_json',
+      '          type: string',
+      '          required: true',
+      '        - name: today',
+      '          type: string',
+      '          required: false',
+    ].join('\n');
+    const tmp = join(REPO, 'apps/builder/.runs');
+    const f = join(tmp, `_072probe_${process.pid}.yml`);
+    try {
+      mkdirSync(tmp, { recursive: true });
+      writeFileSync(f, yaml);
+      const out = execFileSync(join(REPO, '.venv/bin/python'), ['-c', RUNNABILITY_PROBE, f], { encoding: 'utf8' });
+      const factsOut = JSON.parse(out) as RunnabilityFacts;
+      assert.deepEqual(factsOut.webhook_inputs, [
+        { name: 'rows_json', type: 'string', required: true },
+        { name: 'today', type: 'string', required: false },
+      ]);
+    } finally {
+      try { unlinkSync(f); } catch { /* ignore */ }
+    }
   });
 });

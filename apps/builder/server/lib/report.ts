@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { stat, writeFile, readFile } from 'node:fs/promises';
 import { runPython } from './shell.js';
 import { LINTERS, LINT_DETAIL_LINES, lintClean, type LintCodes } from './linters.js';
-import { checkRunnability, preflightNote, hasUnresolvedPluginTodo } from './runnability.js';
+import { checkRunnability, preflightNote, sourceContractNote, hasUnresolvedPluginTodo } from './runnability.js';
 import { patternFeatureGap, patternAdvisoryLine } from './analysis.js';
 import { loadWorkspaceFacts, enabledModelCount } from './dify-io.js'; // spec 066 S3 / 067 S6
 import type { Task } from '../state/task.js';
@@ -308,6 +308,8 @@ export async function runReport(
         workspaceModelCount: enabledModelCount(await loadWorkspaceFacts(projectsDir, task.taskId)),
       });
       task.preflightNote = preflightNote(pf) ?? undefined;
+      // Spec 072 S2 — the external-input contract, recomputed on the same file for the same reason.
+      task.sourceContractNote = sourceContractNote(pf) ?? undefined;
     } catch {
       /* advisory — the lint gate above already surfaced any real unreadability */
     }
@@ -381,6 +383,9 @@ export async function runReport(
   if (triggerEntry) {
     noteParts.push(task.deploy === 'none' ? TRIGGER_ENABLE_NOTE : TRIGGER_ENTRY_NOTE);
   }
+  // Spec 072 S2 — a webhook entry also needs its SOURCE wired (enabling the trigger is necessary but
+  // not sufficient: Google Form does not call a webhook by itself). Sits right after the enable note.
+  if (task.sourceContractNote) noteParts.push(task.sourceContractNote);
   // The duplicate warning leads the notes so the UI surfaces it prominently (spec footgun).
   if (duplicateWarning) noteParts.unshift(`⚠ ${duplicateWarning}`);
 

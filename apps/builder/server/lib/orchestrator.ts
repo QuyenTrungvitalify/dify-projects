@@ -36,7 +36,7 @@ import { applyAnalysisToTask, gapReferences } from './analysis.js';
 // `probeVerdict` only — the report RUNNER still arrives via resolveRunners (the 013 D2 test seam);
 // these are pure wording (spec 066 S4), shared so the two probes cannot drift apart again.
 import { probeVerdict } from './report.js';
-import { checkRunnability, preflightNote } from './runnability.js';
+import { checkRunnability, preflightNote, sourceContractNote } from './runnability.js';
 import { persistCriteria } from './criteria.js';
 import { AttemptRecorder } from './run-transcript.js';
 import { logEvent } from './run-events.js';
@@ -660,6 +660,7 @@ async function verifyPhase(
         JSON.stringify(pf, null, 2)
       );
       task.preflightNote = preflightNote(pf) ?? undefined;
+      task.sourceContractNote = sourceContractNote(pf) ?? undefined; // spec 072 S2 — rides the reuse hop like preflightNote
     } catch (e) {
       log.warn({ taskId: task.taskId, err: errMsg(e) }, 'runnability preflight failed (advisory, non-fatal)');
     }
