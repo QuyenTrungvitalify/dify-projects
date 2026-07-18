@@ -91,6 +91,7 @@ def analyze(yaml_path):
     node_types = []
     has_file_input = False
     has_trigger = False
+    trigger_variants: set[str] = set()  # spec 071 S3 — exact trigger-* types seen (webhook/schedule/plugin)
     for n in nodes:
         d = n.get('data') or {}
         ntype = d.get('type') or ''
@@ -99,8 +100,12 @@ def analyze(yaml_path):
         node_types.append(ntype)
         # Spec 057: computed key (NOT an INTERESTING_NODE_TYPES append) so `find.py --has trigger`
         # matches any trigger-* entry (schedule/webhook/plugin).
+        # Spec 071 S3: ALSO record the exact variant, so `find.py --has trigger-webhook` can find a
+        # webhook example instead of returning silence (the 44-turn run queried exactly that and got
+        # "No matching templates" → fell to denied greps). Additive — has_trigger (the family) stays.
         if ntype.startswith('trigger-'):
             has_trigger = True
+            trigger_variants.add(ntype)
         if ntype == 'start':
             for v in (d.get('variables') or []):
                 if v.get('type') in ('file', 'file-list'):
@@ -142,6 +147,10 @@ def analyze(yaml_path):
     }
     for t in INTERESTING_NODE_TYPES:
         info[f"has_{t.replace('-', '_')}"] = (t in type_counter)
+    # Spec 071 S3 — per-variant trigger keys (has_trigger_webhook/_schedule/_plugin). Only emit the
+    # ones actually seen, so `--list-features` stays honest about what the index really contains.
+    for v in trigger_variants:
+        info[f"has_{v.replace('-', '_')}"] = True
     return info
 
 
