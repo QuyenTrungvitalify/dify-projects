@@ -1,9 +1,9 @@
 {
   "name": "@dify-projects/builder",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Spec 009 Builder backend — Lát 1 SKELETON (spawn 1 Implement phase + post-turn verify)",
+  "description": "Spec 009 Builder backend \u2014 L\u00e1t 1 SKELETON (spawn 1 Implement phase + post-turn verify)",
   "engines": {
     "node": ">=22.6"
   },

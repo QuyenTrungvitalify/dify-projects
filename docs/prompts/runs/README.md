@@ -8,6 +8,8 @@ của chính file prompt, lỗi gặp phải, và phần MANUAL còn nợ.
 Nguồn dữ liệu thô của mỗi run: `apps/builder/.runs/<taskId>/` (gitignored — task.json, report.json,
 transcripts/…). Báo cáo ở đây là bản **chưng cất committed**; run dir mất thì báo cáo vẫn còn.
 
+> **Đối chiếu giữa các đợt test → [CAMPAIGNS.md](CAMPAIGNS.md)** (theo version Builder).
+
 ## Chỉ mục
 
 | Ngày | Prompt | taskId | Kết cục | Tổng thời gian | Ghi chú nổi bật |
@@ -23,12 +25,13 @@ transcripts/…). Báo cáo ở đây là bản **chưng cất committed**; run 
 | 2026-07-18 | [P10](2026-07-18-P10-1784362368139.md) contract-VI | 1784362368139 | ✅ PASS mạnh | — | lang-sync VI cả digest+SPEC; disclaimer giữ |
 
 | 2026-07-18 | [P02](2026-07-18-P02-1784375098683.md) screenshot-OCR | 1784375098683 | ✅ PASS mạnh | — | vision LLM + file-list + cấm bịa URL |
-| 2026-07-18 | [P05](2026-07-18-P05-1784375623443.md) invoice-reconcile | 1784375623443 | ❌ **DEFECT** | — | ② hỏi thay vì viết SPEC.md (auto mode) |
-| 2026-07-18 | P07 minutes-to-docs | 1784379467247 | ⚠️ lỗi mạng | — | API connection closed; lộ marketplace.py bị chặn (071 S5) |
+| 2026-07-18 | [P05](2026-07-18-P05-1784375623443.md) invoice-reconcile | 1784375623443 → **1784381510236** | ⚠️ lần 1 lỗi ②, **retry PASS mạnh** | — | ② hỏi thay vì viết SPEC.md (auto mode) — **propensity 1/2, không tất định**; retry: 0 node gửi mail, so tiền do code |
+| 2026-07-18 | [P07](2026-07-18-P07-1784388534562.md) minutes-to-docs | 1784379467247 → **1784388534562** | ⚠️ lần 1 lỗi mạng, **retry PASS** | 899.9s | không bịa plugin (`dependencies: []`, fallback http trung thực); lộ: **không có đường tìm-chữ nào chạy**, `--dump-schema` exit-2 sai, slug JA ra `1_google_1` |
 | 2026-07-18 | [P08](2026-07-18-P08-1784380142492.md) glossary-translate | 1784380142492 | ✅ PASS mạnh | — | 2 bước tự soát + 3 output đúng |
 | 2026-07-18 | [P12](2026-07-18-P12-1784380636506.md) edit-existing | 1784380636506 | ⚠️ 2 vấn đề | — | ① digest EN cho prompt JA; harness thiếu --workflow |
 
-**→ [Tổng kết đợt 2026-07-18](2026-07-18-SUMMARY.md)** — **7/7 build đạt chất lượng**; lỗ hiệu năng duy nhất = webhook (071), 5 mẫu sạch vs 2 thrash.
+**→ [Tổng kết đợt 2026-07-18](2026-07-18-SUMMARY.md)** — **11/12 build đạt chất lượng** (P05 lần 1
+lỗi ② propensity, retry pass). Không có lỗi chất lượng nào; 5 finding đã fix trong **v0.2.0**, 4 để ngỏ.
 
 ## Điều kiện môi trường chung của đợt 2026-07-18
 

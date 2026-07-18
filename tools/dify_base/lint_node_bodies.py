@@ -170,19 +170,25 @@ def dump_schema(schema_path: Path, ntype: str) -> tuple[int, str]:
     reaching for (it literally tried `--dump-schema` and `--help` before giving up).
 
     Unknown type → exit 2 AND the known-type list on stderr: "no output" must be distinguishable from
-    "you misspelled it" (the find.py --has silence taught that lesson). warn-skip types explain
-    themselves instead of dumping a stub.
+    "you misspelled it" (the find.py --has silence taught that lesson).
+
+    A KNOWN type with no usable def (warn-skip, or an `_error` dump-stub) exits **0**: the caller asked
+    a valid question and gets the valid answer — "this schema carries no detail, take the shape from a
+    vetted source". Shipping that as exit 2 was a defect: run 1784388534562 called
+    `--dump-schema http-request`, got exactly the right guidance, and saw it rendered `✗`. That reads to
+    a turn as "rejected, try another route" — the hunt this flag exists to end — and it inflates the
+    denied-call oracle (spec 071 S2), where a correct call must never count as thrash.
     """
     if ntype not in TYPE_TO_DEF:
         known = ", ".join(sorted(TYPE_TO_DEF))
         return 2, f"unknown node type '{ntype}'. Known types: {known}"
     def_name = TYPE_TO_DEF[ntype]
     if def_name is None:
-        return 2, f"'{ntype}' is warn-skip: no NodeData_* def was dumped for it — take the shape from a vetted source (docs/runtime-supplement.md, templates/)"
+        return 0, f"'{ntype}' is warn-skip: no NodeData_* def was dumped for it — take the shape from a vetted source (docs/runtime-supplement.md, templates/)"
     defs = load_schema(schema_path)["$defs"]
     body = defs.get(def_name, {})
     if "_error" in body:
-        return 2, f"'{ntype}' maps to {def_name}, which is an `_error` dump-stub — take the shape from a vetted source"
+        return 0, f"'{ntype}' maps to {def_name}, which is an `_error` dump-stub — take the shape from a vetted source"
     return 0, json.dumps({def_name: body}, indent=2, ensure_ascii=False)
 
 

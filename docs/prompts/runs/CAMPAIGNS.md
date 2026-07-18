@@ -1,0 +1,83 @@
+# Campaigns — đối chiếu các đợt test qua từng version
+
+Mỗi lần chạy một **loạt prompt** (`docs/prompts/P*.md`) là một **campaign**, gắn với **một version
+Builder**. Bảng dưới để trả lời câu hỏi quan trọng nhất sau vài đợt: *"so với lần trước, cái gì tốt
+lên, cái gì tệ đi, và fix nào đã ăn?"*
+
+**Vì sao đối chiếu được**: mỗi run tự đóng dấu `builderVersion` + `gitSha` vào
+`.runs/<id>/build-info.json` (và vào dossier khi export). Một báo cáo cũ luôn truy ngược được về đúng
+code đã sinh ra nó — xem [`apps/builder/CHANGELOG.md`](../../../apps/builder/CHANGELOG.md).
+
+---
+
+## Bảng đối chiếu
+
+| Campaign | Version | Prompts | Đạt chất lượng | Không hoàn thành | Findings → Fixes |
+|---|---|---|---|---|---|
+| [2026-07-18](2026-07-18-SUMMARY.md) | **v0.1.0** | 12/12 | **11** | 2 (1 propensity ②, 1 đứt mạng) | 5 fix → **v0.2.0** · 4 để ngỏ |
+| _(đợt sau)_ | v0.2.0 | | | | |
+
+## Đợt 2026-07-18 · v0.1.0 — chi tiết
+
+**Phủ**: 12 prompt "user thật" (JA + VI), 12 trục khác nhau — mơ hồ · từ chối trung thực · honesty
+phạm vi · schedule 3-bẫy · webhook routing · chatflow RAG · lang-sync VI · vision/ảnh · 2-file đối
+chiếu · glossary 2-bước · tool hash · edit-existing.
+
+**Kết quả**: 11 build đạt chất lượng (4 linter sạch, comprehension 0 jargon, digest đúng ngôn ngữ).
+Không tìm thấy **lỗi chất lượng** nào — mọi hành vi đúng đắn then chốt đều giữ (không bịa plugin,
+không bịa dataset id, không thêm side-effect user chưa xin, giữ ràng buộc "cấm auto-send", "cấm đổi
+flow cũ").
+
+### 5 finding → fix trong v0.2.0
+
+| # | Finding | Bằng chứng | Fix |
+|---|---|---|---|
+| **1** | Webhook build thrash ③ (~500s) vì repo không có pattern `trigger-webhook`; và không có đường được-phép để trích schema một node | P04/P11 (7–17 denied) vs P01/P03/P06/P10 (0–2), cùng model | `webhook-per-row-notify` pattern · `--dump-schema` · feature key · `find.py` diagnostic (spec 071) |
+| **2** | ④ không nói client phải **nối nguồn** webhook — build đúng, import sạch, mà không bao giờ chạy | build manual `google_slack`: `grep webhook\|POST` trong notes = **0** | `sourceContractNote` ở ④ + open point ở ① (spec 072) |
+| **3** | ② đôi khi **hỏi thay vì viết SPEC.md** ở auto mode (không ai trả lời → build chết) | P05 lần 1 error; **retry pass** → propensity 1/2, không tất định | `spec.md`: auto-confirm guidance đối xứng `analyze.md` |
+| **4** | Harness không fire được **edit-existing** → trục này chưa từng test | P12 build mới trong khi digest nói "extend existing" (`task.workflow = null`) | `fire --workflow <slug>` |
+| **5** | `--dump-schema` trên type **có thật nhưng schema không có chi tiết** trả lời đúng rồi `exit 2` → model đọc thành "bị từ chối, tìm đường khác" (đúng vòng lặp flag này sinh ra để chấm dứt), đồng thời thổi phồng chính oracle 071 S2 | [P07](2026-07-18-P07-1784388534562.md) `--dump-schema http-request` | type có thật → `exit 0` + stdout; chỉ type **sai chính tả** giữ `exit 2` + danh sách hợp lệ |
+
+### 4 vấn đề CHƯA fix (cố ý — cần quyết phạm vi)
+
+| # | Vấn đề | Vì sao chưa |
+|---|---|---|
+| **5** | `tool-catalog.json` chỉ có **6 plugin** (có Sheets, thiếu Docs) → ② phải đi đường online rồi bị chặn | Fix đúng là **mở rộng catalog offline**. ~~Cho `marketplace.py` vào allow-set~~ đã **bác bỏ**: nó gọi network, mở kênh exfil qua query param — gate cấm curl/wget chính vì thế. Cần quyết phạm vi catalog. |
+| **6** | ① digest ra **tiếng Anh** cho prompt JA (P12 lần không-base) | n=1. Cùng đợt P02 đúng JA; chính P12 khi **có base** cũng đúng JA. Nghi lệch khi thiếu ngữ cảnh — chưa đủ mẫu. |
+| **7** | **Không có đường tìm-chữ nào chạy được**: `Grep` (tool) lỗi, `grep` (bash) bị gate chặn → "repo có Google Docs không?" phải `Read` cả file mới trả lời được ([P07](2026-07-18-P07-1784388534562.md): 6 lần thử trượt) | Hai đường sửa khác hẳn nhau về rủi ro: sửa tool `Grep`, hay mở một đường đọc-only có kiểm soát trong gate. Nới sandbox là quyết định bảo mật — cần chốt riêng, không kèm vào bản fix campaign. |
+| **8** | Slug từ prompt JA ra rác: P07 → **`1_google_1`** ("1 Google 1"). Guard `GENERIC_SLUG` chỉ bắn khi requirement **sạch bóng ASCII**; mảnh lạc 「1万字」「Google」 lọt qua | Cosmetic (YAML vẫn mang tên JA đúng, human sửa được ở gate ②). Sửa `deriveSlugName` đụng đường đặt tên thư mục đang có + `slug.test.ts` → tách quyết định riêng. |
+
+### Bài học về BỘ ĐO (quan trọng cho đợt sau)
+
+Xem [METERING-RELIABILITY.md](METERING-RELIABILITY.md). Hai sai lệch đã đo được:
+
+1. **Turn là sai trục** cho thrash: cùng-Haiku, webhook 16 turn vs schedule 22 turn (**ngược**), trong
+   khi denied-call 7 vs 2 (đúng). → oracle đúng = **denied-call count**, đã thành predicate
+   `denied_calls_max`.
+2. **Model không pin**: thrash mạnh → CLI nhảy `opus-4-8[1m]`. Chỉ so **cùng model**.
+
+---
+
+## Cách chạy một campaign mới
+
+```bash
+# 0. ghi version đang test (mỗi run tự đóng dấu, nhưng ghi lại cho báo cáo)
+jq -r '.version' apps/builder/package.json
+
+# 1. chạy từng prompt (tuần tự — turn lock nối đuôi; canh quota, mỗi build 2–4 turn thật)
+apps/builder/scripts/e2e-run.sh fire "<dán nguyên văn từ docs/prompts/P##-*.md>" --mode auto
+apps/builder/scripts/e2e-run.sh wait <taskId>
+
+# 2. đọc oracle (KHÔNG dùng turn làm oracle thrash)
+T=apps/builder/.runs/<id>/transcripts/implement.md
+sed -n '/^### Tool calls/,/^### Result/p' $T | grep -c '✗'                      # denied/errored calls
+apps/builder/scripts/e2e-run.sh comprehension <id>                               # jargon gate
+jq -c '.lint' apps/builder/.runs/<id>/report.json                                # 4 linters
+jq -r '.cost | to_entries[] | "\(.key): \(.value.model) \(.value.numTurns)t"' apps/builder/.runs/<id>/task.json
+
+# 3. mỗi run một báo cáo: docs/prompts/runs/<ngày>-P##-<taskId>.md
+# 4. một SUMMARY cho cả đợt + thêm MỘT DÒNG vào bảng đối chiếu ở trên
+```
+
+**Luật giữ cho đối chiếu có nghĩa**: dán prompt **nguyên văn** (dọn prompt = phá test) · ghi **model
+từng phase** · chỉ so **cùng model** · finding nào chưa đủ mẫu thì ghi rõ `n=1`, đừng fix vội.

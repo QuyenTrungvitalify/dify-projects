@@ -258,10 +258,25 @@ def test_dump_schema_unknown_type_lists_the_known_ones() -> None:
 
 
 def test_dump_schema_warn_skip_type_explains_instead_of_stub() -> None:
+    """A KNOWN type with no dumped def is a valid question with a valid answer → exit 0, on stdout.
+
+    This asserted exit 2 until run 1784388534562 showed the cost: `--dump-schema http-request` returned
+    exactly the right guidance and the turn saw `✗`, i.e. "rejected, find another route" — the hunt this
+    flag exists to end. It also fed the denied-call oracle (spec 071 S2) a false positive. Only a
+    misspelled type is a caller error; not knowing is the schema's limitation, not the caller's.
+    """
     result = run_tool("--dump-schema", "assigner")  # mapped to None (no def dumped)
-    assert result.returncode == 2
-    assert "warn-skip" in result.stderr
-    assert "vetted source" in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert "warn-skip" in result.stdout
+    assert "vetted source" in result.stdout
+
+
+def test_dump_schema_error_stub_type_exits_zero() -> None:
+    """`http-request` maps to a def gen_schema could only emit as an `_error` stub."""
+    result = run_tool("--dump-schema", "http-request")
+    assert result.returncode == 0, result.stderr
+    assert "dump-stub" in result.stdout
+    assert "vetted source" in result.stdout
 
 
 def test_dump_schema_requires_an_argument() -> None:
