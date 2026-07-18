@@ -93,6 +93,16 @@ Write `SPEC.md`:
 - to `.runs/{{TASK_ID}}/SPEC.md` if `{{WORKFLOW_SLUG}}` is empty (pre-slug),
 - else to `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/SPEC.md`.
 
+**NEVER end this turn without writing the file.** Autonomous modes (`auto`/`spec_only`) auto-confirm
+this gate, so nobody will answer a question you ask here — a turn that stops to ask produces NO
+`SPEC.md`, and the build dies with `artifact missing` (observed: run 1784375623443, where a
+high-ambiguity requirement — unknown Excel columns, unknown match key — led this phase to write a
+question into the chat instead of the file, believing it had written one). When the requirement leaves
+something genuinely undecided: **choose a reasonable default, build the spec on it, and record it under
+`Open questions`** — exactly what `analyze.md` does at ①. The gate exists so a human can *correct* your
+assumption at the ② review; it does not exist to block on an answer. (In `each_step`, a human IS there —
+you may still ask, but only AFTER the file is written.)
+
 Structure (emit ALL of these sections, in order): `# <name>` · **Goal** · **Chosen pattern** (+ why) ·
 **Nodes** (table: id-placeholder, type, purpose) · **Variable flow** · **Plugins** (+ `# TODO: hash`) ·
 **`## Acceptance Criteria`** · **Open questions**. If you proposed a slug/name, state them at the top

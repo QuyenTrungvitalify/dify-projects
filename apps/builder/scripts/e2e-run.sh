@@ -2,7 +2,7 @@
 # e2e-run.sh — spec 058: simulate a real user session against the Builder API.
 #
 # Subcommands (each invocation is ONE idempotent step — no daemon):
-#   fire "<requirement>" [--mode auto|each_step] [--fast] [--deploy none|selfhost|cloud] [--project <p>]
+#   fire "<requirement>" [--mode auto|each_step] [--fast] [--deploy none|selfhost|cloud] [--project <p>] [--workflow <w>]
 #   fire --entry <suite-id>            # prompt + parameters read from e2e-suite.yml
 #   wait <taskId> [--timeout-min 20]   # poll until settled; timeout exits CLEANLY (code 5, re-invokable)
 #   confirm <taskId> [actionId]        # no arg → auto-picks ONLY 'continue' (never accept/discard)
@@ -59,7 +59,7 @@ summary() { jq '{taskId,phase,status,error:(.error//null),gate:{flag:(.gate.flag
 need_val() { [ "$1" -ge 2 ] || { echo "flag '$2' requires a value" >&2; usage; }; }
 
 cmd_fire() {
-  local req="" mode=auto fast=false deploy=none project="" entry=""
+  local req="" mode=auto fast=false deploy=none project="" workflow="" entry=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --entry)   need_val "$#" "$1"; entry=$2; shift 2 ;;
@@ -67,6 +67,11 @@ cmd_fire() {
       --fast)    fast=true; shift ;;
       --deploy)  need_val "$#" "$1"; deploy=$2; shift 2 ;;
       --project) need_val "$#" "$1"; project=$2; shift 2 ;;
+      # --workflow = the EDIT-EXISTING seam. Without it the harness could only ever fire from-scratch
+      # builds: a "add a feature to the flow you made before" prompt silently built a NEW workflow
+      # (run 1784380636506 — task.workflow was null while the digest said "Extend an existing
+      # workflow"), so the edit path had no e2e coverage at all. Pairs with --project.
+      --workflow) need_val "$#" "$1"; workflow=$2; shift 2 ;;
       -*) echo "unknown flag $1" >&2; usage ;;
       *)  req=$1; shift ;;
     esac
@@ -78,6 +83,7 @@ cmd_fire() {
     deploy=$(jq -r '.deploy' <<<"$fp")
     [ "$(jq -r '.fast' <<<"$fp")" = true ] && fast=true
     project=$(jq -r '.project // empty' <<<"$fp")
+    workflow=$(jq -r '.workflow // empty' <<<"$fp")   # suite entries may pin an edit-existing base
   fi
   [ -n "$req" ] || { echo "fire: requirement (or --entry) required" >&2; usage; }
   local cm=auto; [ "$mode" = each_step ] && cm="confirm each step"
@@ -85,6 +91,7 @@ cmd_fire() {
   body=$(jq -nc --arg r "$req" --arg m "$cm" --arg d "$deploy" '{requirement:$r, confirm_mode:$m, deploy:$d}')
   [ "$fast" = true ] && body=$(jq -c '. + {fast_mode:true}' <<<"$body")
   [ -n "$project" ] && body=$(jq -c --arg p "$project" '. + {project:$p}' <<<"$body")
+  [ -n "$workflow" ] && body=$(jq -c --arg w "$workflow" '. + {workflow:$w}' <<<"$body")
   api POST /api/tasks "$body"; local resp="$RESP"
   if [ "$HTTP_CODE" = 409 ]; then
     echo "turn lock BUSY — holder: $(jq -r '.holder // "?"' <<<"$resp") (wait for it or cancel it)" >&2
