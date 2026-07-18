@@ -13,7 +13,7 @@ transcripts/…). Báo cáo ở đây là bản **chưng cất committed**; run 
 | Ngày | Prompt | taskId | Kết cục | Tổng thời gian | Ghi chú nổi bật |
 |---|---|---|---|---|---|
 | 2026-07-18 | [P09](2026-07-18-P09-1784350435308.md) vague sales | 1784350435308 | ✅ PASS mạnh | 322.8s | digest biến mơ hồ→3 câu hỏi mở; 0 side-effect thừa |
-| 2026-07-18 | P11 phone-call | 1784350853304 | _đang chạy_ | | test từ chối trung thực |
+| 2026-07-18 | [P11](2026-07-18-P11-1784357457370.md) phone-call | 1784357457370 | ⚠️ PASS chất lượng, ③ chậm | 850.9s | trung thực về ranh giới; nhưng webhook thrash 490s → sống-chứng spec 071. Lần 1 fail vì HẾT QUOTA (không phải bug) |
 
 ## Điều kiện môi trường chung của đợt 2026-07-18
 
