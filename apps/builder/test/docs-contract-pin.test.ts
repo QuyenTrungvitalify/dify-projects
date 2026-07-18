@@ -40,4 +40,19 @@ describe('spec 046 D4 — docs↔contract drift pin', () => {
     assert.equal(copies.length, 1, 'the mandatory-elements checklist occurs exactly once (048 D3)');
     assert.ok(body.includes('advanced-chat: `answer` instead'), 'the trivial-branch delta survived the merge (048 r2)');
   });
+
+  // Spec 072 S3 — analyze.md must keep teaching ① to surface the webhook payload contract as an open
+  // point when the requirement doesn't name the fields (so the client can correct a wrong field-name
+  // guess before building), AND keep it gated to webhook entries (never padding a non-webhook digest).
+  // This is a regression guard on the guidance text — the LLM behavior itself is a propensity, but the
+  // instruction must not silently vanish.
+  test('analyze.md carries the webhook-payload open-point guidance, gated to webhook entries (072 S3)', () => {
+    const body = readFileSync(join(SKILL, 'analyze.md'), 'utf8');
+    assert.match(body, /trigger-webhook/, 'the webhook payload guidance references the entry type');
+    assert.match(body, /要確認|open point|contract/i, 'it frames the assumed fields as something to confirm');
+    assert.ok(
+      body.includes('Non-webhook entries have no such contract'),
+      'the guidance stays GATED — it must not tell ① to pad a non-webhook digest with this question',
+    );
+  });
 });

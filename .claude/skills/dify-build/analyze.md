@@ -68,6 +68,15 @@ if a file format is named, assume file input and state the assumption in the inp
 「Excelファイルをアップロード（前提）」); if no concrete artifact is named, default to pasted text and
 record that as the open point.
 
+**Webhook entry — the SOURCE's payload is a contract you are ASSUMING (spec 072 S3).** When the surface
+is a `trigger-webhook` and `{{REQUIREMENT}}` does NOT spell out which fields the caller will send, YOU
+choose the webhook body fields — and the client's source (a Google Form + Apps Script, or any service)
+must POST exactly those names, or nothing fires. So treat it like the file-vs-text default above: name
+the fields you assumed AND record them as an open point in `risks`/`note`, so the client can correct a
+wrong guess BEFORE building (e.g. 「Webhook で受け取る項目は rows_json / id_map_json / today と仮定
+（要確認：送信元が送るフィールド名）」). Only when the requirement DOES list the fields, take them as
+given and skip the question. (Non-webhook entries have no such contract — do not add this line to them.)
+
 ## Then, branch on whether there is a seed
 
 ### From-scratch (`{{SEED_PATH}}` empty) — a LEAN requirement digest
