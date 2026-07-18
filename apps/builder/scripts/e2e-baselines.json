@@ -22,19 +22,19 @@
     "phases": {
       "analyze": {
         "numTurns": 7,
-        "outputTokens": 3899
+        "outputTokens": 3380
       },
       "implement": {
-        "numTurns": 27,
-        "outputTokens": 16970
+        "numTurns": 16,
+        "outputTokens": 8431
       },
       "spec": {
-        "numTurns": 10,
-        "outputTokens": 9485
+        "numTurns": 8,
+        "outputTokens": 5600
       }
     },
     "total": {
-      "numTurns": 44
+      "numTurns": 31
     }
   }
 }
