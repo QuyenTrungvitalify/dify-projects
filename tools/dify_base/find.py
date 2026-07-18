@@ -109,6 +109,20 @@ Sources: patterns, library, starter, example, corpus:<name>, skill-assets, proje
         print("  python3 tools/dify_base/find.py --help")
         return 0
 
+    # Spec 071 S4 — a feature that exists in NO index entry is almost always a typo, and answering it
+    # with the same silent "No matching templates" as a real empty result is what sent the 44-turn run
+    # to grep. Distinguish the two: an UNKNOWN key errors with the valid list; a KNOWN key that simply
+    # has 0 matches falls through to the normal empty result below.
+    known = {k[len("has_"):] for e in entries for k in e if k.startswith("has_")}
+    unknown = [h for h in (args.has + args.without) if feature_key(h)[len("has_"):] not in known]
+    if unknown:
+        import sys as _sys
+        for u in unknown:
+            print(f"❌ unknown feature: '{u}' — not present in any indexed workflow.", file=_sys.stderr)
+        print(f"   Valid features: {', '.join(sorted(k.replace('_', '-') for k in known))}", file=_sys.stderr)
+        print("   (See `--list-features` for counts. A feature only appears once a workflow uses it.)", file=_sys.stderr)
+        return 2
+
     results = entries
     for h in args.has:
         results = [e for e in results if e.get(feature_key(h))]
