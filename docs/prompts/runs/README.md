@@ -17,6 +17,8 @@ transcripts/…). Báo cáo ở đây là bản **chưng cất committed**; run 
 | 2026-07-18 | [P11](2026-07-18-P11-1784357457370.md) phone-call | 1784357457370 | ⚠️ PASS chất lượng, ③ chậm | 850.9s | trung thực về ranh giới; nhưng webhook thrash 490s → sống-chứng spec 071. Lần 1 fail vì HẾT QUOTA (không phải bug) |
 | 2026-07-18 | [P01](2026-07-18-P01-1784359444404.md) news-pipeline | 1784359444404 | ✅ PASS mạnh | 655.8s | honesty phạm vi tốt; plugin hash thật; **đối chứng A/B cho 071** |
 
+| 2026-07-18 | [P03](2026-07-18-P03-1784361257820.md) morning-news | 1784361257820 | ✅ PASS mạnh | 518.1s | weekday+timezone+dedup-state đều đúng; schedule sạch (0 denied) |
+
 **→ [Tổng kết đợt 2026-07-18](2026-07-18-SUMMARY.md)** — 4/4 build đạt chất lượng; lỗ hiệu năng webhook (071) xác nhận A/B.
 
 ## Điều kiện môi trường chung của đợt 2026-07-18
