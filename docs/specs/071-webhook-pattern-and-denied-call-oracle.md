@@ -32,6 +32,20 @@ như nhánh schedule có pattern; (b) cổng cost của suite **đo sai trục**
 `implement_turns_max: 30` (23 turn) vì nhiều call lỗi nén vào một turn; oracle thật là **số call bị
 từ chối**, chưa có predicate nào đếm.
 
+**Bằng chứng bổ sung — đợt test 7 prompt 2026-07-18** (`docs/prompts/runs/`): xác nhận nguyên nhân
+bằng oracle đúng (grep-denied, **cùng model Haiku**), 5 mẫu sạch vs 2 thrash:
+
+| entry | pattern? | ③ grep-denied |
+|---|---|---|
+| schedule/chatflow/workflow (P01·P03·P06·P10) | ✅ có | **0–2** |
+| webhook (P04) | ❌ không | **7** |
+| webhook (P11, chạy Opus[1m] — chứng phụ) | ❌ không | 17 |
+
+Hai nhiễu bộ đo phát hiện trong đợt (chi tiết `docs/prompts/runs/METERING-RELIABILITY.md`): (1) **turn
+đo SAI TRỤC** — cùng-Haiku P04 vs P01 turn 16 vs 22 (ngược!) trong khi grep-denied 7 vs 2 (đúng) →
+predicate S2 PHẢI đếm denied-call, không phải turn; (2) **model không pin** — thrash mạnh → CLI nhảy
+`opus-4-8[1m]`, nên chỉ so cùng model.
+
 ## 2. Nguyên tắc thiết kế (giữ khi implement)
 
 - **Schema và pattern là hai tầng tri thức khác nhau, không thay nhau.** Schema = hợp đồng field
@@ -110,6 +124,17 @@ hiện im lặng "No matching templates" — không phân biệt được gõ sa
 riêng + danh sách key hợp lệ (exit code giữ tương thích script nếu có consumer).
 
 AC-S4: `--has trigger-webook` (typo) chỉ ra lỗi + gợi ý; unit test.
+
+### S5 (mới — từ đợt test 2026-07-18) — tra plugin theo NĂNG LỰC (S)
+
+Hai build độc lập grep tìm plugin theo *việc cần làm* và không có đường tra được phép: P11 grep 10
+lần tìm STT (`whisper|speech2text|transcribe|audio`), P01 tìm Sheets/Search tool. `find.py` tra
+*workflow pattern*, không tra *plugin/tool theo năng lực*. Cần một đường được-phép trả lời "workspace
+/marketplace có tool làm việc X không" — vd `marketplace.py --capability <kw>` hoặc mở rộng
+`find.py --tool <kw>` đọc `templates/tool-catalog.json`. Cùng họ nguyên nhân với S3/S4 (đường tra bị
+im lặng → agent rơi sang grep bị chặn).
+
+AC-S5: một lệnh được-phép trả về tool khớp năng lực (hoặc "không có" rõ ràng, không im lặng); unit test.
 
 ## 4. Tái hiện (repro) — chạy được bởi bất kỳ phiên nào
 
