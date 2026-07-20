@@ -50,8 +50,9 @@ Nguồn: `GET https://marketplace.dify.ai/api/v1/plugins/<org>/<name>[/<version>
 **Phải pin version** — hash khoá theo version nên `latest_package_identifier` sẽ trôi.
 
 **`resolve` trả identifier cho MỌI plugin** — kể cả plugin model/agent. Đó là chủ ý: một model-provider
-plugin cũng cần entry `dependencies:` của nó. `resolve` chỉ fail khi không có `latest_version`, hoặc
-identifier không khớp `IDENTIFIER_RE` (marketplace đổi shape).
+plugin cũng cần entry `dependencies:` của nó. `resolve` chỉ fail khi: không có `latest_version`;
+identifier không khớp `IDENTIFIER_RE`; hoặc endpoint version không trả `unique_identifier`
+(`no unique_identifier in the response`) — cả ba đều là marketplace đổi shape.
 
 **`tools` / `catalog`** thì thêm điều kiện `category == tool` và ≥1 tool được khai báo — chỉ loại đó mới
 đứng sau được một `type: tool` node. Ví dụ `langgenius/jina` là `category: model`: `resolve` **thành
@@ -78,7 +79,9 @@ import lại thay vì tự suy.
 
 ## 4. Catalog
 
-`templates/tool-catalog.json` — **sinh tự động, không sửa tay** (lệnh `catalog` ở §2).
+`templates/tool-catalog.json` — entry **sinh tự động** (lệnh `catalog` ở §2 phát fragment
+`{"tools":[…]}`), nhưng file commit bọc fragment đó dưới key **`plugins`** kèm metadata viết tay
+(`_README`, `generated_from`, `resolved_on`) — envelope không phải output nguyên văn của lệnh.
 
 Mỗi entry: `provider_id`, `provider_type`, `provider_name`, `plugin_id`, `category`,
 `dependency_identifier`, `version`, và theo từng tool `{tool_name, tool_label, parameters[{name, type,
@@ -121,9 +124,9 @@ nhận `''`.
 | class | điều kiện | field trên object |
 |---|---|---|
 | `model_empty` | node `llm` / `parameter-extractor` / `question-classifier` có `model.provider` hoặc `model.name` rỗng | `nodeId`, `nodeType` |
-| `sandbox_trap` | node `code` import module ngoài stdlib | `nodeId` |
+| `sandbox_trap` | node `code` import module ngoài stdlib | `nodeId`, `nodeType` (`code`) |
 | `plugin_todo` | `dependencies: []` + marker `# TODO … plugin … hash` | — |
-| `dataset_empty` | node `knowledge-retrieval` không có `dataset_ids` | `nodeId` |
+| `dataset_empty` | node `knowledge-retrieval` không có `dataset_ids` | `nodeId`, `nodeType` (`knowledge-retrieval`) |
 | `env_secret_empty` | env var `value` rỗng **và** được graph tham chiếu | `varName` |
 
 "Được tham chiếu" = `{{#env.NAME#}}` trong bất kỳ chuỗi nào dưới `workflow.graph`, **hoặc**
@@ -149,7 +152,8 @@ vào mà không đạt cùng chuẩn.
 ## 7. User đọc gì
 
 `report.json.notes` là **một chuỗi**, ráp bởi `joinNotes(noteParts)`. Mỗi phần được trim, bỏ nếu rỗng,
-**thêm `.`** nếu chưa kết thúc bằng `. ! ? 。 )`.
+**thêm `.`** nếu chưa kết thúc bằng `. ! ? 。 )`, nối bằng **newline** — UI split `'\n'` render bullet
+list (`ArtifactPanel`).
 
 | # | phần | điều kiện |
 |---|---|---|
@@ -166,6 +170,12 @@ vào mà không đạt cùng chuẩn.
 | 11 | `this workflow uses these Dify tools: <labels>. Before you can run it: (1) install each …, (2) add an API key …, (3) run the workflow to test it.` | YAML có ≥1 tool node |
 | 12 | `this workflow relies on a Dify plugin — …` | có plugin TODO chưa giải **và** không có tool node |
 | 13 | `This workflow starts on a schedule (or a webhook) … Until you do, it never fires.` (`none`) / `trigger-entry workflow: an API run is a manual fire — …` (còn lại) | YAML có trigger entry node |
+| 14 | `This workflow starts from a webhook, so something outside Dify has to send it data: your source (for example a Google Form + Apps Script, or any service that can POST) must call the webhook URL … sending these fields: <name (required), …>` | probe trả `webhook_inputs` → `Preflight.sourceInputs` khác rỗng; render bởi `sourceContractNote()` (`runnability.ts`) |
+
+Dòng 14 là **hợp đồng dữ liệu vào từ nguồn ngoài**: một build webhook đúng hoàn toàn vẫn không bao
+giờ chạy nếu không ai nối nguồn — lớp "silent import success + runtime failure" leo lên tầng nguồn.
+Field lấy từ `body[]` của node trigger-webhook (khai báo tường minh trong YAML), không suy diễn từ
+code node.
 
 Tool checklist (11) khoá theo **sự hiện diện của tool node**, không theo marker TODO — hash đã resolve
 **không** làm nó im.
@@ -212,6 +222,12 @@ phải đọc trên màn hình là **affordance**, không phải jargon.
 
 Mỗi token ứng với một chuỗi tầng này **không còn phát ra**.
 
+`e2e_check.py` còn một predicate đọc **transcript** thay vì report: `denied_calls_max` — đếm
+tool-call bị `✗` trong `transcripts/<phase>.md`. Nó tồn tại vì **turn count là trục sai** cho
+search-thrash: các call bị chặn nén được vào ít turn, nên một run thrash nặng vẫn lọt cap turn; đếm
+call bị từ chối mới đo đúng. Predicate này đánh giá **trước** guard have-cost (run thiếu cost vẫn
+đếm được `✗`).
+
 ## 9. Luật các phase nhận được
 
 - `AGENTS.md` §4.3 — hash công khai, khoá theo version; **resolve, không bịa**; workflow dùng marketplace
@@ -222,6 +238,9 @@ Mỗi token ứng với một chuỗi tầng này **không còn phát ra**.
   plugin không tồn tại.
 - `.claude/skills/dify-build/spec.md` — xem catalog trước khi tự model integration; cần plugin **không
   phải** lý do để né node.
+- `.claude/skills/dify-build/analyze.md` — payload webhook do builder **tự giả định** (requirement
+  không nêu field) phải thành open point ở ①, để client sửa tên field trước khi build; entry
+  không-webhook không có hợp đồng đó nên không nêu.
 - `.claude/skills/dify-build/implement.md` — thứ tự resolve: catalog → `marketplace.py`. Dataset không có
   fact thì giữ dạng TODO.
 - `docs/runtime-supplement.md` — shape `builtin` đã kiểm chứng.

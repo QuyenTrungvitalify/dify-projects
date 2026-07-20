@@ -30,13 +30,13 @@ Phạm vi: `orchestrator.ts` · `orchestrator-shared.ts` · `gate.ts` · `phases
 `.claude/skills/dify-build/test.md` tồn tại trên đĩa nhưng **không bao giờ được gửi**. ④ tĩnh là
 `runTestAndFinish` (`orchestrator.ts`): chạy lại linter qua `runReport`, ghi `report.json` — phán
 quyết cuối là kết quả linter **tất định**, không phải model tự chấm bài của mình. Hai thứ trông
-giống "turn ở ④" thật ra không phải turn-④: nhánh live (`runLiveTest`, `live-test.ts` — chưa có doc
-sở hữu) và một `/reply` tại gate ④, vốn **quay về turn Implement** (§7).
+giống "turn ở ④" thật ra không phải turn-④: nhánh live (`runLiveTest`, `live-test.ts` —
+[dify-io.md](dify-io.md) sở hữu) và một `/reply` tại gate ④, vốn **quay về turn Implement** (§7).
 
 Prompt render: `renderPrompt` thay **mọi** `{{TOKEN}}` theo bảng token của `vars()` — token một
 phase không dùng nhận `''` (riêng `DEPTH` nhận `standard`), nên không `{{…}}` nào sống sót vào
-prompt. `phases.ts` **io-free theo hợp đồng**: `KNOWLEDGE` luôn `''` ở đây; orchestrator ghi đè cho
-③ (§2). `PATTERN_PATH` đi qua allowlist `^[A-Za-z0-9_-]+(\.yml)?$` — `analysisPattern` là thứ turn ①
+prompt. `phases.ts` **io-free theo hợp đồng**: `KNOWLEDGE` (và `REFERENCES`) luôn `''` ở đây; orchestrator
+ghi đè cho ③ (§2). `PATTERN_PATH` đi qua allowlist `^[A-Za-z0-9_-]+(\.yml)?$` — `analysisPattern` là thứ turn ①
 tự ghi (không tin được), tên không lọt allowlist thoái hoá thành `''` chứ không thành đường dẫn
 traversal. `languagePin` phát hiện kana → chèn chỉ thị tiếng Nhật lên **đầu** prompt (fresh lẫn
 `/reply`); requirement Latin → `''`.
@@ -45,6 +45,28 @@ Status (`state/task.ts`): `running` · `awaiting_confirm` · `done` · `error` �
 trạng thái công khai; `scaffolding` là sub-state nội bộ quanh scaffold ở gate Spec, boot reconcile
 đối xử nó như `running` (§9).
 
+Thang đầy đủ, nhìn một hình:
+
+```mermaid
+flowchart LR
+  P0(["POST /api/tasks"]) --> A["① analyze · turn"]
+  A --> GA{"gate ①"}
+  GA -->|"/confirm"| S["② spec · turn"]
+  P0 -.->|"build fast: turn merged, gate ① không phát"| S
+  S --> GS{"gate ②"}
+  GS -->|"/confirm — scaffold trong cùng request"| I["③ implement · turn"]
+  I --> GI{"gate ③"}
+  GI -->|"/confirm"| T["④ test · backend"]
+  GI -->|"test_live"| LV["④ live · runLiveTest"]
+  T --> GT{"gate ④ — park hoặc done"}
+  LV --> GT
+  GT -.->|"/reply = revision: resume turn ③, re-park gate ③"| I
+```
+
+Mỗi gate ①–③ còn `/reply` (re-run phase **hiện tại**, không tiến — §2) và Discard = `/cancel`
+(§6); bộ nút đầy đủ từng gate + các outcome ④: §3. Ai *bấm* `/confirm` — người hay
+`maybeAutoAdvance` — là §2.
+
 ## 2. Ai phát turn kế tiếp
 
 Gate được thực thi bằng **ai phát turn**, không phải một cờ "dừng" mềm. Ba entry point, mỗi cái là
@@ -52,7 +74,7 @@ một HTTP request riêng (`routes/tasks.ts` → `orchestrator.ts`):
 
 | route | hàm | làm gì |
 |---|---|---|
-| `POST /api/tasks` | `startTask` | chạy ① (build fast: chạy thẳng slot ② merged — gate Analyze **không bao giờ** được phát) rồi gate |
+| `POST /api/tasks` | `startTask` | prelude seed nếu là build seeded/edit-existing (`difySeedScaffoldAndPull`/`localEditSeed` — fail thành gate `error` ① trước mọi turn), rồi chạy ① (build fast: chạy thẳng slot ② merged — gate Analyze **không bao giờ** được phát) rồi gate |
 | `POST /api/tasks/:id/confirm` | `confirmAdvance` | tiến đúng **một** boundary, turn mới tinh (không resume xuyên phase) |
 | `POST /api/tasks/:id/reply` | `replyWithin` | re-run phase **hiện tại** qua `--resume <sessionIds[phase]>`, re-gate, **không** tiến |
 
@@ -77,7 +99,8 @@ flag `still_failing` / `awaiting_import` / `test_result` / `infra_degraded`; ho�
 
 Hai việc backend "đi kèm boundary":
 
-- **②→③**: `scaffoldAtSpecGate` (thuộc `scaffold.ts` — chưa có doc sở hữu) chạy **trong** cái
+- **②→③**: `scaffoldAtSpecGate` (thuộc `scaffold.ts` —
+  [scaffold-and-layout.md](scaffold-and-layout.md) sở hữu) chạy **trong** cái
   `/confirm` đóng Spec, trước turn ③.
 - **③→④ không cửa sổ**: khi ③ và ④ nằm trong **cùng một** dispatched request (auto-advance),
   `confirmAdvance` chuyển lint codes ③ vừa verify cho ④ qua tham số `internal` — **cố ý không**
@@ -86,7 +109,9 @@ Hai việc backend "đi kèm boundary":
   `each_step`, accept ④, `/reply`) đều re-lint.
 
 Trước mỗi turn ③, orchestrator harvest workspace facts và render vào `{{KNOWLEDGE}}` — cơ chế và
-nội dung: `readiness-and-plugins.md` §5. Ảnh đính kèm nối vào **đuôi** prompt qua
+nội dung: `readiness-and-plugins.md` §5. Cùng seam đó, `{{REFERENCES}}` (spec 065) nhận danh sách
+file vetted phủ phần pattern được chọn còn thiếu (`gapReferences`); cả hai token đều `''` trong
+`phases.ts` theo hợp đồng io-free, chỉ orchestrator ghi đè cho ③. Ảnh đính kèm nối vào **đuôi** prompt qua
 `attachmentBlock` — seam duy nhất phủ cả prompt fresh lẫn prompt resume (prompt resume **không**
 đi qua `injectVars`). Một `/reply` bọc text người dùng dưới header nguyên văn
 `## Change request (revise the existing artifact; do not restart from scratch)` — thiếu nó, model
@@ -124,9 +149,9 @@ chỉ nhánh `implement` đọc `targets`, các phase khác nhận vô hại.
 `promote_blocked` / `promote_distill_failed` / `promote_review`, action id
 `approve` (`Approve & promote`) · `approve_overwrite` (`Overwrite existing`) ·
 `approve_rename` (`Save as a new pattern`) · `changes` · `discard`. Build promote **không bao giờ
-vào FSM ①②③④**: `routes/tasks.ts` rẽ theo `task.kind === 'promote'` sang `lib/promote.ts` (chưa có
-doc sở hữu) **trước khi** chạm `confirmAdvance`; `createPromoteTask` ghim `phase:'test'` chỉ để UI
-render gate inline.
+vào FSM ①②③④**: `routes/tasks.ts` rẽ theo `task.kind === 'promote'` sang `lib/promote.ts`
+([templates-and-promotion.md](templates-and-promotion.md) sở hữu) **trước khi** chạm
+`confirmAdvance`; `createPromoteTask` ghim `phase:'test'` chỉ để UI render gate inline.
 
 `POST /api/promote` nhận source từ **hai cửa**. Cửa cũ: một workflow project local
 (`{project, workflow}` → `projects/<project>/<workflow>/workflows/main.yml`). Cửa mới: một **YAML dán/
@@ -168,6 +193,26 @@ start `deploy:'none'` vẫn phải live-test được từ UI. Nơi đóng dấu
 build cộng lại. Đây cũng chính là bất biến khiến confinement baseline-delta đứng vững
 (`turn-and-sandbox.md` §4).
 
+Vòng đời của một dispatched request — lock giữ từ route đến khi **toàn chuỗi** settle:
+
+```mermaid
+sequenceDiagram
+  participant C as client
+  participant R as routes/tasks.ts
+  participant O as orchestrator
+  C->>R: POST /tasks · /confirm · /reply
+  R->>R: acquireTurn — đồng bộ, đã có holder thì 409
+  R->>O: dispatch(work) — không await
+  R-->>C: snapshot lạc quan (SSE mang transition thật)
+  Note over O: turnHolder giữ suốt chuỗi
+  O->>O: runPhase → verify → gateAfterPhase (đặt gate, dừng)
+  loop maybeAutoAdvance — mode cho phép, không flag hard-stop
+    O->>O: confirmAdvance — đệ quy, CÙNG dispatched request
+  end
+  Note over R,O: settle: park tại gate hoặc terminal
+  R->>R: finally: releaseTurn (điểm nhả duy nhất) rồi evict cờ cancel nếu terminal
+```
+
 - **Ai giữ**: build có turn (hoặc backend write-unit như ④) **đang chạy**. Route acquire **đồng
   bộ, trước khi dispatch** (`acquireTurn` strict: đã có bất kỳ holder nào → `false`, kể cả holder
   cùng-task cũ). Build **park ở gate giữ KHÔNG gì** — bao nhiêu build park cũng được.
@@ -200,8 +245,12 @@ orchestrator (đang chạy trong request khác) còn kiểm tra nó **sau khi** 
 `POST /:id/cancel`:
 
 1. `liveKind(id) === 'ask'` → chỉ `forceKill()` child (chưa có child — cờ `requestAskCancel` trên
-   holder), **không bao giờ** `markCancelled`: Ask không có terminal settle để evict cờ, một cờ
-   dính lại sẽ chặn **vĩnh viễn** mọi turn phase tương lai của build đó. Status/gate không đổi.
+   holder), **không bao giờ** `markCancelled`: Ask không có terminal settle để evict cờ, nên cờ sẽ
+   dính lại trong Set — rò bound §6.3, và chặn nhầm `PATCH` (re-check `isCancelled` → 409
+   `task was cancelled…`) cho tới lần `acquireTurn` kế của build đó (acquire xoá cờ — dòng
+   `fresh slate on (re)acquire`, `lock.ts`). Comment tại route nói cờ dính "chặn **vĩnh viễn** mọi
+   turn tương lai" — quá tay so với code: nó mô tả thế giới không có fresh-slate. Status/gate
+   không đổi.
 2. Turn phase: `markCancelled(id)` **trước**, rồi `forceKill()` nếu có child. Orchestrator re-check
    `isCancelled` **sau mỗi await** (trước spawn, sau turn, sau verify, trong `maybeAutoAdvance`,
    sau ④…) và hội tụ về `cancelled` idempotent — không có các re-check này, save thành công của
@@ -217,6 +266,20 @@ trước (① — hoặc build fast huỷ ngay tại turn merged, `phase='spec'`
 lùi về Analyze sẽ dựng **gate ma** của một phase chưa từng chạy) → mở lại thành `error` retry được,
 với `restored — Retry to re-run analyze` / `restored — Retry to re-run the merged draft`. Restore
 **không chạy turn, không lấy lock**.
+
+```mermaid
+stateDiagram-v2
+  running --> cancelled: /cancel — markCancelled rồi forceKill
+  awaiting_confirm --> cancelled: /cancel (Discard) khi đang park
+  cancelled --> awaiting_confirm: /restore — lùi một boundary, gate success của phase liền trước
+  cancelled --> error: /restore — không có gate trước (① hoặc fast merged)
+  error --> running: /reply rỗng (nút Retry)
+  note right of cancelled
+    Ask bị /cancel — chỉ forceKill,
+    KHÔNG bao giờ vào state này
+    (cờ dính sẽ chặn vĩnh viễn mọi turn sau)
+  end note
+```
 
 ## 7. Lỗi, retry, và ④ chi tiết
 
@@ -255,6 +318,21 @@ error** — Retry là `/reply` (re-acquire lock).
   `finally` đó đọc lại `task.json` để quyết định evict cờ cancel (§6), nên nếu nhả sớm nó sẽ đọc
   trúng `running` cũ, kết luận "chưa terminal" và **rò cờ**. `failSafe` nuốt lỗi IO của chính nó nên
   await không thể biến một lỗi đã hội tụ thành unhandled rejection.
+
+Đường ④ tĩnh, gom thành một hình (nhánh live + bộ nút từng gate ④: §3):
+
+```mermaid
+flowchart TD
+  RT["④ tĩnh — runTestAndFinish"] --> PR["runImportProbe — advisory, chạy TRƯỚC report"]
+  PR --> REP["runReport — re-lint tất định"]
+  REP --> OK{"report ok?"}
+  OK -->|"không"| ERR["status 'error' — nút Retry"]
+  OK -->|"có"| Q1{"targets.selfhost + lintClean + không autonomous?"}
+  Q1 -->|"đúng"| PI["park awaiting_import — deploy='selfhost', testMode giữ 'static'"]
+  Q1 -->|"sai"| Q2{"lint bẩn, người chưa accept?"}
+  Q2 -->|"đúng"| SF["park still_failing ④"]
+  Q2 -->|"sai"| DN["done — gate terminal, không action"]
+```
 
 ## 8. `task.json` — nguồn sự thật cho cái gì
 
@@ -333,7 +411,7 @@ tránh vòng import) và mang seam:
 
 | file | phủ |
 |---|---|
-| `apps/builder/test/dispatch-lifecycle.test.ts` | wiring route thật (§5, §10): lock giữ suốt chuỗi dispatched + nhả khi build **park**, và khe đó dùng lại được thật; 409 va-lock mang `holder`; `failSafe` hội tụ `error` + relay + không rò lock; cờ cancel evict **đúng lúc** terminal (giữ trong lúc chuỗi còn unwind); `PATCH` 409 khi turn đang chạy / 200 khi park + bump `rev`, 404/400 |
+| `apps/builder/test/dispatch-lifecycle.test.ts` | wiring route thật (§5, §10): lock giữ suốt chuỗi dispatched + nhả khi build **park**, và khe đó dùng lại được thật; 409 va-lock mang `holder`; `failSafe` hội tụ `error` + relay + không rò lock; cờ cancel evict **đúng lúc** terminal (giữ trong lúc chuỗi còn unwind); `PATCH` 409 khi turn đang chạy / 200 khi park + bump `rev`, 404/400; route `/confirm`: validation-409 (không `holder`) **không leak lock** + advance thật ①→②→③→④ qua HTTP + body chứa `reuseLint` bị **lờ** (ReportOpts nhận `undefined` — ④ re-lint); kẻ-thua-race qua fast-path bị pin `rejected — another turn is running` trên id riêng |
 | `apps/builder/test/gate.test.ts` | bảng action §3 từng phase/outcome; tham số deploy không đổi gate (error/terminal/`awaiting_import`); mọi gate non-terminal không-error/không-still-failing có Discard; `test_live` mọc theo `targets` |
 | `apps/builder/test/lock.test.ts` | acquire strict một-slot; kind `ask`; cờ cancel sống qua release, evict bound Set; `reconcileOnBoot` (`running`→`error`, `awaiting_confirm` giữ, file hỏng skip) |
 | `apps/builder/test/auto-advance.test.ts` | ma trận `boundaryAutoAdvances` §2, kể cả mode hỏng fail-safe |
@@ -343,7 +421,7 @@ tránh vòng import) và mang seam:
 | `apps/builder/test/lint-reuse.test.ts` | hop ③→④ không cửa sổ nhận `reuseLint`, đường có cửa sổ thì không |
 | `apps/builder/test/import-probe.test.ts` | probe ④: tên `[probe] <taskId>`, quét orphan khi fail, nhánh pending không bị dán FAILED, không creds → không probe, note lọt vào report |
 | `apps/builder/test/preflight-gate.test.ts` | preflight ③ advisory: gate deep-equal build sạch; recompute mỗi verify; probe hỏng non-fatal |
-| `apps/builder/test/recovery.test.ts` | marker atomic không rách; ba nhánh reconcile §9; marker đã resolve bỏ qua |
+| `apps/builder/test/recovery.test.ts` | marker atomic không rách; **cả ba** nhánh reconcile §9 (tìm thấy → gắn `appId` vào marker+task + note `recovered…`; ambiguous; không tìm thấy); marker đã resolve bỏ qua |
 | `apps/builder/test/restore.test.ts` | `restoreTargetPhase` thuần (lùi một boundary; ① → null) |
 | `apps/builder/test/retry-out-of-error.test.ts` | route `/reply`: text rỗng chỉ hợp lệ ở `error`; kỹ thuật phân biệt 409-lock (`holder`) vs 409-validation |
 | `apps/builder/test/ask-route.test.ts` | route `/cancel` cả hai nhánh `liveKind` (Ask scoped, phase hội tụ `cancelled`); `/restore` 409 khi chính task giữ lock, 200 khi task khác giữ; guard `/reply` cùng-task |
@@ -351,6 +429,7 @@ tránh vòng import) và mang seam:
 | `apps/builder/test/spec-save-lock.test.ts` | ghi SPEC qua UI 409 khi **bất kỳ** turn nào (kể cả Ask) đang chạy cho task đó |
 | `apps/builder/test/test-mode.test.ts` | `createTask` **bỏ qua** `deploy`/`testMode` (§4) |
 | `apps/builder/test/save-task-race.test.ts` | save đồng thời không đụng temp file, file cuối parse được |
+| `apps/builder/test/task-id-mint.test.ts` | `mintTaskId` đơn điệu (§5): ba `createTask` trong **cùng một ms** (Date.now đóng băng) → id khác nhau, tăng nghiêm ngặt |
 | `apps/builder/test/workflow-file.test.ts` | `isValidWorkflowFile` nhận tên thật, chặn traversal |
 | `apps/builder/test/timeout-knobs.test.ts` · `timeout-knobs-env.test.ts` | default các knob timeout; env override đọc lúc load; turn treo chết đúng note timeout |
 | `apps/builder/test/knowledge-inject.test.ts` | seam render §2: facts chỉ vào prompt ③ (fresh qua token, resume qua đuôi), `languagePin` kana |
@@ -361,11 +440,6 @@ tránh vòng import) và mang seam:
 
 Đây là ranh giới của mọi kết luận "xanh" ở tầng này.
 
-- **`POST /confirm` ở tầng route.** `dispatch-lifecycle.test.ts` đi trọn đường HTTP cho `POST
-  /api/tasks`, `/cancel` và `PATCH`, nhưng `/confirm` thì chưa: nhánh validate action **trước**
-  `acquireTurn` (trả 409 sớm không được leak lock) vẫn chỉ đọc-code.
-- **Kẻ-thua-race bị đánh dấu `rejected — another turn is running`** — nhánh này cần hai POST trúng
-  cùng khe giữa fast-path `turnBusy()` và `acquireTurn`; không test nào dựng được cửa sổ đó.
 - **`PATCH`: re-check `isCancelled`** chống hồi sinh build vừa huỷ — hai nhánh 409 kia đã có test,
   riêng nhánh này cần một `/cancel` rơi đúng giữa `loadTask` và `saveTask`; chưa gác.
 - **Thứ tự boot** `reconcileOnBoot` → `reconcilePushIntents` sống ở `server/index.ts` — không test
@@ -373,13 +447,8 @@ tránh vòng import) và mang seam:
 - **Các bản sao của `projects/<project>/<workflowSlug>`** (§8) khớp nhau — `workflowDir` và ~12 site
   tự nối, **gồm cả** `isWhitelisted` của `post-turn.ts`. Không test nào so chúng, nên đổi cây thư mục
   ở một phía sẽ **không** làm test nào đỏ: nó lặng lẽ mở rộng hoặc thu hẹp whitelist confinement.
-- **`mintTaskId` đơn điệu** (hai POST cùng mili-giây không chung id) — bất biến mà lập luận
-  chống-race ở §5 dựa vào, không test nào gác.
 - **`rev` tăng đúng-một-lần-mỗi-transition** xuyên một build thật — `save-task-race` chỉ chứng minh
   không đụng temp file; không gì duyệt chuỗi emit thật để bắt một chỗ quên `bumpRev` mới.
-- **`reuseLint` không tiêm được từ client** — bảo đảm nằm ở *vị trí tham số* (`internal` tách khỏi
-  `ConfirmPayload`); có test cho hành vi reuse, nhưng không test nào POST thử một body chứa
-  `reuseLint` để chứng minh nó bị lờ.
 - **Các cửa sổ cancel giữa-await khác.** `advance-loop` mô phỏng cancel **trong** turn; các
   re-check sau scaffold, sau verify, và guard trước-spawn tồn tại vì từng cửa sổ đều có thể trúng
   `/cancel`, nhưng không test nào đâm trúng từng cửa sổ đó — chúng chỉ được đọc-code.
@@ -390,7 +459,9 @@ tránh vòng import) và mang seam:
   `HUONG_DAN.md` với những env code thật sự đọc. Một knob chết nằm lại trong hướng dẫn cài đặt sẽ
   không làm test nào đỏ — đó đúng là chuyện đã xảy ra với `DEFAULT_DEPLOY` (§4), và chỉ được phát
   hiện bằng cách đọc code. (`test_no_plugin_hash_myth.py` làm đúng kiểu gác này cho huyền thoại
-  hash; **không có bản tương đương cho knob env**.)
+  hash; **không có bản tương đương cho knob env**. Gần nhất là `timeout-knobs.test.ts` ghim 3 knob
+  timeout vào `.env.example` — một chiều và hardcode, không đếm được knob mới thêm hay knob chết;
+  ~13 env khác code đọc không có gác nào.)
 - **`CreateTaskInput.deploy`/`testMode` vẫn nhận trên wire rồi bị lờ** (§4). `test-mode.test.ts` gác
   chiều "createTask không đọc chúng", nhưng không gì ngăn ai đó thấy hai field ấy và **nối dây lại**
   vào `createTask` cho "hợp lý" — làm vậy sẽ đảo ngược quyết định gate-stamped ở §4. Test duy nhất

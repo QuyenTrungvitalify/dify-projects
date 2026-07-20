@@ -14,8 +14,9 @@ Phạm vi: `scaffold.ts` (`ensureScaffold` · `scaffoldAtSpecGate` · `relocateR
 **Hai ranh giới cắt qua Phạm vi trên** (khai hai chiều để luật sở hữu có nghĩa):
 
 - **Nửa seed của hai prelude** `difySeedScaffoldAndPull` / `localEditSeed` trong `scaffold.ts` — phần
-  lập `task.seedPath` (`scaffold.ts:118` pull từ Dify, `:165` snapshot local) — thuộc
-  **`knowledge-system.md`**. Doc này chỉ sở hữu phần hai prelude đó **scaffold + resolve slug** (chúng
+  lập `task.seedPath` (`scaffold.ts:118` pull từ Dify, `:165` snapshot local) — hiện **VÔ CHỦ**
+  ([README](README.md) §Bề mặt chưa có doc sở hữu; `knowledge-system.md` đã hạ cấp thành bản đồ sở
+  hữu 0 file, chỉ trỏ). Doc này chỉ sở hữu phần hai prelude đó **scaffold + resolve slug** (chúng
   gọi lại đúng `ensureScaffold` + `slug.ts` mô tả ở đây); cơ chế pull/snapshot không nằm ở đây.
 - **`routes/ui.ts`**: doc này lấy **đúng một handler** `POST /api/projects` (§3). Phần còn lại của file
   (`/api/tree`, `/api/seeds`, `/api/tasks/:id/spec`) vẫn **chưa có doc sở hữu**; handler `POST /api/bases`
@@ -39,9 +40,9 @@ template `_base/`** — không sinh nội dung động.
 | **workflow** | `init_project.py --kind workflow --project <p>` | `templates/_base/workflow/` | `workflows/.gitkeep` · `prompts/.gitkeep` · `inputs/.gitkeep` · `tests/fixtures/.gitkeep` |
 
 **Tầng workflow chỉ sinh các thư mục RỖNG** (bốn `.gitkeep`). **Không có `main.yml`, không có `SPEC.md`.**
-Comment ở `project-create.ts:53-54` ("with a placeholder `workflows/main.yml`") và `routes/ui.ts` **nói sai**
-về scaffold: `templates/_base/workflow/` không chứa `main.yml`. File YAML xuất hiện **sau**, do ③ Implement
-ghi vào `workflows/<workflowFile>` (mặc định `main.yml`, `state/task.ts:455`), hoặc do upload
+Comment ở `project-create.ts:53-54` ("with a placeholder `workflows/main.yml`") **nói sai** về scaffold:
+`templates/_base/workflow/` không chứa `main.yml`. File YAML xuất hiện **sau**, do ③ Implement
+ghi vào `workflows/<workflowFile>` (mặc định `main.yml`, `state/task.ts:464`), hoặc do upload
 `POST /api/bases` ghi verbatim (đường của `dify-io.md`) — **không phải** do scaffold.
 
 `.dify-workspace.yaml` (manifest, chỉ tầng project) mang `project.{name, slug, app_type, dsl_version,
@@ -62,7 +63,7 @@ tầng workflow **vô hại trên đĩa**; chỉ `--slug` quyết định tên f
 
 **`slugify` (`init_project.py:56-65`) GIỮ leading underscore có chủ ý** — `raw.startswith("_")` thì
 prepend lại `_`. Đây là **hằng số phản trực giác không được "dọn"**: project reserved `_drafts` (spec 030
-D5) phải round-trip **giống hệt** qua `slugify` (py) và `sanitizeSlug` (ts, `state/task.ts:394`), vì tầng
+D5) phải round-trip **giống hệt** qua `slugify` (py) và `sanitizeSlug` (ts, `state/task.ts:403`), vì tầng
 confinement so `task.project` **đã lưu** với **folder trên đĩa** — strip mọi `_` sẽ biến `_drafts` thành
 `drafts` và phá so khớp đó.
 
@@ -89,8 +90,8 @@ Bốn đường vào chạm scaffold:
 | đường | gọi gì | slug lấy từ |
 |---|---|---|
 | ②→③ `/confirm` (build thường) | `scaffoldAtSpecGate` → `ensureScaffold` (`orchestrator.ts:143`) | derive/override/collision (§4) |
-| Prelude Dify-seed | `difySeedScaffoldAndPull` → `ensureScaffold` | `deriveSlugName` (**không** suffix va chạm) — nửa seed thuộc `knowledge-system.md` |
-| Prelude edit-existing local | `localEditSeed` (target folder có sẵn) | `sanitizeSlug(task.workflow)` — nửa seed thuộc `knowledge-system.md` |
+| Prelude Dify-seed | `difySeedScaffoldAndPull` → `ensureScaffold` | `deriveSlugName` (**không** suffix va chạm) — nửa seed **vô chủ** (README) |
+| Prelude edit-existing local | `localEditSeed` (target folder có sẵn) | `sanitizeSlug(task.workflow)` — nửa seed **vô chủ** (README) |
 | `POST /api/projects` (modal, **chỉ tầng project**) | `checkProjectName` → `scaffoldProjectTier` (`routes/ui.ts:63-78`) | `checkProjectName` (§4) |
 
 `POST /api/projects` (handler doc này sở hữu): validate tên → `slug`; **không** phải build turn (không
@@ -109,7 +110,7 @@ nội dung → cắt 40 ký tự, bỏ `_` đuôi. Chuỗi rỗng/toàn ký hi�
 `[^a-z0-9]` xoá sạch) → `GENERIC_SLUG` = `workflow`. Khi **mọi** từ đều là stopword thì fallback về danh
 sách từ thô (không bỏ stopword) rồi mới ≤4 — nên `deriveSlugName` không bao giờ trả rỗng.
 
-**Sanitize** (`sanitizeSlug`, `state/task.ts:386`, **`build-lifecycle.md` sở hữu** — trỏ sang): normalize
+**Sanitize** (`sanitizeSlug`, `state/task.ts:395`, **`build-lifecycle.md` sở hữu** — trỏ sang): normalize
 về `[a-z0-9_]`, giữ leading `_`, cap 40, fallback `workflow`. Dùng cho slug **user cấp** (override /
 edit-existing).
 
@@ -134,8 +135,8 @@ slug đang va chạm → không bao giờ tìm ra ứng viên trống. Fallback 
 (`^[A-Za-z0-9][A-Za-z0-9 _-]*$`) → `sanitizeSlug`. **Reject, không coerce** (`name_required` /
 `name_charset` / `reserved`) để modal hiện lỗi đỏ dạy người, thay vì bịa `project_N`. Leading `_` bị regex
 loại **trước** khi tới guard `reserved` — nên `_drafts` trả `name_charset` (guard `reserved` là backstop
-phòng regex nới sau này). Regex này được **mirror phía client** ở `web/src/lib/slug.ts` (file đó **chưa có
-doc sở hữu** — chỉ trỏ).
+phòng regex nới sau này). Regex này được **mirror phía client** ở `web/src/lib/slug.ts`
+([ui-surface.md](ui-surface.md) sở hữu — chỉ trỏ).
 
 Khi `ensureScaffold` chạy từ Spec-gate, nó chỉ có `task.project` (slug), nên `--name` tầng project được
 **dựng lại** bằng `titleCaseSlug(project)` (`scaffold.ts:41`); qua modal thì `--name` là tên user gõ thật
@@ -143,22 +144,25 @@ Khi `ensureScaffold` chạy từ Spec-gate, nó chỉ có `task.project` (slug),
 
 ## 5. Move SPEC.md + relocate artifact
 
-`scaffoldAtSpecGate` sau khi scaffold: **move** `.runs/<taskId>/SPEC.md` → `projects/<project>/<workflow>/
-SPEC.md` (`scaffold.ts:236-237`). Short-circuit idempotent khi SPEC.md đích đã có. Trạng thái transient
-`scaffolding` bọc quanh move không nguyên tử (QĐ #9) để crash giữa chừng khôi phục được. **Move bị bỏ lặng
-lẽ** nếu `.runs/<taskId>/SPEC.md` vắng — nhưng `task.artifacts.spec` vẫn được trỏ vào path đích
-(`scaffold.ts:239`).
+`scaffoldAtSpecGate` sau khi scaffold: **move** `apps/builder/.runs/<taskId>/SPEC.md` (canonical —
+`relocateRunArtifacts` đã dời SPEC.md khỏi shorthand từ cuối turn ②; `scaffold.ts:220`) →
+`projects/<project>/<workflow>/SPEC.md` (`scaffold.ts:236-237`). Short-circuit idempotent khi SPEC.md
+đích đã có. Trạng thái transient `scaffolding` bọc quanh move không nguyên tử (QĐ #9) để crash giữa
+chừng khôi phục được. **Move bị bỏ lặng lẽ** nếu file nguồn vắng — nhưng `task.artifacts.spec` vẫn
+được trỏ vào path đích (`scaffold.ts:239`).
 
 `relocateRunArtifacts` (`scaffold.ts:248`): move mọi thứ turn ghi ở `.runs/<taskId>/` (repo-root, = cwd
 của turn) sang `apps/builder/.runs/<taskId>/`, rồi `rmdir` `.runs/` gốc (bỏ qua nếu còn dir task khác).
-Idempotent. (`knowledge-system.md` §2 nhắc bước relocate này; định nghĩa hàm ở đây.)
+Idempotent. Lưu ý cho entry là **thư mục** (vd `promote/` của build promote): `rename` lên một dest
+non-empty là `ENOTEMPTY` — vì thế `createPromoteTask` (spec 070, `state/task.ts`) stage source ngoài ở
+**run-dir root**, không dưới `promote/` ([build-lifecycle.md](build-lifecycle.md) §3).
 
 ## 6. Guard ở đâu
 
 | file | phủ |
 |---|---|
 | `apps/builder/test/slug.test.ts` | `deriveSlugName` (strip stopword, ≤4 từ, cap-40 không `_` đuôi, fallback `workflow`); `firstFreeSlug` (free giữ nguyên, per-project `_2`/`_3`, near-40 chừa chỗ suffix) |
-| `apps/builder/test/create-project.test.ts` | `POST /api/projects`: argv `--kind project`, `checkProjectName` (`name_required`/`name_charset`/`reserved`), 409 dup `{existing}`, 500 exit≠0. **`runPython` bị FAKE** — không spawn `init_project.py` thật |
+| `apps/builder/test/create-project.test.ts` | `POST /api/projects`: argv `--kind project`, `checkProjectName` (`name_required`/`name_charset` — nhánh `reserved` **không** có test: regex chặn `_` trước nên nó unreachable, §4), 409 dup `{existing}`, 500 exit≠0. **`runPython` bị FAKE** — không spawn `init_project.py` thật |
 | `apps/builder/test/helpers/scaffold-fake.ts` | **không phải test** — FAKE mô phỏng hiệu ứng đĩa của `init_project.py`; mọi test build (golden-build, auto-advance, …) chạy `ensureScaffold`/`scaffoldAtSpecGate` **qua fake này**, không qua tool thật |
 | `apps/builder/test/base-import.test.ts` | đường `/api/bases` (**`dify-io.md` sở hữu**): `firstFreeSlug` suffix + `slugNote`, ghi verbatim `main.yml`. Chỉ trỏ — không phải doc này gác |
 | `tests/test_sync.py::test_slugify` | gác `sync._slugify` — **KHÔNG** phải `slugify` của `init_project.py` |

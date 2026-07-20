@@ -91,8 +91,9 @@ Chia đôi là hợp lệ vì **cả hai phía đều khai ra**, và `dify-io.md
 hai bảng đó phải phủ đúng file, không trùng. Cả hai dòng `Phạm vi:` nay đều kèm chữ **"nửa"** + trỏ
 sang nửa kia, nên đọc riêng một file cũng không tưởng nó sở hữu cả `dify-io.ts`.
 
-**`i18n.ts` giờ có chủ (`ui-surface.md` §6), và hai doc phụ thuộc vào nó ở hai form khác nhau.** Không
-doc nào **khai** `i18n.ts` trong `Phạm vi:`, nên không có chồng sở hữu. Nhưng:
+**`i18n.ts` giờ có chủ (`ui-surface.md` §6 — Phạm vi của nó khai đích danh), và hai doc phụ thuộc vào
+nó ở hai form khác nhau.** Ngoài chủ, không doc phụ thuộc nào khai `i18n.ts` trong `Phạm vi:`, nên
+không có chồng sở hữu. Nhưng:
 
 - `turn-and-sandbox.md` §2.1 **trỏ sang một dòng** — đúng form luật sở hữu yêu cầu.
 - `readiness-and-plugins.md` §7 (Localization) **mô tả lại** cơ chế `localizeNotes` mà `ui-surface.md`

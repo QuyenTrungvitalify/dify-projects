@@ -39,6 +39,13 @@ Mỗi file sinh ở đúng một chỗ. Không file nào bị ghi đè giữa c�
 | `diff.json` | sau verify ③ **thành công** | `{path, diff}`; luôn tính lại, không cache |
 | `report.json` | ④ | nội dung + `notes`: `readiness-and-plugins.md` §7 sở hữu |
 | `promote/<slug>.yml` | build `kind: 'promote'` | |
+| `promote/notes.json` | build promote (`promote.ts`) | sidecar rules của distill turn — `templates-and-promotion.md` sở hữu |
+| `seed.yml` | prelude edit-existing (`localEditSeed`, `scaffold.ts:161`) | snapshot local seed → `task.seedPath`; nửa seed **vô chủ** (README) |
+| `deploy.yml` | đường live, `deployWithModel` (`dify-io.ts`) | bản sao tạm inject-model — `dify-io.md` §4 sở hữu |
+| `.ask-anomaly-before.tmp` | Ask lớp 2 (`ask.ts:99`) | temp staging cho diff anomaly — `turn-and-sandbox.md` §5 sở hữu |
+
+Bốn file cuối do module **ngoài Phạm vi** doc này ghi (trỏ sang chủ của chúng), và **không** nằm trong
+`RUN_ARTIFACTS` — tức bundle lặng lẽ loại chúng, đúng cái cảnh báo danh-sách-chép-tay ở §8.
 
 `workflowDir(task)` null ⇒ chưa scaffold. `specPathFor` là **nguồn duy nhất** quyết định SPEC.md nằm ở
 đâu, và cả `GET` lẫn `PUT /api/tasks/:id/spec` đều đi qua nó — nên một lần sửa tại gate round-trip về
@@ -53,9 +60,10 @@ Mỗi file sinh ở đúng một chỗ. Không file nào bị ghi đè giữa c�
 - sắp xếp newest-first — `Number(b.id) - Number(a.id)`, cả `buildTree` lẫn `listActiveTasks`;
 - `isTaskId` (`routes/ui.ts:50`) — `/^\d{13,}$/`, cổng chặn id bịa trước **mọi** truy cập filesystem.
 
-**Đổi sang uuid/nanoid cho "sạch" sẽ phá cả ba cùng lúc, và phá lặng lẽ**: `relTime` trả `''` (mất tuổi),
+**Đổi sang uuid/nanoid cho "sạch" sẽ phá cả ba cùng lúc**: `relTime` trả `''` (mất tuổi),
 sort thành `NaN - NaN` (mất thứ tự), `isTaskId` trả 400 cho **mọi** task (mất luôn bundle + reveal + spec).
-Không test nào bắt (§11).
+`task-id-mint.test.ts` ghim shape `^\d{13}$` trên output `createTask` (nên đổi format sẽ đỏ **một** test),
+nhưng không test nào ràng buộc mint với **ba consumer** trên (§11).
 
 Một chi tiết nữa của mint: hai POST trong cùng một millisecond **không** được trùng id (lock khoá theo
 taskId), nên `mintTaskId` đẩy `ms = lastTaskMs + 1`. Hệ quả: dưới burst, id có thể **chạy trước** đồng hồ
@@ -82,9 +90,9 @@ phải guard của `diff.ts`.
 
 | hàm | guard duy nhất nằm ở |
 |---|---|
-| `persistCriteria` | `orchestrator.ts:684-688` |
-| `writeDiffArtifact` | `orchestrator.ts:547-551` |
-| ghi `preflight.json` | `orchestrator.ts:619-633` |
+| `persistCriteria` | `orchestrator.ts:716-720` |
+| `writeDiffArtifact` | `orchestrator.ts:579-583` |
+| ghi `preflight.json` | `orchestrator.ts:651-665` |
 
 Cả ba đều `writeFile` thẳng vào run dir. Gỡ `try/catch` ở orchestrator, hoặc gọi chúng từ một call site
 mới mà quên bọc, thì **artifact quan sát sẽ fail chính cái build nó đang quan sát**. Docstring của
@@ -109,12 +117,12 @@ rồi cắt còn `2000` ký tự, nên một paste khổng lồ ở "Request cha
 
 | kind | phát ở | detail |
 |---|---|---|
-| `phase_start` | `:389` | `'fresh'` \| `'resume'` \| `'reply'` |
-| `gate_reached` | `:304`, `:816` | cờ gate, hoặc `'done'` |
+| `phase_start` | `:400` | `'fresh'` \| `'resume'` \| `'reply'` |
+| `gate_reached` | `:304`, `:848` | cờ gate, hoặc `'done'` |
 | `gate_action` | `:133` | action id |
 | `request_changes` | `:231` | **văn bản user gõ** |
 | `retry` | `:231` | văn bản user gõ (nhánh `status === 'error'`) |
-| `error` | `:298`, `:780` | `task.error` |
+| `error` | `:298`, `:812` | `task.error` |
 
 **`live_test` là nhánh chết.** Nó được khai (`run-events.ts:22`) và được `dossier.ts:157` render thành
 `- ④ live-test…`, nhưng **không call site nào trong toàn repo phát ra nó** — grep `live_test` trên
@@ -143,7 +151,7 @@ Hai cap **cắt ngược chiều nhau**, và đó là chủ ý:
 renderer cố tình đặt cùng file để không trôi khỏi nhau.
 
 Hai callback nóng đều không thể làm hỏng turn: `onText` được orchestrator bọc `try/catch`
-(`orchestrator.ts:469-473`), `onEvent` được **turn-runner** bọc (`turn-runner.ts:137-143`) — hai chỗ khác
+(`orchestrator.ts:501-505`), `onEvent` được **turn-runner** bọc (`turn-runner.ts:137-143`) — hai chỗ khác
 nhau, mỗi chỗ một lý do.
 
 ## 6. Cost — đo từ đâu
@@ -160,7 +168,7 @@ Mọi field đi qua một guard số hữu hạn:
 **Không nhận ra field số nào ⇒ trả `null` ⇒ KHÔNG ghi entry** — cố ý, để phân biệt "turn chết trước khi có
 result" với "một husk toàn số 0". Turn chết không để lại dòng cost nào.
 
-`costFromResult` **không có clock**: `at` do orchestrator đóng dấu lúc gán (`orchestrator.ts:521`,
+`costFromResult` **không có clock**: `at` do orchestrator đóng dấu lúc gán (`orchestrator.ts:553`,
 `Date.now()`), nên reader unit-test được mà không cần mock thời gian. Một `/reply` chạy lại cùng phase thì
 `at` mới đè lên — last write wins, không cộng dồn.
 
@@ -323,9 +331,10 @@ archive rỗng ra đúng một EOCD 22 byte mà `unzip` nhận là archive rỗn
 - **`live_test` là nhánh chết mà không gì báo.** Kind được khai + được render nhưng không đâu phát ra
   (§4). Không test nào assert tập kind **phát ra** khớp tập kind **khai báo**, nên một kind chết trông y
   hệt một kind chưa gặp trong fixture.
-- **Không gì gác việc `taskId` phải là epoch-ms.** Ba consumer (`relTime`, sort newest-first, `isTaskId`)
-  đều tự parse lại chuỗi. Không test nào ràng buộc `mintTaskId` với chúng, nên đổi format id sẽ phá cả ba
-  **trong im lặng** — sidebar mất tuổi + mất thứ tự, và mọi endpoint theo id trả 400.
+- **Không gì ràng buộc `taskId` với ba consumer của nó.** `task-id-mint.test.ts` ghim shape 13-chữ-số
+  trên `createTask` (đổi format không còn hoàn toàn im lặng), nhưng ba consumer (`relTime`, sort
+  newest-first, `isTaskId`) đều tự parse lại chuỗi và không test nào nối `mintTaskId` với chúng — hỏng
+  linkage vẫn là: sidebar mất tuổi + mất thứ tự, mọi endpoint theo id trả 400.
 - **`ATTACHMENT_CAP_BYTES` < `MAX_ATTACHMENTS × MAX_ATTACHMENT_BYTES`.** Cap bundle là 25 MB; một turn hợp
   lệ tối đa là 3 × 10 MB = 30 MB. Nghĩa là một turn **đúng luật** vẫn có thể mất attachment khỏi bundle
   **của chính nó**. `bundle.test.ts` chỉ kiểm cơ chế cap bằng cách ép cap xuống 1 byte, **không** kiểm quan

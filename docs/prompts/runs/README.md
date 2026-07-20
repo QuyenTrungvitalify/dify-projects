@@ -31,7 +31,7 @@ transcripts/…). Báo cáo ở đây là bản **chưng cất committed**; run 
 | 2026-07-18 | [P12](2026-07-18-P12-1784380636506.md) edit-existing | 1784380636506 | ⚠️ 2 vấn đề | — | ① digest EN cho prompt JA; harness thiếu --workflow |
 
 **→ [Tổng kết đợt 2026-07-18](2026-07-18-SUMMARY.md)** — **11/12 build đạt chất lượng** (P05 lần 1
-lỗi ② propensity, retry pass). Không có lỗi chất lượng nào; 5 finding đã fix trong **v0.2.0**, 4 để ngỏ.
+lỗi ② propensity, retry pass). Không có lỗi chất lượng nào; 5 finding đã fix trong **v0.2.0**, 5 để ngỏ.
 
 ## Điều kiện môi trường chung của đợt 2026-07-18
 

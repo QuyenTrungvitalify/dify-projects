@@ -141,7 +141,7 @@ def print_table(results):
         print(f"compute mean:  ⚡fast {fc:.1f}s  vs  std {sc:.1f}s   →   Δ {d:+.1f}s ({pct:+.1f}%)"
               f"   [n_fast={len(fast)}, n_std={len(std)}]")
         if len(fast) < 3 or len(std) < 3:
-            print("note: n<3 per group — run more builds of the SAME prompt for a median that clears run-to-run variance (spec 028 Acceptance).")
+            print("note: n<3 per group — run more builds of the SAME prompt for a median that clears run-to-run variance.")
 
 
 def main():

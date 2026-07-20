@@ -100,6 +100,7 @@ cp templates/patterns/multi-step-llm.yml projects/<project>/<workflow>/workflows
 - Do NOT `pip install` directly — use `./scripts/setup.sh` (re-creates `.venv` deterministically).
 - Do NOT pass `--no-verify` to `git commit`. If a hook fails, fix the underlying issue.
 - Do NOT invent node IDs by hand or reuse IDs from another workflow.
+- Do NOT write a code comment whose meaning depends on reading a spec — specs are deliberately temporary and get deleted when they ship ([docs/specs/README.md](docs/specs/README.md)). The comment itself must carry the reason; a spec number may appear only as an origin suffix `(spec NNN)`, and slice codes (`S3`, `D5`, `r4`, `FIX-M`) must never appear in permanent code — they become unresolvable the day the spec dies. Same rule for user-facing strings (`--help`, error messages): no spec numbers at all.
 - Do NOT push to remote unless the user explicitly asks.
 
 ## 6. When stuck — discovery commands
@@ -164,7 +165,7 @@ apps/builder/scripts/e2e-run.sh fire "<prompt>" --mode auto          # needs bac
 | Repo overview, setup, roadmap | [README.md](README.md) |
 | Step-by-step operations + decision tree | [docs/GUIDE.md](docs/GUIDE.md) |
 | Architecture rationale | [docs/architecture.md](docs/architecture.md) |
-| Active specs (numbered) | [docs/specs/](docs/specs/) — open work only; a spec is deleted when it ships. Retired specs: `git show ca5e39e:docs/specs/` |
+| Active specs (numbered) | [docs/specs/](docs/specs/) — open work only. A spec is deleted when it ships, but ONLY via the close procedure in [docs/specs/README.md](docs/specs/README.md) (skill `/spec-close`) — never a bare `rm`: each knowledge type must land in its permanent home first. Deleted specs: `git log --diff-filter=D --name-only -- 'docs/specs/*.md'`, then `git show <sha>^:<path>` |
 | Node-type schema reference | [skills/mango-svip/references/node_types.md](skills/mango-svip/references/node_types.md) |
 | Runtime constraints & gotchas (sandbox limits, iteration ≤30, plugin hash, md_exporter caveats) | [skills/mango-svip/references/constraints.md](skills/mango-svip/references/constraints.md) |
 | Project-discovered runtime findings (supplements skills clone — committable) | [docs/runtime-supplement.md](docs/runtime-supplement.md) |
@@ -198,6 +199,8 @@ apps/builder/scripts/e2e-run.sh fire "<prompt>" --mode auto          # needs bac
 - 2026-07-08: ChatWork per-row reminder (spec 050's worked example) — two design gotchas worth reusing: (a) date-boundary judgments computed inside a code node silently shift with the sandbox timezone → inject the run date (`today`) as a START input from the caller; (b) services with a custom auth header (X-ChatWorkToken 等) need `authorization: {type: no-auth}` + the token in `headers:` via an env-var secret (`name:` form) — api-key auth types rewrite headers. Distilled into `templates/patterns/per-row-notify.yml` (`# GOTCHA:` header).
 - 2026-07-13: Builder shipped 6 required text inputs (list JSON, column names, today) for an Excel-shaped requirement; stakeholder rework (スタートノードをトリガー) → required Start inputs = only raw artifacts the operator holds. `today` is required only for a machine caller; for a human operator make it `required: false` with an in-code fallback pinned to the business timezone (JST: `datetime.now(timezone(timedelta(hours=9)))`) — never naive `now()`. See `templates/patterns/per-row-notify-excel.yml` + spec 056 (refines the 2026-07-08 run-date rule).
 - 2026-07-13: Stakeholder confirmed 「スタートノードをトリガーにする仕様」 means TRIGGER-entry workflows (schedule/webhook) — the Builder could not produce them (validator required a start node; spec 020 reachability silently disabled itself on trigger entries). GOTCHA: Dify schedule triggers default to timezone UTC — always set Asia/Tokyo explicitly. Probes: import/publish/API-run all work on Dify 1.15. See `templates/patterns/scheduled-fetch-notify.yml` + spec 057.
+- 2026-07-17: A trigger-webhook build burned 44 turns extracting ONE `NodeData_*` def from the 7,700-line schema — every extraction route (shell grep, `python -c`, probe script) is sandbox-denied by design, so it Read the 182KB file three times and reverse-engineered the linter source. Three plausible diagnoses were eliminated before the real one: "missing pattern" (an accelerator, not the floor), "missing trigger feature keys" (① already declared them), "agent can't find the schema" (it found it 18×; the failure was EXTRACTION, not discovery). → When the sandbox denies a legitimate question, ship a sanctioned ONE-CALL answer (`lint_node_bodies.py --dump-schema <node-type>`) instead of widening the sandbox or writing more docs; and diagnose from the transcript's actual denied calls, not from the first plausible gap.
+- 2026-07-18: A fully-correct webhook build (4 linters clean, import OK) shipped notes covering 5 of 6 setup steps but never said the client's source must POST to the webhook URL (`grep -i 'webhook|POST'` over notes = 0) — so the workflow could never fire, and nothing said why. "Silent import success + runtime failure" (§4.2) extends one level up, to the contract with the EXTERNAL SOURCE. → Every seam where the workflow receives outside data (webhook body, fetched URL, start inputs) must surface in ④ notes as a client to-do naming the exact fields (`sourceContractNote`, `apps/builder/server/lib/runnability.ts`).
 
 ## 10. The builder app (apps/builder)
 
@@ -216,8 +219,10 @@ the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.
   `apps/builder/web/src/**/*.test.ts`). The pure safety logic (gate / run-lock / Origin-CSRF / slug /
   auto-advance) is unit-tested; browser end-to-end was a manual QA suite (deleted 2026-07-17 — view via
   `git show ca5e39e:docs/specs/prompts/009/qa/`).
-- **Specs**: all builder specs shipped and retired — the spec directory was deleted 2026-07-17. To read
-  any spec: `git show ca5e39e:docs/specs/<filename>`, or `git show ca5e39e:docs/specs/` to list all 77.
+- **Specs**: builder specs ship and retire continuously (close procedure: [docs/specs/README.md](docs/specs/README.md)).
+  To read a deleted spec — sha-independent, works for specs deleted at ANY date, not just the 2026-07-17
+  bulk retirement: `git log --diff-filter=D --name-only -- 'docs/specs/*.md'` to find the deleting
+  commit, then `git show <sha>^:docs/specs/<filename>`.
 - **Ask vs Request-changes** (spec 033): at a parked Analyze/Spec/Implement gate, the composer's Send
   defaults to **Ask** — a resumed, answer-only turn (message↔message, no phase re-run) that can never
   write `SPEC.md`/`main.yml`, enforced by two independent layers (`BUILDER_ASK_MODE` permission-gate

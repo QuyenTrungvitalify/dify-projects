@@ -280,6 +280,7 @@ Tách khỏi component để test được, không giữ state:
 | `web/src/lib/crumb.test.ts` | `wfDisplayName` · `newTaskCrumb` (EN **và** JA) · `runContextCrumb` · `workflowOptions` sort recency |
 | `web/src/lib/phase.test.ts` | `phaseIndex` · `phaseLabelAt` clamp |
 | `web/src/lib/markdown.test.ts` | XSS · autolink URL trần · guard emphasis/code · bảng GFM |
+| `web/src/richtext.test.ts` | `richText` (helper thuần export từ `components/Chat.tsx`) — autolink URL trần trong bubble chat |
 | `web/src/lib/diff-parser.test.ts` | `parsePatch` · `buildSplitRows` · `computeWordDiff` |
 | `web/src/lib/dev.test.ts` | `cachePct` · `fmt` · `classify` · `diagnose` |
 | `web/src/lib/slug.test.ts` | `projectSlug` khớp **fixture chép tay** từ server (**không** import server — §9) |
@@ -328,8 +329,10 @@ Tách khỏi component để test được, không giữ state:
 - **`store.ts` chỉ được gác ở phần thuần.** Mọi action (`start`/`confirm`/`reply`/`cancel`/`restore`/
   `liveTest`/`openTask`/…) chạy với `api` giả; **không** có test nào chạy store với server thật, nên
   không gì bắt được lệch shape giữa `types.ts` (`Wire*`) và cái server thật phát ra.
-- **`components/**` không có test nào**, và `App.tsx`/`Chat.tsx` là nơi mọi thứ trên đây thật sự hiện ra
-  — gồm `tAction(resolved)` ở `Chat.tsx:476`, seam khiến §6.2 quan trọng. Chúng cũng **chưa có doc sở
+- **Không test file nào nằm trong `components/`** — ngoại lệ duy nhất là helper thuần `richText`
+  (export từ `Chat.tsx`, được `web/src/richtext.test.ts` phủ autolink); phần còn lại của tầng
+  component — và `App.tsx`/`Chat.tsx`, nơi mọi thứ trên đây thật sự hiện ra, gồm `tAction(resolved)`
+  ở `Chat.tsx:476` (seam khiến §6.2 quan trọng) — **không có test**. Chúng cũng **chưa có doc sở
   hữu**.
 - **`markdown.ts` an toàn XSS bằng escape-by-default, không phải sanitizer.** `markdown.test.ts` phủ các
   vector đã biết; không gì chứng minh nó phủ vector chưa biết. Thêm một pass regex đọc raw input là bỏ

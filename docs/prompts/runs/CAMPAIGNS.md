@@ -14,7 +14,7 @@ code đã sinh ra nó — xem [`apps/builder/CHANGELOG.md`](../../../apps/builde
 
 | Campaign | Version | Prompts | Đạt chất lượng | Không hoàn thành | Findings → Fixes |
 |---|---|---|---|---|---|
-| [2026-07-18](2026-07-18-SUMMARY.md) | **v0.1.0** | 12/12 | **11** | 2 (1 propensity ②, 1 đứt mạng) | 5 fix → **v0.2.0** · 4 để ngỏ |
+| [2026-07-18](2026-07-18-SUMMARY.md) | **v0.1.0** | 12/12 | **11** | 2 (1 propensity ②, 1 đứt mạng) | 5 fix → **v0.2.0** · 5 để ngỏ |
 | _(đợt sau)_ | v0.2.0 | | | | |
 
 ## Đợt 2026-07-18 · v0.1.0 — chi tiết
@@ -38,14 +38,15 @@ flow cũ").
 | **4** | Harness không fire được **edit-existing** → trục này chưa từng test | P12 build mới trong khi digest nói "extend existing" (`task.workflow = null`) | `fire --workflow <slug>` |
 | **5** | `--dump-schema` trên type **có thật nhưng schema không có chi tiết** trả lời đúng rồi `exit 2` → model đọc thành "bị từ chối, tìm đường khác" (đúng vòng lặp flag này sinh ra để chấm dứt), đồng thời thổi phồng chính oracle 071 S2 | [P07](2026-07-18-P07-1784388534562.md) `--dump-schema http-request` | type có thật → `exit 0` + stdout; chỉ type **sai chính tả** giữ `exit 2` + danh sách hợp lệ |
 
-### 4 vấn đề CHƯA fix (cố ý — cần quyết phạm vi)
+### 5 vấn đề CHƯA fix (cố ý — cần quyết phạm vi)
 
 | # | Vấn đề | Vì sao chưa |
 |---|---|---|
 | **5** | `tool-catalog.json` chỉ có **6 plugin** (có Sheets, thiếu Docs) → ② phải đi đường online rồi bị chặn | Fix đúng là **mở rộng catalog offline**. ~~Cho `marketplace.py` vào allow-set~~ đã **bác bỏ**: nó gọi network, mở kênh exfil qua query param — gate cấm curl/wget chính vì thế. Cần quyết phạm vi catalog. |
 | **6** | ① digest ra **tiếng Anh** cho prompt JA (P12 lần không-base) | n=1. Cùng đợt P02 đúng JA; chính P12 khi **có base** cũng đúng JA. Nghi lệch khi thiếu ngữ cảnh — chưa đủ mẫu. |
-| **7** | **Không có đường tìm-chữ nào chạy được**: `Grep` (tool) lỗi, `grep` (bash) bị gate chặn → "repo có Google Docs không?" phải `Read` cả file mới trả lời được ([P07](2026-07-18-P07-1784388534562.md): 6 lần thử trượt) | Hai đường sửa khác hẳn nhau về rủi ro: sửa tool `Grep`, hay mở một đường đọc-only có kiểm soát trong gate. Nới sandbox là quyết định bảo mật — cần chốt riêng, không kèm vào bản fix campaign. |
+| **7** | **Không có đường tra-cứu-tri-thức nào cho câu hỏi "có tool làm việc X không"**. Hai mặt cùng gốc: (a) tìm-chữ — `Grep` (tool) lỗi, `grep` (bash) bị gate chặn → "repo có Google Docs không?" phải `Read` cả file mới trả lời được ([P07](2026-07-18-P07-1784388534562.md): 6 lần thử trượt); (b) tra theo **năng lực** — P11 grep 10 lần tìm STT (`whisper\|speech2text\|transcribe`), P01 tìm Sheets/Search: `find.py` chỉ tra *workflow theo feature*, không trả lời câu hỏi plugin/tool | Hướng đã phác: mở rộng `find.py --tool <kw>` (hoặc lệnh capability riêng) đọc `templates/tool-catalog.json` **offline** — KHÔNG mở network, KHÔNG thêm `grep` vào allow-set (quyết định bảo mật, chốt riêng). Đợi quyết phạm vi catalog (finding 5) trước, vì tra trên catalog 6-plugin thì "không có" gần như luôn là câu trả lời. |
 | **8** | Slug từ prompt JA ra rác: P07 → **`1_google_1`** ("1 Google 1"). Guard `GENERIC_SLUG` chỉ bắn khi requirement **sạch bóng ASCII**; mảnh lạc 「1万字」「Google」 lọt qua | Cosmetic (YAML vẫn mang tên JA đúng, human sửa được ở gate ②). Sửa `deriveSlugName` đụng đường đặt tên thư mục đang có + `slug.test.ts` → tách quyết định riêng. |
+| **9** | Advisory "nguồn phải POST gì" (dòng 14 bảng notes, `sourceContractNote`) chưa có gate hồi quy: entry webhook trong `e2e-suite.yml` chưa `notes_include` câu đó | Việc một dòng — nhưng thêm sau khi advisory chạy qua ≥2 campaign, để khỏi khoá cứng câu chữ còn đang chỉnh. |
 
 ### Bài học về BỘ ĐO (quan trọng cho đợt sau)
 

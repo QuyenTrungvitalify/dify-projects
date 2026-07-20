@@ -45,10 +45,22 @@ Hai bất thường ở bảng trên, cả hai đều là trạng thái thật:
 ít nhất một `# TODO:` (`test_pattern_consistency.py`). `templates/library/` **không** chịu hai luật
 này; nó chịu luật provenance ở §5.
 
+Tầng `patterns` còn chịu hai luật nội dung (luật văn xuôi — không test nào thực thi):
+
+- **Pattern sinh từ build đã chứng minh, không viết tay từ trí nhớ.** Shape node viết tay từ trí nhớ
+  lặp lại lỗi của `node_types.md` (doc đó dạy `trigger-webhook` có field `variables:` không tồn tại):
+  vì `NodeData_*` trong schema không đặt `additionalProperties: false`, một shape sai **import sạch
+  rồi chết lúc runtime**. Nguồn hợp lệ: build 4-linter-sạch đã qua Dify thật (header pattern ghi xuất
+  xứ), hoặc mẫu corpus đi đường promote §4.
+- **Pattern và schema là hai tầng tri thức, không thay nhau.** `lint_node_bodies.py --dump-schema
+  <node-type>` trả *hợp đồng field* — cái gì qua linter; pattern trả *ví dụ sống* — giá trị thật, nối
+  dây, GOTCHA vận hành (`timezone: Asia/Tokyo`, `X-ChatWorkToken` + `no-auth`). Build cần cả hai: có
+  schema không miễn được pattern, và ngược lại.
+
 Cả ba tầng `patterns` / `library` / `probes` đi qua **4 linter + JSON Schema + guard version DSL** ở
 `.pre-commit-config.yaml` (regex `^(templates/(patterns|probes|library)/.*\.ya?ml|…)$`). CI chạy
 `pre-commit run --all-files`, nên đó là guard thật của tầng `library` và `probes` — pytest chỉ quét
-`templates/patterns/`. `templates/_base/` **không** nằm trong regex đó; chỉ `yamllint` (regex rộng hơn
+`templates/patterns/`. `templates/_base/` **không** nằm trong regex đó; chỉ `yamllint` (regex rộng hơn — nhánh `templates/` của `files:` thật, xem `.pre-commit-config.yaml:50`;
 `^templates/.*\.ya?ml$`) chạm tới `.dify-workspace.yaml`.
 
 ## 2. Index — sinh tự động, không sửa tay
@@ -77,7 +89,9 @@ source `indexed: true` trong registry (§6), tag `corpus:<name>`. Static root qu
 (`description` cắt còn 100 ký tự) — không có tầng ngữ nghĩa nào được sinh thêm. `node_types` bỏ các
 node helper của container (`iteration-start`, `loop-start`, `custom-iteration-start`,
 `custom-loop-start`). `has_trigger` là **key tính toán**, không phải entry của `INTERESTING_NODE_TYPES`
-— nó bật khi có bất kỳ node nào `type` bắt đầu bằng `trigger-`. `has_file_input` đọc `variables` của
+— nó bật khi có bất kỳ node nào `type` bắt đầu bằng `trigger-`; bên cạnh nó, mỗi biến thể **thực sự
+xuất hiện** phát thêm key riêng (`has_trigger_webhook` / `has_trigger_schedule` /
+`has_trigger_plugin`) — chỉ phát biến thể đã thấy, để `--list-features` không quảng cáo khoá rỗng. `has_file_input` đọc `variables` của
 node `start`, bật khi có `type` ∈ `file` \| `file-list`. `plugins` cắt
 `dependencies[].value.marketplace_plugin_unique_identifier` tại `:` đầu tiên.
 
@@ -125,9 +139,13 @@ Thứ tự ưu tiên `patterns > library > project > corpus:* > skill-assets` l�
 dòng code nào thực thi nó.** Ai đọc kết quả `find.py` từ trên xuống mà không biết luật này sẽ lấy mẫu
 corpus trước mẫu curated.
 
-**Tên feature sai không phân biệt được với kết quả rỗng thật.** `--has tools` (thay vì `tool`) tạo khoá
-`has_tools` — không entry nào có → in `No matching templates.` và trả `0`. Không có validation nào cho
-tên feature; `--list-features` là cách duy nhất thấy tập khoá thật.
+**Tên feature không tồn tại trong index bị báo tường minh, phân biệt với kết quả rỗng thật.**
+`--has tools` (thay vì `tool`) tạo khoá `has_tools` — không entry nào mang nó → in
+`❌ unknown feature: …` kèm **danh sách khoá hợp lệ** (vẫn trả `0` để consumer script không gãy;
+`tests/test_find_unknown_feature.py` pin hợp đồng này). Kết quả rỗng *thật* — mọi khoá đều hợp lệ
+nhưng không entry nào khớp tổ hợp — mới in `No matching templates.`. Ranh giới cần biết: một feature
+chỉ "hợp lệ" khi ≥1 workflow đã index dùng nó, nên khoá đúng chính tả mà chưa từng xuất hiện vẫn bị
+báo unknown.
 
 Không truyền filter nào → chế độ summary (đếm theo source + complexity + gợi ý lệnh), trả `0`.
 `--limit` mặc định 20.
@@ -260,7 +278,7 @@ Một parser (`parse_header()`) đọc cả ba.
 
 | thứ tự | điều kiện | kết quả |
 |---|---|---|
-| 1 | `dify_tag` **và** `known_good_dify` đều truthy **và** khác nhau | `stale` — `known_good_dify <kg> behind Dify pin <tag> — re-probe the source` |
+| 1 | `dify_tag` **và** `known_good_dify` đều truthy **và** khác nhau | `stale` — `known_good_dify <kg> behind Dify pin <tag> — re-probe the source (spec 050 D5)` |
 | 2 | `source == original` | `current` — `hand-authored (no upstream)` |
 | 3 | `source` không có trong registry | `orphan` |
 | 4 | `corpus/<source>/<file>` không tồn tại | `orphan` |
@@ -366,7 +384,9 @@ clone và index bình thường — test là thứ duy nhất chặn.
 - **Pattern không header vô hình với `check_provenance.py`.** Đa số `templates/patterns/*.yml` không có
   `x-provenance`; "provenance check passed" **không nói gì** về chúng.
 - **CI là warn-only.** `check_provenance.py` chạy không `--strict`, nên một template stale/orphan
-  **không** làm đỏ CI. Chỉ `test_provenance.py::test_library_template_passes_strict` gọi `--strict`, và
+  **không** làm đỏ CI. Chỉ `test_provenance.py::test_library_template_passes_strict` gọi `--strict` trên tier
+  `templates/library` **thật** (`test_strict_mode_fails_on_non_permissive` cũng gọi `--strict`
+  nhưng trên tmp dir tổng hợp), và
   nó `skip` khi clone upstream vắng mặt.
 - **Không gì phát hiện upstream đổi mà hash không đổi được kiểm.** Trục nội dung so `orig_sha256` với
   file trong clone **local**. Clone cũ → so với bản cũ → `current`. Không có network, không có git

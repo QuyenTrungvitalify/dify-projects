@@ -568,19 +568,19 @@ def main(argv: list[str] | None = None) -> int:
                     help="per-phase + total wall-clock for a run (needs --taskid + artifact paths); no --suite")
     ap.add_argument("--taskid", help="run id (fire time in ms) — for --timing")
     ap.add_argument("--spec-path", help="SPEC.md path — for --timing")
-    ap.add_argument("--task-json", help="task.json path — for --timing: also render the spec-059 cost table")
+    ap.add_argument("--task-json", help="task.json path — for --timing: also render the per-phase cost table")
     ap.add_argument("--fast", action="store_true",
                     help="--timing: this was a ⚡ fast build — merge analyze+spec into one draft row")
     ap.add_argument("--analyze")
     ap.add_argument("--workflow")
     ap.add_argument("--report")
-    ap.add_argument("--baselines", help="e2e-baselines.json path — for cost drift (spec 060)")
+    ap.add_argument("--baselines", help="e2e-baselines.json path — for cost drift")
     ap.add_argument("--save-baseline", action="store_true",
                     help="write this run's cost profile into --baselines under the entry id")
     ap.add_argument("--userview", action="store_true",
-                    help="spec 063: print ONLY the user-facing text (digest + notes), hiding the dev view")
+                    help="print ONLY the user-facing text (digest + notes), hiding the dev view")
     ap.add_argument("--comprehension", action="store_true",
-                    help="spec 063: deterministic jargon check over the user-facing text (needs --analyze/--report)")
+                    help="deterministic jargon check over the user-facing text (needs --analyze/--report)")
     ap.add_argument("--json", action="store_true", help="machine output instead of the table")
     args = ap.parse_args(argv)
 

@@ -84,7 +84,9 @@ Token tới đúng **một** nơi: `env` của child `sync.py` trong `runSyncPy`
    Backend truyền `{...process.env}` vào đó, nên nếu operator đã export token thì **lớp này** mới là thứ
    chịu lực. Chi tiết: [`turn-and-sandbox.md` §1 "Env của turn con"](turn-and-sandbox.md).
 
-Lớp 2 là lý do lớp 1 không cần được tin. **Không test nào gác lớp 2** (§11).
+Lớp 2 là lý do lớp 1 không cần được tin. Lớp 2 **được gác** bởi `claude-session.test.ts`
+(spawn fake `claude` trên PATH, assert env con không còn `DIFY_*` — file thuộc
+`turn-and-sandbox.md` §8).
 
 `difyTargets()` là **probe năng lực**, không phải khai báo lúc start: `selfhost` chỉ có khi **cả**
 `url` **và** `token` cùng có mặt; thiếu một cái → slot vắng (`undefined`). Slot `cloud` **luôn vắng** —
@@ -187,7 +189,7 @@ Probe **đẩy YAML thật lên Dify thật rồi xoá ngay**. Hai probe, hai t�
 
 | probe | tên app tạo ra | ở đâu |
 |---|---|---|
-| ④ static | `[probe] <taskId>` | `orchestrator.ts:714` — **chưa doc nào sở hữu** |
+| ④ static | `[probe] <taskId>` | `orchestrator.ts:746` (`runImportProbe`) — [build-lifecycle.md](build-lifecycle.md) §7 sở hữu |
 | base import | `[probe] base <project>/<slug>` | `probeImportedBase` (doc này) |
 
 Tên **ổn định** theo task/base chứ không ngẫu nhiên. Đó **không** phải tiện tay — xem §9.
@@ -320,15 +322,16 @@ một union phân biệt (`{ ok: true, project, workflow, slugNote?, probeNote? 
 `{ ok: false, status, error }`) để route ánh xạ sang mã HTTP — hàm này không tự biết mình đang phục vụ
 một request.
 
-Thứ tự cưỡng chế (mọi nhánh fail xảy ra **trước** khi bất cứ gì được ghi vào `projects/`):
+Thứ tự cưỡng chế (mọi nhánh **từ chối** 400 xảy ra **trước** khi bất cứ gì được ghi vào `projects/`;
+lỗi scaffold 500 ở bước 4 có thể rơi *giữa* hai tier — tier project đã ghi):
 
 1. shape + size (`MAX_ATTACHMENT_BYTES`) + đuôi `.yml`/`.yaml` (chỉ khi có `fileName`);
 2. **từ chối** `name`/`project` mang `/`, `\`, hoặc `..` → 400. **Từ chối**, không sanitize im lặng — một
    input thù địch phải nổi lên thành lỗi chứ không thành slug méo;
 3. chạy **đủ bộ linter** (`LINTERS`, `linters.ts` — **chưa có chủ**) trên một file **tạm** trong
    `mkdtemp`, fail → 400 kèm message nguyên văn, `finally` luôn `rm` thư mục tạm;
-4. derive slug (`deriveSlugName` → `firstFreeSlug`; `slug.ts` — **chưa có chủ**), scaffold tier
-   (`project-create.ts` — **chưa có chủ**);
+4. derive slug (`deriveSlugName` → `firstFreeSlug`; `slug.ts`) và scaffold tier (`project-create.ts`)
+   — cả hai thuộc [scaffold-and-layout.md](scaffold-and-layout.md);
 5. ghi bytes **nguyên văn** vào `projects/<project>/<slug>/workflows/main.yml`;
 6. probe (§5) — **sau** khi file đã landed.
 
@@ -403,7 +406,7 @@ Nghĩa là `status: "succeeded"` có thể là **bịa** — không phải Dify 
 `t1Pass = run.ok && outputNonEmpty` **không** phải thừa: `outputNonEmpty` mới là thứ chặn một status bịa
 thành PASS giả. Rút gọn `t1Pass` về `run.ok` sẽ biến mọi stream đứt-lặng-lẽ thành "live-verified".
 
-Liên quan: event `ping` **không** tính là tiến triển (`etype && etype !== 'ping'`) — Dify gửi ping cả cho
+Liên quan: event `ping` **không** tính là tiến triển (`etype and etype != "ping"`) — Dify gửi ping cả cho
 run mà nó sắp treo, nên đếm ping là progress thì watchdog §9.2 mù.
 
 ## 10. Giới hạn đã biết trong code
@@ -411,8 +414,9 @@ run mà nó sắp treo, nên đếm ping là progress thì watchdog §9.2 mù.
 Ghi lại, **không sửa** (doc này không đụng code).
 
 - **Secret rò khỏi registry khi cancel đúng nhịp.** `live-test.ts:331` — `if (bail()) return;` **ngay
-  sau** `mintAppKey` — không gọi `unregisterSecret(key)`. Mọi nhánh bail khác sau khi mint đều gọi
-  (`:340`, `:353`, `:356`). Một `/cancel` rơi đúng khoảnh khắc đó để key ở lại `runtimeSecrets` suốt đời
+  sau** `mintAppKey` — không gọi `unregisterSecret(key)`. Hai nhánh bail kế tiếp gọi trong-bail
+  (`:340`, `:353`); `:356` là unregister của đường thường (chạy TRƯỚC các bail muộn `:357`/`:372`/`:374`,
+  nên chúng an toàn nhờ nó). Một `/cancel` rơi đúng khoảnh khắc đó để key ở lại `runtimeSecrets` suốt đời
   process. Hệ quả là **over-redaction** (một key đã chết vẫn bị scrub thành `***`), không phải hở
   security — nhưng nó phản lại chính comment trên registry: *"bounded lifetime, no unbounded growth"*.
 - **Task `done` vẫn giữ marker, và boot sau sẽ chạm lại.** `import.ts` chỉ `clearPushIntent` khi
@@ -432,7 +436,7 @@ Ghi lại, **không sửa** (doc này không đụng code).
 | `apps/builder/test/dify-targets.test.ts` | `difyTargets`: cần **cả** url+token · `workspaceId` đi kèm · `cloud` **luôn** vắng |
 | `apps/builder/test/dify-inject-model.test.ts` | `deployWithModel` parse `entry_types`; vắng `entry_types` → `undefined` (degrade). Chạy qua shim `.venv/bin/python`, **không** Dify thật |
 | `apps/builder/test/live-test.test.ts` | FSM `runLiveTest`: passed / workflow_fail / 0-model (cả `llmCount>0` lẫn `=0`) / transport / need_input / upload / chat / judge / trigger-note · `resolveInput` · `extractJson` · `parseJudgeVerdict` · `cleanupTestApps` · auto-prune app cũ |
-| `apps/builder/test/import-probe.test.ts` | probe ④ (`orchestrator.ts` — **file khác, chưa có chủ**): tên duy nhất · quét orphan khi FAILED · 202 `pending` → không sweep · không creds → không probe · note vào `report.json` |
+| `apps/builder/test/import-probe.test.ts` | probe ④ (`orchestrator.ts` — file khác, [build-lifecycle.md](build-lifecycle.md) sở hữu): tên duy nhất · quét orphan khi FAILED · 202 `pending` → không sweep · không creds → không probe · note vào `report.json` |
 | `apps/builder/test/base-import.test.ts` | `importYamlAsBase`: ghi verbatim · slug JP · auto-suffix · linter fail → 400 và **không ghi gì** · traversal → 400 · probe advisory không chặn |
 | `tests/test_sync.py` | header (kể cả `X-WORKSPACE-ID` đường admin-key) · `_client_from_env` · shape `list_apps`/`export_app`/`import_app` · `_slugify` · `cmd_pull` ghi file · `cmd_inject_model` (`llm_count` 0 và 1) |
 
@@ -441,10 +445,9 @@ Ghi lại, **không sửa** (doc này không đụng code).
 Đây là ranh giới của mọi kết luận "xanh" ở tầng này. Không mục nào dưới đây là suy đoán — mỗi mục là một
 lần grep không ra test.
 
-- **Không gì gác việc token không tới một turn.** §2 là khẳng định trung tâm của doc này, và lớp cưỡng
-  chế của nó — vòng strip `DIFY_*` trong `claude-session.ts` — **không có test nào**. Xoá vòng đó thì
-  toàn bộ suite vẫn xanh, và token sẽ vào mọi turn trên máy có creds. (File thuộc `turn-and-sandbox.md`;
-  lỗ hổng guard thì thuộc khẳng định của doc này.)
+- ~~Không gì gác việc token không tới một turn~~ — **đã đóng 2026-07-18**: `claude-session.test.ts`
+  spawn fake `claude` thật và assert env con không còn `DIFY_*`/`CLAUDE_CODE*`; xoá vòng strip giờ làm
+  test đỏ. (File test thuộc `turn-and-sandbox.md` §8; khẳng định trung tâm của §2 nay có lưới.)
 - **Không gì gác việc creds được tiêm đúng chỗ.** Không test nào assert `runSyncPy` đặt
   `DIFY_CONSOLE_URL`/`TOKEN`/`WORKSPACE_ID` lên env của **child** — hay quan trọng hơn, rằng
   `DIFY_APP_KEY` đi qua `opts.env` chứ **không** qua argv. Argv nhìn thấy được bằng `ps`; một refactor
@@ -472,7 +475,7 @@ lần grep không ra test.
   chúng giữ bất biến portability của §4 (`main.yml` không bao giờ bị ghi đè). Tôi xác minh **bằng tay**
   (§4); không test nào giữ chúng.
 - **Không nhánh `bail()` nào của live test được test.** `live-test.test.ts` không nhắc `isCancelled` hay
-  cancel. Cả 9 điểm bail — gồm cái rò secret ở `:331` (§10) — chưa bao giờ chạy trong test.
+  cancel. Cả 11 điểm bail — gồm cái rò secret ở `:331` (§10) — chưa bao giờ chạy trong test.
 - **Không gì chứng minh chuỗi TS ↔ python vẫn khớp.** `slugifyName` (TS) và `_slugify` (python) được test
   **riêng rẽ, trên case chép tay riêng của mỗi bên** — không có test parity so hai implementation trên
   một fixture chung (như `runnability.test.ts` làm cho readiness). Hai bên lệch thì reconcile-theo-tên

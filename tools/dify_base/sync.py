@@ -832,7 +832,7 @@ def main() -> int:
 
     p_pull = sub.add_parser("pull", help="Fetch app DSL YAML(s) into projects/<project>/<workflow>/workflows/")
     p_pull.add_argument("--project", required=True, help="Target project name (folder under projects/)")
-    p_pull.add_argument("--workflow", help="Target workflow subfolder (spec 030); omit for a bare project")
+    p_pull.add_argument("--workflow", help="Target workflow subfolder; omit for a bare project")
     g = p_pull.add_mutually_exclusive_group()
     g.add_argument("--app-id", help="Pull a single app by UUID")
     g.add_argument("--name-contains", help="Pull all apps with name matching this substring")
@@ -843,14 +843,14 @@ def main() -> int:
 
     p_diff = sub.add_parser("diff", help="Compare local workflows/ vs remote workspace")
     p_diff.add_argument("--project", required=True)
-    p_diff.add_argument("--workflow", help="Target workflow subfolder (spec 030); omit for a bare project")
+    p_diff.add_argument("--workflow", help="Target workflow subfolder; omit for a bare project")
     p_diff.add_argument("--verbose", "-v", action="store_true",
                         help="Also show in-sync files")
     p_diff.set_defaults(func=cmd_diff)
 
     p_push = sub.add_parser("push", help="Import a local YAML into the workspace as a NEW app")
     p_push.add_argument("--project", required=True)
-    p_push.add_argument("--workflow", help="Target workflow subfolder (spec 030); omit for a bare project")
+    p_push.add_argument("--workflow", help="Target workflow subfolder; omit for a bare project")
     p_push.add_argument("--file",
                         help="Path relative to projects/<project>/<workflow>/, e.g. workflows/main.yml")
     p_push.add_argument("--src-file",
@@ -867,11 +867,11 @@ def main() -> int:
     p_models.add_argument("--project", help="Load envs/dev.env from this project")
     p_models.set_defaults(func=cmd_models)
 
-    p_plugins = sub.add_parser("plugins", help="List installed plugins with dependencies-form identifiers (JSON; spec 037)")
+    p_plugins = sub.add_parser("plugins", help="List installed plugins with dependencies-form identifiers (JSON)")
     p_plugins.add_argument("--project", help="Load envs/dev.env from this project")
     p_plugins.set_defaults(func=cmd_plugins)
 
-    p_datasets = sub.add_parser("datasets", help="List knowledge-base datasets {id, name} (JSON; spec 037)")
+    p_datasets = sub.add_parser("datasets", help="List knowledge-base datasets {id, name} (JSON)")
     p_datasets.add_argument("--project", help="Load envs/dev.env from this project")
     p_datasets.set_defaults(func=cmd_datasets)
 
@@ -908,7 +908,7 @@ def main() -> int:
     p_run.add_argument("--project", help="Load envs/dev.env from this project")
     p_run.set_defaults(func=cmd_run)
 
-    p_up = sub.add_parser("upload", help="Upload a bundled sample file for a local_file input (JSON {id}; spec 047)")
+    p_up = sub.add_parser("upload", help="Upload a bundled sample file for a local_file input (JSON {id})")
     p_up.add_argument("--file", required=True, help="Repo-root-relative path to the bundled sample asset")
     p_up.add_argument("--mime", help="MIME type of the file (optional; Dify infers from extension otherwise)")
     p_up.add_argument("--project", help="Load envs/dev.env from this project")

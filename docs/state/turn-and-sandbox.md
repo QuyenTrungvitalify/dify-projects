@@ -82,8 +82,8 @@ thể trước:
 | lớp | bắt bởi |
 |---|---|
 | `usage_limit` | `usage limit` · `session limit` · `rate limit` · `credit balance` · `quota` · `429` · `overloaded` |
-| `auth` | `logged in` · `authentication` · `unauthorized` · `401` · `invalid api key` · `oauth` |
-| `network` | `ENOTFOUND` · `ECONNREFUSED` · `ETIMEDOUT` · `EAI_AGAIN` · `fetch failed` |
+| `auth` | `logged in` · `log in`/`login` · `authentication` · `unauthorized` · `401` · `invalid api key` · `oauth` |
+| `network` | `ENOTFOUND` · `ECONNREFUSED` · `ETIMEDOUT` · `EAI_AGAIN` · `fetch failed` · `network error` |
 | `spawn` | `ENOENT` · `command not found` · `no such file` |
 | `unknown` | còn lại — note kèm 2 dòng stderr cuối |
 
@@ -119,6 +119,17 @@ Một file tự chứa, **không import tương đối**, để chạy bằng `n
 **Triết lý: allowlist-first / default-deny.** Builder chạy một tập lệnh cố định và nhỏ, nên mặc định
 an toàn là **từ chối hết trừ những gì đã liệt kê** — ngược với deny-list.
 
+**Hệ quả cố ý: một turn không có đường tìm-chữ shell.** `grep`/`rg`/`find`/`sed`/`awk` bị deny (hint
+của gate trỏ tool thay thế), `python -c` bị chặn ở verb. Câu hỏi tri thức vì thế phải đi qua các
+đường được-phép có chủ đích, mỗi đường trả lời một loại câu hỏi: `find.py` (workflow nào có feature
+X), `lint_node_bodies.py --dump-schema <node-type>` (hợp đồng field của một node — một lệnh, thay cho
+việc tự trích từ file schema 7.700 dòng), pattern trên kệ (ví dụ sống), tool `Read` (file đã biết
+tên). Nới allow-set là **quyết định an ninh, không phải tối ưu tiện dụng**: `marketplace.py` bị từ
+chối *chính vì* nó chạm network — một lệnh có network trong tay turn là kênh exfil qua query param —
+dù script nằm ngay trong repo. (Mismatch đang sống: `.claude/skills/dify-build/spec.md` và
+`implement.md` vẫn chỉ dẫn gọi `marketplace.py`; gate từ chối lệnh đó. Hợp đồng thật của một turn là
+catalog offline `templates/tool-catalog.json`.)
+
 Thứ tự quyết định trong `decide()`:
 
 | # | Bước | Kết quả |
@@ -138,8 +149,9 @@ trắng.
 (`permission hook error — fail closed`). Lý do: throw sẽ **không phát ra decision nào**, và Claude
 Code coi "không decision" = **fail OPEN** — tắt nguyên cổng cho call đó.
 
-Ngoại lệ: **không đọc được stdin** → `abstain` (để người dùng Claude Code bình thường trên repo này
-không bị chặn).
+Ngoại lệ (`abstain`, không phải deny — để người dùng Claude Code bình thường trên repo này không bị
+chặn): **không đọc được stdin**; **stdin không parse được thành JSON** (`unparseable hook input` —
+khác với payload parse được nhưng không phải object, cái đó deny); event **không phải `PreToolUse`**.
 
 ### 3.3 `analyzeBashCommand()` — 6 cửa
 
@@ -156,6 +168,12 @@ không bị chặn).
 `lint_refs.py` · `lint_plugin_hashes.py` · `lint_node_bodies.py`.
 
 `sync.py` và `init_project.py` **cố ý VẮNG MẶT** — chúng backend-owned; token không vào turn.
+
+Denial nào có **substitute** thì kèm gợi ý — `SUBSTITUTE` map nối hậu tố ` — use <substitute> instead`
+vào reason (kể cả đuôi default-deny cửa 6), và verb có substitute **không** bị dán nhãn `dangerous`
+nữa (đo thật: model từng retry `grep` 3× / `find` 6× chỉ vì denial không nói *nên làm gì*; hint chỉ
+đổi reason, **không bao giờ** đổi decision). Map là `Map`, không phải object literal — `base` là input
+attacker-shaped, tra `{}['constructor']` trên object literal sẽ dính prototype.
 
 > **Hệ quả vận hành cho prompt phase:** shell `grep`/`find`/`sed`/`awk` và mọi pipe/redirect **bị
 > hook từ chối**, nhưng **tool Grep/Glob/Read thì được** (`permissions.allow`). Một turn tìm bằng
@@ -184,11 +202,25 @@ Ghi được **chỉ**:
 - `.vscode/settings.json`
 
 **Mọi thứ khác bị bảo vệ** — kể cả code của chính app, `tools/`, `skills/`, `.venv/`, `.git/`,
-`.claude/`, và `.runs/<taskId khác>/`.
+`.claude/`, và `.runs/<taskId khác>/`. (Vắng `BUILDER_TASK_ID` — dùng Claude Code **trực tiếp** trên
+repo, không phải turn — thì **mọi** `.runs/<id>/**` ghi được: guard sibling chỉ có nghĩa khi biết
+"mình" là ai.)
 
 **Bash cũng bị soi:** `commandReferencesSecret()` tách token lệnh (cửa 1 đã bảo đảm không có
 nháy/metachar ⇒ token chính là thứ shell thấy) và chạy `pathIsSensitiveRead()` trên từng token, kể
 cả phần sau `--flag=<path>`.
+
+**Đọc cũng bị khoanh vào repo — `resolvesOutsideRepo()`.** Danh sách sensitive ở trên là deny-list;
+đây là nửa allow-list của chiều đọc (chiều ghi vốn đã repo-scoped): path của `Read`, search root của
+`Glob`/`Grep`, và **mọi token chứa `/` trong lệnh Bash** (kể cả sau `--flag=`) phải resolve **trong**
+repo — vi phạm ⇒ `forbidden: read outside the repo …` / `forbidden: <tool> outside the repo …` /
+`forbidden: command reaches outside the repo …`. Không có nó, `cat /etc/passwd` từng được allow, và
+đọc-tự-do + ghi-`projects/` + import lên Dify = kênh exfil không cần chạm lệnh mạng nào. `resolve`
+gộp `..` (path-math); `realpathSync` bắt thêm **symlink trỏ ra ngoài** (`vendor/dify-src` → cây Dify
+source ngoài repo); path không có trên đĩa thì dạng đã gộp là câu trả lời. **`.venv/` miễn trừ nửa
+symlink** — `.venv/bin/python` là symlink ra interpreter uv/system by design, realpath nó sẽ deny mọi
+build; miễn trừ là **lexical**, nên `.venv/bin/../../../etc/passwd` gộp ra ngoài `.venv/` và vẫn bị
+bắt. Pattern/glob của `Glob`/`Grep` chứa `.env`/`.ssh`/`.aws`/`.gnupg` cũng bị deny thẳng.
 
 ### 3.5 Boot từ chối chạy nếu hook hỏng
 
@@ -234,9 +266,10 @@ phá việc không liên quan **và** đánh trượt một build vô tội ⇒ 
 
 Breach ⇒ luôn **hard error**.
 
-> Confinement là **backstop, không phải phòng tuyến chính**. Nó **mù với ghi vào file gitignored**
-> (ghi `.venv/bin/*` chỉ hiện ra dưới dạng `!! .venv/` gộp, kể cả `--ignored`) — đó **chính xác** là
-> vì sao hook, chứ không phải nó, là thứ chịu lực.
+> Confinement là **backstop, không phải phòng tuyến chính**. Nó **mù với ghi vào file gitignored**:
+> `gitDirtyPaths` chạy `git status --porcelain -uall` **không có** `--ignored`, nên một file ignored
+> không sinh ra dòng porcelain nào hết (và kể cả thêm `--ignored` cũng chỉ thấy `!! .venv/` gộp) —
+> đó **chính xác** là vì sao hook, chứ không phải nó, là thứ chịu lực.
 
 ## 5. Ask — hai lớp độc lập
 
@@ -275,12 +308,14 @@ con**: linter và `init_project.py` không cần token. Token vào **đúng mộ
 
 | file | phủ |
 |---|---|
-| `apps/builder/test/permission-gate.test.ts` | quyết định của hook — allowlist Bash, forbidden-path, ask-mode, fail-closed |
-| `apps/builder/test/hook-check.test.ts` | smoke hook + `gateBootOnHook` (SEC1 từ chối boot) |
+| `apps/builder/test/permission-gate.test.ts` | quyết định của hook — allowlist Bash, forbidden-path, ask-mode (kể cả **lớp 1** Ask: hook-deny mọi tool ghi), fail-closed; spawn **binary hook thật** với payload tự chế (wire contract stdin→stdout) |
+| `apps/builder/test/permission-gate-hints.test.ts` | gợi ý substitute trong denial (§3.3): trỏ đúng cửa còn sống (find.py / Read / Write), verb có substitute không bị dán `dangerous`, lookup prototype-safe, hint không bao giờ đổi decision |
+| `apps/builder/test/repo-scope.test.ts` | chặn đọc ra ngoài repo (§3.4): Bash token / `Read` / root `Glob`-`Grep`; dot-dot; **symlink** ra ngoài; miễn trừ lexical `.venv/`; mọi lệnh phase thật vẫn allow |
+| `apps/builder/test/hook-check.test.ts` | smoke hook + `gateBootOnHook` (SEC1 từ chối boot, override `BUILDER_ALLOW_UNGUARDED`) |
 | `apps/builder/test/confinement.test.ts` | baseline-delta, whitelist, chỉ-revert-trong-`projects/` |
 | `apps/builder/test/post-turn-ids.test.ts` · `post-turn-multi-lint.test.ts` | regex node id; nhiều file lint |
-| `apps/builder/test/ask.test.ts` · `ask-route.test.ts` | hai lớp Ask, anomaly, restore theo từng file |
-| `apps/builder/test/claude-session.test.ts` | flag spawn, lọc env |
+| `apps/builder/test/ask.test.ts` · `ask-route.test.ts` | **lớp 2** Ask (byte-snapshot/restore — lớp 1 giả định đã bị vượt), anomaly, restore cô lập theo từng file (`restoreFailed`); `ask-route` = validation/guard route. Lớp 1 nằm ở `permission-gate.test.ts` (hàng đầu bảng) |
+| `apps/builder/test/claude-session.test.ts` | detach listeners khi kill + `onExit` bắn đúng một lần (fix rò lock `/cancel`); bộ flag spawn **đúng và đủ thứ tự** (`--resume` trước), strip `DIFY_*`/`CLAUDE_CODE*`, tiêm `BUILDER_TASK_ID` / `BUILDER_ASK_MODE` chỉ-Ask — qua fake `claude` trên PATH |
 | `apps/builder/test/turn-failure-triage.test.ts` | `classifyTurnFailure` |
 
 ## 9. Những gì KHÔNG check tự động nào chứng minh được
@@ -288,8 +323,10 @@ con**: linter và `init_project.py` không cần token. Token vào **đúng mộ
 Đây là ranh giới của mọi kết luận "xanh" ở tầng này.
 
 - **Hook có thật sự được Claude Code gọi cho MỌI tool call hay không** — test đo hàm `decide()`
-  thuần và smoke-test một payload. Hợp đồng "matcher `.*` ⇒ mọi call" là **hành vi của Claude Code**,
-  không phải của repo này; một thay đổi phía CLI có thể làm im cổng gác mà không test nào đỏ.
+  thuần, spawn binary hook thật với payload **tự chế**, và smoke-test lúc boot; nhưng không gì spawn
+  một turn `claude` thật để chứng minh CLI gọi hook cho từng call. Hợp đồng "matcher `.*` ⇒ mọi
+  call" là **hành vi của Claude Code**, không phải của repo này; một thay đổi phía CLI có thể làm im
+  cổng gác mà không test nào đỏ.
 - **`abstain` dẫn tới đâu** — hook nhường cho settings ở tool lạ. Kết quả cuối phụ thuộc mô hình
   permission của Claude Code, không phải code ở đây.
 - **`SIMPLE_COMMAND` có phủ hết lớp bypass hay không** — nó là một allowlist ký tự, lập luận là
