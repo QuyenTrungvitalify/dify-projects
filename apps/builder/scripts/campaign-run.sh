@@ -23,6 +23,8 @@ PY="$ROOT/.venv/bin/python"; [ -x "$PY" ] || PY=python3
 E2E="$SCRIPT_DIR/e2e-run.sh"
 CAMPAIGN="$SCRIPT_DIR/campaign.py"
 
+command -v jq >/dev/null || { echo "FATAL: jq is required" >&2; exit 2; }
+
 CDIR=${1:-}; shift || true
 [ -n "$CDIR" ] && [ -d "$CDIR" ] || { echo "usage: campaign-run.sh <campaign-dir> [--timeout-min N]" >&2; exit 2; }
 TIMEOUT_MIN=25; MAX_WAIT_ROUNDS=3

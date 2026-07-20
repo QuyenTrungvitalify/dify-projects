@@ -6,8 +6,9 @@ file tiếng Việt) có việc cần tự động hóa, **không biết gì v�
 nó chính là bề mặt cần test.
 
 Tiêu chí một prompt đạt chuẩn (viết tay lẫn máy sinh): **[CHARTER.md](CHARTER.md)**.
-Đợt test tự động sinh đề theo yêu cầu → skill **`/campaign`** (spec 073); đề của mỗi đợt đóng băng
-trong `gen/<campaign-id>/` cùng manifest `campaign.yml`. Đối chiếu các đợt: [runs/CAMPAIGNS.md](runs/CAMPAIGNS.md).
+Đợt test tự động sinh đề theo yêu cầu → skill **`/campaign`** (spec 073) — hướng dẫn vận hành đầy
+đủ: **[CAMPAIGN-GUIDE.md](CAMPAIGN-GUIDE.md)**; đề của mỗi đợt đóng băng trong `gen/<campaign-id>/`
+cùng manifest `campaign.yml`. Đối chiếu các đợt: [runs/CAMPAIGNS.md](runs/CAMPAIGNS.md).
 
 ## Luật dùng
 

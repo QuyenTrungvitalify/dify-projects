@@ -61,6 +61,10 @@ Xem [METERING-RELIABILITY.md](METERING-RELIABILITY.md). Hai sai lệch đã đo 
 
 ## Cách chạy một campaign mới
 
+> **Đường chính từ spec 073: skill `/campaign`** — plan → gate → run nền → report → recheck, xem
+> [CAMPAIGN-GUIDE.md](../CAMPAIGN-GUIDE.md). Khối lệnh dưới là đường TAY (fallback/debug, và là
+> tài liệu oracle — `/campaign` cũng đọc đúng các oracle này):
+
 ```bash
 # 0. ghi version đang test (mỗi run tự đóng dấu, nhưng ghi lại cho báo cáo)
 jq -r '.version' apps/builder/package.json
