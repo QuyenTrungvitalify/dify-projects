@@ -84,7 +84,11 @@
       # the wrong shapes node_types.md teaches AND the schedule fallback — absent = built the real thing
       grep_absent: ["type: start", "type: trigger-schedule"]
     report:
-      notes_include: ["passed every automated check"]
+      # Second line: the external-input contract advisory (sourceContractNote). Locked only after
+      # it appeared with correct fields in TWO real campaign builds (quiz-gen G03, ops-mix G01) —
+      # per the wait-for-2-samples rule in CAMPAIGNS. Phrase is the stable stem of the note, not
+      # the per-build field list.
+      notes_include: ["passed every automated check", "must call the webhook URL"]
   cost:
     implement_turns_max: 30   # the 44-turn schema hunt trips this; a pointed build (15–18) clears it
     total_turns_max: 60
