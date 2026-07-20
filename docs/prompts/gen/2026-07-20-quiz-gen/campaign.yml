@@ -1,0 +1,38 @@
+id: 2026-07-20-quiz-gen
+request: 'workflow thực tế có giá trị sử dụng: sinh sample câu trắc nghiệm theo yêu
+  cầu cụ thể và
+
+  lưu/tổng hợp kết quả. Đợt nghiệm thu harness /campaign — chạy nhỏ (3 đề).
+
+  '
+builder_version: 0.2.0
+git_sha: e22ef27
+status: approved
+prompts:
+- file: G01-training-quiz-sheets.md
+  axis: tool-trong-catalog (google_sheets, đường catalog-TRÚNG chưa từng test) + cấm-bịa
+    + cân bằng đáp án bằng code
+  why: P07 chỉ chứng minh đường catalog-trượt; đường trúng (hash offline, dependencies
+    thật) chưa có mẫu nào
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G02-vi-quiz-answer-split.md
+  axis: lang-sync VI không-base + tách kênh đề/đáp án bằng code
+  why: 'thêm mẫu cho họ finding số 6 (digest lệch ngôn ngữ khi không-base, đang n=1); ràng buộc tách kênh đề/đáp án là lớp lỗi mới'
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G03-quiz-result-aggregate.md
+  axis: webhook + advisory nguồn (v0.2.0 mới) + đàm phán phạm vi 2-nhịp
+  why: 'finding số 9 cần mẫu advisory nguồn webhook qua đợt thật trước khi khoá gate; yêu cầu 2-nhịp-1-flow test honesty đàm phán phạm vi'
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+approved_on: '2026-07-20'
