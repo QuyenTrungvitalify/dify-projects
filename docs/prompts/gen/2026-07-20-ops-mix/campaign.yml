@@ -1,0 +1,38 @@
+id: 2026-07-20-ops-mix
+request: 'đợt 3 (user giao: "test thêm vài lượt, đề tài tự nghĩ"): vận hành thực tế
+  đa domain — EC/kho vận, HR compliance, quản lý deadline. Mục tiêu trục: mẫu 2 cho
+  advisory webhook, catalog-hit chiều đọc, group-by code, thêm mẫu lang-sync JA/VI'
+builder_version: 0.2.0
+git_sha: '5471041'
+status: approved
+prompts:
+- file: G01-order-routing-approval.md
+  axis: webhook đơn nhịp + route ngưỡng tiền + làm sạch tiền tệ bẩn bằng code
+  why: mẫu 2/2 cho advisory nguồn (finding 9 — đủ điều kiện khoá gate notes_include
+    sau đợt này); parse-fail phải nghiêng về an toàn là bẫy quy trình duyệt thật
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G02-vi-job-post-compliance.md
+  axis: chuỗi LLM tự-rà compliance + lang-sync VI + 2 output tách (bản đăng / bản
+    đã-sửa-vì-sao)
+  why: thêm mẫu VI không-base cho nghi vấn 6; tự-rà bằng tiêu chí tường minh là trục
+    P08 biến thể compliance — giá trị dùng thật cao (luật lao động)
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G03-weekly-deadline-digest.md
+  axis: schedule thứ-Hai JST + catalog-hit chiều ĐỌC + lọc ngày tương đối + group-by
+    trong code
+  why: đợt trước test Sheets chiều ghi; chiều đọc-lọc-gom chưa có mẫu nào; ngày tương
+    đối + timezone là lớp bẫy đã trả giá (bài học 2026-07-13), xem có tái phạm không
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+approved_on: '2026-07-20'
