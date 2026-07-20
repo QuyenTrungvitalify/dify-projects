@@ -1,0 +1,39 @@
+id: 2026-07-20-lifecycle
+request: 'đợt 4 (tiếp ủy quyền "test thêm vài lượt"): vòng đời sản phẩm — bảo trì
+  flow đã build (edit-existing lần đầu trong campaign), chatflow tra cứu tài liệu,
+  vision đánh giá chủ quan + trung thực hai chiều'
+builder_version: 0.2.0
+git_sha: c3c7c20
+status: approved
+prompts:
+- file: G01-edit-add-sheet-log.md
+  axis: edit-existing + giữ nguyên hành vi cũ + ghi log Sheets sau nhánh
+  why: trục edit chưa từng vào campaign (P12 chỉ ở recheck); base là chính build ops-mix
+    G01 — vòng bảo trì thật; cách nó đối xử với finding E có sẵn trong base là dữ
+    liệu propensity quý
+  mode: auto
+  project: _drafts
+  workflow: 5_chatwork_5_52
+  status: pending
+  task_ids: []
+- file: G02-vi-warranty-chatbot.md
+  axis: advanced-chat + knowledge-retrieval không bịa dataset id + từ chối có lối
+    thoát + VI
+  why: chatflow và KB chưa có mẫu campaign nào (P06 là đợt tay); lớp lỗi bịa-dataset-id
+    cần mẫu máy-sinh
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G03-photo-condition-rank.md
+  axis: vision đánh giá chủ quan + rubric user + trung thực hai chiều (không ép rank
+    / không lạm 判断不可)
+  why: vision mới có mẫu OCR (P02); đánh giá chủ quan là bề mặt hallucinate-damage
+    chưa test; user tự mở đường lui là ca honesty hiếm
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+approved_on: '2026-07-20'
