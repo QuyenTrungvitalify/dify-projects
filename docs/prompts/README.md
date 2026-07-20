@@ -5,6 +5,10 @@ file tiếng Việt) có việc cần tự động hóa, **không biết gì v�
 "workflow shape", đôi khi mơ hồ, đôi khi đòi thứ Dify không làm được. Sự "bẩn" đó là chủ đích —
 nó chính là bề mặt cần test.
 
+Tiêu chí một prompt đạt chuẩn (viết tay lẫn máy sinh): **[CHARTER.md](CHARTER.md)**.
+Đợt test tự động sinh đề theo yêu cầu → skill **`/campaign`** (spec 073); đề của mỗi đợt đóng băng
+trong `gen/<campaign-id>/` cùng manifest `campaign.yml`. Đối chiếu các đợt: [runs/CAMPAIGNS.md](runs/CAMPAIGNS.md).
+
 ## Luật dùng
 
 1. **Dán prompt NGUYÊN VĂN** (khối fenced trong từng file). Không "dọn" prompt cho rõ hơn —

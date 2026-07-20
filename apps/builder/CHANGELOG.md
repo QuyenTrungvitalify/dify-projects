@@ -9,6 +9,19 @@ pattern, a changed gate. Not for docs-only edits.
 
 ---
 
+## Unreleased
+
+**Harness**
+- `/campaign` — versioned auto-test campaigns (spec 073): analyze what to test → generate
+  user-realistic prompts per `docs/prompts/CHARTER.md` (charter-linted: solution-jargon in a đề is
+  rejected) → human gate freezes the prompt set in `docs/prompts/gen/<id>/` → `campaign-run.sh`
+  runs sequentially in the background (retry once, stop the whole run on a double error — no
+  quota-burn) → three-tier grading with a clean-context subagent judge → per-run reports, SUMMARY,
+  CAMPAIGNS row. Version is pinned at plan time and re-checked at run time. The human fixes
+  findings; `recheck` re-runs the exact failing prompts for a before/after table.
+
+---
+
 ## 0.2.0 — 2026-07-18
 
 Shipped after the [v0.1.0 12-prompt campaign](../../docs/prompts/runs/CAMPAIGNS.md) surfaced them.
