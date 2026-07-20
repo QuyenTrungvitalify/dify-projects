@@ -121,6 +121,26 @@ không nằm trong tỉ lệ đạt; ô so sánh khác-model ghi N/A.
 AC-S4: với một finding đã fix, `recheck` cho ra bảng trước/sau cùng-đề cùng-model; nếu model khác
 thì bảng ghi rõ và không kết luận hơn/kém về cost.
 
+### S5 — Cải thiện sau đợt nghiệm thu `2026-07-20-quiz-gen` (chưa làm)
+
+Đợt thật đầu tiên (3/3 xong, happy-path ổn) lộ 5 việc, xếp theo giá trị:
+
+1. **`record`/`report` bỏ giả định 1-file** — gặt mọi `workflows/*.yml` của build (cùng gốc
+   finding A của đợt; phần Builder-side là fix riêng của người dùng).
+2. **Phân loại `✗` + ngưỡng tự động**: `✗` hiện trộn gate-deny với lệnh-chạy-fail (G01 ③: 11✗ =
+   ~7 săn + 4 vòng self-correct linter). `record` nên đếm tách hai loại (transcript có chữ lý do
+   deny để phân biệt), và `report` PHẢI so denied với mốc (0–2 sạch / ≥7 thrash) thay vì chỉ ghi số
+   — đợt này 19✗ của G01 nằm trong sổ mà không ai truy cho tới vòng đánh giá quy trình.
+3. **Nhãn trung thực cho comprehension**: gate chỉ quét bản EN → report ghi "PASS (EN-only scan)",
+   không ghi PASS trần — đợt này PASS 3/3 *chính vì* notes sai ngôn ngữ (finding B).
+4. **`campaign.py init`** sinh khung manifest (safe-dump ngay từ đầu) — manifest viết tay đã dính
+   lớp lỗi `#N`-thành-comment một lần.
+5. **Diễn tập nhánh lỗi rẻ**: retry/double-error-stop/resume/busy-lock **chưa từng chạy thật**
+   (đợt nghiệm thu 0 lỗi). Một lần drill backend-tắt (không đốt turn) trước khi tin đợt lớn.
+
+Ghi chú chi phí: judge context sạch ~40k token/đề — đợt 12 đề ≈ nửa triệu token riêng tầng judge;
+guide cần dòng cân nhắc.
+
 ## 5. Non-goals
 
 - Không chạy song song nhiều build (turn lock của Builder là ràng buộc kiến trúc).
