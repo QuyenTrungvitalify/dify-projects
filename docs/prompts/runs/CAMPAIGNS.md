@@ -15,7 +15,8 @@ code đã sinh ra nó — xem [`apps/builder/CHANGELOG.md`](../../../apps/builde
 | Campaign | Version | Prompts | Đạt chất lượng | Không hoàn thành | Findings → Fixes |
 |---|---|---|---|---|---|
 | [2026-07-18](2026-07-18-SUMMARY.md) | **v0.1.0** | 12/12 | **11** | 2 (1 propensity ②, 1 đứt mạng) | 5 fix → **v0.2.0** · 5 để ngỏ |
-| _(đợt sau)_ | v0.2.0 | | | | |
+| [2026-07-20](2026-07-20-SUMMARY.md) quiz-gen · **đợt máy-sinh đầu tiên** (/campaign, 3 đề) | **v0.2.0** | 3/3 | 1 PASS · 2 PARTIAL | 0 | 4 finding mới (nặng nhất: **④ giả định 1-file/workflow** — file thứ 2 không lint, notes im lặng) · slug-rác n=3 thêm mẫu VI → đủ fix · advisory webhook mẫu sống 1/≥2 |
+| _(đợt sau)_ | | | | | |
 
 ## Đợt 2026-07-18 · v0.1.0 — chi tiết
 

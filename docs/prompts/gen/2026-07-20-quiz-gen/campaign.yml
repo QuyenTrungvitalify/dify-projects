@@ -17,22 +17,93 @@ prompts:
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784522395970'
+  results:
+  - task_id: '1784522395970'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-opus-4-8[1m]
+        turns: 5
+        denied_calls: 1
+      spec:
+        model: claude-opus-4-8[1m]
+        turns: 17
+        denied_calls: 8
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 30
+        denied_calls: 11
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/pdf_4_20_1/workflows/main.yml
 - file: G02-vi-quiz-answer-split.md
   axis: lang-sync VI không-base + tách kênh đề/đáp án bằng code
-  why: 'thêm mẫu cho họ finding số 6 (digest lệch ngôn ngữ khi không-base, đang n=1); ràng buộc tách kênh đề/đáp án là lớp lỗi mới'
+  why: thêm mẫu cho họ finding số 6 (digest lệch ngôn ngữ khi không-base, đang n=1);
+    ràng buộc tách kênh đề/đáp án là lớp lỗi mới
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784524145378'
+  results:
+  - task_id: '1784524145378'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 5
+        denied_calls: 1
+      spec:
+        model: claude-opus-4-8[1m]
+        turns: 9
+        denied_calls: 2
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 23
+        denied_calls: 5
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/t_i_ph_tr/workflows/main.yml
 - file: G03-quiz-result-aggregate.md
   axis: webhook + advisory nguồn (v0.2.0 mới) + đàm phán phạm vi 2-nhịp
-  why: 'finding số 9 cần mẫu advisory nguồn webhook qua đợt thật trước khi khoá gate; yêu cầu 2-nhịp-1-flow test honesty đàm phán phạm vi'
+  why: finding số 9 cần mẫu advisory nguồn webhook qua đợt thật trước khi khoá gate;
+    yêu cầu 2-nhịp-1-flow test honesty đàm phán phạm vi
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784524641184'
+  results:
+  - task_id: '1784524641184'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 10
+        denied_calls: 1
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 11
+        denied_calls: 4
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 30
+        denied_calls: 8
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/google_1_80_chatwork/workflows/main.yml
 approved_on: '2026-07-20'
