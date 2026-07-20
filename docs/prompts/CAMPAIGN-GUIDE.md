@@ -22,7 +22,8 @@ bump version, làm các mục MANUAL. Máy không bao giờ tự fix Builder the
 - Backend Builder đang chạy: `cd apps/builder && npm start`
 - `claude` đã đăng nhập, `jq` có trên PATH
 - Biết chi phí: **mỗi đề đốt 2–4 turn thật** (~8–13 phút). Đợt 8 đề ≈ 25–30 turn, có thể chạm quota
-  giữa chừng — runner tự dừng an toàn (xem §4).
+  giữa chừng — runner tự dừng an toàn (xem §4). Tầng chấm: mỗi judge subagent ~40k token — đợt 12
+  đề ≈ nửa triệu token riêng phần chấm, cân nhắc khi đặt N.
 
 ## 1. `plan` — sinh đề
 

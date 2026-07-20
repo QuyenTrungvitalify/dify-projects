@@ -232,3 +232,166 @@ def test_record_retry_keeps_both_task_ids(tmp_path, monkeypatch):
     assert p["task_ids"] == ["222", "333"]      # both attempts preserved (spec 073 S2)
     assert p["status"] == "done"                # verdict = the retry
     assert len(p["results"]) == 2
+
+
+# ── S5-4: init ───────────────────────────────────────────────────────────────────────────────────
+
+def test_init_builds_skeleton_from_prompt_files(tmp_path):
+    cdir = tmp_path / "2026-08-01-x"
+    cdir.mkdir()
+    (cdir / "G01-a.md").write_text(CLEAN_PROMPT, encoding="utf-8")
+    (cdir / "G02-b.md").write_text(CLEAN_PROMPT, encoding="utf-8")
+    (cdir / "notes.md").write_text("not a prompt", encoding="utf-8")
+    assert cp.cmd_init(cdir) == 0
+    d = cp.load_manifest(cdir)
+    assert d["status"] == "draft" and d["id"] == "2026-08-01-x"
+    assert [p["file"] for p in d["prompts"]] == ["G01-a.md", "G02-b.md"]  # notes.md ignored
+    assert d["builder_version"] == cp.current_builder_version()
+
+
+def test_init_refuses_overwrite(tmp_path):
+    cdir = _mk_campaign(tmp_path)
+    try:
+        cp.cmd_init(cdir)
+        raise AssertionError("init đè manifest phải chết")
+    except SystemExit:
+        pass
+
+
+# ── S5-1: multi-file harvest ─────────────────────────────────────────────────────────────────────
+
+def test_record_surfaces_unlinted_sibling_workflows(tmp_path, monkeypatch):
+    cdir = _mk_campaign(tmp_path)
+    proj = tmp_path / "proj" / "workflows"
+    proj.mkdir(parents=True)
+    (proj / "main.yml").write_text("x: 1", encoding="utf-8")
+    (proj / "monthly_summary.yml").write_text("x: 2", encoding="utf-8")
+    run = tmp_path / "runs" / "444"
+    (run / "transcripts").mkdir(parents=True)
+    (run / "task.json").write_text(json.dumps({"status": "done", "cost": {}}), encoding="utf-8")
+    (run / "report.json").write_text(json.dumps(
+        {"lint": {"validate": 0}, "workflow_file": str(proj / "main.yml")}), encoding="utf-8")
+    monkeypatch.setattr(cp, "RUNS_DIR", tmp_path / "runs")
+    cp.cmd_record(cdir, "G01-congno.md", "444")
+    r = cp.load_manifest(cdir)["prompts"][0]["results"][0]
+    assert r["workflow_files"] == ["main.yml", "monthly_summary.yml"]
+    assert r["extra_workflow_files_unlinted"] == ["monthly_summary.yml"]
+
+
+# ── S5-2: ✗ classification (gate-deny vs ran-and-failed) ─────────────────────────────────────────
+
+TRANSCRIPT = """## implement
+
+### Tool calls
+- Bash  grep -n "x" templates/tool-catalog.json  ✗
+- Bash  .venv/bin/python tools/dify_base/marketplace.py resolve a/b  ✗
+- Bash  .venv/bin/python tools/dify_base/find.py --list-features 2>&1 | head -60  ✗
+- Bash  .venv/bin/python tools/dify_base/lint_refs.py projects/x/main.yml  ✗
+- Bash  .venv/bin/python tools/dify_base/validate_workflow.py projects/x/main.yml  ✗
+- Grep  docs  ✗
+- Bash  ls projects/x  ✓
+- Edit  /abs/projects/x/main.yml  ✓
+
+### Result
+done
+"""
+
+
+def test_classify_failed_calls_splits_denied_from_errored(tmp_path):
+    run = tmp_path / "r"
+    (run / "transcripts").mkdir(parents=True)
+    (run / "transcripts" / "implement.md").write_text(TRANSCRIPT, encoding="utf-8")
+    got = cp.classify_failed_calls(run, "implement")
+    # denied: grep (deny-verb) + marketplace.py (not in allow-set) + find.py|head (metachar)
+    # errored: lint_refs + validate_workflow (allowed scripts that ran and failed) + Grep tool
+    assert got == {"denied": 3, "errored": 3}
+
+
+def test_classify_missing_transcript_is_none(tmp_path):
+    assert cp.classify_failed_calls(tmp_path, "implement") is None
+
+
+# ── S5-5: runner error-path drill — retry, double-error STOP, resume (no real turns burned) ──────
+
+RUNNER = Path(__file__).parent.parent / "apps" / "builder" / "scripts" / "campaign-run.sh"
+
+STUB_E2E = """#!/usr/bin/env bash
+# Stub e2e-run.sh for the drill: `fire` mints task ids T1, T2, … via a counter file; `wait` is a
+# no-op (task.json fixtures are pre-seeded by the test); everything else fails loudly.
+case "$1" in
+  fire)
+    n=$(cat "$STUB_DIR/counter" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$STUB_DIR/counter"
+    echo "{\\"taskId\\":\\"T$n\\",\\"phase\\":\\"analyze\\",\\"status\\":\\"running\\"}" ;;
+  wait) exit 0 ;;
+  *) echo "stub: unexpected $1" >&2; exit 99 ;;
+esac
+"""
+
+
+def _seed_task(runs: Path, tid: str, status: str) -> None:
+    d = runs / tid
+    (d / "transcripts").mkdir(parents=True, exist_ok=True)
+    task = {"status": status, "cost": {}}
+    if status == "error":
+        task["error"] = "stub failure"
+    (d / "task.json").write_text(json.dumps(task), encoding="utf-8")
+
+
+def _drill_env(tmp_path: Path) -> dict:
+    import os
+    stub_dir = tmp_path / "stub"
+    stub_dir.mkdir(exist_ok=True)
+    stub = stub_dir / "e2e-stub.sh"
+    stub.write_text(STUB_E2E, encoding="utf-8")
+    stub.chmod(0o755)
+    env = dict(os.environ)
+    env["CAMPAIGN_E2E"] = str(stub)
+    env["CAMPAIGN_RUNS_DIR"] = str(tmp_path / "runs")
+    env["STUB_DIR"] = str(stub_dir)
+    return env
+
+
+def test_drill_double_error_stops_and_resume_completes(tmp_path):
+    """The paths the acceptance campaign never exercised: error → flip-to-pending retry → second
+    error → STOP with the rest left pending; then a plain re-run (resume) finishes the campaign."""
+    import subprocess
+    cdir = _mk_campaign(tmp_path, status="approved", version=cp.current_builder_version())
+    (cdir / "G02-extra.md").write_text(CLEAN_PROMPT, encoding="utf-8")
+    d = cp.load_manifest(cdir)
+    d["prompts"].append({"file": "G02-extra.md", "axis": "x", "why": "x", "mode": "auto",
+                         "status": "pending", "task_ids": []})
+    cp.save_manifest(cdir, d)
+    runs = tmp_path / "runs"
+    _seed_task(runs, "T1", "error")   # G01 attempt 1 → error
+    _seed_task(runs, "T2", "error")   # G01 attempt 2 (retry) → error → must STOP the run
+    env = _drill_env(tmp_path)
+
+    r1 = subprocess.run(["bash", str(RUNNER), str(cdir)], env=env, capture_output=True, text=True)
+    assert r1.returncode == 1, r1.stdout + r1.stderr
+    assert "DỪNG CẢ ĐỢT" in r1.stdout + r1.stderr
+    d = cp.load_manifest(cdir)
+    assert d["prompts"][0]["status"] == "error"
+    assert d["prompts"][0]["task_ids"] == ["T1", "T2"]          # both attempts kept
+    assert d["prompts"][1]["status"] == "pending"               # rest untouched — no quota burn
+
+    # "resume = re-run the script": G02 completes; the double-errored G01 is NOT re-fired.
+    _seed_task(runs, "T3", "done")
+    r2 = subprocess.run(["bash", str(RUNNER), str(cdir)], env=env, capture_output=True, text=True)
+    assert r2.returncode == 0, r2.stdout + r2.stderr
+    d = cp.load_manifest(cdir)
+    assert d["prompts"][1]["status"] == "done"
+    assert d["prompts"][1]["task_ids"] == ["T3"]
+    assert d["prompts"][0]["task_ids"] == ["T1", "T2"]          # error entry left alone
+
+
+def test_drill_single_error_then_success_retries_in_place(tmp_path):
+    import subprocess
+    cdir = _mk_campaign(tmp_path, status="approved", version=cp.current_builder_version())
+    runs = tmp_path / "runs"
+    _seed_task(runs, "T1", "error")   # attempt 1 fails …
+    _seed_task(runs, "T2", "done")    # … retry succeeds → campaign settles cleanly
+    env = _drill_env(tmp_path)
+    r = subprocess.run(["bash", str(RUNNER), str(cdir)], env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    p = cp.load_manifest(cdir)["prompts"][0]
+    assert p["status"] == "done" and p["task_ids"] == ["T1", "T2"]

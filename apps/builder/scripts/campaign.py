@@ -27,7 +27,9 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import re
+import subprocess
 import sys
 from datetime import date
 from pathlib import Path
@@ -35,7 +37,8 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
-RUNS_DIR = Path(__file__).resolve().parents[1] / ".runs"
+# Env override exists for the runner drill tests (tests/test_campaign.py) — production never sets it.
+RUNS_DIR = Path(os.environ.get("CAMPAIGN_RUNS_DIR", Path(__file__).resolve().parents[1] / ".runs"))
 PKG_JSON = Path(__file__).resolve().parents[1] / "package.json"
 
 # ── charter blocklists (docs/prompts/CHARTER.md is the human-facing source of these) ────────────
@@ -115,6 +118,37 @@ def prompt_files(cdir: Path, data: dict) -> list[Path]:
 
 # ── subcommands ──────────────────────────────────────────────────────────────────────────────────
 
+def cmd_init(cdir: Path) -> int:
+    """Skeleton manifest from the prompt files already in <dir> — safe-dumped from the start, so
+    the hand-authoring class of bugs (a bare `#6` silently becoming a YAML comment) cannot recur."""
+    mf = cdir / "campaign.yml"
+    if mf.exists():
+        sys.exit(f"❌ {mf}: đã tồn tại — init chỉ tạo mới, không ghi đè")
+    files = sorted(p.name for p in cdir.glob("*.md") if re.match(r"^[GP]\d\d-", p.name))
+    if not files:
+        sys.exit(f"❌ {cdir}: không có file đề (G##-*.md / P##-*.md) — viết đề trước, init sau")
+    try:
+        sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT,
+                             capture_output=True, text=True, check=True).stdout.strip()
+    except Exception:
+        sha = "?"
+    data = {
+        "id": cdir.name,
+        "request": "TODO: nguyên văn yêu cầu đợt test",
+        "builder_version": current_builder_version(),
+        "git_sha": sha,
+        "status": "draft",
+        "prompts": [
+            {"file": f, "axis": "TODO", "why": "TODO", "mode": "auto",
+             "project": None, "workflow": None, "status": "pending", "task_ids": []}
+            for f in files
+        ],
+    }
+    save_manifest(cdir, data)
+    print(f"✅ campaign.yml sinh cho {len(files)} đề — điền request/axis/why rồi lint")
+    return 0
+
+
 def cmd_lint(cdir: Path) -> int:
     data = load_manifest(cdir)
     any_hard = False
@@ -188,6 +222,57 @@ def cmd_next(cdir: Path) -> int:
     return 3  # nothing pending — runner treats this as "campaign settled"
 
 
+# ── ✗ classification (S5-2) ─────────────────────────────────────────────────────────────────────
+# The transcript's "### Tool calls" section marks failures with ✗ but records no reason, so a raw
+# count conflates two very different things: a gate-DENIAL (search thrash — the spec-071 oracle's
+# target) and a command that RAN and failed (e.g. a linter reporting findings during the normal
+# self-correct loop). Run 1784522395970 proved the cost: 11✗ in ③ read as "thrash 11" when 4 of
+# them were legitimate lint iterations. Classification mirrors the permission-gate's own allowlist
+# (apps/builder/server/hooks/permission-gate.ts): a call the gate would ALLOW that still shows ✗
+# must have errored; a call the gate would DENY is a denial. Heuristic — transcript lines truncate
+# (~80 chars), so a metacharacter past the cut is invisible; treat the split as an estimate.
+
+_ALLOWED_PY = re.compile(
+    r"^\.venv/bin/python3? tools/dify_base/"
+    r"(find|validate_workflow|lint_refs|lint_plugin_hashes|lint_node_bodies)\.py\b"
+)
+_ALLOWED_SIMPLE = re.compile(r"^(ls|cat|head|tail|pwd|wc|echo|true|git (status|diff))\b")
+_METACHAR = re.compile(r"[|;&><`*$]")
+_CALL_LINE = re.compile(r"^- (\w+) {2}(.*?) {2}[✓✗]\s*$")
+
+
+def classify_failed_calls(run_dir: Path, phase: str) -> dict | None:
+    """→ {'denied': n, 'errored': n} (estimate) for one phase's ✗ lines, or None without transcript."""
+    t = run_dir / "transcripts" / f"{phase}.md"
+    if not t.exists():
+        return None
+    denied = errored = 0
+    in_calls = False
+    for line in t.read_text(encoding="utf-8").splitlines():
+        if line.startswith("### Tool calls"):
+            in_calls = True
+            continue
+        if in_calls and line.startswith("### "):
+            in_calls = False
+        if not in_calls or "✗" not in line:
+            continue
+        m = _CALL_LINE.match(line)
+        if not m:
+            continue
+        tool, cmd = m.group(1), m.group(2)
+        if tool != "Bash":
+            # Grep-tool errors, Edit misses, … — tool-level failures, not gate denials. (A
+            # forbidden-path deny on Read/Edit is possible but rare; accepted imprecision.)
+            errored += 1
+        elif _METACHAR.search(cmd):
+            denied += 1  # the gate rejects any shell metacharacter outright
+        elif _ALLOWED_PY.match(cmd) or _ALLOWED_SIMPLE.match(cmd):
+            errored += 1  # gate would allow → it ran and failed (self-correct loop, bad args, …)
+        else:
+            denied += 1  # deny-verbs (grep/find/…), non-allowlisted scripts, python -c, …
+    return {"denied": denied, "errored": errored}
+
+
 def _denied_calls(run_dir: Path, phase: str) -> int | None:
     """Reuse e2e_check's transcript-based denied-call counter (the spec-071 oracle) verbatim."""
     spec = importlib.util.spec_from_file_location("e2e_check", Path(__file__).parent / "e2e_check.py")
@@ -218,6 +303,7 @@ def cmd_record(cdir: Path, fname: str, task_id: str) -> int:
             "model": (c or {}).get("model"),
             "turns": (c or {}).get("numTurns"),
             "denied_calls": _denied_calls(run_dir, ph),
+            "failed_split": classify_failed_calls(run_dir, ph),
         }
         for ph, c in cost.items()
     }
@@ -226,6 +312,18 @@ def cmd_record(cdir: Path, fname: str, task_id: str) -> int:
         report = json.loads(report_json.read_text(encoding="utf-8"))
         result["lint"] = report.get("lint")
         result["workflow_file"] = report.get("workflow_file")
+        # A build may write MORE yml files than the one ④ reports (observed: monthly_summary.yml
+        # beside main.yml, never linted, never mentioned in notes). Surface every sibling so the
+        # report stage cannot inherit ④'s single-file blindness.
+        wf = report.get("workflow_file")
+        if wf:
+            wf_path = Path(wf) if Path(wf).is_absolute() else ROOT / wf
+            if wf_path.parent.is_dir():
+                siblings = sorted(p.name for p in wf_path.parent.glob("*.yml"))
+                result["workflow_files"] = siblings
+                extras = [s for s in siblings if s != wf_path.name]
+                if extras:
+                    result["extra_workflow_files_unlinted"] = extras
     if task.get("status") == "error":
         result["error"] = task.get("error")
 
@@ -253,7 +351,7 @@ def cmd_status(cdir: Path) -> int:
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="campaign.py", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("lint", "approve", "verify", "next", "status"):
+    for name in ("init", "lint", "approve", "verify", "next", "status"):
         s = sub.add_parser(name)
         s.add_argument("dir", type=Path)
     s = sub.add_parser("record")
@@ -262,6 +360,8 @@ def main(argv: list[str]) -> int:
     s.add_argument("--task-id", required=True)
     a = ap.parse_args(argv)
     cdir = a.dir.resolve()
+    if a.cmd == "init":
+        return cmd_init(cdir)
     if a.cmd == "lint":
         return cmd_lint(cdir)
     if a.cmd == "approve":

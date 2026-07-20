@@ -77,8 +77,14 @@ prompts:
 
 Với TỪNG đề đã settle (đọc `task_ids`/`results` trong manifest):
 
-1. **Cơ học** (tất định — từ manifest + run dir): 4 linter · `e2e-run.sh comprehension <taskId>` ·
-   denied-calls từng phase · lang-sync (digest đúng ngôn ngữ đề — đọc analyze.json) · model+turn.
+1. **Cơ học** (tất định — từ manifest + run dir), với 3 bước BẮT BUỘC không được bỏ:
+   - 4 linter · comprehension — nhưng comprehension ghi **"PASS (EN-only scan)"**, không PASS trần
+     (gate chỉ quét bản EN; đợt quiz-gen PASS 3/3 *chính vì* notes sai ngôn ngữ);
+   - `failed_split` từng phase (record đã tách deny≈/errored≈): **so `denied` với mốc** — 0–2 sạch,
+     ≥7 nghi thrash phải mổ transcript; `errored` là self-correct, đọc riêng, không cộng vào thrash;
+   - `workflow_files`/`extra_workflow_files_unlinted` trong results: có extra → report PHẢI nêu
+     "file X chưa qua linter, notes không nhắc" (lớp finding A, đợt quiz-gen).
+   Cùng tầng: lang-sync (digest đúng ngôn ngữ đề — đọc analyze.json) · model+turn.
 2. **Judge trong SUBAGENT context sạch** (spec 073 §2.6): spawn Agent với prompt CHỈ chứa
    (a) nguyên văn đề, (b) taskId + đường artifact, (c) chỉ thị chạy đúng thủ tục `/report` — chấm
    theo requirement. KHÔNG đưa mục Bẫy/Hình-dạng-tốt của file đề cho judge (judge phải chấm như

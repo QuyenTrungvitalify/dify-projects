@@ -12,6 +12,12 @@ pattern, a changed gate. Not for docs-only edits.
 ## Unreleased
 
 **Harness**
+- `/campaign` hardening after its acceptance run (spec 073 S5): `record` now harvests EVERY
+  `workflows/*.yml` of a build and flags unlinted extras (a build shipped monthly_summary.yml that
+  ④ never linted or mentioned); failed tool-calls are split into gate-denials vs ran-and-failed
+  (a raw ✗ count read 4 normal lint self-correct rounds as thrash); `init` generates the manifest
+  (hand-authored YAML ate a bare `#6` as a comment); the runner's error paths — retry once,
+  double-error stop, resume — are now permanently drilled by stub-backed tests, zero turns burned.
 - `/campaign` — versioned auto-test campaigns (spec 073): analyze what to test → generate
   user-realistic prompts per `docs/prompts/CHARTER.md` (charter-linted: solution-jargon in a đề is
   rejected) → human gate freezes the prompt set in `docs/prompts/gen/<id>/` → `campaign-run.sh`

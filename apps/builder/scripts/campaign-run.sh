@@ -20,7 +20,9 @@ set -uo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
 PY="$ROOT/.venv/bin/python"; [ -x "$PY" ] || PY=python3
-E2E="$SCRIPT_DIR/e2e-run.sh"
+# CAMPAIGN_E2E: test seam — the error-path drill (tests/test_campaign.py) substitutes a stub
+# e2e-run.sh so retry/double-error/resume run WITHOUT burning real turns. Production never sets it.
+E2E="${CAMPAIGN_E2E:-$SCRIPT_DIR/e2e-run.sh}"
 CAMPAIGN="$SCRIPT_DIR/campaign.py"
 
 command -v jq >/dev/null || { echo "FATAL: jq is required" >&2; exit 2; }

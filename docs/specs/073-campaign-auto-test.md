@@ -121,9 +121,13 @@ không nằm trong tỉ lệ đạt; ô so sánh khác-model ghi N/A.
 AC-S4: với một finding đã fix, `recheck` cho ra bảng trước/sau cùng-đề cùng-model; nếu model khác
 thì bảng ghi rõ và không kết luận hơn/kém về cost.
 
-### S5 — Cải thiện sau đợt nghiệm thu `2026-07-20-quiz-gen` (chưa làm)
+### S5 — Cải thiện sau đợt nghiệm thu `2026-07-20-quiz-gen` (ĐÃ LÀM 2026-07-20, trừ ghi chú)
 
-Đợt thật đầu tiên (3/3 xong, happy-path ổn) lộ 5 việc, xếp theo giá trị:
+Đợt thật đầu tiên (3/3 xong, happy-path ổn) lộ 5 việc — trạng thái sau khi implement:
+1 = `record` gặt `workflow_files` + `extra_workflow_files_unlinted` ✅ (nửa Builder-side của finding
+A vẫn là fix riêng) · 2 = `classify_failed_calls` tách deny≈/errored≈ + SKILL bắt so mốc ✅ ·
+3 = nhãn "PASS (EN-only scan)" vào SKILL ✅ · 4 = `campaign.py init` ✅ · 5 = drill thành 2 test
+vĩnh viễn (stub e2e, không đốt turn): double-error STOP + resume, retry-in-place ✅. Danh sách gốc:
 
 1. **`record`/`report` bỏ giả định 1-file** — gặt mọi `workflows/*.yml` của build (cùng gốc
    finding A của đợt; phần Builder-side là fix riêng của người dùng).
