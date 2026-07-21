@@ -327,7 +327,17 @@ def cmd_record(cdir: Path, fname: str, task_id: str) -> int:
     if task.get("status") == "error":
         result["error"] = task.get("error")
 
-    entry.setdefault("task_ids", []).append(task_id)
+    # Idempotent per task_id: recording the same run twice (e.g. a stray second runner, or a manual
+    # record after the runner already logged it) must not duplicate the attempt — that corrupts the
+    # denied-call/attempt counts the report reads. Re-recording refreshes the stored result in place.
+    if task_id in entry.setdefault("task_ids", []):
+        entry["results"] = [r for r in entry.get("results", []) if r.get("task_id") != task_id]
+        entry.setdefault("results", []).append(result)
+        entry["status"] = "done" if task.get("status") == "done" else "error"
+        save_manifest(cdir, data)
+        print(f"↺ {fname}: task {task_id} đã có — cập nhật tại chỗ (không nhân bản attempt)")
+        return 0
+    entry["task_ids"].append(task_id)
     entry["status"] = "done" if task.get("status") == "done" else "error"
     entry.setdefault("results", []).append(result)
     save_manifest(cdir, data)

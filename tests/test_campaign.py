@@ -221,6 +221,18 @@ def test_record_error_run_without_report_survives(tmp_path, monkeypatch):
     assert "lint" not in p["results"][0]
 
 
+def test_record_same_task_id_twice_is_idempotent(tmp_path, monkeypatch):
+    """Recording the same run twice (stray runner / manual re-record) must not duplicate the attempt."""
+    cdir = _mk_campaign(tmp_path)
+    _mk_run(tmp_path, "111", "done", with_report=True)
+    monkeypatch.setattr(cp, "RUNS_DIR", tmp_path / "runs")
+    cp.cmd_record(cdir, "G01-congno.md", "111")
+    cp.cmd_record(cdir, "G01-congno.md", "111")   # again — same task
+    p = cp.load_manifest(cdir)["prompts"][0]
+    assert p["task_ids"] == ["111"]                # not ["111", "111"]
+    assert len(p["results"]) == 1
+
+
 def test_record_retry_keeps_both_task_ids(tmp_path, monkeypatch):
     cdir = _mk_campaign(tmp_path)
     _mk_run(tmp_path, "222", "error", with_report=False)

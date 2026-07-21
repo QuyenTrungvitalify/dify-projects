@@ -14,8 +14,42 @@ prompts:
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784598243240'
+  results:
+  - task_id: '1784598243240'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 4
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 6
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 14
+        denied_calls: 1
+        failed_split:
+          denied: 0
+          errored: 1
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/1_1_1_3/workflows/main.yml
+    workflow_files:
+    - main.yml
 - file: G02-vi-onboarding-assistant.md
   axis: chatflow hội thoại nhớ ngữ cảnh (mode advanced-chat + memory)
   why: mẫu 2 cho finding H — đợt 4 "chatbot"→workflow; lần này follow-up mô tả tường
