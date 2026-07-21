@@ -12,7 +12,7 @@ code. Mỗi slice kèm *"cái gì có thể vỡ"* — đây là phần đắt n
 | Finding | Mẫu | Vì sao không fix |
 |---|---|---|
 | **H** "chatbot" → `mode: workflow` | n=2 | **Propensity theo độ mạnh tín hiệu**: R4 tín hiệu yếu→workflow, R5 tín hiệu mạnh→chatflow đúng-bài (memory 2 node + query-rewrite). Không có ngưỡng cơ học nào để code. Nếu muốn cải thiện: guidance ① nhận diện ý định hội thoại — nhưng đó là sửa propensity bằng prompt, đo được thì mới làm. |
-| **I** mất dấu VI trong YAML sinh ra | n=2 (1 lỗi/1 sạch) | **Không tất định**. Đợt 6 đang phá hòa; chỉ fix nếu tái hiện ≥2/3 mẫu VI. |
+| ~~**I** mất dấu VI~~ | — | **ĐÃ CHUYỂN THÀNH S4** sau khi đợt 6 phá hòa (tái hiện 2/4). |
 | **E** fail-open flow duyệt tiền · **K** thiếu `max_tokens` khi N lớn | n=1 mỗi | Guidance `implement.md`, không phải code. Gom vào một lần sửa skill sau khi có thêm mẫu. |
 | **7** không có đường tra per-tool behavior | n=4 | Thật, nhưng fix = **quyết định phạm vi catalog/sandbox** (mở rộng `tool-catalog.json` hay thêm lệnh tra) — cần user chốt, không nằm trong gói này. |
 
@@ -89,8 +89,13 @@ triển khai nửa hệ thống mà không biết.
 **Trạng thái**: **harness đã vá** (`campaign.py record` gặt `workflow_files` + cờ
 `extra_workflow_files_unlinted`). Còn **Builder-side chưa**.
 
-**Mẫu**: n=1 tại thời điểm viết — **đợt 6 G03 đang phá hòa** (đề 2-nhịp dễ sinh multi-file). Nếu tái
-hiện ⇒ đủ mẫu, làm S3; nếu không ⇒ hạ xuống theo dõi.
+**Mẫu**: **đợt 6 G03 KHÔNG tái hiện** (đề 2-nhịp ra 1 file) ⇒ A giữ **n=1** ⇒ **HOÃN S3**, không
+sửa hạ tầng report/wire cho một ca đơn lẻ. Theo dõi, làm khi có mẫu thứ 2.
+
+**Biến thể A′ mới (n=1, đợt 6 G03)**: file **1-file-2-trigger** mà notes viết *"the trigger"* **số
+ít** → user có thể chỉ bật 1 trong 2 trigger và **âm thầm mất một nhịp** — cùng lớp harm với A,
+khác cơ chế. Fix rẻ hơn A nhiều (chỉ là câu chữ notes theo số trigger đếm được trong YAML); gộp vào
+S5 nếu làm.
 
 **Bán kính** (khi làm): `linters.ts` (`lintClean` đang nhận 1 path) · `report.ts` (`workflow_file`
 đơn) · shape `report.json` — **đây là đổi hợp đồng wire**, `web/src/types.ts` + ArtifactPanel đọc
@@ -101,11 +106,48 @@ hiện ⇒ đủ mẫu, làm S3; nếu không ⇒ hạ xuống theo dõi.
 
 ---
 
+## 3b. Slice S4 — Tiếng Việt sinh ra bị MẤT DẤU (finding I, 2/4 mẫu)
+
+**Bằng chứng chốt (đợt 6)**: 4 mẫu VI qua 3 đợt — R4 mất · R5 giữ · **R6-G01 mất 100%** (0 ký tự có
+dấu / 34 cụm không dấu) · R6-G02 giữ 100% (349 ký tự có dấu). Cùng version, cùng ngày ⇒ **ngẫu
+nhiên ~50%**, không phải giới hạn hệ thống.
+
+**Locus chính xác**: trong cùng run R6-G01, **`SPEC.md` có dấu hoàn hảo còn `main.yml` 0 dấu** ⇒ lỗi
+ở **khâu sinh YAML**, không phải năng lực ngôn ngữ của model.
+
+**Vì sao KHÔNG phải lỗi thẩm mỹ**:
+- chuỗi mất dấu nằm ngay trong **system prompt điều khiển văn phong email gửi nhà cung cấp** → model
+  có thể bắt chước, xuất email B2B tiếng Việt không dấu;
+- `label`/`hint`/`title` hiển thị trên Dify Studio **luôn luôn** sai — user nhìn mỗi ngày;
+- chuỗi fallback `"(chua ro nha cung cap)"` chảy thẳng vào dữ liệu đưa cho LLM.
+
+**Fix**: **guidance**, không phải code (không có luật cơ học nào để cưỡng chế). Thêm vào
+`.claude/skills/dify-build/implement.md` (và spec.md nếu hợp): *mọi chuỗi tiếng Việt viết vào YAML —
+`description`, `title`, `label`, `hint`, system/user prompt, chuỗi dữ liệu mặc định — phải có dấu
+đầy đủ; tiếng Việt không dấu là lỗi giao hàng, không phải lựa chọn phong cách.*
+
+**Bán kính**: sửa file skill (đọc lúc chạy, không cần rebuild), không đụng code, không đổi test.
+Rủi ro ≈ 0. **Nghiệm thu**: `recheck` các đề VI (R4-G02, R5-G02, R6-G01, R6-G02) — kỳ vọng 4/4 có
+dấu; vì là propensity nên **đo bằng tỉ lệ**, không phải một mẫu.
+
+## 3c. Slice S5 (nhỏ, tuỳ chọn) — Làm rõ guidance "1 trigger/workflow"
+
+**Đính chính tri thức** (judge R6-G03 kiểm nguồn `vendor/dify-src`, không suy đoán): webhook +
+schedule **cùng một workflow là HỢP LỆ** ở bản Dify này — `webhook_service.py:755` và
+`workflow_schedule_tasks.py:59` mỗi cái truyền `root_node_id` của trigger tương ứng, và
+`_find_root_node_id` tôn trọng root được chỉ định.
+
+`.claude/skills/dify-build/spec.md:74` viết *"at most ONE **schedule** trigger per workflow"* — đúng
+nghĩa hẹp, nhưng R2-G03 **đọc thành "một trigger tổng cộng"** rồi tách 2 file (chính ca sinh ra
+finding A). ⇒ Làm rõ: nhiều trigger **khác loại** trong một workflow là hợp lệ; ràng buộc chỉ áp cho
+**nhiều schedule**. Gộp luôn A′: notes phải nói số nhiều khi YAML có ≥2 trigger.
+
 ## 4. Thứ tự đề nghị + nghiệm thu
 
-1. **S2** (rủi ro ≈ 0, thuần cộng, user VI hưởng ngay)
-2. **S1** (rủi ro thấp nhưng có bẫy base-import — theo đúng thiết kế lọc ở trên)
-3. **S3** chỉ khi đợt 6 xác nhận n≥2
+1. **S4** (sửa file skill, rủi ro 0, ảnh hưởng chất lượng giao hàng VI ngay)
+2. **S2** (rủi ro ≈ 0, thuần cộng client, user VI hưởng ngay)
+3. **S1** (rủi ro thấp nhưng có bẫy base-import — theo đúng thiết kế lọc ở trên)
+4. **S5** (câu chữ, tuỳ chọn) · **S3 HOÃN** — đợt 6 không tái hiện, giữ n=1
 
 Sau khi fix: bump **v0.3.0** → `/campaign recheck` **cả 6 đợt** (đề đã đóng băng theo commit, chạy
 lại nguyên văn) → bảng trước/sau cùng-đề cùng-model. Kỳ vọng: slug có nghĩa/`workflow_N`, notes VI

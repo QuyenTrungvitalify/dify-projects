@@ -20,6 +20,7 @@ code đã sinh ra nó — xem [`apps/builder/CHANGELOG.md`](../../../apps/builde
 | [2026-07-20 R3](2026-07-20-R3-SUMMARY.md) ops-mix (3 đề) | **v0.2.0** | 3/3 | 1 PASS · 1 PASS↗ · 1 PARTIAL | 0 | advisory webhook **mẫu 2/2 → khoá gate**; timezone không tái phạm; finding E (fail-open duyệt tiền); slug n=6 |
 | [2026-07-20 R4](2026-07-20-R4-SUMMARY.md) lifecycle (3 đề) | **v0.2.0** | 3/3 | 2 PASS · 1 PARTIAL | 0 | **edit-existing sạch** (7/7 node giữ, base thật); không bịa dataset; vision honesty; finding H/I/J; notes-EN **n=8**, slug **n=8** |
 | [2026-07-21 R5](2026-07-21-R5-SUMMARY.md) capabilities (3 đề, trục MỚI) | **v0.2.0** | 3/3 | 2 PASS · 1 PARTIAL | 0 | chatflow đúng-bài (query-rewrite); honesty voice/IVR (example.invalid); **H→propensity, I→không tất định** (n=2 cứu khỏi fix nhầm); **2 bug harness bắt+fix khi chạy thật** (409-abort, record trùng) |
+| [2026-07-21 R6](2026-07-21-R6-SUMMARY.md) tiebreak (3 đề) | **v0.2.0** | 3/3 | 2 PASS · 1 PARTIAL | 0 | **chốt I: mất dấu VI 2/4, locus = khâu sinh YAML** (SPEC có dấu, YAML không) → fix guidance · **A không tái hiện → hoãn** · đính chính: **nhiều trigger/1 workflow LÀ hợp lệ** (kiểm nguồn Dify) |
 | _(đợt sau)_ | | | | | |
 
 ## Đợt 2026-07-18 · v0.1.0 — chi tiết
