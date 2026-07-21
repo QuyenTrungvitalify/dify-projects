@@ -1,0 +1,33 @@
+id: 2026-07-21-tiebreak
+request: 'đợt 6 (tiebreak): CHỈ nhắm 2 câu hỏi chưa ngã ngũ — finding I (mất dấu VI,
+  đang 1 lỗi/1 sạch) qua 2 đề VI đậm nội dung, và finding A (④ giả định 1-file, n=1)
+  qua đề 2-nhịp dễ sinh multi-file. Không mở trục mới.'
+builder_version: 0.2.0
+git_sha: 7dec9a0
+status: approved
+prompts:
+- file: G01-vi-inventory-alert.md
+  axis: phá hòa finding I (mất dấu VI) + biên <= + cấm auto-send
+  why: mẫu VI thứ 1/2 để chốt mất-dấu là hệ thống hay ngẫu nhiên
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G02-vi-cv-screening.md
+  axis: phá hòa finding I (mẫu VI thứ 2) + ràng buộc công bằng + không-quyết-thay-người
+  why: hai mẫu VI cùng đợt cho tín hiệu rõ hơn 1 mẫu
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G03-two-cadence-safety.md
+  axis: phá hòa finding A (④ 1-file) qua yêu cầu 2 nhịp + advisory webhook mẫu 3
+  why: R2-G03 từng sinh 2 file mà ④ chỉ khai 1; tái hiện được thì A đủ mẫu fix
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+approved_on: '2026-07-21'
