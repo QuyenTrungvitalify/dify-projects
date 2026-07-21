@@ -17,6 +17,8 @@ code đã sinh ra nó — xem [`apps/builder/CHANGELOG.md`](../../../apps/builde
 | [2026-07-18](2026-07-18-SUMMARY.md) | **v0.1.0** | 12/12 | **11** | 2 (1 propensity ②, 1 đứt mạng) | 5 fix → **v0.2.0** · 5 để ngỏ |
 | [2026-07-20](2026-07-20-SUMMARY.md) quiz-gen · **đợt máy-sinh đầu tiên** (/campaign, 3 đề) | **v0.2.0** | 3/3 | 1 PASS · 2 PARTIAL | 0 | 4 finding mới (nặng nhất: **④ giả định 1-file/workflow** — file thứ 2 không lint, notes im lặng) · slug-rác n=3 thêm mẫu VI → đủ fix · advisory webhook mẫu sống 1/≥2 |
 | [2026-07-20](2026-07-20-R3-SUMMARY.md) ops-mix (đợt 3, 3 đề) | **v0.2.0** | 3/3 | 1 PASS · 2 PARTIAL | 0 | advisory **2/2 → gate notes_include ĐÃ khoá** · webhook thrash mẫu 2 sạch (denied≈1) · timezone-propensity GIỮ · mới: fail-open duyệt tiền (E) · node-soạn nuốt vi phạm (F) · mục 7 tái lần 3 · slug n=6 · notes-EN n=6 |
+| [2026-07-20 R3](2026-07-20-R3-SUMMARY.md) ops-mix (3 đề) | **v0.2.0** | 3/3 | 1 PASS · 1 PASS↗ · 1 PARTIAL | 0 | advisory webhook **mẫu 2/2 → khoá gate**; timezone không tái phạm; finding E (fail-open duyệt tiền); slug n=6 |
+| [2026-07-20 R4](2026-07-20-R4-SUMMARY.md) lifecycle (3 đề) | **v0.2.0** | 3/3 | 2 PASS · 1 PARTIAL | 0 | **edit-existing sạch** (7/7 node giữ, base thật); không bịa dataset; vision honesty; finding H/I/J; notes-EN **n=8**, slug **n=8** |
 | _(đợt sau)_ | | | | | |
 
 ## Đợt 2026-07-18 · v0.1.0 — chi tiết

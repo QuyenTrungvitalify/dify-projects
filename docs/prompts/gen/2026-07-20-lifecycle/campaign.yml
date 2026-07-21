@@ -14,8 +14,42 @@ prompts:
   mode: auto
   project: _drafts
   workflow: 5_chatwork_5_52
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784557273931'
+  results:
+  - task_id: '1784557273931'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 9
+        denied_calls: 1
+        failed_split:
+          denied: 0
+          errored: 1
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 15
+        denied_calls: 4
+        failed_split:
+          denied: 3
+          errored: 1
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 21
+        denied_calls: 4
+        failed_split:
+          denied: 4
+          errored: 0
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/5_chatwork_5_52/workflows/main.yml
+    workflow_files:
+    - main.yml
 - file: G02-vi-warranty-chatbot.md
   axis: advanced-chat + knowledge-retrieval không bịa dataset id + từ chối có lối
     thoát + VI
@@ -24,8 +58,42 @@ prompts:
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784557777080'
+  results:
+  - task_id: '1784557777080'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 6
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 7
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      implement:
+        model: claude-opus-4-8[1m]
+        turns: 12
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/b_n_m_nh_2/workflows/main.yml
+    workflow_files:
+    - main.yml
 - file: G03-photo-condition-rank.md
   axis: vision đánh giá chủ quan + rubric user + trung thực hai chiều (không ép rank
     / không lạm 判断不可)
@@ -34,6 +102,40 @@ prompts:
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784558115784'
+  results:
+  - task_id: '1784558115784'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 5
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 13
+        denied_calls: 6
+        failed_split:
+          denied: 6
+          errored: 0
+      implement:
+        model: claude-opus-4-8[1m]
+        turns: 22
+        denied_calls: 6
+        failed_split:
+          denied: 6
+          errored: 0
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/b_c_c/workflows/main.yml
+    workflow_files:
+    - main.yml
 approved_on: '2026-07-20'
