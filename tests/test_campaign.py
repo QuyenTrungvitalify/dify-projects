@@ -395,3 +395,36 @@ def test_drill_single_error_then_success_retries_in_place(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     p = cp.load_manifest(cdir)["prompts"][0]
     assert p["status"] == "done" and p["task_ids"] == ["T1", "T2"]
+
+
+# Stub whose `fire` exits 4 (turn-lock 409) on the FIRST call, then succeeds — mirrors another build
+# holding the lock. Guards the bug found live in round 5: `if ! fire_one; then RC=$?` left RC=0
+# because the `!` negation consumed the exit status, so the busy-wait branch was dead code and a 409
+# aborted the whole run ("exit 0"). The earlier drills only ever had fire exit 0, so they missed it.
+STUB_E2E_BUSY_ONCE = """#!/usr/bin/env bash
+case "$1" in
+  fire)
+    if [ ! -f "$STUB_DIR/hit" ]; then touch "$STUB_DIR/hit"; echo "turn lock BUSY — holder: X" >&2; exit 4; fi
+    echo "{\\"taskId\\":\\"T1\\",\\"phase\\":\\"analyze\\",\\"status\\":\\"running\\"}" ;;
+  wait) exit 0 ;;
+  *) echo "stub: unexpected $1" >&2; exit 99 ;;
+esac
+"""
+
+
+def test_drill_busy_lock_waits_then_retries_not_aborts(tmp_path):
+    """A 409 (another build holds the lock) must WAIT and retry the same prompt, not stop the run."""
+    import subprocess
+    cdir = _mk_campaign(tmp_path, status="approved", version=cp.current_builder_version())
+    runs = tmp_path / "runs"
+    _seed_task(runs, "T1", "done")
+    env = _drill_env(tmp_path)
+    stub = Path(env["CAMPAIGN_E2E"])
+    stub.write_text(STUB_E2E_BUSY_ONCE, encoding="utf-8")
+    stub.chmod(0o755)
+    env["CAMPAIGN_BUSY_WAIT"] = "0"   # don't actually sleep 120s in a test
+    r = subprocess.run(["bash", str(RUNNER), str(cdir)], env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr           # did NOT abort on the 409
+    assert "turn busy" in r.stdout + r.stderr               # took the wait branch
+    p = cp.load_manifest(cdir)["prompts"][0]
+    assert p["status"] == "done" and p["task_ids"] == ["T1"]  # same prompt fired on retry

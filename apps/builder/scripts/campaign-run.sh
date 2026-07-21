@@ -74,11 +74,15 @@ while :; do
   FILE=$(jq -r '.file' <<<"$PJ"); ATTEMPT=$(jq -r '.attempt' <<<"$PJ")
   echo "▶ $FILE (attempt $ATTEMPT)"
 
-  if ! fire_one "$PJ"; then
-    RC=$?
+  # Capture the exit code DIRECTLY — `if ! fire_one` would run the `!` negation and leave $? as 0,
+  # so the busy-lock branch below became dead code and every 409 stopped the whole run instead of
+  # waiting (found live: round-5 hit a lock held by another build and aborted with "exit 0"). The
+  # stub-backed drills never exercised a real 409, so they missed it.
+  fire_one "$PJ"; RC=$?
+  if [ "$RC" != 0 ]; then
     # 4 = turn lock busy (another build mid-flight — e.g. a manual one): wait one round and retry
     # the SAME prompt; anything else (3 unreachable, 6 API) is fatal for the run.
-    if [ "$RC" = 4 ]; then echo "🔒 turn busy — chờ 120s"; sleep 120; continue; fi
+    if [ "$RC" = 4 ]; then echo "🔒 turn busy — chờ ${CAMPAIGN_BUSY_WAIT:-120}s"; sleep "${CAMPAIGN_BUSY_WAIT:-120}"; continue; fi
     echo "❌ fire lỗi (exit $RC) — dừng đợt" >&2; exit "$RC"
   fi
   echo "  task $TASK_ID"
