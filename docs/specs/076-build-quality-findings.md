@@ -41,6 +41,13 @@ vào `A{n+1}` — mà phần lớn build không làm.
 primitive), **NHƯNG chưa verify trên plugin `omluc/google_sheets` thật** — plugin có thể tự append
 bên trong. Chưa build nào chạy live qua 6 đợt.
 
+> **VERIFY đợt 7 (2026-07-22, đề nhấn "đừng mất dòng cũ") → LẬT: propensity, KHÔNG phải bug hệ thống.**
+> G01 build **đọc-rồi-ghi ĐÚNG**: `rng = "A" + str(existing + 1)` (đọc số dòng từ batch_get rồi ghi
+> dòng KẾ), có node `read_tail`, tự đặt tiêu chí "追記 không ghi đè". Ca "đè A:D" trước là khi ghi-dồn
+> là **yêu cầu phụ** trong build đa-tính-năng. → Cùng họ H (propensity theo độ nhấn yêu cầu). **Không
+> fix code.** Cân nhắc guidance implement.md (luôn append đúng kể cả khi phụ) — chỉ nếu tái hiện. Nửa
+> runtime (plugin có ghi đúng `A{n+1}` không) vẫn cần 1 lần chạy live.
+
 **Bước đúng = VERIFY, không phải "fix"**:
 - Chạy 1 build live ghi 2 lần vào cùng sheet → xem dòng thứ 2 **nối tiếp hay đè** dòng đầu. Rẻ, và
   **chốt dứt điểm** finding này là thật hay không. Nếu plugin tự append → **finding biến mất**, không
@@ -68,6 +75,11 @@ thường sai** — nhưng đây là **một LỚP edge-case**, không phải m�
 **MỨC CHẮC CHẮN**: tất cả đều **latent** — chỉ lộ khi dữ liệu thật có dòng thiếu/sai ngày, hoặc chạy
 qua ≥2 kỳ. **Chưa build nào chạy live** để xác nhận thật sự ra số sai. `occurred_at` thường là field
 optional → có thể trong thực tế nguồn luôn gửi ngày → bug **không bao giờ kích hoạt**.
+
+> **VERIFY đợt 7 (đề nhấn "古いものまで数えられても困る") → cũng propensity.** G02 build xử lý dòng
+> biên ĐÚNG + tường minh: `if d is None: continue  # 日付でない行はスキップ`, dùng JST, KHÔNG dính bug
+> `if dt is not None and dt < cutoff` của chatwork. Khi requirement nêu rõ mối lo, builder lọc đúng.
+> → **Không fix code.** Guidance nếu tái hiện ca sai ở yêu cầu đa-tính-năng.
 
 **Bước đúng = quan sát, chưa fix**: đợt test mới (dùng criteria_check 075) với đề có ràng buộc
 "tuần này/tháng này" → xem build xử lý dòng biên ra sao; nếu tái hiện sai thật thì fix = **guidance**

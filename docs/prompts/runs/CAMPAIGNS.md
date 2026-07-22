@@ -20,6 +20,7 @@ code đã sinh ra nó — xem [`apps/builder/CHANGELOG.md`](../../../apps/builde
 | [2026-07-20 R4](2026-07-20-R4-SUMMARY.md) lifecycle (3 đề) | **v0.2.0** | 3/3 | 2 PASS · 1 PARTIAL | 0 | **edit-existing sạch** (7/7 node giữ, base thật); không bịa dataset; vision honesty; finding H/I/J; notes-EN **n=8**, slug **n=8** |
 | [2026-07-21 R5](2026-07-21-R5-SUMMARY.md) capabilities (3 đề, trục MỚI) | **v0.2.0** | 3/3 | 2 PASS · 1 PARTIAL | 0 | chatflow đúng-bài (query-rewrite); honesty voice/IVR (example.invalid); **H→propensity, I→không tất định** (n=2 cứu khỏi fix nhầm); **2 bug harness bắt+fix khi chạy thật** (409-abort, record trùng) |
 | [2026-07-21 R6](2026-07-21-R6-SUMMARY.md) tiebreak (3 đề) | **v0.2.0** | 3/3 | 2 PASS · 1 PARTIAL | 0 | **chốt I: mất dấu VI 2/4, locus = khâu sinh YAML** (SPEC có dấu, YAML không) → fix guidance · **A không tái hiện → hoãn** · đính chính: **nhiều trigger/1 workflow LÀ hợp lệ** (kiểm nguồn Dify) |
+| [2026-07-22 R7](2026-07-22-R7-SUMMARY.md) data-integrity (2 đề) · **lần đầu report 075** | **v0.2.0** | 2/2 | 2 PASS (tĩnh) | 0 | **verify S1+S2 → cả hai LẬT thành propensity, KHÔNG phải bug**: đề nhấn rõ → build append đúng (`A{n+1}`) + lọc dòng-thiếu-ngày tường minh · report mới (criteria_check+journey) chạy thật · nửa runtime plugin còn nợ live |
 | _(đợt sau)_ | | | | | |
 
 ## Đợt 2026-07-18 · v0.1.0 — chi tiết
