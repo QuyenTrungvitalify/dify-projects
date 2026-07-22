@@ -17,40 +17,62 @@ slice kèm *"cái gì có thể vỡ"*. Thứ tự = theo **mức hại**, nặn
 
 ---
 
-## 1. S1 — `batch_update` append hay GHI ĐÈ: chưa verify → **rủi ro MẤT DỮ LIỆU** (n=3)
+## 1. S1 — Ghi dồn vào Google Sheets: catalog KHÔNG có "append", builds tự chế (nghi mất dữ liệu, CHƯA verify)
 
-**Nặng nhất.** 3 build (R2-G03, R4-G01, R6-G03) dùng tool `google_sheets` `batch_update` để "追記/ghi
-thêm 1 dòng", nhưng **không truyền sheet name/range/append flag** — chỉ `spreadsheet_id` + `data`.
-Chính comment trong build R6-G03 tự thú: *"A:D をそのまま渡すと A1 起点で上書きになる環境がある"* (có
-môi trường sẽ **ghi đè từ A1** thay vì append).
+> **RÀ SOÁT LẠI 2026-07-21 — bản cũ của slice này SAI một phần, đã sửa:**
+> - Sai: nói "phải truyền range/append flag tường minh". `batch_update` **không có tham số range**
+>   (catalog: chỉ `spreadsheet_id`, `data`, `value_input_option`…). Range nằm TRONG `data` theo định
+>   dạng Google `[{range, values}]`.
+> - Sai: gộp thành "n=3 cùng một bug". Đọc value thật → **3 build hành xử 3 kiểu khác nhau**.
 
-Hậu quả nếu là ghi đè: user cần "cuối tháng xem lại" nhưng mỗi lần chạy **xoá dòng cũ** → mất sạch
-lịch sử, âm thầm.
+**Sự thật sau khi đọc value thật của node** (không đoán):
+| Build | `data` truyền gì | Hệ quả |
+|---|---|---|
+| `google_1_80_chatwork` | `[{"range":"記録!A:D", values:[[…]]}]` | range `A:D` = ghi **từ A1** → **ĐÈ** dữ liệu cũ |
+| `chatwork` | `[[…]]` mảng trần, **không range** | tuỳ plugin — không xác định |
+| `5_chatwork_5_52` | code dựng data, **0 batch_get** (không đọc dòng hiện có) | không có cơ sở để append đúng |
 
-**Fix — hai phần**:
-- **Verify runtime** (bắt buộc trước khi chốt cách append): chạy thật `batch_update` với `data=[[…]]`
-  không range → quan sát append hay overwrite trên Dify 1.15 thật. Đây là câu hỏi *chưa ai trả lời*
-  qua 6 đợt.
-- **Guidance** (`implement.md` + pattern `scheduled-tool-append.yml`): khi build một node ghi-thêm
-  vào Sheets, PHẢI truyền range/append tường minh theo kết quả verify, KHÔNG để `batch_update`
-  đoán; và ④ notes phải cảnh báo "kiểm chế độ ghi trước khi tin dữ liệu tích luỹ".
+**Gốc thật**: catalog chỉ có `batch_get` + `batch_update`, **KHÔNG có primitive `append`**. Google
+Sheets API phân biệt `values.append` (nối sau bảng) với `batchUpdate` (ghi vào range = đè). Plugin chỉ
+đưa cái ghi-đè. Nên muốn tích luỹ dòng, build **bắt buộc** đọc số dòng hiện có (`batch_get`) rồi ghi
+vào `A{n+1}` — mà phần lớn build không làm.
 
-**Bán kính**: guidance-only (file skill/pattern, đọc lúc chạy). Verify là việc chạy thật, không đụng code.
-**AC**: pattern append có range tường minh + ghi chú verify; build mới không ship `batch_update`
-trần data.
+**MỨC CHẮC CHẮN**: đây là **nghi vấn mạnh về lý thuyết** (range A:D đọc ra tận mắt + không có append
+primitive), **NHƯNG chưa verify trên plugin `omluc/google_sheets` thật** — plugin có thể tự append
+bên trong. Chưa build nào chạy live qua 6 đợt.
 
-## 2. S2 — Lọc cửa sổ thời gian sai → **báo cáo ra SỐ SAI** (n=3)
+**Bước đúng = VERIFY, không phải "fix"**:
+- Chạy 1 build live ghi 2 lần vào cùng sheet → xem dòng thứ 2 **nối tiếp hay đè** dòng đầu. Rẻ, và
+  **chốt dứt điểm** finding này là thật hay không. Nếu plugin tự append → **finding biến mất**, không
+  cần fix gì.
+- CHỈ KHI verify ra "đè" → fix = **guidance** (implement.md: build ghi-dồn phải `batch_get` đếm dòng
+  rồi ghi `A{n+1}`; ④ notes cảnh báo). Bán kính guidance ≈ 0 (file skill).
 
-3 build (R2-G03 không lọc tháng · R3-G03 nuốt dòng sai ngày · R6-G03 đếm lại dòng thiếu ngày mãi
-mãi). Mẫu chung: code aggregate lọc `if dt is not None and dt < cutoff: continue` — dòng **thiếu
-ngày / parse lỗi** (`dt is None`) **lọt vào** thống kê, nên số liệu sai từ kỳ thứ 2.
+**Không có fix code nào ở đây** — trước verify thì chưa biết có bug; sau verify (nếu có) thì chỉ là
+hướng dẫn skill.
 
-**Fix — guidance** (`implement.md`): khi lọc bản ghi theo cửa sổ thời gian, dòng **không xác định
-được ngày** phải bị **loại tường minh** (`if dt is None or dt < cutoff: continue`), KHÔNG mặc định
-tính vào; và nếu có ngày optional thì nêu open point "bản ghi thiếu ngày xử lý sao".
+## 2. S2 — Lọc cửa sổ thời gian: mỗi build xử lý ca-biên KHÁC nhau, đều LATENT (chưa verify)
 
-**Bán kính**: guidance-only. **AC**: build có aggregate-theo-tuần loại đúng dòng thiếu ngày (recheck
-đo bằng criteria_check của 075).
+> **RÀ SOÁT LẠI: bản cũ nói "n=3 cùng bug đếm lại dòng thiếu ngày" — SAI.** Đọc code thật, 3 build
+> làm **3 kiểu khác nhau**, thậm chí ngược hướng nhau:
+
+| Build | Logic thật (đọc từ code) | Ca biên "dòng thiếu/sai ngày" |
+|---|---|---|
+| `google_1_80_chatwork` | **không có filter thời gian** | tính cả lịch sử (từ kỳ 2 sai) |
+| `google_9_chatwork_b` | `elif week_start <= d <= week_end` | dòng None bị **DROP im lặng** (under-count) |
+| `chatwork` | `if dt is not None and dt < cutoff: continue` | dòng None bị **ĐẾM vào** (over-count) |
+
+Điểm chung THẬT (không phóng đại): **xử lý ca-biên ngày (thiếu/không parse được) không nhất quán và
+thường sai** — nhưng đây là **một LỚP edge-case**, không phải một bug giống hệt.
+
+**MỨC CHẮC CHẮN**: tất cả đều **latent** — chỉ lộ khi dữ liệu thật có dòng thiếu/sai ngày, hoặc chạy
+qua ≥2 kỳ. **Chưa build nào chạy live** để xác nhận thật sự ra số sai. `occurred_at` thường là field
+optional → có thể trong thực tế nguồn luôn gửi ngày → bug **không bao giờ kích hoạt**.
+
+**Bước đúng = quan sát, chưa fix**: đợt test mới (dùng criteria_check 075) với đề có ràng buộc
+"tuần này/tháng này" → xem build xử lý dòng biên ra sao; nếu tái hiện sai thật thì fix = **guidance**
+(`implement.md`: lọc theo cửa sổ thời gian phải quyết TƯỜNG MINH dòng-không-có-ngày, và nêu open
+point). Bán kính guidance ≈ 0.
 
 ## 3. S3 — Slug rác từ requirement phi-ASCII (n=8, ngôn-ngữ-bất-biến)
 
