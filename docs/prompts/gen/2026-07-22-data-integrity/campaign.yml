@@ -1,0 +1,27 @@
+id: 2026-07-22-data-integrity
+request: 'đợt 7 (data-integrity): nhắm CHÍNH 2 finding chưa verify — S1 ghi-dồn Sheets
+  (append vs overwrite) + S2 lọc cửa sổ thời gian (dòng biên). Vừa dùng report mới
+  (criteria_check+journey), vừa là bước verify build có sinh code an toàn không.'
+builder_version: 0.2.0
+git_sha: c644d96
+status: approved
+prompts:
+- file: G01-daily-log-accumulate.md
+  axis: S1 ghi dồn Sheets — catalog không có append primitive
+  why: verify build đọc-rồi-ghi hay đè A:D; nỗi lo "đừng mất dòng cũ" là ràng buộc
+    thật
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G02-weekly-window-filter.md
+  axis: S2 lọc tuần hiện tại + ca biên dòng thiếu ngày
+  why: verify build tính tuần từ ngày chạy + xử lý dòng None ra sao (over/under/tường
+    minh)
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+approved_on: '2026-07-22'
