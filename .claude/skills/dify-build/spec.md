@@ -71,7 +71,9 @@ Write all **human-facing prose** in the **same language as the requirement** (`{
    could not eliminate and why.
    - a self-running requirement (定期/毎日/webhook) gets a trigger entry instead of `start`: state
      `timezone: Asia/Tokyo` explicitly on schedule triggers (the Dify default is UTC — a 9AM JST reminder
-     silently becomes 18:00), at most ONE schedule trigger per workflow, the data source must be
+     silently becomes 18:00), at most ONE **schedule** trigger per workflow (this cap is schedule-only —
+     a webhook trigger and a schedule trigger CAN coexist in one workflow, each fires from its own root
+     node; verified against vendor/dify-src), the data source must be
      machine-fetchable (http-request / tool / dataset — no required user-file inputs can coexist with a
      trigger entry), and delivery is a side-effect (notify/write) since no one watches the output.
 5. **If `{{WORKFLOW_SLUG}}` is empty, propose a `slug` + human `name`** (slug = lowercase, `[a-z0-9_]` — the backend's deriveSlugName never emits hyphens,
