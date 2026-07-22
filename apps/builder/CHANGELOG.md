@@ -11,7 +11,18 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**Build quality**
+- Phase 4 now reads back the acceptance criteria the build wrote for itself and folds the run
+  timeline — `report.json` gains `criteria_check` (each criterion bucketed: `auto_fail` is a sound
+  structural-impossibility verdict, `auto_pass` is withheld to pure lint/import claims, everything
+  behavioral is `manual` with the structural fact attached) and `timeline` (per-phase working ms).
+  Additive fields, backward compatible. Before this, the criteria were parsed to criteria.json and
+  never read back — the build set its own yardstick and nothing graded against it.
+
 **Harness**
+- `campaign.py journey <taskId>` renders a run as the user's per-phase experience — wait time, the
+  verbatim text the user read (digest / self-set criteria / notes), and the change at ③ — so a
+  campaign report opens with the journey before any technical grading.
 - `/campaign` hardening after its acceptance run (spec 073 S5): `record` now harvests EVERY
   `workflows/*.yml` of a build and flags unlinted extras (a build shipped monthly_summary.yml that
   ④ never linted or mentioned); failed tool-calls are split into gate-denials vs ran-and-failed

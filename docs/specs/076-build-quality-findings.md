@@ -1,4 +1,4 @@
-# Spec 074 — Gói fix chất lượng build (hợp nhất từ 6 đợt campaign, KHÔNG tính tiếng Việt)
+# Spec 076 — Findings chất lượng build chờ VERIFY (từ 6 đợt campaign, không tính tiếng Việt)
 
 **Status**: Draft (2026-07-21 — tổng hợp 6 đợt máy-sinh; đã bỏ các finding tiếng Việt theo yêu cầu)
 **Nguồn**: [CAMPAIGNS.md](../prompts/runs/CAMPAIGNS.md) — mỗi finding có link bằng chứng + số mẫu.
