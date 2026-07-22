@@ -396,7 +396,7 @@ export async function runReport(
   // manual, and fold the timeline the run already logged. Best-effort: a missing/torn file → skip, the
   // report must never fail on its own analysis.
   let criteriaCheck: ReturnType<typeof classifyCriteria> = [];
-  let timeline: Awaited<ReturnType<typeof summarizeTimeline>> | null = null;
+  let timeline: ReturnType<typeof summarizeTimeline> | null = null;
   try {
     const runDirAbs = join(projectsDir, `apps/builder/.runs/${task.taskId}`);
     const raw = await readFile(join(runDirAbs, 'criteria.json'), 'utf8').catch(() => '');
@@ -408,7 +408,9 @@ export async function runReport(
     });
     const note = criteriaSummaryNote(criteriaCheck);
     if (note) noteParts.push(note);
-    timeline = summarizeTimeline(await readEvents(runDirAbs));
+    // null (not an empty object) when no events were recorded — an unambiguous "no timeline" for consumers.
+    const evs = await readEvents(runDirAbs);
+    timeline = evs.length ? summarizeTimeline(evs) : null;
   } catch {
     // analysis is additive — never let it break the report the gate depends on.
   }
