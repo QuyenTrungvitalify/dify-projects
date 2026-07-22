@@ -17,6 +17,8 @@ import { LINTERS, LINT_DETAIL_LINES, lintClean, type LintCodes } from './linters
 import { checkRunnability, preflightNote, sourceContractNote, hasUnresolvedPluginTodo } from './runnability.js';
 import { patternFeatureGap, patternAdvisoryLine } from './analysis.js';
 import { loadWorkspaceFacts, enabledModelCount } from './dify-io.js'; // spec 066 S3 / 067 S6
+import { readEvents } from './run-events.js';
+import { classifyCriteria, criteriaSummaryNote, summarizeTimeline } from './report-analysis.js'; // spec 075 S1
 import type { Task } from '../state/task.js';
 import type { SessionLogger } from './claude-session.js';
 
@@ -269,6 +271,7 @@ export async function runReport(
   // Spec 057 S4: same read also feeds the trigger-entry predicate (one file read, two advisories).
   let unresolvedPluginTodo = false;
   let triggerEntry = false;
+  let toolNodePresent = false; // spec 075 S1: reused by the criteria classifier below
   let toolNote = ''; // spec 061: the plain-language tool checklist (empty ⇒ not a tool workflow)
   // The pattern-coverage advisory, RE-CHECKED against the delivered workflow. Seeded with ①'s line so
   // an unreadable file degrades to exactly today's behaviour (fail-open — never silently drop a warning).
@@ -277,7 +280,8 @@ export async function runReport(
     const yamlText = await readFile(join(projectsDir, wfRel), 'utf8');
     unresolvedPluginTodo = hasUnresolvedPluginTodo(yamlText);
     triggerEntry = hasTriggerEntry(yamlText);
-    if (hasToolNode(yamlText)) toolNote = toolInstallNote(toolLabels(yamlText));
+    toolNodePresent = hasToolNode(yamlText);
+    if (toolNodePresent) toolNote = toolInstallNote(toolLabels(yamlText));
     // task.patternAdvisory was computed at ① — BEFORE ③ wrote any YAML — so it can only compare the
     // analysis against the SEED template. ③ routinely closes that gap itself (a scheduled-fetch-notify
     // seed has no `iteration`, yet the build adds one for a per-row send), and a feature can also be
@@ -386,6 +390,28 @@ export async function runReport(
   // Spec 072 S2 — a webhook entry also needs its SOURCE wired (enabling the trigger is necessary but
   // not sufficient: Google Form does not call a webhook by itself). Sits right after the enable note.
   if (task.sourceContractNote) noteParts.push(task.sourceContractNote);
+
+  // Spec 075 S1: the build wrote its own acceptance criteria at ②, and until now NOTHING read them
+  // back. Grade what a static ④ soundly can (asymmetric — see report-analysis.ts), surface the rest as
+  // manual, and fold the timeline the run already logged. Best-effort: a missing/torn file → skip, the
+  // report must never fail on its own analysis.
+  let criteriaCheck: ReturnType<typeof classifyCriteria> = [];
+  let timeline: Awaited<ReturnType<typeof summarizeTimeline>> | null = null;
+  try {
+    const runDirAbs = join(projectsDir, `apps/builder/.runs/${task.taskId}`);
+    const raw = await readFile(join(runDirAbs, 'criteria.json'), 'utf8').catch(() => '');
+    const criteria: string[] = raw ? (JSON.parse(raw).criteria ?? []) : [];
+    criteriaCheck = classifyCriteria(criteria, {
+      lintClean: isLintClean,
+      hasTriggerEntry: triggerEntry,
+      hasToolNode: toolNodePresent,
+    });
+    const note = criteriaSummaryNote(criteriaCheck);
+    if (note) noteParts.push(note);
+    timeline = summarizeTimeline(await readEvents(runDirAbs));
+  } catch {
+    // analysis is additive — never let it break the report the gate depends on.
+  }
   // The duplicate warning leads the notes so the UI surfaces it prominently (spec footgun).
   if (duplicateWarning) noteParts.unshift(`⚠ ${duplicateWarning}`);
 
@@ -404,6 +430,11 @@ export async function runReport(
     // D2 (017): advisory only — recorded for the deploy step / UI; does NOT affect `lintClean`.
     unresolved_plugin_todo: unresolvedPluginTodo,
     notes: joinNotes(noteParts),
+    // Spec 075 S1 — ADDITIVE. The build's own acceptance criteria, each bucketed (auto_fail is sound,
+    // auto_pass withheld to structural-only, else manual), plus the per-phase working timeline the run
+    // already logged. Consumers that read the pre-075 fields are unaffected.
+    criteria_check: criteriaCheck,
+    timeline,
   };
   const reportRel = `apps/builder/.runs/${task.taskId}/report.json`;
   const reportAbs = join(projectsDir, reportRel);
