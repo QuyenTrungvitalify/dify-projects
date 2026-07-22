@@ -1,0 +1,58 @@
+id: 2026-07-22-corpus-wide
+request: 'đợt 9 (corpus-wide): 6 đề từ workflow Dify thật, test RỘNG. Report nhấn
+  góc "user ngồi trước màn hình" — tốc độ (journey timeline) + chất lượng (judge).
+  Trục mới: search+cite, JSON giữ cấu trúc, số→chart, dịch dài chia chunk, tiêu đề
+  sáng tạo có ràng buộc, file→brief.'
+builder_version: 0.2.0
+git_sha: 6dc416e
+status: approved
+prompts:
+- file: G01-research-assistant.md
+  axis: search web + trích nguồn thật, không bịa URL
+  why: 搜索大师; honesty nguồn — bịa URL là fail nặng
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G02-json-value-translate.md
+  axis: biến đổi giữ CẤU TRÚC JSON (chỉ dịch value)
+  why: json_translate; structure-preserve, output parse được
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G03-sales-to-chart.md
+  axis: render biểu đồ từ số, code không đụng số
+  why: chart_demo; matplotlib sandbox hay http service
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G04-long-manual-translate.md
+  axis: chia khối dịch dài + thuật ngữ nhất quán + không lược
+  why: 全书翻译; iteration≤30, glossary, finding K họ hàng
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G05-title-generator.md
+  axis: sinh 5 tiêu đề sáng tạo có ràng buộc không-giật-tít
+  why: 标题党; self-restraint + đếm ký tự
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G06-file-brief.md
+  axis: file→trích→brief 4-heading + cấm suy đoán
+  why: simple-kimi; file input + honesty 記載なし
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+approved_on: '2026-07-22'
