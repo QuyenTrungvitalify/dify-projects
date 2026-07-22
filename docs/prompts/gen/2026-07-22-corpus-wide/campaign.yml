@@ -13,46 +13,286 @@ prompts:
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784727336430'
+  results:
+  - task_id: '1784727336430'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 9
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 8
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 15
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/2025_5_url/workflows/main.yml
+    workflow_files:
+    - main.yml
 - file: G02-json-value-translate.md
   axis: biến đổi giữ CẤU TRÚC JSON (chỉ dịch value)
   why: json_translate; structure-preserve, output parse được
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784727631210'
+  - '1784727880237'
+  results:
+  - task_id: '1784727631210'
+    task_status: error
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 8
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 8
+        denied_calls: 2
+        failed_split:
+          denied: 1
+          errored: 1
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 1
+        denied_calls: 0
+        failed_split:
+          denied: 0
+          errored: 0
+    error: 'artifact missing: projects/_drafts/json_json_true_false/workflows/main.yml'
+  - task_id: '1784727880237'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 4
+        denied_calls: 1
+        failed_split:
+          denied: 0
+          errored: 1
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 8
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 25
+        denied_calls: 6
+        failed_split:
+          denied: 4
+          errored: 2
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/json_json_true_false_2/workflows/main.yml
+    workflow_files:
+    - main.yml
 - file: G03-sales-to-chart.md
   axis: render biểu đồ từ số, code không đụng số
   why: chart_demo; matplotlib sandbox hay http service
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784728286916'
+  results:
+  - task_id: '1784728286916'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 13
+        denied_calls: 7
+        failed_split:
+          denied: 6
+          errored: 1
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 12
+        denied_calls: 2
+        failed_split:
+          denied: 2
+          errored: 0
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 20
+        denied_calls: 3
+        failed_split:
+          denied: 1
+          errored: 2
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/1_120_2_95/workflows/main.yml
+    workflow_files:
+    - main.yml
 - file: G04-long-manual-translate.md
   axis: chia khối dịch dài + thuật ngữ nhất quán + không lược
   why: 全书翻译; iteration≤30, glossary, finding K họ hàng
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784728820870'
+  results:
+  - task_id: '1784728820870'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 4
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 7
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 19
+        denied_calls: 6
+        failed_split:
+          denied: 6
+          errored: 0
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/workflow/workflows/main.yml
+    workflow_files:
+    - main.yml
 - file: G05-title-generator.md
   axis: sinh 5 tiêu đề sáng tạo có ràng buộc không-giật-tít
   why: 标题党; self-restraint + đếm ký tự
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: error
+  task_ids:
+  - '1784729339942'
+  - '1784729345508'
+  - '1784763301342'
+  results:
+  - task_id: '1784729339942'
+    task_status: error
+    phases:
+      analyze:
+        model: null
+        turns: 1
+        denied_calls: 0
+        failed_split:
+          denied: 0
+          errored: 0
+    error: 'artifact missing: apps/builder/.runs/1784729339942/analyze.json'
+  - task_id: '1784729345508'
+    task_status: error
+    phases:
+      analyze:
+        model: null
+        turns: 1
+        denied_calls: 0
+        failed_split:
+          denied: 0
+          errored: 0
+    error: 'artifact missing: apps/builder/.runs/1784729345508/analyze.json'
+  - task_id: '1784763301342'
+    task_status: error
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 5
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 5
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+    error: 'artifact missing: apps/builder/.runs/1784763301342/SPEC.md'
 - file: G06-file-brief.md
   axis: file→trích→brief 4-heading + cấm suy đoán
   why: simple-kimi; file input + honesty 記載なし
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784763556095'
+  results:
+  - task_id: '1784763556095'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 4
+        denied_calls: 1
+        failed_split:
+          denied: 0
+          errored: 1
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 8
+        denied_calls: 2
+        failed_split:
+          denied: 2
+          errored: 0
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 21
+        denied_calls: 21
+        failed_split:
+          denied: 20
+          errored: 1
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/pdf_word_a4/workflows/main.yml
+    workflow_files:
+    - main.yml
 approved_on: '2026-07-22'
