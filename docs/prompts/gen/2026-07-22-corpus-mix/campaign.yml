@@ -1,0 +1,43 @@
+id: 2026-07-22-corpus-mix
+request: 'đợt 8 (corpus-mix): đề tài lấy từ workflow Dify THẬT (corpus awesome-dify-workflow)
+  rồi viết lại giọng user — nhiều đề tài cùng lúc, mỗi cái một trục mới: render-card/honesty,
+  sinh-dài+iteration (finding K), đối-chiếu-đa-ngôn-ngữ, fetch-URL+honesty bản quyền.'
+builder_version: 0.2.0
+git_sha: b4d30c2
+status: approved
+prompts:
+- file: G01-quote-to-card.md
+  axis: render ảnh/card qua dịch vụ ngoài — honesty (Dify không tự vẽ ảnh) + chia
+    thẻ iteration
+  why: nguồn Text-to-Card; test build có thành thật cần render ngoài hay giả vờ
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G02-training-course-gen.md
+  axis: sinh dài có cấu trúc + iteration qua chương (5-8) — NHẮM finding K (max_tokens)
+    + cấm-bịa
+  why: nguồn dify_course_demo; probe thẳng finding K chưa đủ mẫu
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G03-multilang-consistency.md
+  axis: đối chiếu chéo 3 ngôn ngữ, CHỈ nêu khác biệt không tự sửa
+  why: nguồn LanguageConsistencyChecker; trục tôn-trọng-ràng-buộc mới
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+- file: G04-url-article-rewrite.md
+  axis: fetch URL ngoài + viết lại — external contract + honesty bản quyền
+  why: nguồn ArticleRewrite; fetch web + ranh giới đạo văn
+  mode: auto
+  project: null
+  workflow: null
+  status: pending
+  task_ids: []
+approved_on: '2026-07-22'
