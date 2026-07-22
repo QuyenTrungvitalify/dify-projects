@@ -88,10 +88,11 @@ export function criteriaSummaryNote(checks: CriterionCheck[]): string | null {
   const pass = checks.filter((c) => c.status === 'auto_pass').length;
   const fail = checks.filter((c) => c.status === 'auto_fail').length;
   const manual = checks.filter((c) => c.status === 'manual').length;
+  // EN-first (spec 063 convention) so the client localize pipeline can frame it; never mix languages.
   const parts: string[] = [];
-  if (pass) parts.push(`${pass} tự-kiểm đạt`);
-  if (fail) parts.push(`${fail} tự-kiểm KHÔNG đạt`);
-  if (manual) parts.push(`${manual} cần bạn chạy thử để xác nhận`);
+  if (pass) parts.push(`${pass} auto-verified`);
+  if (fail) parts.push(`${fail} auto-verify FAILED`);
+  if (manual) parts.push(`${manual} need a live run to confirm`);
   return `This build set ${checks.length} acceptance criteria for itself: ${parts.join(', ')}.`;
 }
 

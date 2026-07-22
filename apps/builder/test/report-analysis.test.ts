@@ -85,9 +85,9 @@ describe('criteriaSummaryNote', () => {
       { text: 'd', status: 'manual', basis: '' },
     ]);
     assert.match(note!, /set 4 acceptance criteria/);
-    assert.match(note!, /1 tự-kiểm đạt/);
-    assert.match(note!, /1 tự-kiểm KHÔNG đạt/);
-    assert.match(note!, /2 cần bạn chạy thử/);
+    assert.match(note!, /1 auto-verified/);
+    assert.match(note!, /1 auto-verify FAILED/);
+    assert.match(note!, /2 need a live run/);
   });
 });
 
