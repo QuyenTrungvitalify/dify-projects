@@ -1,6 +1,7 @@
 # Spec 075 — Báo cáo một run theo HÀNH TRÌNH NGƯỜI DÙNG (+ ④ đối chiếu tiêu chí nghiệm thu)
 
-**Status**: Draft (2026-07-21 — từ câu hỏi của user sau 6 đợt campaign: *"cơ chế report mỗi lần run
+**Status**: S1+S2 ĐÃ IMPLEMENT (2026-07-21) — S1 report.json field + S2 journey command/skill; ranh giới còn lại là backend restart để field mới hoạt động trên run mới.
+**Trước đó**: Draft (2026-07-21 — từ câu hỏi của user sau 6 đợt campaign: *"cơ chế report mỗi lần run
 đã đủ thông tin chưa? output từng phase, giao tiếp qua lại, thời gian xử lí…"*)
 **Effort**: S1 = S–M · S2 = M — tổng ≈ M
 

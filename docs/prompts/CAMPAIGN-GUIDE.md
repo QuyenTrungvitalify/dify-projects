@@ -80,6 +80,10 @@ hay hủy. Không có chuyện chạy im lặng trên version khác.
 /campaign report 2026-07-25-ketoan-cs
 ```
 
+Report mỗi run mở đầu bằng **hành trình người dùng** (spec 075) — `campaign.py journey <taskId>` in ra
+từng phase: chờ bao lâu · user **đọc nguyên văn gì** (digest ①, tiêu chí nghiệm thu ②, notes ④) ·
+thay đổi gì ở ③. Đây là thứ user thật trải qua; đọc nó trước phần chấm kỹ thuật. Rồi mới tới:
+
 Ba tầng, độ tin giảm dần, tầng nào không phủ được thì **nói ra chứ không bỏ im**:
 
 1. **Cơ học** (tất định): 4 linter · comprehension · denied-calls từng phase · lang-sync · model+turn.

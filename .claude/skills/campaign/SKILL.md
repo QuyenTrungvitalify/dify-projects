@@ -94,9 +94,26 @@ Với TỪNG đề đã settle (đọc `task_ids`/`results` trong manifest):
 4. **Đối chiếu bẫy** (chính phiên này làm, sau khi judge trả): soi build với mục *Bẫy đã biết* /
    *Hình dạng tốt* — bẫy dính hay tránh, ghi thành finding-ứng-viên.
 
-Rồi sinh sổ sách (format hiện hành — xem file mẫu trong `docs/prompts/runs/`):
-- report từng run `docs/prompts/runs/<ngày>-G##-<taskId>.md` (đủ: prompt nguyên văn, bảng phase
-  model/turn/denied, verdict 3 tầng, lỗi gặp, MANUAL còn nợ);
+**0. HÀNH TRÌNH NGƯỜI DÙNG (spec 075 S2 — kể TRƯỚC phần chấm).** Chạy
+`campaign.py journey <taskId>` → JSON từng phase. Report của run PHẢI mở đầu bằng khối hành trình,
+vì đây là thứ user thật trải qua, không phải cấu trúc YAML:
+
+```
+① Analyze — chờ <working_ms/1000>s · <model> <turns>t · denied≈/errored≈
+   User ĐỌC (nguyên văn digest): "<user_read>"
+   → hiểu đúng ý user không? nêu điểm mơ hồ không?
+② Spec — chờ …s · … · Build tự cam kết <N> tiêu chí nghiệm thu (liệt kê nguyên văn acceptance_criteria)
+③ Implement — chờ …s · … · <change> (workflow mới / +A/-B dòng)
+④ Test — 4 linter · criteria_check (mỗi tiêu chí: auto_pass/auto_fail/manual) · notes user ĐỌC nguyên văn
+Tổng: <total_ms/1000>s
+```
+
+Luật: **trích nguyên văn** digest/criteria/notes (diễn giải lại = mất cái đang đo). `criteria_check`
+rỗng ⇒ run từ backend trước-075 (nêu rõ, đừng lặng lẽ bỏ). Thời gian chờ là số user cảm nhận nhất.
+
+Rồi mới tới 3 tầng chấm ở trên, và sinh sổ sách (format hiện hành — xem file mẫu trong `docs/prompts/runs/`):
+- report từng run `docs/prompts/runs/<ngày>-G##-<taskId>.md` — **mở đầu bằng khối hành trình §0**, rồi
+  bảng phase model/turn/denied, verdict 3 tầng, lỗi gặp, MANUAL còn nợ;
 - `<ngày>-SUMMARY.md` cho đợt + **một dòng** vào bảng CAMPAIGNS.md;
 - danh sách finding: mỗi cái mang nhãn số mẫu (`n=1` → "cần thêm mẫu"), loại (chất lượng / hạ tầng
   / propensity — lần lỗi đầu của đề retry-pass là propensity, tiền lệ P05), và bằng chứng

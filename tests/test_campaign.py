@@ -440,3 +440,75 @@ def test_drill_busy_lock_waits_then_retries_not_aborts(tmp_path):
     assert "turn busy" in r.stdout + r.stderr               # took the wait branch
     p = cp.load_manifest(cdir)["prompts"][0]
     assert p["status"] == "done" and p["task_ids"] == ["T1"]  # same prompt fired on retry
+
+
+# ── S2: journey — the run as a user-facing per-phase narrative (spec 075 S2) ─────────────────────
+
+def _mk_journey_run(runs: Path, tid: str) -> None:
+    """A fuller run dir than _mk_run: analyze/criteria/diff/events so journey has all four phases."""
+    d = runs / tid
+    (d / "transcripts").mkdir(parents=True)
+    (d / "task.json").write_text(json.dumps({
+        "status": "done", "requirement": "毎日の売上をまとめて",
+        "cost": {
+            "analyze": {"model": "claude-haiku-4-5", "numTurns": 5},
+            "spec": {"model": "claude-opus-4-8", "numTurns": 9},
+            "implement": {"model": "claude-haiku-4-5", "numTurns": 20},
+        },
+    }), encoding="utf-8")
+    (d / "analyze.json").write_text(json.dumps({"overview": "毎日の売上を集計する要約"}), encoding="utf-8")
+    (d / "criteria.json").write_text(json.dumps({"criteria": ["合計を出す", "前日比を出す"]}), encoding="utf-8")
+    (d / "diff.json").write_text(json.dumps({"diff": "--- (empty — new workflow)\n+++ new/x\n+app:\n+  name: y\n"}), encoding="utf-8")
+    (d / "report.json").write_text(json.dumps({
+        "notes": "The workflow file passed every automated check.",
+        "lint": {"validate": 0}, "criteria_check": [{"text": "合計を出す", "status": "manual", "basis": "x"}],
+    }), encoding="utf-8")
+    for ph in ("analyze", "spec", "implement"):
+        (d / "transcripts" / f"{ph}.md").write_text("### Tool calls\n- Bash  ls  ✓\n### Result\n", encoding="utf-8")
+    (d / "events.jsonl").write_text("\n".join(json.dumps(e) for e in [
+        {"ts": 1000, "kind": "phase_start", "phase": "analyze"},
+        {"ts": 1100, "kind": "gate_reached", "phase": "analyze", "detail": "success"},
+        {"ts": 1100, "kind": "phase_start", "phase": "spec"},
+        {"ts": 1250, "kind": "gate_reached", "phase": "spec", "detail": "success"},
+        {"ts": 1250, "kind": "phase_start", "phase": "implement"},
+        {"ts": 1600, "kind": "gate_reached", "phase": "implement", "detail": "success"},
+    ]) + "\n", encoding="utf-8")
+
+
+def test_journey_emits_per_phase_narrative(tmp_path, monkeypatch, capsys):
+    runs = tmp_path / "runs"
+    _mk_journey_run(runs, "J1")
+    monkeypatch.setattr(cp, "RUNS_DIR", runs)
+    assert cp.cmd_journey("J1") == 0
+    j = json.loads(capsys.readouterr().out)
+    assert j["status"] == "done"
+    assert j["total_ms"] == 600                                  # 1600 - 1000
+    a = j["phases"]["analyze"]
+    assert a["model"] == "claude-haiku-4-5" and a["working_ms"] == 100
+    assert a["user_read"] == "毎日の売上を集計する要約"           # the digest the user reads at ①
+    assert j["phases"]["spec"]["acceptance_criteria"] == ["合計を出す", "前日比を出す"]
+    assert j["phases"]["implement"]["change"] == "workflow mới"  # diff = new workflow
+    assert j["phases"]["test"]["user_read"].startswith("The workflow")
+    assert len(j["phases"]["test"]["criteria_check"]) == 1
+
+
+def test_journey_missing_task_exits(tmp_path, monkeypatch):
+    monkeypatch.setattr(cp, "RUNS_DIR", tmp_path / "runs")
+    try:
+        cp.cmd_journey("NOPE")
+        raise AssertionError("journey trên task không tồn tại phải chết")
+    except SystemExit:
+        pass
+
+
+def test_journey_edit_existing_shows_line_delta(tmp_path, monkeypatch, capsys):
+    runs = tmp_path / "runs"
+    _mk_journey_run(runs, "J2")
+    # overwrite diff to an EDIT (not a new workflow)
+    (runs / "J2" / "diff.json").write_text(
+        json.dumps({"diff": "--- old\n+++ new\n@@ -1,2 +1,3 @@\n context\n+added line\n-removed line\n"}),
+        encoding="utf-8")
+    monkeypatch.setattr(cp, "RUNS_DIR", runs)
+    cp.cmd_journey("J2")
+    j = json.loads(capsys.readouterr().out)
+    assert j["phases"]["implement"]["change"] == "+1/-1 dòng"    # edit, not "workflow mới"

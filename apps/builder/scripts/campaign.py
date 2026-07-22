@@ -345,6 +345,83 @@ def cmd_record(cdir: Path, fname: str, task_id: str) -> int:
     return 0
 
 
+def _fold_timeline(run_dir: Path) -> dict:
+    """events.jsonl → {phase: workingMs} — mirror of report-analysis.ts summarizeTimeline (spec 075).
+    phase_start opens a phase; the FIRST gate_reached after it closes the working span. Missing → {}."""
+    ev_file = run_dir / "events.jsonl"
+    if not ev_file.exists():
+        return {"phases": [], "total_ms": None}
+    starts: dict[str, int] = {}
+    phases: list[dict] = []
+    first_ts = last_gate = None
+    for line in ev_file.read_text(encoding="utf-8").splitlines():
+        try:
+            ev = json.loads(line)
+        except Exception:
+            continue
+        ts, kind, ph = ev.get("ts"), ev.get("kind"), ev.get("phase") or "(none)"
+        if first_ts is None:
+            first_ts = ts
+        if kind == "phase_start":
+            starts.setdefault(ph, ts)
+        elif kind == "gate_reached":
+            if not any(p["phase"] == ph for p in phases):
+                st = starts.get(ph)
+                phases.append({"phase": ph, "working_ms": (ts - st) if st is not None else None,
+                               "outcome": ev.get("detail")})
+            last_gate = ts
+    return {"phases": phases, "total_ms": (last_gate - first_ts) if first_ts and last_gate else None}
+
+
+def _read_json(p: Path) -> dict:
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def cmd_journey(task_id: str) -> int:
+    """Emit the run as a USER-JOURNEY JSON (spec 075 S2): per phase — how long the user waited, the
+    text they READ (digest/criteria/diff/notes), the model, and denied/errored calls. The skill
+    renders this as prose; keeping extraction here (tested, deterministic) is the S073 split."""
+    run_dir = RUNS_DIR / task_id
+    task = _read_json(run_dir / "task.json")
+    if not task:
+        sys.exit(f"❌ {run_dir}/task.json: không đọc được")
+    tl = {p["phase"]: p for p in _fold_timeline(run_dir).get("phases", [])}
+    cost = task.get("cost") or {}
+    analyze = _read_json(run_dir / "analyze.json")
+    criteria = _read_json(run_dir / "criteria.json").get("criteria", [])
+    report = _read_json(run_dir / "report.json")
+    diff_txt = _read_json(run_dir / "diff.json").get("diff", "")
+    added = sum(1 for ln in diff_txt.splitlines() if ln.startswith("+") and not ln.startswith("+++"))
+    removed = sum(1 for ln in diff_txt.splitlines() if ln.startswith("-") and not ln.startswith("---"))
+    is_new = "(empty — new workflow)" in diff_txt
+
+    def phase_meta(ph: str) -> dict:
+        c = cost.get(ph) or {}
+        fs = classify_failed_calls(run_dir, ph) or {}
+        return {"model": c.get("model"), "turns": c.get("numTurns"),
+                "working_ms": (tl.get(ph) or {}).get("working_ms"),
+                "denied": fs.get("denied"), "errored": fs.get("errored")}
+
+    journey = {
+        "task_id": task_id, "status": task.get("status"), "requirement": task.get("requirement", "")[:400],
+        "phases": {
+            "analyze": {**phase_meta("analyze"), "user_read": analyze.get("overview", "")},
+            "spec": {**phase_meta("spec"), "acceptance_criteria": criteria},
+            "implement": {**phase_meta("implement"),
+                          "change": ("workflow mới" if is_new else f"+{added}/-{removed} dòng")},
+            "test": {"user_read": report.get("notes", ""),
+                     "criteria_check": report.get("criteria_check"),
+                     "lint": report.get("lint")},
+        },
+        "total_ms": _fold_timeline(run_dir).get("total_ms"),
+    }
+    print(json.dumps(journey, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_status(cdir: Path) -> int:
     data = load_manifest(cdir)
     counts: dict[str, int] = {}
@@ -368,7 +445,11 @@ def main(argv: list[str]) -> int:
     s.add_argument("dir", type=Path)
     s.add_argument("file")
     s.add_argument("--task-id", required=True)
+    sj = sub.add_parser("journey")
+    sj.add_argument("task_id")
     a = ap.parse_args(argv)
+    if a.cmd == "journey":
+        return cmd_journey(a.task_id)
     cdir = a.dir.resolve()
     if a.cmd == "init":
         return cmd_init(cdir)
