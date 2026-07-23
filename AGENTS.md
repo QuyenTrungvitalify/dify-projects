@@ -162,6 +162,7 @@ apps/builder/scripts/e2e-run.sh fire "<prompt>" --mode auto          # needs bac
 
 | Need | Location |
 |---|---|
+| **Commands/skills — what exists + how to use each (test, spec-close, build)** | **[docs/COMMANDS.md](docs/COMMANDS.md)** |
 | Repo overview, setup, roadmap | [README.md](README.md) |
 | Step-by-step operations + decision tree | [docs/GUIDE.md](docs/GUIDE.md) |
 | Architecture rationale | [docs/architecture.md](docs/architecture.md) |
