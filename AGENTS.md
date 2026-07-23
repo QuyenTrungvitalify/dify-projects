@@ -170,6 +170,7 @@ apps/builder/scripts/e2e-run.sh fire "<prompt>" --mode auto          # needs bac
 | Runtime constraints & gotchas (sandbox limits, iteration ≤30, plugin hash, md_exporter caveats) | [skills/mango-svip/references/constraints.md](skills/mango-svip/references/constraints.md) |
 | Project-discovered runtime findings (supplements skills clone — committable) | [docs/runtime-supplement.md](docs/runtime-supplement.md) |
 | Plugin per-tool behavior matrix (md_exporter formats etc.) | [docs/plugin-capabilities.md](docs/plugin-capabilities.md) |
+| Automated test campaigns (`/campaign`): how to run one, prompt criteria, cross-round ledger | [docs/prompts/CAMPAIGN-GUIDE.md](docs/prompts/CAMPAIGN-GUIDE.md) · [CHARTER.md](docs/prompts/CHARTER.md) · [runs/CAMPAIGNS.md](docs/prompts/runs/CAMPAIGNS.md) |
 | Code-node sandbox stdlib probe (run in your workspace to verify modules) | [templates/probes/stdlib_check.yml](templates/probes/stdlib_check.yml) |
 | Workflow examples (multilingual reference, bodies mostly Chinese) | [corpus/awesome-dify-workflow-en/Workflow-Store/](corpus/awesome-dify-workflow-en/) |
 | Vendored-source registry (one entry per corpus; add/refresh sources here) | [corpus/sources.yml](corpus/sources.yml) — read by `setup.sh`, `build_index.py`, `update_corpus.sh` (spec 022). Tagged `corpus:<name>` in INDEX. |
