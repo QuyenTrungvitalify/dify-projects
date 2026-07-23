@@ -13,8 +13,8 @@ enough to upstream, send a PR to `mango-svip/dify-workflow-skills` and remove
 the row here.
 
 > See [AGENTS.md §2](../AGENTS.md) for the "do NOT edit external clones" rule
-> that motivated this split, and [docs/specs/007-capability-docs-and-patterns.md](specs/007-capability-docs-and-patterns.md)
-> revision 2 for the rationale.
+> that motivated this split, and spec 007 revision 2 for the rationale (retired 2026-07-17 —
+> `git show ca5e39e:docs/specs/007-capability-docs-and-patterns.md`).
 
 ## §1-supplement — Code-node Python sandbox: confirmed-missing modules
 
@@ -34,6 +34,15 @@ that depends on them; use the alternative path in the rightmost column.
 
 ### `md_to_xlsx` tool node — the correct `builtin` shape (verbatim from a lint-clean build)
 
+The Code → Tool bridge this shape implements:
+
+```mermaid
+flowchart LR
+  U["upstream data"] --> CODE["code node<br/>build a markdown-table STRING<br/>(openpyxl is NOT in the sandbox)"]
+  CODE -->|"{{#code_id.markdown_table#}}<br/>via tool_parameters.md_text (type: mixed)"| TOOL["tool node<br/>md_exporter / md_to_xlsx<br/>declares NO outputs:"]
+  TOOL -->|"value_selector: [tool_id, files]<br/>value_type: array[file]"| END["end node<br/>excel_file"]
+```
+
 This block is copied verbatim from a build whose 4 linters (incl. `lint_node_bodies.py` against the
 generated `NodeData_ToolNodeData` schema) passed — so it is **schema-valid**. `node_types.md §13`'s
 generic example shows `provider_type: api` and omits several required keys — it does **NOT** match a
@@ -41,7 +50,7 @@ real marketplace-plugin tool node. Use this shape for `bowenliang123/md_exporter
 (`md_to_xlsx` / `md_to_csv` / `md_to_docx`) so a build does not have to reverse-engineer it. The tool node
 declares **no `outputs:`** — a downstream node reads its `files` (and `text`) via `value_selector`.
 
-> **Updated by [spec 067](specs/067-tool-nodes-are-buildable.md) (2026-07-17).** This section used to
+> **Updated by spec 067 (2026-07-17; retired — `git show ca5e39e:docs/specs/067-tool-nodes-are-buildable.md`).** This section used to
 > end: *"the `@sha256` still needs the workspace hash before a real import … Keep `dependencies: []` +
 > the `# TODO:` hash comment (never fabricate the `@sha256`)."* Both halves were wrong, and this file
 > is the one `SKILL.md` sends a build to **first** for exactly this question — so the error was
@@ -76,6 +85,14 @@ declares **no `outputs:`** — a downstream node reads its `files` (and `text`) 
 #     value_type: array[file]
 ```
 
+> **Version drift (v3.6.9):** the shape above was verified on md_exporter **v2.1.1**. The current
+> catalog (`templates/tool-catalog.json`, resolved at **v3.6.9**) marks `md_to_xlsx` as requiring
+> **`force_text_value`** (select, required) alongside `md_text` — a build against v3.6.9 must supply
+> it (the catalog carries no `form` field, so confirm at build time whether it belongs in
+> `tool_configurations` or `tool_parameters`; omitting a required param fails at runtime). Cosmetic:
+> the catalog's `tool_label` for this tool is `Markdown tables ⮕ XLSX` — the schema only requires the
+> field to be present, not to match the catalog string.
+
 **Important caveats**:
 
 - The list is **observed-not-exhaustive**. Dify does not publish a sandbox
@@ -85,6 +102,33 @@ declares **no `outputs:`** — a downstream node reads its `files` (and `text`) 
   [templates/probes/stdlib_check.yml](../templates/probes/stdlib_check.yml).
   The probe is read-only (no network, no filesystem) and safe to re-run.
   Paste the output into your project's `spec_todo/` or equivalent.
+
+## §2-supplement — Iteration ≤30: clamp the batch COUNT (not a fixed batch size); and max_tokens for long generation
+
+Refines constraints.md §2 (the ≤30-items hard cap; >30 fails at run time with **no clear error**). Two
+gaps a real build hit — evidence: a chunked long-doc-translate build
+(`docs/prompts/runs/2026-07-22-R9-G04-1784728820870.md`) chunked at a fixed size and produced ~34–50
+iterator items on a long input, silently exceeding 30.
+
+**(a) A fixed batch size does NOT guarantee ≤30 items.** constraints.md §2's snippet uses a constant
+`BATCH_SIZE`, so the batch COUNT is `ceil(N / BATCH_SIZE)` — still `> 30` once N is large enough (400
+items ÷ 10 = 40 batches). When N is set by **runtime input** (chunked text, parsed rows, search hits),
+size the batch from N so the count is capped:
+
+```python
+# ≤30 iterator items for ANY N. Compute size from N so the COUNT is clamped, not the size.
+n = len(items)
+size = max(1, -(-n // 30))                      # ceil(n / 30)
+batches = [items[i:i + size] for i in range(0, n, size)]   # len(batches) ≤ 30, proven for all n
+return {"batches": batches}                     # iterate over batches; expand inside each
+```
+(For text: first split into `items` by paragraph/sentence, then apply the same clamp to that list.)
+
+**(b) An LLM node that emits long content needs an explicit `max_tokens`.** A node producing a chapter,
+a translated chunk, or a full section with only `temperature` set can hit the provider's **default**
+max_tokens and truncate mid-output **silently** — a direct contradiction of a "translate/write it all"
+requirement. Set `completion_params.max_tokens` sized to the expected output (e.g. a 4000-char JA chunk
+→ EN needs well over the default). This is the recurring "finding K" across campaigns.
 
 ## Cross-references
 
