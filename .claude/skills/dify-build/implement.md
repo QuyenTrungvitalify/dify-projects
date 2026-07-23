@@ -72,9 +72,12 @@ You are producing a valid Dify workflow YAML that satisfies `SPEC.md`. Read
    Use these 13-digit quoted-string IDs for **every** node. **Never** hand-write or copy an ID
    from another workflow — hand IDs render as literal text, pass the validators, and break the
    app silently (§4.1/§9). Iteration-start child node id = `<iteration_id>start` (no separator).
-   > **Iteration over runtime-sized content** (chunked text, parsed rows, search hits): the iterator
-   > array must be **≤30 items** or it fails at run time with no clear error. A fixed chunk/batch SIZE
-   > does not guarantee this — size the batch from N so the COUNT is clamped: `size = ceil(N/30)`. And
+   > **Iteration over runtime-sized content** — chunked text, parsed rows, search hits, **OR a list of
+   > items whose length comes from user input (URLs, IDs, records to process one-by-one)**: the iterator
+   > array must be **≤30 items** or it fails at run time with no clear error. This applies EVEN when the
+   > items are already discrete (e.g. 100 pasted URLs) — you must still batch them into ≤30 groups and
+   > handle several per iteration, not iterate the raw list. A fixed chunk/batch SIZE does not guarantee
+   > this — size the batch from N so the COUNT is clamped: `size = ceil(N/30)`. And
    > an LLM node emitting long content (a chapter, a translated chunk) needs an explicit
    > `max_tokens`, or the default truncates it silently. Both: [docs/runtime-supplement.md §2-supplement](../../../docs/runtime-supplement.md).
 4. **Instantiate** `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}`:

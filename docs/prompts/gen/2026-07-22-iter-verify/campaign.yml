@@ -12,22 +12,124 @@ prompts:
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784771841776'
+  results:
+  - task_id: '1784771841776'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 5
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 6
+        denied_calls: 1
+        failed_split:
+          denied: 0
+          errored: 1
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 13
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/1_1_1/workflows/main.yml
+    workflow_files:
+    - main.yml
 - file: G02-transcript-section-summary.md
   axis: chunk long-doc transcript + ≤30 (F1) + max_tokens (K)
   why: domain khác G04, cùng lớp long-doc
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784772187120'
+  results:
+  - task_id: '1784772187120'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 5
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 9
+        denied_calls: 2
+        failed_split:
+          denied: 1
+          errored: 1
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 19
+        denied_calls: 1
+        failed_split:
+          denied: 0
+          errored: 1
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/1_2_3/workflows/main.yml
+    workflow_files:
+    - main.yml
 - file: G03-many-urls-check.md
   axis: iteration list URL 100+ + clamp ≤30 (F1) + http fetch
   why: list runtime lớn → batch ≤30
   mode: auto
   project: null
   workflow: null
-  status: pending
-  task_ids: []
+  status: done
+  task_ids:
+  - '1784772615097'
+  results:
+  - task_id: '1784772615097'
+    task_status: done
+    phases:
+      analyze:
+        model: claude-haiku-4-5-20251001
+        turns: 6
+        denied_calls: 1
+        failed_split:
+          denied: 1
+          errored: 0
+      spec:
+        model: claude-haiku-4-5-20251001
+        turns: 16
+        denied_calls: 7
+        failed_split:
+          denied: 7
+          errored: 0
+      implement:
+        model: claude-haiku-4-5-20251001
+        turns: 25
+        denied_calls: 4
+        failed_split:
+          denied: 3
+          errored: 1
+    lint:
+      validate: 0
+      lint_refs: 0
+      lint_plugin_hashes: 0
+      lint_node_bodies: 0
+    workflow_file: projects/_drafts/url_100_1/workflows/main.yml
+    workflow_files:
+    - main.yml
 approved_on: '2026-07-23'
