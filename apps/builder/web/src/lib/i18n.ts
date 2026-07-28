@@ -719,6 +719,10 @@ const ACTION_JA: Dict = {
   Abandon: '中止',
   'Import to Dify': 'Dify にインポート',
   'Finish without importing': 'インポートせず完了',
+  // Legacy label: builds whose ④ gate was computed before the rename cache 'Skip import' in
+  // task.gate — keep mapping it so they don't fall back to raw English. (Gate labels translate by
+  // the English string, so a renamed label must keep its old key alive for in-flight builds.)
+  'Skip import': 'インポートせず完了',
   'Retry phase': 'フェーズを再試行',
   'Discard build': 'ビルドを破棄',
   /* spec 032 live-test gate actions */
