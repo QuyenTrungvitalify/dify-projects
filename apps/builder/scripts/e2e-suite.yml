@@ -182,6 +182,10 @@
       features_include: [llm]
     workflow:
       grep_present: ["type: llm", "type: start", "type: end"]
+    report:
+      # spec 078 S2 — a trivial single-LLM shape (<4 nodes) must NEVER get the promote nudge.
+      # Only `false` is suite-stable: `true` self-quenches after a promote (see e2e_check.py).
+      promote_hint_present: false
   manual:
     - "Fast mode: confirm the build used a single LLM turn (⚡) and did not over-build"
 

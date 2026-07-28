@@ -109,6 +109,20 @@ say so and build normal; the §5 guard would stop a fast build there anyway.)
 7. **Emit the verdict.** One table: per-phase ①②③④ PASS/FAIL with one-line evidence, then the
    AUTO-PASS / AUTO-FAIL / **MANUAL-residue** section. The MANUAL section is mandatory even when
    everything auto-passed.
+8. **Promote recommendation (spec 078 S2 × e2e).** After the verdict, read
+   `jq '.promote_hint' apps/builder/.runs/<taskId>/report.json`. If it is non-null **AND** the check
+   had zero AUTO-FAIL, append one block:
+   > 💡 **KHUYẾN NGHỊ PROMOTE** — build proves a shape absent from the curated shelf *and* passed
+   > the e2e check (a stronger oracle than lint-clean alone). Promote it? [OK]
+   On the user's **first OK**: fire the existing promote pipeline —
+   `curl -s -X POST http://127.0.0.1:${BUILDER_PORT:-4123}/api/promote -H 'content-type: application/json' -d '{"project":"_drafts","workflow":"<workflowSlug>"}'`
+   (`_drafts` passes `resolvePromoteSource`'s segment regex — verified spec 078 open-Q3), then
+   `e2e-run.sh wait <promoteTaskId>` to the review gate. **Show the STAGED DISTILL**
+   (`apps/builder/.runs/<promoteTaskId>/promote/<slug>.yml`) — summary + anything smelling
+   instance-specific. On the **second OK**: `e2e-run.sh confirm <promoteTaskId> <approve-action-id>`
+   (pass the approve action listed at the gate — confirm never auto-picks it). Two OKs by design:
+   distill quality is model behavior, not a constant — the human eyeballs what will teach every
+   future build. No hint or any AUTO-FAIL ⇒ this step is silent.
 
 ## Per-phase rubric (the checklist codified from spec 056 AC1 / 057 AC2)
 

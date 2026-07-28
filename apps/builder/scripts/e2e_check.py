@@ -31,7 +31,7 @@ import yaml
 KNOWN_PREDICATES: dict[str, set[str]] = {
     "analyze": {"features_include", "features_exclude", "pattern"},
     "workflow": {"grep_present", "grep_absent"},
-    "report": {"notes_include"},
+    "report": {"notes_include", "promote_hint_present"},
 }
 ARTIFACT_KINDS = ("analyze", "workflow", "report")
 SETTLED_BUCKETS = ("AUTO-PASS", "AUTO-FAIL", "MANUAL")
@@ -170,10 +170,11 @@ def evaluate_entry(entry: dict, artifacts: dict[str, Path | None]) -> list[dict]
                 rows.append(_row("MANUAL", check,
                                  f"unknown predicate '{key}' — not in runner vocabulary yet; verify by hand"))
                 continue
-            # Every predicate except `pattern` takes a LIST. A scalar (missing YAML brackets) would
-            # otherwise iterate character-by-character → a false AUTO-PASS on grep_present, or a crash
-            # on None. Degrade to AUTO-FAIL so a malformed suite entry never masquerades as green.
-            if key != "pattern" and not isinstance(arg, list):
+            # Every predicate except the scalar ones (`pattern`: string, `promote_hint_present`:
+            # bool) takes a LIST. A scalar (missing YAML brackets) would otherwise iterate
+            # character-by-character → a false AUTO-PASS on grep_present, or a crash on None.
+            # Degrade to AUTO-FAIL so a malformed suite entry never masquerades as green.
+            if key not in ("pattern", "promote_hint_present") and not isinstance(arg, list):
                 rows.append(_row("AUTO-FAIL", check,
                                  f"predicate '{key}' expects a list, got {type(arg).__name__} — check the suite YAML brackets"))
                 continue
@@ -209,11 +210,23 @@ def evaluate_entry(entry: dict, artifacts: dict[str, Path | None]) -> list[dict]
                                          "absent" if not present else f"'{needle}' PRESENT in {path.name}"))
             elif section == "report":
                 assert data is not None
-                notes = str(data.get("notes") or "")  # report.json.notes is ONE string (058 r2)
-                for needle in arg:
-                    ok = needle in notes
-                    rows.append(_row("AUTO-PASS" if ok else "AUTO-FAIL", f"{check}[{needle}]",
-                                     "found in notes" if ok else f"'{needle}' not in notes"))
+                if key == "promote_hint_present":
+                    # Spec 078 S2 nudge, surfaced to the harness. ⚠ Suite entries may only pin
+                    # `false` (a trivial/known shape stays hint-free forever). `true` is
+                    # NON-STATIONARY: the nudge self-quenches once that shape is promoted, so a
+                    # static `true` assertion starts failing the moment the flywheel works. Assert
+                    # `true` only in per-run checks / fixture tests, never in e2e-suite.yml.
+                    got = bool(data.get("promote_hint"))
+                    ok = got == bool(arg)
+                    rows.append(_row("AUTO-PASS" if ok else "AUTO-FAIL", check,
+                                     f"expected hint {'present' if arg else 'absent'}, "
+                                     f"got {'present' if got else 'absent'}"))
+                else:  # notes_include
+                    notes = str(data.get("notes") or "")  # report.json.notes is ONE string (058 r2)
+                    for needle in arg:
+                        ok = needle in notes
+                        rows.append(_row("AUTO-PASS" if ok else "AUTO-FAIL", f"{check}[{needle}]",
+                                         "found in notes" if ok else f"'{needle}' not in notes"))
 
     for item in entry.get("manual") or []:
         rows.append(_row("MANUAL", "manual", str(item)))

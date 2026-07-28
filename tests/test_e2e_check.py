@@ -517,3 +517,24 @@ def test_denied_calls_per_phase_key(tmp_path):
     _mk_transcript(tmp_path, "spec", n_fail=9)
     b = _cost_buckets(ec.evaluate_cost({"spec_denied_max": 4}, {}, run_dir=tmp_path))
     assert b["AUTO-FAIL"], "the <phase>_denied_max form targets that phase's transcript"
+
+
+# ── spec 078 S2 × e2e: promote_hint_present predicate ─────────────────────────
+
+def test_promote_hint_present_true_and_false(tmp_path):
+    """Both polarities, deterministic via synthetic report.json. Suite files may only pin `false`
+    (self-quench makes `true` non-stationary — comment in e2e_check.py); `true` lives here."""
+    import json as _json
+    with_hint = tmp_path / "with.json"
+    with_hint.write_text(_json.dumps({"notes": "ok", "promote_hint": "shape mới — Promote?"}))
+    without = tmp_path / "without.json"
+    without.write_text(_json.dumps({"notes": "ok", "promote_hint": None}))
+
+    def run(report, expected_bool):
+        entry = {"id": "p", "expect": {"report": {"promote_hint_present": expected_bool}}}
+        return _buckets(ec.evaluate_entry(entry, _artifacts(report=report)))
+
+    assert not run(with_hint, True)["AUTO-FAIL"]      # hint present, expect true → pass
+    assert not run(without, False)["AUTO-FAIL"]       # hint null, expect false → pass
+    assert run(with_hint, False)["AUTO-FAIL"]         # leak direction: present but expected absent
+    assert run(without, True)["AUTO-FAIL"]            # regression direction: expected but missing
