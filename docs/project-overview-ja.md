@@ -28,11 +28,23 @@
 
 ## 3. 全体アーキテクチャ
 
+リポジトリの 4 本柱（ベースワークスペース）：
+
+```mermaid
+flowchart LR
+  ROOT["dify-projects<br/>（ベースワークスペース）"] --- K["① KNOW<br/>skills/・corpus/・docs/"]
+  ROOT --- B["② BUILD<br/>templates/・tools/"]
+  ROOT --- V["③ VERIFY<br/>schemas/・tests/・linter"]
+  ROOT --- P["④ Project▸Workflow<br/>projects/（2 層・spec 030）"]
+```
+
+Builder アプリのランタイム構成：
+
 ```mermaid
 flowchart LR
   U["ユーザー"] --> B["ブラウザ SPA<br/>(Preact + Vite)"]
   B <-->|"HTTP / SSE（実況）"| S["バックエンド<br/>(Node + Fastify)"]
-  S -->|"①②③ claude ターン"| C["claude CLI<br/>(Claude Opus)"]
+  S -->|"①②③ claude ターン"| C["claude CLI<br/>(Claude・ヘッドレス)"]
   S -->|"サブプロセス"| P["Python ツール<br/>(検証・lint・sync)"]
   S -.->|"トークンは backend のみ<br/>AI には渡さない"| D["Dify Console"]
   S --> F["ローカルファイル<br/>(projects/ ・ .runs/)"]
@@ -40,7 +52,7 @@ flowchart LR
 
 - **ブラウザ（SPA）**：見た目と操作だけ。ロジックは持たず、バックエンドの状態を表示するだけ。
 - **バックエンド（Fastify）**：頭脳。AI ターンの起動・検証・状態管理・Dify との通信を担当。
-- **claude CLI**：実際に分析・仕様作成・実装を行う AI（Claude Opus）。
+- **claude CLI**：実際に分析・仕様作成・実装を行う AI（Claude — モデルは CLI 設定に従う）。
 - **Python ツール**：既存の「Dify をコード化」する基盤（雛形生成・検証・Dify との同期）。
 - すべて **`127.0.0.1`（自分の PC 内）** で動作。外部公開なし。
 
@@ -122,11 +134,14 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  subgraph SB["AI ターンのサンドボックス"]
-    T["claude ターン<br/>(ファイル編集を許可)"]
-    PC["実行後チェック<br/>git status で<br/>範囲外の変更を検出"]
-    T --> PC
-    PC -->|"範囲外を書いた"| RV["自動で元に戻す<br/>(revert)"]
+  subgraph SB["AI ターンのサンドボックス（二層）"]
+    T["claude ターンの<br/>各ツール呼び出し"]
+    HK{"第1層：PreToolUse フック<br/>（実行前・主防御）"}
+    T --> HK
+    HK -->|"危険な shell / 範囲外の書込<br/>.env 等の読取"| DENY["即 deny<br/>（実行させない）"]
+    HK -->|"許可リスト内"| RUN["実行"]
+    RUN --> PC["第2層：実行後チェック<br/>git status で範囲外の変更を検出<br/>（backstop）"]
+    PC -->|"範囲外を書いた"| RV["自動で元に戻す<br/>(revert) ＋ エラー"]
     PC -->|"範囲内のみ"| OK["承認"]
   end
 ```
@@ -149,7 +164,7 @@ flowchart TD
 | フロントエンド | Preact + Vite + TypeScript（ダークテーマ、専用デザイン） |
 | 通信 | HTTP ＋ **SSE**（処理の様子をリアルタイム表示） |
 | バックエンド | Node.js + Fastify（**DB なし**、状態は JSON ファイル） |
-| AI | **Claude Opus**（`claude` CLI をヘッドレス起動） |
+| AI | **Claude**（`claude` CLI をヘッドレス起動 — モデルは CLI 設定に従う） |
 | 基盤ツール | Python（雛形生成・検証 lint・Dify 同期 `sync.py`） |
 | 連携先 | Dify Console API（プル／プッシュ） |
 
@@ -161,9 +176,15 @@ flowchart TD
 - ✅ **その後の強化**：実 Dify でのライブテスト（ファイル入力対応・タイムアウト分類）、
   ゲートでの質問（Ask）モード、どのゲートでも修正依頼（Request changes）、エラーからの
   ワンクリック再試行、完成後の再編集、既存 YAML のアップロードをベースに編集、
-  うまく動いたビルドを再利用パターンへ昇格（promote）、要件ダイジェスト付き Analyze（spec 055）。
-- ✅ **テスト済み**：バックエンド単体テスト 456/456 グリーン＋主要シナリオのブラウザ QA。
-- 📋 **残り**：軽い手動確認（自動モードの実走など）と、specs 内の polish 項目のみ。
+  うまく動いたビルドを再利用パターンへ昇格（promote）、要件ダイジェスト付き Analyze。
+- ✅ **さらに新しい強化（2026-07）**：**トリガー起点ワークフロー**（スケジュール／Webhook 起点 —
+  タイムゾーンは明示的に Asia/Tokyo を設定）、**ツールノードを本当にビルド可能に**（プラグイン
+  ハッシュは公開マーケットプレイスから **resolve**、`dependencies:` 必須）、外部 YAML の
+  パターン昇格、E2E 計測ハーネス＋コスト/経緯エクスポート。
+- ✅ **テスト済み**：サーバ・Web の全ユニットテストがグリーン（件数は `npm test` で確認 —
+  ここには固定値を書かない）＋主要シナリオのブラウザ QA。
+- 📋 **残り**：軽い手動確認（自動モードの実走、インポート後のトリガー有効化は Dify 側で手動）。
+  旧 specs（001–067）は完了・退役（`git show ca5e39e:docs/specs/` で閲覧）；新 specs は 071 から。
 
 ---
 

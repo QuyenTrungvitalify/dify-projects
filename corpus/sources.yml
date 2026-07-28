@@ -29,3 +29,10 @@ sources:
     sparse: [Workflow-Store]
     dsl_glob: "Workflow-Store/**/*.yml"
     license: MIT
+  - name: awesome-dify-workflow-zh
+    repo: https://github.com/svcvit/Awesome-Dify-Workflow.git
+    ref: main
+    sparse: [DSL]
+    dsl_glob: "DSL/**/*.yml"
+    license: MIT
+    indexed: false

@@ -546,11 +546,20 @@ export async function harvestWorkspaceFacts(
 ): Promise<void> {
   const { url, token } = difyCreds();
   if (!url || !token) return; // D5: creds absent → degrade silently (the listSeeds precedent)
+  // Spec 075 S1 — bound EACH arm so a slow/hung Dify console can't block the Implement hot-path for
+  // ~60s (before, only sync.py's client-side timeout=60 capped it; runSyncPy passed no Node timeout).
+  // The arms run in parallel, so wall-clock ≈ this ceiling, not 3×. On timeout execFile SIGTERMs the
+  // child → non-zero code → that arm degrades to [] exactly like any request failure; the ALL-THREE-
+  // fail bail below still governs whether harvest keeps the previous file, so degrade-to-nothing holds.
+  // Wide default (≪ 60s but roomy for a slow-but-healthy Dify) so {{KNOWLEDGE}} isn't silently starved
+  // of live models/tools — the speed↔completeness trade-off §4 S1 flags. Override via env for tuning.
+  const envMs = Number(process.env.DIFY_HARVEST_TIMEOUT_MS);
+  const timeoutMs = Number.isFinite(envMs) && envMs > 0 ? envMs : 15_000;
   try {
     const [mr, pr, dr] = await Promise.all([
-      sync(projectsDir, ['models']),
-      sync(projectsDir, ['plugins']),
-      sync(projectsDir, ['datasets']),
+      sync(projectsDir, ['models'], { timeoutMs }),
+      sync(projectsDir, ['plugins'], { timeoutMs }),
+      sync(projectsDir, ['datasets'], { timeoutMs }),
     ]);
     if (mr.code !== 0 && pr.code !== 0 && dr.code !== 0) {
       log.warn({ taskId }, 'workspace-facts harvest failed on every call — keeping any previous file');

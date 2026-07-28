@@ -22,7 +22,8 @@ BASE = Path(__file__).parent.parent.parent
 
 # Read the source registry (spec 022 D1) for registry-driven corpus discovery.
 sys.path.insert(0, str(Path(__file__).parent))
-from sources import load_sources  # noqa: E402
+from sources import load_sources, license_problems, missing_field_problems  # noqa: E402
+from enrich import merge_enrichment  # noqa: E402 — folds the offline enrichment layer in (spec 076 E1)
 
 
 def _md_link_target(abs_path):
@@ -74,11 +75,11 @@ INTERESTING_NODE_TYPES = [
 
 
 def analyze(yaml_path):
-    try:
-        with open(yaml_path, encoding='utf-8') as f:
-            data = yaml.safe_load(f)
-    except Exception:
-        return None
+    # Spec 075 S4: the parse itself may raise on broken YAML — let it PROPAGATE so collect_entries can
+    # name the file (a real defect worth fixing). A valid-but-non-workflow YAML (not a dict) stays a
+    # silent skip: sources may legitimately carry non-workflow YAML and naming those would be noise.
+    with open(yaml_path, encoding='utf-8') as f:
+        data = yaml.safe_load(f)
 
     if not isinstance(data, dict):
         return None
@@ -215,7 +216,9 @@ def write_markdown(entries, out_path):
         if len(e['plugins']) > 2:
             plugins_str += f' (+{len(e["plugins"])-2})'
 
-        desc = (e['description'] or e['name'] or '-').replace('|', '\\|').replace('\n', ' ')[:50]
+        # Spec 076 E1: prefer the English enrichment summary so the browse table stops showing raw
+        # Chinese/empty descriptions; fall back to the raw description, then the app name.
+        desc = (e.get('summary_en') or e['description'] or e['name'] or '-').replace('|', '\\|').replace('\n', ' ')[:50]
 
         file_display = e['file'].replace('|', '\\|')
         file_link = f"[{file_display}]({_md_link_target(e['path'])})"
@@ -293,9 +296,14 @@ def _filter_gitignored(paths):
 
 
 def collect_entries():
-    """Scan every target and return (entries, skipped_paths). Shared by main() and tests."""
+    """Scan every target and return (entries, broken). Shared by main() and tests.
+
+    `broken` = [(path, reason)] for files whose YAML FAILED to parse — spec 075 S4 names them instead
+    of folding them into an anonymous count. Valid YAML that simply isn't a workflow (analyze → None)
+    is skipped silently, so a source's non-workflow YAML never adds noise.
+    """
     all_entries = []
-    skipped = []
+    broken = []
     for scan_dir, source_tag, pattern in scan_targets():
         if not scan_dir.exists():
             continue
@@ -309,17 +317,45 @@ def collect_entries():
         if source_tag == "project":
             matches = _filter_gitignored(matches)
         for yml in matches:
-            info = analyze(yml)
+            try:
+                info = analyze(yml)
+            except Exception as e:  # genuine parse failure — name it (S4), don't swallow into a count
+                reason = (str(e).splitlines()[0] if str(e).strip() else type(e).__name__)[:200]
+                broken.append((str(yml), reason))
+                continue
             if info:
                 info['source'] = source_tag
                 all_entries.append(info)
-            else:
-                skipped.append(str(yml))
-    return all_entries, skipped
+            # else: valid YAML but not a workflow → silent skip (no noise)
+    return all_entries, broken
 
 
 def main():
-    all_entries, skipped = collect_entries()
+    # Spec 075 S3 — validate the registry at BUILD time (runtime), not just in the sources.py CLI.
+    # A non-permissive license BLOCKS (the promoted templates are derivatives — spec 022 D7); a missing
+    # required field only WARNS, so an incomplete legacy entry never turns a routine rebuild red. This
+    # runs AFTER the venv exists (build_index is a Python step); setup.sh's pre-venv bootstrap is
+    # untouched, per §2. `update_corpus.sh` reaches the same gate because it calls build_index.py.
+    registry = load_sources()
+    blockers = list(license_problems(registry))
+    warnings = list(missing_field_problems(registry))
+    for w in warnings:
+        print(f"  ⚠ registry: {w}", file=sys.stderr)
+    if blockers:
+        print("✗ registry has non-redistributable sources — refusing to build the index:", file=sys.stderr)
+        for b in blockers:
+            print(f"  - {b}", file=sys.stderr)
+        return 1
+
+    all_entries, broken = collect_entries()
+
+    # Spec 076 E1: fold the offline, English enrichment layer (summary_en/tags/when_to_use/gotchas)
+    # onto each entry so intent-based lookup can see capabilities the raw (Chinese/empty) description
+    # hides. Degrades to nothing when enrichment.json is absent; a stale orig_sha256 only WARNS.
+    stale = []
+    all_entries = merge_enrichment(all_entries, on_stale=stale.append)
+    for k in sorted(set(stale)):
+        print(f"  ⚠ enrichment stale (source changed since enriched — re-run enrich.py): {k}", file=sys.stderr)
 
     out_json = BASE / "tools" / "dify_base" / "index.json"
     out_json.parent.mkdir(parents=True, exist_ok=True)
@@ -331,9 +367,22 @@ def main():
     write_markdown(all_entries, out_md)
     print(f"✓ Wrote {out_md.relative_to(BASE)}")
 
-    if skipped:
-        print(f"  ({len(skipped)} files skipped due to parse errors)")
+    # Spec 075 S4 — name every file that FAILED to parse (a real defect), and say "0" explicitly so a
+    # clean run reads differently from one that dropped N files. Warn-only: intake is reference-only
+    # (update_corpus.sh), so a broken corpus YAML must not fail the build — it must not hide either.
+    if broken:
+        print(f"  ⚠ {len(broken)} file(s) FAILED to parse — named so they can be fixed (spec 075 S4):",
+              file=sys.stderr)
+        for path, reason in broken:
+            try:
+                rel = str(Path(path).relative_to(BASE))
+            except ValueError:
+                rel = path
+            print(f"    - {rel}: {reason}", file=sys.stderr)
+    else:
+        print("  (0 files failed to parse)")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

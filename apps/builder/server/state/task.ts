@@ -252,6 +252,11 @@ export interface Task {
   // really pushed to the configured Dify (probe app deleted immediately). Set/cleared per static ④
   // run; a Task field (not a ReportOpts) so it survives the Import/Skip re-report like preflightNote.
   probeNote?: string;
+  // Spec 078 S2 advisory (dev-surface ONLY): the self-harvest promote nudge — set/cleared by every
+  // ④ report when a from-scratch, lint-clean build proves a shape absent from the curated shelf.
+  // Rides `toWireTask` but is rendered ONLY under devMode (DevPanel); NEVER folded into report
+  // notes — notes are user-facing (spec 063 userview), and "promote/pattern" is jargon there.
+  promoteHint?: string;
   // Spec 028 §5: set when an `auto`+fast build's merged draft found a NON-single-LLM shape (features
   // ⊄ {llm}, or absent) — the auto-advance hard-stops at the Spec gate and surfaces this note.
   fastReviewNote?: string;

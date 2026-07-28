@@ -28,10 +28,12 @@ without clicking through the UI.
 | `e2e-run.sh confirm <taskId> [actionId]` | advance a gate (auto-picks only `continue`) | — |
 | `e2e-run.sh reply <taskId> "<feedback>"` | send a phase back (Request-changes) | ✅ (re-runs a phase) |
 | `e2e-run.sh cancel <taskId>` | cancel, free the turn lock | — |
-| `e2e-run.sh check <taskId> --expect <id> [--save-baseline]` | three-bucket verdict (+cost gate) — OFFLINE | — |
+| `e2e-run.sh check <taskId> --expect <id> [--save-baseline] [--suite <path>]` | three-bucket verdict (+cost gate) — OFFLINE | — |
 | `e2e-run.sh time <taskId>` | per-phase + total wall-clock (+cost table) — OFFLINE | — |
 | `e2e-run.sh bench "<prompt>" \| bench --entry <id>` | fire→wait→[check for `--entry`]→timing/cost | ✅ |
 | `e2e-run.sh suite` | list suite entry ids | — |
+| `e2e-run.sh userview <taskId>` | rebuild what the USER saw (EN approximation — spec 063) | — |
+| `e2e-run.sh comprehension <taskId>` | jargon/comprehension gate over the user-facing notes (spec 063) | — |
 
 Exit codes: `0` ok · `1` a check AUTO-FAIL · `2` usage · `3` backend unreachable · `4` turn busy
 (409) · `5` wait timeout (re-invocable) · `6` API error.

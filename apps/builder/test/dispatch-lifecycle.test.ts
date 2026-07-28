@@ -19,7 +19,7 @@
  */
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, mkdir, writeFile } from 'node:fs/promises';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -28,9 +28,11 @@ import tasksRoutes, { type TasksRoutesOptions } from '../server/routes/tasks.js'
 import { loadTask, type Task } from '../server/state/task.js';
 import { PHASES } from '../server/lib/phases.js';
 import { cancelledCount, releaseTurn, turnBusy, turnHolderId } from '../server/lib/lock.js';
-import type { ClaudeSession } from '../server/lib/claude-session.js';
+import { applyInitFake } from './helpers/scaffold-fake.js';
+import type { ClaudeSession, SessionLogger } from '../server/lib/claude-session.js';
 import type { TurnResult } from '../server/lib/turn-runner.js';
 import type { PostTurnParams, PostTurnResult } from '../server/lib/post-turn.js';
+import type { ReportOpts, ReportResult } from '../server/lib/report.js';
 import type { ShellResult } from '../server/lib/shell.js';
 
 /** A promise plus its resolver — the gate a faked turn blocks on. */
@@ -42,8 +44,10 @@ function deferred(): { promise: Promise<void>; release: () => void } {
   return { promise, release };
 }
 
-/** Poll until `cond` holds (the dispatched chain is fire-and-forget, so there is nothing to await). */
-async function waitFor(cond: () => boolean, what: string, ms = 4000): Promise<void> {
+/** Poll until `cond` holds (the dispatched chain is fire-and-forget, so there is nothing to await).
+ *  Budget is generous: under the FULL parallel suite each fake-turn chain still spawns real `git`
+ *  several times per phase, and a loaded box can stretch one chain well past 4s. */
+async function waitFor(cond: () => boolean, what: string, ms = 20_000): Promise<void> {
   const deadline = Date.now() + ms;
   while (!cond()) {
     if (Date.now() > deadline) assert.fail(`timed out waiting for: ${what}`);
@@ -63,6 +67,8 @@ async function fixtureDir(): Promise<string> {
 interface Harness {
   app: Awaited<ReturnType<typeof Fastify>>;
   events: Array<{ status: string; error?: string }>;
+  /** the ReportOpts each faked ④ report received — pins that a client body can't smuggle reuseLint. */
+  reportCalls: Array<ReportOpts | undefined>;
 }
 
 /**
@@ -82,7 +88,16 @@ async function build(dir: string, opts: { gate?: Promise<void>; onTurn?: () => v
     writeFileSync(abs, t.phase === 'analyze' ? '{"seed":null,"summary":"ok"}' : '# SPEC\n');
     return { sessionId: `s-${t.phase}`, result: { type: 'result', is_error: false }, isError: false };
   };
-  const runPython = async (): Promise<ShellResult> => ({ code: 0, stdout: '', stderr: '' });
+  // init_project.py's disk effect is mirrored so the REAL scaffoldAtSpecGate (②→③ /confirm) works.
+  const runPython = async (d: string, args: string[]): Promise<ShellResult> => {
+    applyInitFake(d, args);
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  const reportCalls: Harness['reportCalls'] = [];
+  const runReport = async (_d: string, t: Task, _log: SessionLogger, o?: ReportOpts): Promise<ReportResult> => {
+    reportCalls.push(o);
+    return { ok: true, reasons: [], reportRel: `apps/builder/.runs/${t.taskId}/report.json`, lintClean: true };
+  };
   const postTurnCheck = async (_p: PostTurnParams): Promise<PostTurnResult> => ({
     ok: true,
     status: 'done',
@@ -102,10 +117,10 @@ async function build(dir: string, opts: { gate?: Promise<void>; onTurn?: () => v
       const t = data as Task;
       events.push({ status: t.status, error: t.error });
     },
-    runners: { runTurn, runPython, postTurnCheck },
+    runners: { runTurn, runPython, postTurnCheck, runReport },
   };
   await app.register(tasksRoutes, routeOpts);
-  return { app, events };
+  return { app, events, reportCalls };
 }
 
 /** The task.json path of the build under test — set by `start` so the faked turn can read the phase. */
@@ -161,6 +176,39 @@ describe('dispatch() — the route-level lock/failSafe/evict wiring', () => {
     const after = await h.app.inject({ method: 'POST', url: '/api/tasks', payload: { requirement: 'other' } });
     assert.equal(after.statusCode, 200, 'the freed slot is acquirable — release was real, not just a flag flip');
     await waitFor(() => !turnBusy(), 'the second build to settle');
+    await h.app.close();
+  });
+
+  test('the race-loser past the fast-path is pinned `rejected — another turn is running` (§5 / Q6)', async () => {
+    const gate = deferred();
+    const h = await build(dir, { gate: gate.promise });
+    // Fire two POSTs in the same synchronous block. Both handlers pass the synchronous `turnBusy()`
+    // fast-path before either reaches `acquireTurn`: each handler yields at createTask's fs awaits
+    // (macrotasks), and the second handler's start is queued as ticks/microtasks which run first. So
+    // BOTH mint a task, and exactly one then loses the strict acquire — the branch under test.
+    const [ra, rb] = await Promise.all([
+      h.app.inject({ method: 'POST', url: '/api/tasks', payload: { requirement: 'racer A' } }),
+      h.app.inject({ method: 'POST', url: '/api/tasks', payload: { requirement: 'racer B' } }),
+    ]);
+    const codes = [ra.statusCode, rb.statusCode].sort();
+    assert.deepEqual(codes, [200, 409], 'exactly one winner, one 409');
+    const winner = (ra.statusCode === 200 ? ra : rb).json() as Task;
+    const busy = (ra.statusCode === 200 ? rb : ra).json() as { error: string; holder: string | null };
+    assert.equal(busy.holder, winner.taskId, 'the collision 409 names the winner');
+    latestTaskFile = `apps/builder/.runs/${winner.taskId}/task.json`;
+
+    // The loser DID mint its own task (it was past the fast-path) — pinned `rejected`, never a stuck
+    // `running`, and on a DISTINCT id (mintTaskId monotonic — a shared id would have acquired the
+    // winner's own slot).
+    const runs = await readdir(join(dir, 'apps/builder/.runs'));
+    const loserId = runs.find((id) => id !== winner.taskId);
+    assert.ok(loserId, 'the loser minted a distinct task id before losing acquireTurn');
+    const loser = await loadTask(dir, loserId!);
+    assert.equal(loser.status, 'error');
+    assert.equal(loser.error, 'rejected — another turn is running');
+
+    gate.release();
+    await waitFor(() => !turnBusy(), 'the winner to park');
     await h.app.close();
   });
 
@@ -258,6 +306,71 @@ describe('PATCH /api/tasks/:id — confirm_mode is only patchable at rest', () =
     assert.equal((await patch(h, '9999999999999', 'auto')).statusCode, 404);
     const bad = await h.app.inject({ method: 'PATCH', url: '/api/tasks/9999999999999', payload: {} });
     assert.equal(bad.statusCode, 400, 'validated before the task is even loaded');
+    await h.app.close();
+  });
+});
+
+describe('POST /api/tasks/:id/confirm — the route layer itself', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await fixtureDir();
+  });
+  afterEach(async () => {
+    if (turnHolderId()) releaseTurn(turnHolderId()!);
+    latestTaskFile = null;
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const confirm = (h: Harness, id: string, payload: Record<string, unknown>) =>
+    h.app.inject({ method: 'POST', url: `/api/tasks/${id}/confirm`, payload });
+
+  test('a stale/unknown action → validation-409 (no `holder`) that leaks NO lock', async () => {
+    const gate = deferred();
+    const h = await build(dir, { gate: gate.promise });
+    const task = await start(h);
+    gate.release();
+    await waitFor(() => !turnBusy(), 'the ① chain to park');
+
+    // The action is validated BEFORE acquireTurn — the early 409 must not take (or leak) the slot.
+    const bad = await confirm(h, task.taskId, { actionId: 'not-a-real-action' });
+    assert.equal(bad.statusCode, 409);
+    assert.equal('holder' in bad.json(), false, 'validation-409 shape — NOT the turn-collision shape');
+    assert.equal(turnBusy(), false, 'rejected before acquireTurn — nothing held, nothing leaked');
+
+    // The gate is still fully usable: the real `continue` advances ①→② through the same route.
+    const ok = await confirm(h, task.taskId, { actionId: 'continue' });
+    assert.equal(ok.statusCode, 200, ok.body);
+    await waitFor(() => !turnBusy(), 'the ② chain to park');
+    const t = await loadTask(dir, task.taskId);
+    assert.equal(t.phase, 'spec');
+    assert.equal(t.status, 'awaiting_confirm');
+    await h.app.close();
+  });
+
+  test('a client-supplied `reuseLint` in the /confirm body is IGNORED — the windowed ③→④ hop re-lints', async () => {
+    const h = await build(dir); // no gate: each turn settles immediately, each_step parks every boundary
+    const task = await start(h);
+    const advance = async (payload: Record<string, unknown>) => {
+      await waitFor(() => !turnBusy(), 'park before the next confirm');
+      const r = await confirm(h, task.taskId, payload);
+      assert.equal(r.statusCode, 200, r.body);
+    };
+    await advance({ actionId: 'continue' }); // ①→② (spec turn)
+    await advance({ actionId: 'continue' }); // ②→③ (REAL scaffoldAtSpecGate via the init fake, then implement)
+    // ③→④ with a FORGED all-zero reuseLint riding the HTTP body: on this human-windowed path the
+    // codes could be stale/fabricated, so the route must not forward them (spec 048 D2 — `internal`
+    // is deliberately NOT a ConfirmPayload field).
+    await advance({
+      actionId: 'continue',
+      reuseLint: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 },
+    });
+    await waitFor(() => !turnBusy(), 'the ④ chain to settle');
+
+    const t = await loadTask(dir, task.taskId);
+    assert.equal(t.status, 'done', 'the each_step deploy-none build finished ④');
+    assert.equal(h.reportCalls.length, 1, '④ ran exactly one report');
+    assert.equal(h.reportCalls[0]?.reuseLint, undefined, 'the body field never reached ReportOpts — ④ re-lints');
+    assert.equal(h.reportCalls[0]?.acceptedLintFailure, false, 'and it was the plain continue, not an accept');
     await h.app.close();
   });
 });

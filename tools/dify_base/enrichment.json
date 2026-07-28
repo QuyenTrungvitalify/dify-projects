@@ -1,0 +1,607 @@
+{
+  "corpus:awesome-dify-workflow-en/AdvancedSearch.yml": {
+    "summary_en": "A conversational search agent that expands a query into follow-up questions, runs SearXNG web searches per question, scrapes each result with JinaReader over nested iterations, and returns an LLM markdown summary.",
+    "tags": [
+      "search",
+      "web-scraping",
+      "agent",
+      "iteration",
+      "http-request",
+      "tool",
+      "if-else",
+      "llm"
+    ],
+    "when_to_use": "When the user wants an answer-engine style workflow that broadens a query, searches the web, reads the pages, and summarizes.",
+    "gotchas": "DSL 0.1.x, prompts partly Chinese and summary is forced to Chinese output — reference only, adapt to current DSL before reuse.",
+    "orig_sha256": "aa75d8820f210f44442b76d4b4413b10989a42e39f23cea48fbcbdc9d545fa99"
+  },
+  "corpus:awesome-dify-workflow-en/AdvancedTranslate.yml": {
+    "summary_en": "Two-pass Chinese-to-English academic translation: DuckDuckGo machine translation first, then a DeepSeek LLM critiques the literal result and produces a polished free translation.",
+    "tags": [
+      "translation",
+      "content-generation",
+      "tool",
+      "llm"
+    ],
+    "when_to_use": "When the user wants token-efficient, higher-quality Chinese-to-English translation of academic text than a single LLM pass.",
+    "gotchas": "DSL 0.1.x, prompts are Chinese — reference only, adapt to current DSL before reuse.",
+    "orig_sha256": "faf66974568eb1053a05b800e1e1f97a1dccc1349ab87f1f7c73d850d274050d"
+  },
+  "corpus:awesome-dify-workflow-en/All-in-One Ops.yml": {
+    "summary_en": "A social-media cover-image generator that turns a brief into a catchy title via LLM, assembles ImgRender JSON through many template nodes, and POSTs to the imgrender.net API to render Xiaohongshu/Weibo card images.",
+    "tags": [
+      "content-generation",
+      "automation",
+      "http-request",
+      "template-transform",
+      "llm",
+      "code"
+    ],
+    "when_to_use": "When the user wants to auto-generate branded social-media cover cards from a short prompt.",
+    "gotchas": "DSL 0.1.x, prompts Chinese and contains a hardcoded ImgRender API key plus fixed asset URLs — reference only, replace credentials and adapt before reuse.",
+    "orig_sha256": "f91fd677348f3bef4e4aeb93cb8459a221b5b70b40a0a3fa19292e480d71d4dd"
+  },
+  "corpus:awesome-dify-workflow-en/ArticleRewrite.yml": {
+    "summary_en": "An article paraphrasing pipeline that scrapes a source URL, extracts title/body/keywords, then rewrites section-by-section with auto-matched images (single-image or multi-image mode) via iteration.",
+    "tags": [
+      "content-generation",
+      "web-scraping",
+      "iteration",
+      "tool",
+      "parameter-extractor",
+      "if-else",
+      "code",
+      "llm"
+    ],
+    "when_to_use": "When the user wants to imitate and rewrite a web article with automatically inserted illustrations.",
+    "gotchas": "DSL 0.1.x, prompts Chinese and depends on custom workflow-tools (localScrape, imageSearch) not present here — reference only, adapt before reuse.",
+    "orig_sha256": "ec24aa3fec6e82d106ccc6a15705e24d2f6cec0a7bd147dec0b3841aab238c55"
+  },
+  "corpus:awesome-dify-workflow-en/BookTranslate.yml": {
+    "summary_en": "A long-document English-to-Chinese translator that chunks input with overlap, then iterates a four-step reflection per chunk (extract terms, literal translate, critique, free translate) and joins the results.",
+    "tags": [
+      "translation",
+      "content-generation",
+      "iteration",
+      "code",
+      "llm",
+      "template-transform"
+    ],
+    "when_to_use": "When the user needs to translate a whole book or long document into Chinese with consistent terminology and reflection.",
+    "gotchas": "DSL 0.1.x, prompts Chinese and chunk code has an indentation bug — reference only, adapt before reuse.",
+    "orig_sha256": "ff74c9e716d132abafe42fdb77e3e52110ec44bc6b91f0000ddf48c326c117a9"
+  },
+  "corpus:awesome-dify-workflow-en/Chinese2English.yml": {
+    "summary_en": "A single-LLM Chinese-to-English academic translator using a three-step prompt (literal translation, problem critique, refined free translation) with a term glossary.",
+    "tags": [
+      "translation",
+      "content-generation",
+      "llm"
+    ],
+    "when_to_use": "When the user wants a simple one-node Chinese-to-English academic-paper translation.",
+    "gotchas": "DSL 0.1.x, prompt is Chinese — reference only, adapt before reuse.",
+    "orig_sha256": "7e3678324ec3bbcdddd8cd91ff795f19c00078673441a13c956d2d5dafde9c75"
+  },
+  "corpus:awesome-dify-workflow-en/Claude3 Code Translation.yml": {
+    "summary_en": "A source-code translator between languages (e.g. Python to Java) that first has Claude emit a YAML structure of signatures, converts it to JSON via a Lambda tool, then iterates generating each class/function body and merges the full file.",
+    "tags": [
+      "coding",
+      "translation",
+      "iteration",
+      "llm",
+      "code",
+      "tool"
+    ],
+    "when_to_use": "When the user wants to port a code file from one programming language to another while respecting output-length limits.",
+    "gotchas": "DSL 0.1.x, prompts Chinese and depends on a Bedrock Claude model plus an AWS Lambda yaml_to_json tool — reference only, adapt before reuse.",
+    "orig_sha256": "703969963b556ffe196760a1dc295a2d769021a5bb5dc0e8e97a14fbb3f4542f"
+  },
+  "corpus:awesome-dify-workflow-en/Document_chat_template.yml": {
+    "summary_en": "A RAG document-chat workflow that gates on whether a question concerns the docs, classifies it into topics, retrieves from a knowledge base per class, and answers grounded in the retrieved context.",
+    "tags": [
+      "rag",
+      "chat",
+      "knowledge-retrieval",
+      "if-else",
+      "llm",
+      "template-transform"
+    ],
+    "when_to_use": "When the user wants a knowledge-base Q&A bot that first filters relevance and routes by question category.",
+    "gotchas": "DSL 0.1.x, prompts mixed Chinese/English and references a fixed dataset_id and Cohere rerank models — reference only, adapt before reuse.",
+    "orig_sha256": "0e4d52c4ee445095f7cd3e64ef3a4fe9db459dad48ea9e64dd4505c81adcbf56"
+  },
+  "corpus:awesome-dify-workflow-en/English2Chinese.yml": {
+    "summary_en": "A single-LLM any-language-to-Chinese translator using a three-step reflect-and-refine prompt (initial translation, self-critique, polished translation) with an AI-terminology glossary.",
+    "tags": [
+      "translation",
+      "content-generation",
+      "llm"
+    ],
+    "when_to_use": "When the user wants a high-quality English-to-Chinese translation with reflection in one LLM node.",
+    "gotchas": "DSL 0.1.x; prompt is English but glossary/output target Chinese — reference only, adapt before reuse.",
+    "orig_sha256": "eb3aa466fdea9a54fdf118d1934063c2d7d268085d7143029b7053c43bc88b91"
+  },
+  "corpus:awesome-dify-workflow-en/FormChat.yml": {
+    "summary_en": "An advanced-chat demo that renders an HTML login form, validates the submitted credentials in a code node, stores a user token in a conversation variable, and gates further chatting behind successful login.",
+    "tags": [
+      "chat",
+      "automation",
+      "code",
+      "if-else",
+      "template-transform",
+      "llm"
+    ],
+    "when_to_use": "When the user wants a chatflow that collects input via an embedded HTML form and manages a login/session gate.",
+    "gotchas": "DSL 0.1.x, prompts Chinese and login is a hardcoded stub (username 'svcvit') — reference only, wire real auth and adapt before reuse.",
+    "orig_sha256": "6bfa5504375378a9d8b2c587c0a4687933272512612791c0275ee137519d2430"
+  },
+  "corpus:awesome-dify-workflow-en/Jina Reader Jinja.yml": {
+    "summary_en": "A search-and-summarize workflow that runs a Tavily search, extracts result URLs, iterates fetching each page with JinaReader and summarizing it with an LLM, then renders a Jinja markdown table of URL and summary.",
+    "tags": [
+      "search",
+      "web-scraping",
+      "summarization",
+      "iteration",
+      "tool",
+      "llm",
+      "template-transform",
+      "code"
+    ],
+    "when_to_use": "When the user wants to search the web and get a table of per-source summaries.",
+    "gotchas": "DSL 0.1.x; code nodes use time.sleep(13) hacks for rate limiting and a custom \\\\SP delimiter — reference only, adapt before reuse.",
+    "orig_sha256": "785912ce7b670c23eeb096c8169a2391200c243d531c5d7dd184244c55352394"
+  },
+  "corpus:awesome-dify-workflow-en/LanguageConsistencyChecker.yml": {
+    "summary_en": "A trilingual documentation consistency checker that fetches the EN/JP/CN versions of a Dify-docs page via JinaReader, picks a baseline language, and runs three Claude LLMs to flag translation errors and omissions using inline <rm>/<add> edit tags.",
+    "tags": [
+      "translation",
+      "document",
+      "tool",
+      "code",
+      "llm"
+    ],
+    "when_to_use": "When the user wants to audit multilingual docs for missing or incorrect translations against a baseline language.",
+    "gotchas": "DSL 0.1.x, prompts Chinese and URLs are hardwired to the langgenius/dify-docs GitHub repo — reference only, adapt before reuse.",
+    "orig_sha256": "928e371dd0dc578a9635ea38fedda80bb612c5891e091ed238d18c45f44062cf"
+  },
+  "corpus:awesome-dify-workflow-en/Python Coding Prompt.yml": {
+    "summary_en": "An advanced-chat Python coding assistant whose system prompt enforces a structured workflow of code review, planning, security review, and step-by-step suggestions before answering.",
+    "tags": [
+      "coding",
+      "chat",
+      "llm",
+      "agent"
+    ],
+    "when_to_use": "When the user wants a disciplined Python pair-programming chatbot that reviews existing code and plans changes before writing them.",
+    "gotchas": "DSL 0.1.x, prompts may be Chinese — reference only, adapt to current DSL before reuse. Hardwired to the deepseek-coder model.",
+    "orig_sha256": "9530693c4159b422b4be165d364a2ee358db47904b4a01109b502e83a3a00daa"
+  },
+  "corpus:awesome-dify-workflow-en/SEO Slug Generator.yml": {
+    "summary_en": "A single-LLM workflow that converts an input title or body into a concise SEO-friendly English URL slug capped at 60 characters, stripping special characters.",
+    "tags": [
+      "seo",
+      "content-generation",
+      "nlp",
+      "llm",
+      "utility"
+    ],
+    "when_to_use": "When the user needs a short English URL slug generated from an article title or content.",
+    "gotchas": "DSL 0.1.x, prompts may be Chinese — reference only, adapt to current DSL before reuse. Length/formatting rules live only in the prompt, so output is not enforced.",
+    "orig_sha256": "8e1b5d2c6d744ac57ac1dd2ec42480cff34c5365e2d7ee93c04193f7cae5ff3b"
+  },
+  "corpus:awesome-dify-workflow-en/Text to Card Iteration.yml": {
+    "summary_en": "A workflow that renders author and body text into an image card by building a JSON layout in a template node, POSTing it to the imgrender.cn API, and extracting the returned image URL.",
+    "tags": [
+      "content-generation",
+      "automation",
+      "template-transform",
+      "http-request",
+      "tool"
+    ],
+    "when_to_use": "When the user wants to turn short text plus an author name into a styled shareable card image via an external rendering API.",
+    "gotchas": "DSL 0.1.x, prompts may be Chinese — reference only, adapt to current DSL before reuse. Despite the name there is no iteration node, and it embeds a hardcoded imgrender.cn API key that must be replaced.",
+    "orig_sha256": "776ec90c5b7b9bba7f33b6586bed815c3408b4c6457c0a98035bf9172e74a67f"
+  },
+  "corpus:awesome-dify-workflow-en/TitleCreator.yml": {
+    "summary_en": "A workflow that prompts an LLM to generate five viral clickbait-style Chinese article titles from a subject and optional description, then splits them into a string array via a code node.",
+    "tags": [
+      "content-generation",
+      "seo",
+      "nlp",
+      "llm",
+      "code"
+    ],
+    "when_to_use": "When the user wants several attention-grabbing headline options generated from a topic.",
+    "gotchas": "DSL 0.1.x, prompts may be Chinese — reference only, adapt to current DSL before reuse. The lengthy clickbait prompt is Chinese-language and culturally specific.",
+    "orig_sha256": "b439a8309b7ee2ed3a157d504866169e7e9e64485e3480190ce8def04ce15786"
+  },
+  "corpus:awesome-dify-workflow-en/chart_demo.yml": {
+    "summary_en": "Renders a chart from user data: a code node builds the chart config and an HTTP request returns the rendered chart image inline in the chat answer.",
+    "tags": [
+      "data-analysis",
+      "chart",
+      "visualization",
+      "code",
+      "http-request",
+      "chat"
+    ],
+    "when_to_use": "When the user wants a chart or graph generated from data and shown inline in the conversation.",
+    "gotchas": "DSL 0.1.3 advanced-chat; repo pins 0.6.0. Reference only — adapt the shape and verify the chart-rendering endpoint before reuse.",
+    "orig_sha256": "43e9b884b3dfbcdd68be974aa0929584ef46c5d3ede56db16ce28c16f8fb219d"
+  },
+  "corpus:awesome-dify-workflow-en/dify_course_demo.yml": {
+    "summary_en": "A workflow that auto-generates a full multi-chapter tutorial from a course name: an LLM drafts a JSON outline, a code node flattens it into sections, and an iteration node has an LLM write a detailed article for each section.",
+    "tags": [
+      "content-generation",
+      "document",
+      "automation",
+      "iteration",
+      "llm",
+      "code"
+    ],
+    "when_to_use": "When the user wants an entire course or tutorial drafted end-to-end from just a topic title.",
+    "gotchas": "DSL 0.1.x, prompts may be Chinese — reference only, adapt to current DSL before reuse. Demo version without sharding or parallelism; outline node pins openai o1-mini and per-section node pins gpt-4o-mini.",
+    "orig_sha256": "bff61a0feaf3fbd6e1cb54bcb9e31a04be018d347820bf2a5798f9c69247fda8"
+  },
+  "corpus:awesome-dify-workflow-en/jieba.yml": {
+    "summary_en": "An advanced-chat workflow that runs Chinese word segmentation on the user query via a Python code node using the jieba library, returning the token list.",
+    "tags": [
+      "nlp",
+      "data-processing",
+      "code",
+      "chat",
+      "utility"
+    ],
+    "when_to_use": "When the user needs Chinese text tokenized into words as a preprocessing step.",
+    "gotchas": "DSL 0.1.x, prompts may be Chinese — reference only, adapt to current DSL before reuse. The code passes use_paddle=True, which requires the paddle dependency the sandbox may not have.",
+    "orig_sha256": "7267b3699555f5d16e5f9618f9b344793432357041769f169a62ecfcff17fd8f"
+  },
+  "corpus:awesome-dify-workflow-en/json-repair.yml": {
+    "summary_en": "Repairs malformed or invalid JSON via a single code node and returns valid JSON.",
+    "tags": [
+      "data-processing",
+      "json",
+      "json-repair",
+      "code",
+      "utility"
+    ],
+    "when_to_use": "When an upstream step emits broken JSON that must be coerced into valid JSON before it is consumed.",
+    "gotchas": "DSL 0.1.2 workflow; a single code node, trivial to port. Reference only — adapt to 0.6.0 before reuse.",
+    "orig_sha256": "5859d8c833593069cfe781da27d585a24cdbbf5e03a50af56b2ae01045d491ad"
+  },
+  "corpus:awesome-dify-workflow-en/json_translate.yml": {
+    "summary_en": "A workflow that translates the string values inside a JSON document to English while preserving keys and structure, by extracting translatable leaves in a code node, iterating them through the Google Translate tool, and reassembling the JSON.",
+    "tags": [
+      "translation",
+      "data-processing",
+      "iteration",
+      "code",
+      "tool"
+    ],
+    "when_to_use": "When the user wants to localize the text values of a JSON payload without altering its keys or shape.",
+    "gotchas": "DSL 0.1.x, prompts may be Chinese — reference only, adapt to current DSL before reuse. Depends on the builtin google_translate tool and skips URLs, colors, UUIDs, emails, and numbers by regex.",
+    "orig_sha256": "dce2197de5f75fd657ac841b58de6fd55a10860357d159c900fb3242af8ab964"
+  },
+  "corpus:awesome-dify-workflow-en/llm2o1.cn.yml": {
+    "summary_en": "An advanced-chat workflow that simulates o1-style chain-of-thought with a standard LLM: it decomposes the question into steps, iterates the LLM over each step to solve it, then merges and summarizes a final answer.",
+    "tags": [
+      "reasoning",
+      "content-generation",
+      "iteration",
+      "llm",
+      "chat"
+    ],
+    "when_to_use": "When the user wants stronger multi-step reasoning without an o1-class model.",
+    "gotchas": "DSL 0.1.x, prompts may be Chinese — reference only, adapt to current DSL before reuse. Nodes pin openai gpt-4o / gpt-4o-mini.",
+    "orig_sha256": "b70c89261a37ce37ddf5ae27869cc29ed33b0b53ac1a34dd7ceecd5cc3cf8674"
+  },
+  "corpus:awesome-dify-workflow-en/matplotlib.yml": {
+    "summary_en": "Generates a plot with Python matplotlib inside a code node and returns the image in the chat answer.",
+    "tags": [
+      "data-analysis",
+      "chart",
+      "visualization",
+      "matplotlib",
+      "code",
+      "python",
+      "chat"
+    ],
+    "when_to_use": "When the user wants a matplotlib / Python-generated plot from numeric data.",
+    "gotchas": "DSL 0.1.3 advanced-chat; the code node needs matplotlib available in the sandbox. Reference only — adapt to 0.6.0 before reuse.",
+    "orig_sha256": "d570c2e9f29c29a8e11183c2ebf128aa97c4abc532a9a507881aecf29221be75"
+  },
+  "corpus:awesome-dify-workflow-en/memorytest.yml": {
+    "summary_en": "A complex advanced-chat health-assistant workflow for chronic-disease patients that demonstrates memory management, using conversation variables for long-term patient info and rolling short-term summary memory, if-else branching on dialogue count, images, and proactive outreach, plus periodic memory summarization.",
+    "tags": [
+      "chat",
+      "agent",
+      "automation",
+      "if-else",
+      "llm",
+      "code",
+      "tool"
+    ],
+    "when_to_use": "When the user wants a reference for building stateful memory and branching in a Dify chatbot.",
+    "gotchas": "DSL 0.1.x, prompts may be Chinese — reference only, adapt to current DSL before reuse. Many branch prompts are placeholder stubs, patient data is hardcoded in a code node, and it pins volcengine/tongyi models.",
+    "orig_sha256": "84198d24b559dd92b8ae589d06fc27045db796c5c94947591ac0948001076942"
+  },
+  "corpus:awesome-dify-workflow-en/simple-kimi.yml": {
+    "summary_en": "A Kimi-style advanced-chat assistant that optionally web-searches (DuckDuckGo, scrapes the top results, answers each in parallel, then aggregates the best answer) and also handles uploaded documents and images via list-operator and document-extractor branches.",
+    "tags": [
+      "chat",
+      "search",
+      "rag",
+      "agent",
+      "if-else",
+      "llm",
+      "tool"
+    ],
+    "when_to_use": "When the user wants a web-search-augmented chatbot that also reads uploaded files and picks the best of several candidate answers.",
+    "gotchas": "DSL 0.1.x, prompts may be Chinese — reference only, adapt to current DSL before reuse. Pins AWS Bedrock Claude 3.5 Sonnet and builtin duckduckgo/webscraper tools; scraper reliability varies.",
+    "orig_sha256": "53972afa295ed0113876ec13b6c3bd4a8179b3775683237c109a33bcee320321"
+  },
+  "corpus:awesome-dify-workflow-en/translation_workflow.yml": {
+    "summary_en": "An Andrew-Ng-style agentic reflection translation workflow: a first LLM translates, a second critiques the draft (optionally tuned to a target country's colloquial style), and a third rewrites an improved final translation.",
+    "tags": [
+      "translation",
+      "content-generation",
+      "reasoning",
+      "if-else",
+      "llm"
+    ],
+    "when_to_use": "When the user wants higher-quality translation via a translate-reflect-improve loop with optional locale styling.",
+    "gotchas": "DSL 0.1.x, prompts may be Chinese — reference only, adapt to current DSL before reuse. Pins the deepseek-chat model.",
+    "orig_sha256": "e27dc5f6139d321c707f6dbcf6e577313281714815a4446f973a1fcdb95805a9"
+  },
+  "example/main.yml": {
+    "summary_en": "Translates English Markdown documents to Japanese while preserving fenced and inline code verbatim, using two code nodes to mask/restore code around one LLM translation.",
+    "tags": [
+      "translation",
+      "document",
+      "code",
+      "llm",
+      "template-transform"
+    ],
+    "when_to_use": "When the user wants to translate technical Markdown from English to Japanese without corrupting code blocks or identifiers.",
+    "gotchas": "Curated, current-DSL (0.6.0) example, copy-paste-ready; the LLM model provider/name are intentionally blank — set them to an installed model in your workspace.",
+    "orig_sha256": "f8f4f8341af1cd4cefba9330a354a305df9d78c36982d7d76328ad935d8f23e6"
+  },
+  "library/seo-slug-generator.yml": {
+    "summary_en": "Converts a title or long content into a concise, SEO-friendly English URL slug (<=60 chars) via a single LLM node.",
+    "tags": [
+      "seo",
+      "content-generation",
+      "llm",
+      "utility"
+    ],
+    "when_to_use": "When the user needs to turn a page title or article text into a clean lowercase hyphenated URL slug.",
+    "gotchas": "Curated, current-DSL (0.6.0) template, copy-paste-ready; the LLM model provider/name are intentionally blanked — set them to a model installed in your workspace.",
+    "orig_sha256": "14801a2829b93374357209fd9c645e5088a8933540c383ed9490b47303979034"
+  },
+  "patterns/agent-with-tools.yml": {
+    "summary_en": "A ReAct-style Agent node takes a user query, calls registered plugin tools to gather what it needs, and returns a synthesized answer.",
+    "tags": [
+      "agent",
+      "reasoning",
+      "automation",
+      "tool",
+      "llm"
+    ],
+    "when_to_use": "When the user wants an autonomous agent that decides which tools to call to answer an open-ended query.",
+    "gotchas": "Skeleton ships with empty model and empty tools list plus empty dependencies[]; register plugin tools and pick a strong tool-use model before it runs. Curated pattern — copy-paste-ready seed for this shape.",
+    "orig_sha256": "b8ef33da4a1b7ea890bd461df177e3826437c38bf42dfea5fe5459d125a892b5"
+  },
+  "patterns/file-iteration.yml": {
+    "summary_en": "Upload a structured file, extract its text, split it into items, process each item in a parallel iteration, then aggregate the per-item results into one output.",
+    "tags": [
+      "data-processing",
+      "automation",
+      "file-input",
+      "document",
+      "code",
+      "iteration"
+    ],
+    "when_to_use": "When the user wants to upload a CSV/JSON/text file and run the same per-row processing over every item, then collect the results.",
+    "gotchas": "The per-item processor is a passthrough Code node — swap it for LLM/HTTP/Tool. Iteration is capped at 30 items; tune parallel_nums to your API limits. Curated pattern — copy-paste-ready seed for this shape.",
+    "orig_sha256": "16439e0c68a02b33f7b49874cb730813eb9322e3ea8af83833c0df8230dde950"
+  },
+  "patterns/file-to-llm.yml": {
+    "summary_en": "Upload one file, extract its text with a document extractor, run a single LLM call over it, and return the result.",
+    "tags": [
+      "summarization",
+      "content-generation",
+      "document",
+      "file-input",
+      "llm"
+    ],
+    "when_to_use": "When the user wants to do one LLM task (summarize, translate, classify, extract) over the text of a single uploaded file.",
+    "gotchas": "Model provider/name and the LLM dependency hash are blank — fill them from templates/tool-catalog.json before running. The system prompt is a placeholder that must be replaced with the real instruction. Curated pattern — copy-paste-ready seed for this shape.",
+    "orig_sha256": "2ac58827dcb2243ed169e70bbabd2f45e5c38f0c6a5521885a62d0f9057fa590"
+  },
+  "patterns/meta-workflow-builder.yml": {
+    "summary_en": "From a natural-language requirement, an LLM planner emits a JSON plan, a Code node renders it into a new Dify workflow YAML, and an HTTP request auto-imports the generated app into the local workspace.",
+    "tags": [
+      "automation",
+      "coding",
+      "content-generation",
+      "llm",
+      "code",
+      "http-request"
+    ],
+    "when_to_use": "When the user wants Dify to generate and auto-import a new workflow from a plain-language description of what it should do.",
+    "gotchas": "V1 only generates the file-to-llm shape; the Code node uses stdlib only (no yaml lib). Requires DIFY_CONSOLE_URL and a valid DIFY_CONSOLE_TOKEN bearer token in environment_variables. Curated pattern — copy-paste-ready seed for this shape.",
+    "orig_sha256": "8d9b668cd4cb09e9c41217a7f889503ff58bfd0f4581f5a4d6fbc2b543684adc"
+  },
+  "patterns/multi-step-llm.yml": {
+    "summary_en": "Chains three LLM calls where each output feeds the next — an initial generation, a critique, then a refinement — to produce a polished final result.",
+    "tags": [
+      "content-generation",
+      "translation",
+      "reasoning",
+      "llm"
+    ],
+    "when_to_use": "When the user wants an iterative generate-critique-refine LLM chain, such as translate-then-improve or outline-draft-polish.",
+    "gotchas": "All three model slots are blank placeholders — configure provider/name (a cheaper model for critique, a stronger one for the final step). Curated pattern — copy-paste-ready seed for this shape.",
+    "orig_sha256": "0d0709c986dd4ed630390cb586cd720546eaa7d8f18eab49d73a807096c325f2"
+  },
+  "patterns/per-row-notify-excel.yml": {
+    "summary_en": "Operator uploads a rows Excel and a key-to-destination mapping Excel; the flow extracts and parses both in-flow, then for each row judges whether to act and POSTs an LLM-composed message to the mapped destination.",
+    "tags": [
+      "notify",
+      "automation",
+      "data-processing",
+      "file-input",
+      "iteration",
+      "code",
+      "if-else",
+      "llm",
+      "http-request"
+    ],
+    "when_to_use": "When the user has Excel files of rows and destinations and wants a per-row conditional notification sent to each matching row's destination.",
+    "gotchas": "Document extractor renders xlsx as a markdown table — cells with literal '|' split wrong; NAME_COL/TARGET_COL and the judge rule must match your sheet. Iteration is capped at 30 items and the flow is NOT idempotent (re-runs re-notify). Curated pattern — copy-paste-ready seed for this shape.",
+    "orig_sha256": "6dd6fe3740834fbb155d54d5b40851a80895d59d297cba7d413cafeb67cd18ee"
+  },
+  "patterns/per-row-notify.yml": {
+    "summary_en": "Takes a JSON rows array, a destination map, and a run date, iterates each row to judge whether to act, and POSTs an LLM-composed message to the per-row destination, aggregating the results.",
+    "tags": [
+      "notify",
+      "automation",
+      "data-processing",
+      "iteration",
+      "code",
+      "if-else",
+      "llm",
+      "http-request"
+    ],
+    "when_to_use": "When the user has a list of rows plus a destination map and wants a per-row conditional notification dispatched to each matching row's endpoint.",
+    "gotchas": "Pass `today` in from the caller — in-sandbox dates drift with timezone. Custom-header services need authorization no-auth with the token in headers via an env secret. Not idempotent — re-runs re-notify. Curated pattern — copy-paste-ready seed for this shape.",
+    "orig_sha256": "891c4d71ad510cca605785bff98b9d575a87d0a5a843ab3633fccbafbfddcbd7"
+  },
+  "patterns/rag-qa.yml": {
+    "summary_en": "Answers a user question grounded in a knowledge base: a knowledge-retrieval node fetches relevant chunks and an LLM composes a cited answer from that context.",
+    "tags": [
+      "rag",
+      "search",
+      "summarization",
+      "knowledge-retrieval",
+      "llm"
+    ],
+    "when_to_use": "When the user wants questions answered strictly from an uploaded knowledge base with citations and a no-answer fallback.",
+    "gotchas": "dataset_ids is empty — fill it with real dataset UUIDs from your workspace, and the LLM model slot is blank. Retrieval mode/top_k/reranking are defaults to tune. Curated pattern — copy-paste-ready seed for this shape.",
+    "orig_sha256": "2da8f6a2e3c3a9898c91466edd6c352406e9689c826c41f1f08f58877ef17da7"
+  },
+  "patterns/scheduled-fetch-notify.yml": {
+    "summary_en": "A schedule trigger fires on a cadence with no operator, GETs data over HTTP, defensively parses it, has an LLM compose a short notification, and POSTs it to a notify service.",
+    "tags": [
+      "notify",
+      "automation",
+      "summarization",
+      "schedule",
+      "trigger",
+      "http-request",
+      "code",
+      "llm"
+    ],
+    "when_to_use": "When the user wants a recurring, unattended report or reminder that fetches data and posts a summary notification by itself.",
+    "gotchas": "Schedule triggers default to UTC — set timezone (Asia/Tokyo) explicitly or a 9AM JST job fires at 18:00. Publishing alone won't fire it; enable the trigger in Dify Studio. At most one schedule trigger per workflow; every input must be machine-fetchable. Curated pattern — copy-paste-ready seed for this shape.",
+    "orig_sha256": "d1f2e3dbd3eddc7880d4c73726b2f3aaa515b6585fd53c42093993159192fba8"
+  },
+  "patterns/scheduled-tool-append.yml": {
+    "summary_en": "A schedule trigger fires unattended, GETs source data over HTTP, a Code node shapes rows, an LLM composes text, and a Dify marketplace tool (Google Sheets batch_update) writes the result into a real SaaS.",
+    "tags": [
+      "automation",
+      "notify",
+      "data-processing",
+      "schedule",
+      "trigger",
+      "http-request",
+      "code",
+      "llm",
+      "tool"
+    ],
+    "when_to_use": "When the user wants a recurring unattended job that lands data in a real service (spreadsheet, Slack, Notion) via a catalogued Dify tool.",
+    "gotchas": "dependencies[] is intentionally filled and must stay filled — with an empty array the tool node fails silently at runtime. Tool node uses provider_type builtin with the full 3-segment provider_name doubled from provider_id. Timezone must be explicit; enable the trigger in Studio; tool credentials remain the user's setup. Curated pattern — copy-paste-ready seed for this shape.",
+    "orig_sha256": "9ad8488263843ef2e80f1661f54eccb595156d87d551d1e14471d2bc7771aa07"
+  },
+  "patterns/webhook-per-row-notify.yml": {
+    "summary_en": "A webhook trigger receives a pushed batch (rows, id-map, today), a Code node parses and filters target rows resolving a destination each, then an iteration composes an LLM message per row and POSTs it, aggregating send counts.",
+    "tags": [
+      "notify",
+      "automation",
+      "data-processing",
+      "webhook",
+      "trigger",
+      "code",
+      "iteration",
+      "llm",
+      "http-request"
+    ],
+    "when_to_use": "When an external system pushes a batch of rows to Dify over a webhook and the user wants a per-row message sent to each row's resolved destination.",
+    "gotchas": "Webhook bodies arrive as strings — parse inside a Code node with try/except, never assume valid JSON. Pass `today` from the caller; custom auth headers need no-auth + env-secret token; iteration uses continue-on-error so failed rows drop from counts. Enable the trigger in Studio after import. Curated pattern — copy-paste-ready seed for this shape.",
+    "orig_sha256": "411663811776257e4315d10d27f176bfffcca2aac04efda750b1410edbf4867d"
+  },
+  "skill-assets/adoviser_bot.yml": {
+    "summary_en": "Classifies a task into one of three domains, generates domain-specific advice via parallel LLMs, formats it by manager/staff role with template-transform, and extracts priority/time/key-points with a parameter extractor.",
+    "tags": [
+      "reasoning",
+      "content-generation",
+      "llm",
+      "if-else",
+      "template-transform",
+      "tool"
+    ],
+    "when_to_use": "When the user wants role-aware task advice that is classified, formatted per position, and enriched with extracted structured fields.",
+    "gotchas": "Third-party reference example — read for shape, not a vetted template.",
+    "orig_sha256": "48c18188abe88f27b22d9dc98f9b3b4fd0368b3840f1948a0936a67eafbdbdf2"
+  },
+  "skill-assets/conditional_workflow.yml": {
+    "summary_en": "Routes a user query through an if-else branch to either a code-focused or general LLM, then merges both paths with a variable aggregator.",
+    "tags": [
+      "reasoning",
+      "chat",
+      "if-else",
+      "llm",
+      "utility"
+    ],
+    "when_to_use": "When the user wants to conditionally route a query to different LLM prompts based on its content and unify the outputs.",
+    "gotchas": "Third-party reference example — read for shape, not a vetted template.",
+    "orig_sha256": "7eebc7fe85150e131956718a4ecaca0f88ea8faa1cd2ec8545d6228fb0bd2243"
+  },
+  "skill-assets/error_handling_workflow.yml": {
+    "summary_en": "Parses JSON in a code node whose fail-branch routes errors to an LLM repair step and a retry code node, aggregating the success and recovered paths.",
+    "tags": [
+      "data-processing",
+      "json",
+      "code",
+      "llm",
+      "utility"
+    ],
+    "when_to_use": "When the user wants a workflow that catches a failing code step and recovers via an LLM-driven retry instead of aborting.",
+    "gotchas": "Third-party reference example — read for shape, not a vetted template.",
+    "orig_sha256": "4e2619549b84c9bb6bb88e95054c3f48657d20b0d94ffa58c96f9bc602881f40"
+  },
+  "skill-assets/manual_search.yml": {
+    "summary_en": "Classifies a question as Docker or Ubuntu, retrieves from the matching knowledge base, and generates a structured answer with an LLM (unclassifiable queries end early).",
+    "tags": [
+      "rag",
+      "search",
+      "knowledge-retrieval",
+      "llm",
+      "if-else"
+    ],
+    "when_to_use": "When the user wants a manual/documentation Q&A bot that routes questions to topic-specific knowledge bases before answering.",
+    "gotchas": "Third-party reference example — read for shape, not a vetted template.",
+    "orig_sha256": "8bc277f5c995edd17c5903bae26b91522e803aa4a06ff847255c31d4dd143ab9"
+  },
+  "skill-assets/simple_llm_workflow.yml": {
+    "summary_en": "A minimal start → LLM → end workflow that passes a user input to a single LLM and returns its text.",
+    "tags": [
+      "chat",
+      "llm",
+      "utility"
+    ],
+    "when_to_use": "When the user wants the simplest possible single-LLM workflow scaffold to start from.",
+    "gotchas": "Third-party reference example — read for shape, not a vetted template.",
+    "orig_sha256": "dfb656a945af2de85bae4a7602976b2568cea7cf53d23b5230b7a871966457ca"
+  }
+}

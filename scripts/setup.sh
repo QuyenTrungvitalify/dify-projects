@@ -10,6 +10,7 @@
 #   ./scripts/setup.sh --dify-tag 1.14.0  # pin Dify source to a specific tag
 #   ./scripts/setup.sh --skip-venv        # don't create .venv (use system Python)
 #   ./scripts/setup.sh --skip-clones      # don't re-clone skills/corpus/dify-src
+#   ./scripts/setup.sh --latest           # clone corpus at branch tip, skip the reproducibility pin
 #
 # Default --dify-tag is read from .dify-tag at repo root (fallback "main").
 # Idempotent — re-runs are safe (skips already-cloned repos and existing venv).
@@ -26,6 +27,7 @@ ROOT="$PWD"
 
 SKIP_VENV=false
 SKIP_CLONES=false
+USE_LATEST=false
 DIFY_TAG=""
 
 # Default tag from .dify-tag file at repo root, fallback "main"
@@ -38,9 +40,10 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --skip-venv)   SKIP_VENV=true; shift ;;
         --skip-clones) SKIP_CLONES=true; shift ;;
+        --latest)      USE_LATEST=true; shift ;;
         --dify-tag)    shift; DIFY_TAG="$1"; shift ;;
         --help|-h)
-            sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
             exit 0 ;;
         *) echo "Unknown arg: $1"; exit 1 ;;
     esac
@@ -202,9 +205,40 @@ fi
 # ---------------------------------------------------------------------------
 # 4. Rebuild INDEX.md + regenerate VS Code yaml.schemas mapping
 # ---------------------------------------------------------------------------
-bold "[4/5] Rebuilding template index & VS Code settings"
+bold "[4/5] Pinning corpus to lockfile & rebuilding index"
 PY="python3"
 [ -x .venv/bin/python ] && PY=".venv/bin/python"
+
+# Reproducibility pin (spec 077 C1). The corpus was cloned at the branch tip in step [2/5], BEFORE the
+# venv existed — so the SHA pin CANNOT run there (the lock is JSON, read only by Python). It runs HERE,
+# post-venv: for each source with a recorded SHA, fetch that commit shallowly and check it out, so a
+# fresh clone rebuilds the EXACT corpus the lock froze. `ref` in sources.yml stays a branch (used for
+# the clone); the lock carries the SHA, fetched separately. --latest or --skip-clones skips the pin.
+if [ "$SKIP_CLONES" = false ] && [ "$USE_LATEST" = false ] && [ -f "$ROOT/corpus/sources.yml" ]; then
+    while IFS='|' read -r name repo ref sparse glob license; do
+        [ -z "$name" ] && continue
+        dir="$ROOT/corpus/$name"
+        branch="${ref:-main}"
+        [ -d "$dir/.git" ] || continue
+        sha="$("$PY" "$ROOT/tools/dify_base/sources_admin.py" lock-read --name "$name" 2>/dev/null || true)"
+        if [ -z "$sha" ]; then
+            info "$name: no lockfile entry — leaving at $branch tip"
+            continue
+        fi
+        cur="$(git -C "$dir" rev-parse HEAD 2>/dev/null || true)"
+        if [ "$cur" = "$sha" ]; then
+            ok "$name: at locked ${sha:0:10}"
+        elif git -C "$dir" fetch --depth=1 origin "$sha" >/dev/null 2>&1 \
+                && git -C "$dir" checkout --quiet --detach FETCH_HEAD >/dev/null 2>&1; then
+            ok "$name: pinned to ${sha:0:10}"
+        else
+            warn "$name: locked SHA ${sha:0:10} unreachable (force-push/GC or offline) — staying at $branch tip"
+        fi
+    done < <(sources_list "$ROOT/corpus/sources.yml")
+elif [ "$USE_LATEST" = true ]; then
+    info "corpus left at branch tip (--latest); run scripts/update_corpus.sh to refresh the lockfile"
+fi
+
 "$PY" tools/dify_base/build_index.py 2>&1 | grep -E "Wrote" | sed 's/^/  /'
 
 if [ -f scripts/regen_vscode_settings.py ]; then

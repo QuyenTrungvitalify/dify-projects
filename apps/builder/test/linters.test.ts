@@ -134,7 +134,18 @@ describe('cross-consumer identity (③ post-turn vs ④ report)', () => {
     writeFileSync(recordFile, '');
     const task = await createTask(dir, { requirement: 'x', project: PROJECT, slug: SLUG, deploy: 'none' });
     await runReport(dir, task, log);
-    const reportScripts = sorted(recorded());
+    // Spec 078 S2: on a from-scratch, lint-clean build ④ ALSO runs the advisory promote-nudge
+    // catalog check — a sibling of the linters, never one of them. Split the record so the linter
+    // identity stays exact AND any OTHER non-linter call is still drift (the catalog call is the
+    // one sanctioned extra; this fixture is exactly the from-scratch+clean shape that triggers it).
+    const linterSet = new Set(LINTERS.map((l) => l.script));
+    const reportRaw = recorded();
+    const reportScripts = sorted(reportRaw.filter((s) => linterSet.has(s)));
+    assert.deepEqual(
+      reportRaw.filter((s) => !linterSet.has(s)),
+      ['tools/dify_base/catalog.py'],
+      '④ non-linter python = the promote-nudge catalog check ONLY (spec 078 S2)'
+    );
 
     assert.deepEqual(postTurnScripts, expected, '③ runs exactly the LINTERS set');
     assert.deepEqual(reportScripts, expected, '④ runs exactly the LINTERS set');

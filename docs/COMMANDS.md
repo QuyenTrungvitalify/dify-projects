@@ -14,6 +14,7 @@ này là bản đồ để biết cái gì tồn tại. Chi tiết từng cái �
 | `/spec-close` | **Đóng (xoá) một spec đã ship** mà không mất tri thức | khi một spec trong `docs/specs/` đã làm xong | **[docs/specs/README.md](specs/README.md)** (`/spec-close <số>`) |
 | `/template-promote` | Đưa một mẫu corpus thành template chuẩn có provenance | thêm một pattern nhà-làm | skill body |
 | `/corpus-update` | Cập nhật corpus clone (workflow Dify thật) + rebuild INDEX | làm mới kho đề tài / mẫu | skill body |
+| `/scout` | **Săn nguồn workflow ngoài** một-lần-nhấn: delta search GitHub → vet license + fingerprint → bảng digest, người quyết từng dòng | lâu lâu muốn "đi thu thập" mẫu mới (spec 078 S3) | skill body |
 
 ## Vòng đời test một đợt (`/campaign` — hay dùng nhất)
 

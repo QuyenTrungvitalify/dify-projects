@@ -9,6 +9,9 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ClaudeSession, type SessionLogger } from '../server/lib/claude-session.js';
 
 const log = { info() {}, warn() {}, error() {} } as unknown as SessionLogger;
@@ -95,5 +98,75 @@ describe('ClaudeSession resolves a pending turn on kill (cancel lock-leak fix)',
     sess.kill();
     assert.equal(exits, 1);
     child.kill('SIGKILL');
+  });
+});
+
+/**
+ * Spawn flags + child env — the load-bearing §F/§J guarantee (spec 009 Lát 5 Task 8 / 015 D1 / 033 D3):
+ * the exact headless argv (resume BEFORE the prompt flags), NO `DIFY_*` or `CLAUDE_CODE*`/`CLAUDECODE`
+ * in the child env (the token must never enter a generating turn), `BUILDER_TASK_ID` injected, and
+ * `BUILDER_ASK_MODE=1` ONLY for an Ask turn. Driven through a real spawn: a fake `claude` first on
+ * PATH records its argv + env (and drains stdin so the prompt write can't EPIPE), then exits.
+ */
+describe('ClaudeSession spawn flags + child env (§F/§J token strip / 033 D3)', () => {
+  test('argv is the pinned headless flag set; DIFY_*/CLAUDE_CODE* stripped; BUILDER_TASK_ID set; ASK_MODE only for Ask', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fake-claude-'));
+    writeFileSync(
+      join(dir, 'claude'),
+      `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/args.txt"\nenv > "${dir}/env.txt"\ncat > /dev/null\nexit 0\n`,
+      { mode: 0o755 }
+    );
+    const saved = {
+      PATH: process.env.PATH,
+      DIFY_CONSOLE_TOKEN: process.env.DIFY_CONSOLE_TOKEN,
+      CLAUDE_CODE_X: process.env.CLAUDE_CODE_X,
+      CLAUDECODE: process.env.CLAUDECODE,
+    };
+    process.env.PATH = `${dir}:${saved.PATH}`;
+    process.env.DIFY_CONSOLE_TOKEN = 'tok-must-never-enter-a-turn';
+    process.env.CLAUDE_CODE_X = 'nested-context';
+    process.env.CLAUDECODE = '1';
+    const runToExit = (sess: ClaudeSession, prompt: string): Promise<void> =>
+      new Promise((resolve) => {
+        sess.onExit = () => resolve();
+        void sess.spawn(prompt);
+      });
+    try {
+      // A phase /reply turn (resume set) — argv order matters: --resume precedes the prompt flags.
+      const phase = new ClaudeSession('t', {
+        taskId: '1750000000000', workingDir: dir, settingsPath: '/abs/headless-settings.json', log,
+        resumeSessionId: 'sess-1',
+      });
+      await runToExit(phase, 'hello');
+      const args = readFileSync(join(dir, 'args.txt'), 'utf8').trim().split('\n');
+      assert.deepEqual(args, [
+        '--resume', 'sess-1',
+        '--output-format', 'stream-json', '--verbose',
+        '--permission-mode', 'acceptEdits',
+        '--settings', '/abs/headless-settings.json',
+        '--setting-sources', 'local',
+      ], 'the exact headless argv — no more, no fewer, resume first');
+      const env1 = readFileSync(join(dir, 'env.txt'), 'utf8');
+      assert.ok(!/^DIFY_/m.test(env1), 'no DIFY_* reaches a turn — the token-strip guarantee');
+      assert.ok(!/^CLAUDE_CODE/m.test(env1) && !/^CLAUDECODE=/m.test(env1), 'no nested Claude Code context');
+      assert.match(env1, /^BUILDER_TASK_ID=1750000000000$/m, 'the hook learns which run dir is "self"');
+      assert.ok(!/^BUILDER_ASK_MODE=/m.test(env1), 'a phase turn NEVER sets ASK_MODE');
+
+      // An Ask turn — same strip, plus the layer-1 write-deny switch.
+      const ask = new ClaudeSession('t2', {
+        taskId: '1750000000001', workingDir: dir, settingsPath: '/abs/headless-settings.json', log,
+        askMode: true,
+      });
+      await runToExit(ask, 'question');
+      const env2 = readFileSync(join(dir, 'env.txt'), 'utf8');
+      assert.match(env2, /^BUILDER_ASK_MODE=1$/m, 'an Ask turn arms the hook write-deny');
+      assert.ok(!/^DIFY_/m.test(env2), 'the strip holds for Ask turns too');
+    } finally {
+      process.env.PATH = saved.PATH;
+      for (const [k, v] of Object.entries({ DIFY_CONSOLE_TOKEN: saved.DIFY_CONSOLE_TOKEN, CLAUDE_CODE_X: saved.CLAUDE_CODE_X, CLAUDECODE: saved.CLAUDECODE })) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
   });
 });

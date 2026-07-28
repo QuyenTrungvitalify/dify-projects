@@ -199,6 +199,26 @@
     - "Requires a base workflow; set project to an existing slug before firing (OQ2 — --project only)"
     - "each_step: review each gate artifact before confirming"
 
+- id: code-preserve-translate
+  # spec 076 E2b — the intent-search win, pinned. Before E2b, phase ① ran only `find.py --has`, missed
+  # the curated example/main.yml (md_en2ja: mask/restore code with two code nodes), and built a bare
+  # start→llm→end that silently corrupts fenced/inline code. E2b adds an intent `find.py --name` pass
+  # that surfaces example/main.yml, and the build reproduces the mask→translate→restore shape. A
+  # regression to single-LLM drops the code nodes → features_include:[code] + `type: code` AUTO-FAIL.
+  # (Validated: run 1785076663337 built start→code→llm→code→end, lint 0/0/0.)
+  prompt: Dịch một tài liệu markdown tiếng Anh sang tiếng Nhật, giữ nguyên các đoạn code.
+  mode: auto
+  deploy: none
+  expect:
+    analyze:
+      features_include: [code, llm]
+    workflow:
+      grep_present: ["type: code", "type: llm"]
+  manual:
+    - "Shape: expect mask → translate → restore (two code nodes around the LLM), the example/main.yml pattern"
+    - "Language sync: digest + SPEC in Vietnamese (matches the prompt)"
+    - "Runtime: with a model filled, fenced/inline code survives translation verbatim"
+
 - id: lang-sync-vi
   prompt: Tạo workflow nhận vào một đoạn văn tiếng Việt và tóm tắt thành 3 câu.
   mode: auto

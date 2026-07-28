@@ -1,7 +1,8 @@
 /**
- * linters.ts — the SINGLE source of truth for the 3-linter contract (spec 013 D1, fixes C1).
+ * linters.ts — the SINGLE source of truth for the linter contract (spec 013 D1, fixes C1;
+ * widened to 4 entries by spec 038 P3).
  *
- * The builder's "did this workflow pass?" verdict runs the SAME three linters in three places —
+ * The builder's "did this workflow pass?" verdict runs the SAME linter set in three places —
  * the Phase ③ post-turn gate (post-turn.ts), the Phase ④ report re-run (report.ts), and the
  * Implement success/still-failing resolve (orchestrator verifyPhase). Before 013 the list and the
  * "all three clean" test were hand-copied in each, and had already drifted (a -6 vs -4 detail

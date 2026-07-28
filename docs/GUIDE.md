@@ -188,8 +188,10 @@ Documentation team-specific. Hiện có:
 - `GUIDE.md` (file này) — operations guide
 - `architecture.md`, `plugin-capabilities.md`, `runtime-supplement.md`, `linter-candidates.md`
 - `project-overview-vi.md` / `project-overview-ja.md` — tổng quan cho người mới / bản thuyết trình JA
-- `design/` — design docs
-- `specs/` — spec đánh số 001–055 + `prompts/`
+- `state/` — bộ doc **hiện trạng hệ thống** (build-lifecycle, turn-and-sandbox, dify-io, …)
+- `specs/` — chỉ spec **đang mở** (mới từ 071; specs 001–067 đã hoàn thành và retire —
+  xem `git show ca5e39e:docs/specs/`)
+- `prompts/` — 12 prompt test giọng người dùng (P01–P12)
 
 ---
 
@@ -234,7 +236,7 @@ python3 tools/dify_base/find.py --has iteration --full      # Show full info
 **Available features** (cho `--has` / `--no`): `iteration, loop, code, llm, http-request, tool, if-else, document-extractor, knowledge-retrieval, agent, file-input, template-transform, parameter-extractor`
 
 **Thứ tự ưu tiên khi pick reference**:
-1. `templates/patterns/` — 9 base patterns đã build cho workspace
+1. `templates/patterns/` — 10 base patterns đã build cho workspace
 2. `templates/library/` — template curated đã promote, có header x-provenance (spec 022)
 3. `projects/*/*/workflows/` — workflow đã có trong project của bạn
 4. `corpus/` — community examples
@@ -257,9 +259,11 @@ Note: Cho Iteration node, **iteration-start node ID** = `<iteration_id>start` (v
 
 ### Bước 4: Build YAML
 
-Copy pattern reference vào file mới:
+Scaffold 2 tầng trước nếu chưa có project/workflow (spec 030 — xem AGENTS.md §3), rồi copy pattern
+vào workflow đích:
 ```bash
-cp templates/patterns/file-iteration.yml templates/<new_task>.yml
+.venv/bin/python tools/dify_base/init_project.py   # interactive; non-interactive: AGENTS.md §3
+cp templates/patterns/file-iteration.yml projects/<project>/<workflow>/workflows/main.yml
 # Hoặc copy từ corpus example
 ```
 
@@ -276,7 +280,7 @@ Edit:
 
 ```bash
 # Validate structure
-python3 tools/dify_base/validate_workflow.py templates/<new_task>.yml
+python3 tools/dify_base/validate_workflow.py projects/<project>/<workflow>/workflows/main.yml
 
 # Nếu PASS → import vào Dify khách → test với data thật
 # Nếu FAIL → đọc error, fix
@@ -347,7 +351,7 @@ python3 tools/dify_base/validate_workflow.py templates/<new_task>.yml
 |---|---|
 | DSL version | `0.6.0` — hiện tại từ Dify source (`api/services/app_dsl_service.py: CURRENT_DSL_VERSION`) |
 | Khi Dify update version | Re-run `python3 schemas/gen_schema.py` để regenerate JSON Schema; test 1 template với version mới trước khi migrate hàng loạt |
-| Plugin marketplace identifier | **Resolve** từ marketplace công khai (không cần login/cài): `GET https://marketplace.dify.ai/api/v1/plugins/<org>/<name>/<version>` → `unique_identifier`. Hash là checksum **toàn cục theo (plugin, version)**, KHÔNG phải workspace-specific — pin version vì hash đổi theo version. Workflow dùng plugin thì **bắt buộc** liệt kê trong `dependencies:`, nếu để rỗng thì Dify không hiện popup cài ([spec 067](specs/067-tool-nodes-are-buildable.md)) |
+| Plugin marketplace identifier | **Resolve** từ marketplace công khai (không cần login/cài): `GET https://marketplace.dify.ai/api/v1/plugins/<org>/<name>/<version>` → `unique_identifier`. Hash là checksum **toàn cục theo (plugin, version)**, KHÔNG phải workspace-specific — pin version vì hash đổi theo version. Workflow dùng plugin thì **bắt buộc** liệt kê trong `dependencies:`, nếu để rỗng thì Dify không hiện popup cài (spec 067 — retired, xem `git show ca5e39e:docs/specs/067-tool-nodes-are-buildable.md`) |
 
 ### 7.2 Naming
 
@@ -368,7 +372,11 @@ python3 tools/dify_base/validate_workflow.py templates/<new_task>.yml
 
 ### 7.4 Plugin set
 
-Plugin hash format: `<provider>/<plugin>:<version>@<sha256>`. Hash đổi theo plugin version → copy exact từ workflow đã export ra từ target workspace, đừng hard-code.
+Plugin hash format: `<provider>/<plugin>:<version>@<sha256>`. Hash là checksum **công khai của
+marketplace**, khoá theo (plugin, version) — **giống nhau ở mọi workspace**. Hash đổi theo version →
+**resolve** đúng version đang dùng (`.venv/bin/python tools/dify_base/marketplace.py resolve
+<org>/<plugin>/<version>`, hoặc lấy từ `templates/tool-catalog.json`) rồi pin, **không bịa** và không
+cần lấy gì từ workspace (xem §7.1 / AGENTS.md §4.3).
 
 Common plugins (đặt vào `dependencies:` của YAML khi cần):
 
@@ -524,7 +532,7 @@ Nếu có plugin đã cài (vd `langgenius/deepl` cho Translate API), dùng Tool
 
 ```bash
 python3 tools/dify_base/build_index.py
-python3 tools/dify_base/validate_workflow.py projects/<your>/workflows/main.yml
+python3 tools/dify_base/validate_workflow.py projects/<project>/<workflow>/workflows/main.yml
 
 # Test với 1-2 items trước khi run full để tránh tốn API quota
 DIFY_PROJECT=<your> .venv/bin/pytest tests/ -v

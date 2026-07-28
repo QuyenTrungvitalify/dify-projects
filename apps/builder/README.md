@@ -126,6 +126,11 @@ Analyze ①+② into one turn (skips the `find.py` pattern search) and still **s
 Off by default; auto-forced off for seed/edit/slug builds. Under `auto` confirm-mode a structural
 sanity-check hard-stops at the Spec gate if the merged draft turns out non-single-LLM.
 
+**Promote to pattern** (specs 050/052/070) — `POST /api/promote` distill một build đã chạy tốt
+(hoặc một YAML dán/upload ngoài) thành `templates/patterns/` qua gate đủ điều kiện → distill turn →
+re-lint → human Approve (đường ghi duy nhất vào kệ pattern). Chi tiết:
+`docs/state/templates-and-promotion.md`.
+
 ## Notes
 
 - Dify import **always creates a NEW app** — editing an existing workflow with `selfhost` produces a

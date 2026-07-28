@@ -11,17 +11,93 @@ Usage:
     python3 tools/dify_base/find.py --name translation
 """
 import json
+import os
+import math
+import re
 import argparse
 from pathlib import Path
 
-INDEX_PATH = Path(__file__).parent / "index.json"
+# Overridable so tests can point at a fixture index (spec 076 E2 — find.py's first ranking tests).
+INDEX_PATH = Path(os.environ.get("DIFY_INDEX_PATH") or (Path(__file__).parent / "index.json"))
 
 COMPLEXITY_ORDER = {"Simple": 0, "Medium": 1, "Complex": 2}
+
+# Spec 076 E2: precedence is LAW, not prose. The old sort tie-broke on the raw source string, so
+# `corpus:*` sorted BEFORE `patterns` (c < p) — the exact inversion INDEX.md/AGENTS.md warn against.
+# This maps each source to its documented precedence rank (patterns > library > project >
+# corpus:* > skill-assets), with the other curated workspace tiers (example/starter) slotted just
+# below project and above the read-only third-party clones.
+SOURCE_RANK = {"patterns": 0, "library": 1, "project": 2, "example": 3, "starter": 3, "skill-assets": 5}
+
+
+def source_rank(source):
+    """Precedence rank for a source tag (lower = preferred). corpus:* → 4; unknown → 8."""
+    if source in SOURCE_RANK:
+        return SOURCE_RANK[source]
+    if source.startswith("corpus"):
+        return 4
+    return 8
 
 
 def feature_key(name):
     """Normalize 'iteration' -> 'has_iteration', 'http-request' -> 'has_http_request'."""
     return f"has_{name.replace('-', '_')}"
+
+
+# ── Spec 076 E2: zero-dep BM25 relevance for `--name` ────────────────────────────────────────────
+# The A/B (docs/specs/076 §9) showed enrichment TEXT was right but substring `--name` couldn't cash it
+# in: "data analysis" ≠ tag "data-analysis", "chain of thought" ≠ "chain-of-thought", "repair json" ≠
+# "Repairs … JSON". Tokenizing (hyphens→spaces, lowercase) + BM25 over the enriched text fixes exactly
+# that, still pure-stdlib. IDF is computed over the WHOLE index so common words (llm/workflow) don't
+# dominate. A substring fallback guarantees `--name` never returns fewer hits than the old behavior.
+_WORD = re.compile(r"[a-z0-9]+")
+
+
+def _tokenize(text):
+    return _WORD.findall(text.lower())
+
+
+def _entry_text(e):
+    """The searchable text for one entry: enriched fields first, then raw name/description/file."""
+    file = e.get("file", "") or ""
+    if file.endswith(".yml"):
+        file = file[:-4]
+    return " ".join([
+        e.get("summary_en", "") or "",
+        " ".join(e.get("tags", []) or []),
+        e.get("name", "") or "",
+        e.get("description", "") or "",
+        file,
+    ])
+
+
+def _bm25_scorer(entries, k1=1.5, b=0.75):
+    """Build a BM25 score(query_tokens, doc_tokens) closure with IDF from the full entry set."""
+    docs = [_tokenize(_entry_text(e)) for e in entries]
+    n_docs = len(docs) or 1
+    avgdl = (sum(len(d) for d in docs) / n_docs) or 1.0
+    df = {}
+    for d in docs:
+        for t in set(d):
+            df[t] = df.get(t, 0) + 1
+    idf = {t: math.log(1 + (n_docs - n + 0.5) / (n + 0.5)) for t, n in df.items()}
+
+    def score(query_tokens, doc_tokens):
+        if not doc_tokens:
+            return 0.0
+        dl = len(doc_tokens)
+        tf = {}
+        for t in doc_tokens:
+            tf[t] = tf.get(t, 0) + 1
+        total = 0.0
+        for q in query_tokens:
+            f = tf.get(q, 0)
+            if not f or q not in idf:
+                continue
+            total += idf[q] * (f * (k1 + 1)) / (f + k1 * (1 - b + b * dl / avgdl))
+        return total
+
+    return score
 
 
 def main():
@@ -51,7 +127,7 @@ Sources: patterns, library, starter, example, corpus:<name>, skill-assets, proje
                         help="Filter by source. Namespace prefix-match: 'corpus' matches every "
                              "'corpus:<name>'; 'corpus:<name>' matches one. Plain tags "
                              "(patterns, library, project, …) match exactly.")
-    parser.add_argument("--name", help="Substring match in app name or description")
+    parser.add_argument("--name", help="Relevance search (BM25) over name/description/summary/tags")
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--full", action="store_true", help="Show full info per match")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
@@ -140,12 +216,32 @@ Sources: patterns, library, starter, example, corpus:<name>, skill-assets, proje
         # Namespace prefix-match: `--source corpus` matches every `corpus:<name>` tag, while
         # `--source corpus:<name>` (or a plain tag like `patterns`) matches exactly.
         results = [e for e in results if e['source'] == s or e['source'].startswith(s + ':')]
+    name_ranked = False
     if args.name:
-        q = args.name.lower()
-        results = [e for e in results
-                   if q in e['name'].lower() or q in e['description'].lower() or q in e['file'].lower()]
+        # Spec 076 E2: rank by BM25 over the enriched text (IDF from the whole index), so multi-word
+        # and hyphen-variant intent queries reach the right workflow — e.g. "data analysis" → the
+        # `data-analysis`-tagged chart_demo/matplotlib. Relevance leads; precedence is the tie-break.
+        score = _bm25_scorer(entries)
+        qtokens = _tokenize(args.name)
+        scored = [(score(qtokens, _tokenize(_entry_text(e))), e) for e in results]
+        scored = [(s, e) for s, e in scored if s > 0]
+        if scored:
+            scored.sort(key=lambda se: (-se[0], COMPLEXITY_ORDER.get(se[1]['complexity'], 9),
+                                        source_rank(se[1]['source']), se[1]['file']))
+            results = [e for _, e in scored]
+            name_ranked = True
+        else:
+            # Safety net — never return fewer hits than the old substring behavior (E1).
+            q = args.name.lower()
+            results = [e for e in results
+                       if q in e['name'].lower() or q in e['description'].lower() or q in e['file'].lower()
+                       or q in e.get('summary_en', '').lower()
+                       or any(q in t.lower() for t in e.get('tags', []))]
 
-    results.sort(key=lambda e: (COMPLEXITY_ORDER.get(e['complexity'], 9), e['source'], e['file']))
+    # Spec 076 E2: when not relevance-ranked, tie-break on precedence rank (patterns > library > … >
+    # corpus > skill-assets), not the raw source string — alphabet floated corpus above patterns.
+    if not name_ranked:
+        results.sort(key=lambda e: (COMPLEXITY_ORDER.get(e['complexity'], 9), source_rank(e['source']), e['file']))
 
     if args.json:
         print(json.dumps(results[:args.limit], ensure_ascii=False, indent=2))
@@ -169,6 +265,10 @@ Sources: patterns, library, starter, example, corpus:<name>, skill-assets, proje
             plugin_names = [p.split('/')[-1] for p in e['plugins']]
             print(f"            plugins: {', '.join(plugin_names)}")
         if args.full:
+            if e.get('summary_en'):  # spec 076 E1 — the English capability summary, when enriched
+                print(f"            summary: {e['summary_en'][:80]}")
+            if e.get('tags'):
+                print(f"            tags: {', '.join(e['tags'])}")
             if e['description']:
                 print(f"            desc: {e['description'][:80]}")
             if e['name']:

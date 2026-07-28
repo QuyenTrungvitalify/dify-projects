@@ -133,6 +133,10 @@ export interface WireTask {
   /** Spec 037 S1: the runnability preflight advisory (backend-computed, set/cleared per implement
    *  verify) — rendered leading the ③ gate card summary. Advisory only, never blocks. */
   preflightNote?: string;
+  /** Spec 078 S2: the self-harvest promote nudge (dev-surface ONLY — rendered in DevPanel under
+   *  devMode, never in the chat notes). Set at ④ when a from-scratch, lint-clean build proves a
+   *  shape absent from the curated shelf. */
+  promoteHint?: string;
   /** spec 028 §5: set when an `auto`+fast build's merged draft found a non-single-LLM shape — the
    *  auto-advance hard-stopped at the Spec gate; shown (leading) on the Spec gate card. */
   fastReviewNote?: string;

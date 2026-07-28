@@ -4,7 +4,9 @@
  *   • writePushIntent → readPushIntent round-trip + clear; corrupt/absent → null (never throws);
  *   • reconcilePushIntents NEVER re-pushes: a marker WITHOUT an appId whose id can't be reconciled
  *     (Dify list unavailable) is left appId:null and the task is annotated "check Dify" — it does
- *     not invent an id, and an already-resolved marker (appId set) is skipped untouched.
+ *     not invent an id, and an already-resolved marker (appId set) is skipped untouched;
+ *   • a SINGLE-match reconcile attaches the recovered id (marker write-back + task.appId +
+ *     the "recovered after a mid-import restart" note) — still without pushing.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -104,6 +106,21 @@ describe('reconcilePushIntents — reconcile, NEVER re-push (013 D3 / AC #25)', 
     const task = JSON.parse(readFileSync(join(runsDir(dir, '150'), 'task.json'), 'utf8'));
     assert.match(task.error, /[Vv]erify in Dify/, 'task annotated "ambiguous — verify in Dify"');
     assert.equal(task.appId ?? null, null, 'no app id attached');
+  });
+
+  test('marker without appId + SINGLE-match reconcile → id attached to marker + task, "recovered" note', async () => {
+    const dir = tmp();
+    await seedTask(dir, '175');
+    await writePushIntent(dir, '175', { project: 'p', workflowSlug: 'wf', file: 'main.yml', appName: 'App', appId: null });
+
+    // inject a reconcile that finds exactly ONE name match (the real path shells `sync.py list`).
+    await reconcilePushIntents(dir, log, async () => ({ appId: 'app-42', ambiguous: false }));
+
+    const marker = JSON.parse(readFileSync(markerPath(dir, '175'), 'utf8'));
+    assert.equal(marker.appId, 'app-42', 'recovered id written BACK into the marker (idempotency key resolved)');
+    const task = JSON.parse(readFileSync(join(runsDir(dir, '175'), 'task.json'), 'utf8'));
+    assert.equal(task.appId, 'app-42', 'recovered id attached to the task (the user sees the app)');
+    assert.match(task.error, /recovered after a mid-import restart.*app-42/, 'the "recovered" note names the id');
   });
 
   test('marker already resolved (appId set) is skipped untouched', async () => {

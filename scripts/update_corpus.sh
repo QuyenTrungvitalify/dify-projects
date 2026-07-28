@@ -14,17 +14,31 @@
 #   scripts/update_corpus.sh --check    # report per-source fresh/stale (no download)
 #
 # Idempotent: sources already up to date are skipped; if nothing changed, INDEX is left alone.
+#
+# Reproducibility (spec 077 C1): after each source lands on a SHA, that SHA is recorded in
+# corpus/sources.lock (tracked) via tools/dify_base/sources_admin.py — scripts/setup.sh replays it so
+# a fresh clone rebuilds the exact corpus. --check performs no writes (neither downloads nor lock).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SOURCES_YML="$ROOT/corpus/sources.yml"
 PY="$ROOT/.venv/bin/python"
+[ -x "$PY" ] || PY="python3"   # CI / no-venv fallback (spec 077 C3 runs this without a .venv)
 . "$ROOT/scripts/lib/sources.sh"
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 info() { printf '  \033[36m→\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
+
+# spec 077 C1 — record corpus/<name> pinned at a SHA. Written through the ONE Python surface
+# (sources_admin.py lock-write), never hand-rolled JSON in bash (that is the spec 075 S5 trap).
+# Idempotent on SHA, so calling it on an unchanged "fresh" source is a cheap no-op.
+write_lock() {  # $1=name $2=sha $3=ref
+    "$PY" "$ROOT/tools/dify_base/sources_admin.py" lock-write \
+        --name "$1" --sha "$2" --ref "$3" >/dev/null 2>&1 \
+        || warn "  could not write lock for $1 (venv/deps missing?) — reproducibility pin skipped"
+}
 
 [ -f "$SOURCES_YML" ] || { warn "no registry at $SOURCES_YML — run ./scripts/setup.sh first"; exit 1; }
 
@@ -65,6 +79,9 @@ while IFS='|' read -r name repo ref sparse glob license; do
 
     if [ "$local_head" = "$remote_head" ]; then
         ok "$name: fresh (${local_head:0:10})"
+        # Seed/refresh the lock even when nothing changed (idempotent on SHA), so a source that has
+        # never been updated still gets a reproducibility pin. Skipped under --check (no writes).
+        [ "$CHECK_ONLY" = false ] && write_lock "$name" "$local_head" "$branch"
         continue
     fi
 
@@ -75,7 +92,9 @@ while IFS='|' read -r name repo ref sparse glob license; do
     info "  fetch + reset to upstream (sparse preserved)…"
     git -C "$dir" fetch --depth=1 origin "$branch" >/dev/null 2>&1
     git -C "$dir" reset --hard FETCH_HEAD >/dev/null 2>&1
-    ok "  $name now at $(git -C "$dir" rev-parse --short HEAD)"
+    new_head="$(git -C "$dir" rev-parse HEAD)"
+    ok "  $name now at ${new_head:0:10}"
+    write_lock "$name" "$new_head" "$branch"   # spec 077 C1 — pin the new SHA for reproducibility
     after="$(cd "$dir" && find . -path ./.git -prune -o -name '*.yml' -print | sort)"
     added="$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") || true)"
     removed="$(comm -23 <(printf '%s\n' "$before") <(printf '%s\n' "$after") || true)"

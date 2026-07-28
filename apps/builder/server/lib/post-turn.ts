@@ -2,8 +2,8 @@
  * post-turn — the load-bearing verify for spec 009 Lát 1.
  *
  * Runs BOTH checks; NEVER trusts the turn's `result.is_error` alone (findings §4):
- *   (a) CORRECTNESS — yaml.safe_load (truncation) → 3 linters exit 0 → ^\d{13}$ node-id regex
- *                     → artifact non-empty.
+ *   (a) CORRECTNESS — yaml.safe_load (truncation) → every LINTERS entry exits 0 (linters.ts owns
+ *                     the set — don't count it here) → ^\d{13}$ node-id regex → artifact non-empty.
  *   (b) CONFINEMENT — git porcelain BASELINE-DELTA against a whitelist; any turn-introduced path
  *                     outside the whitelist is REVERTED (not just flagged — findings E2d / plan
  *                     Cross-cutting #3b), then status:error.
@@ -58,7 +58,8 @@ export interface PostTurnDetail {
   artifactOk: boolean;
   /** `yaml.safe_load` succeeded (false = truncated/corrupt → hard error, not a lint failure). */
   yamlOk: boolean;
-  /** the 3 linter exit codes (null when the artifact was missing/empty so they never ran). */
+  /** the linter exit codes — one per linters.ts LINTERS entry (null when the artifact was
+   *  missing/empty so they never ran). */
   lintCodes: LintCodes | null;
   /** every node id matched `^\d{13}(start)?$` (13-digit, or an iteration/loop-start child `<id>start`). */
   idsOk: boolean;

@@ -1,0 +1,115 @@
+name: sync-corpus
+
+# Spec 077 C3 — weekly corpus freshness. Mirrors refresh-schema.yml: on a schedule, fetch each
+# registry source to its upstream tip, re-pin corpus/sources.lock (spec 077 C1), rebuild INDEX.md,
+# and — only if something changed — open a PR for a human to review. NEVER auto-merges: a corpus
+# refresh can change the indexed file count, which the drift suite (test_docs_drift.py) gates against
+# the README "~N template" headline, so a person must reconcile that headline in the PR.
+
+on:
+  schedule:
+    - cron: '0 9 * * MON'   # Monday 9am UTC (same cadence as refresh-schema; 1 source rarely moves)
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv + deps
+        run: |
+          pip install uv
+          uv pip install --system -r requirements.txt
+
+      - name: Check for existing open corpus-sync PR
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          existing=$(gh pr list --search "is:open head:corpus-sync-" --json number --jq '.[].number' | head -1)
+          if [ -n "$existing" ]; then
+            echo "open=true" >> "$GITHUB_OUTPUT"
+            echo "Found existing PR #$existing — skipping."
+          else
+            echo "open=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Clone corpus sources at branch tip
+        if: steps.existing.outputs.open != 'true'
+        run: |
+          . scripts/lib/sources.sh
+          while IFS='|' read -r name repo ref sparse glob license; do
+            [ -z "$name" ] && continue
+            dir="corpus/$name"
+            [ -d "$dir/.git" ] && continue
+            git clone --depth=1 --branch "${ref:-main}" --filter=blob:none --sparse "$repo" "$dir"
+            git -C "$dir" sparse-checkout set --cone $(printf '%s' "$sparse" | tr ',' ' ')
+          done < <(sources_list corpus/sources.yml)
+
+      - name: Sync corpus → re-pin lockfile → rebuild INDEX
+        if: steps.existing.outputs.open != 'true'
+        run: ./scripts/update_corpus.sh --all
+
+      - name: Diff check
+        if: steps.existing.outputs.open != 'true'
+        id: changed
+        run: |
+          if git diff --quiet corpus/sources.lock INDEX.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Spec 079 S2 — advisory-only reports for the PR body. Gated on changed=true because when
+      # nothing updated, update_corpus.sh exits early WITHOUT rebuilding the (gitignored)
+      # index.json that enrich.py needs — and no PR is opened anyway. `|| true` on both: these
+      # must never fail the workflow. Raw CLI output goes in verbatim (fenced) — a clean run
+      # prints its own "✓ … complete and current" line, so the reviewer never has to guess
+      # whether the check ran.
+      - name: Advisory reports (enrichment gap + provenance)
+        if: steps.changed.outputs.changed == 'true'
+        id: advisory
+        run: |
+          {
+            echo 'report<<ADVISORY_EOF'
+            echo '### Enrichment gaps (advisory)'
+            echo '```'
+            python3 tools/dify_base/enrich.py --check || true
+            echo '```'
+            echo '### Provenance staleness (advisory)'
+            echo '```'
+            python3 tools/dify_base/check_provenance.py || true
+            echo '```'
+            echo 'ADVISORY_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open PR
+        if: steps.changed.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          title: "corpus: weekly sync + re-pin lockfile"
+          body: |
+            Auto-generated weekly corpus refresh (spec 077 C3).
+
+            Upstream moved; `corpus/sources.lock` was re-pinned and `INDEX.md` rebuilt.
+
+            **Reviewer checklist**:
+            - [ ] If the indexed file count changed, update the README "~N template" headline to match
+                  INDEX (else `test_docs_drift.py::test_readme_corpus_count_matches_index` fails)
+            - [ ] Skim the INDEX diff for anything unexpected (removed/renamed workflows)
+
+            ${{ steps.advisory.outputs.report }}
+          branch: corpus-sync-${{ github.run_id }}
+          commit-message: "corpus: weekly sync + re-pin lockfile (spec 077 C3)"
+          add-paths: |
+            corpus/sources.lock
+            INDEX.md
+          delete-branch: true

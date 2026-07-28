@@ -15,5 +15,19 @@
       "Grep",
       "WebSearch"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /Users/quyenbt/Desktop/MyProjects/claude-nexus/dist/hooks/permission-gate.js",
+            "timeout": 1860
+          }
+        ]
+      }
+    ]
   }
 }

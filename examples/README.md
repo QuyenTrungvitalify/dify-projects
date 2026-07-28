@@ -18,8 +18,9 @@ Use these to:
 
 ## Conventions
 
-Each example follows the standard project layout (same as `init_project.py`
-scaffolds):
+Each example is a self-contained legacy single-tier layout (kept as-is for one-command import).
+Note: `init_project.py` now scaffolds the **2-tier** `projects/<project>/<workflow>/` layout
+(spec 030) — the tree below is this example's own shape, not what the scaffolder produces today:
 
 ```
 examples/<slug>/
@@ -55,23 +56,25 @@ cat examples/md_en2ja/workflows/main.yml
 # 4. Customize: model.provider + model.name + plugin hash for YOUR workspace
 #    (see AGENTS.md §4.3 "How to obtain a real plugin hash")
 
-# 5. Optional — copy as starting point for a new project of yours
+# 5. Optional — copy as starting point for a new project of yours (2-tier, spec 030)
 .venv/bin/python tools/dify_base/init_project.py \
-    --non-interactive --name "My Variant" --slug my_variant
-cp examples/md_en2ja/workflows/main.yml projects/my_variant/workflows/main.yml
+    --non-interactive --kind project --name "My Variant" --slug my_variant
+.venv/bin/python tools/dify_base/init_project.py \
+    --non-interactive --kind workflow --project my_variant --name "Main" --slug main
+cp examples/md_en2ja/workflows/main.yml projects/my_variant/main/workflows/main.yml
 # Then edit prompts / model / etc.
 ```
 
 ## Adding a new example
 
-Examples grow organically from real work — promote a `projects/<slug>/` that:
+Examples grow organically from real work — promote a `projects/<project>/<workflow>/` that:
 1. Has reusable patterns or non-trivial techniques (mask/restore, etc.)
 2. Passes all validation hooks
 3. Has no client-specific data (sanitize before promoting)
 
 ```bash
-# Move (preserve git history)
-git mv projects/<slug>/ examples/<slug>/
+# Move (preserve git history; flatten the workflow tier into the example slug)
+git mv projects/<project>/<workflow>/ examples/<slug>/
 # Add an entry to this README index
 ```
 

@@ -78,6 +78,14 @@ export function DevPanel({ task }: { task: WireTask }) {
         ) : (
           <div className="dev-empty">no per-phase cost yet (phase in progress, or pre-059 build)</div>
         ))}
+      {/* spec 078 S2 — the self-harvest promote nudge. Dev-surface by construction: this panel only
+          mounts under devMode (App.tsx), and the hint is a separate wire field, never a chat note. */}
+      {!collapsed && task.promoteHint && (
+        <div className="dev-diag dev-diag--balanced">
+          <span className="dev-diag-tag">promote</span>
+          <span className="dev-diag-lever">{task.promoteHint}</span>
+        </div>
+      )}
       {!collapsed && diag && (
         <div className={`dev-diag dev-diag--${diag.balanced ? 'balanced' : diag.cause}`}>
           <span className="dev-diag-tag">hint</span>

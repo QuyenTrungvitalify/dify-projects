@@ -371,6 +371,15 @@ def test_comprehension_catches_ja_katakana_jargon():
     assert any(r["bucket"] == "AUTO-FAIL" for r in rows), rows
 
 
+def test_comprehension_flags_promote_nudge_leak():
+    # spec 078 S2 regression lock: the promote nudge lives on report.promote_hint (devMode-only);
+    # its wording-stable phrase inside the userview means someone rerouted it through notes.
+    leaked = "Build này chứng minh một shape chưa có trên kệ mẫu (`agent:1|end:1|start:1/e:2`). Promote?"
+    rows = ec.evaluate_comprehension(leaked)
+    fails = [r for r in rows if r["bucket"] == "AUTO-FAIL"]
+    assert any("promote-nudge" in r["check"] for r in fails), rows
+
+
 # impl-review fixes — empty→MANUAL (no false green), word boundaries, leaked patterns.
 def test_comprehension_empty_is_manual_not_false_pass():
     rows = ec.evaluate_comprehension("")

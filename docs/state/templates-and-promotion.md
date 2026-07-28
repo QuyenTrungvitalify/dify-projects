@@ -4,8 +4,29 @@ Cái kệ mẫu có những tầng nào, cái gì tìm ra chúng, và một th�
 
 Phạm vi: `templates/patterns/` · `templates/library/` · `templates/_base/` · `templates/probes/` ·
 `promote.ts` · `promote_gate.py` · `provenance.py` · `check_provenance.py` · `build_index.py` ·
-`sources.py` · `find.py` · `corpus/sources.yml` · `INDEX.md` · `tools/dify_base/index.json` ·
-`THIRD_PARTY.md`.
+`sources.py` · `sources_admin.py` · `find.py` · `enrich.py` · `catalog.py` · `promote-hint.ts` ·
+`corpus/sources.yml` · `INDEX.md` · `tools/dify_base/index.json` · `tools/dify_base/enrichment.json` ·
+`tools/dify_base/collected.json` · `THIRD_PARTY.md`.
+
+> **Tầng enrichment (spec 076 E1).** `enrich.py` quản lý `enrichment.json` — metadata tiếng Anh do LLM
+> sinh offline (`summary_en`/`tags`/`when_to_use`/`gotchas`), keyed `source/file` + `orig_sha256`. Là
+> **tri thức phái sinh, tracked, tách khỏi corpus read-only**; `build_index.py` merge vào `index.json`
+> lúc build (degrade khi thiếu, cảnh báo khi `orig_sha256` lệch). `find.py --name` tra cả trường
+> enriched, và tie-break sort theo precedence-rank (`patterns > library > project > corpus:* > skill-assets`).
+
+> **Trí nhớ thu thập + nudge tự-gặt (spec 078 S1/S2).** `catalog.py` quản lý `collected.json` —
+> fingerprint shape (multiset node-type + số edge **sau** khi bỏ helper-node, ví dụ
+> `agent:1|end:1|start:1/e:2`, bất biến qua đổi tên/dịch prompt) + trí nhớ quyết định săn
+> (`record`/`hunt-log`, skill `/scout` điều phối). Luật cứng: `dup` CHỈ theo sha256; trùng
+> fingerprint là `near-dup` (shape <4 node = tín hiệu yếu — nhiều workflow hợp lệ cùng shape, khác
+> prompt). `seed` dựng shelf-set từ đúng các scan-root của `build_index` (mirror cả gitignore-filter
+> `projects/`); ghi `collected.json` chỉ qua `catalog.py` (turn bị deny bởi `Write(tools/**)`).
+> Nudge ④: `promote-hint.ts` (report.ts gọi) chạy `catalog.py check --shelf` — parse **LIVE**
+> `patterns`+`library`, KHÔNG đọc seed (self-quench sau promote) — và khi verdict `new` + build
+> from-scratch (`workflow===null && seedPath===null`) + lint-sạch + ≥4 node thì ghi field
+> **dev-only** `report.promote_hint`/`task.promoteHint` (DevPanel render dưới `devMode`) — không
+> bao giờ vào `notes` (userview có regression lock trong `e2e_check.py`). Nudge chỉ *trỏ* nút
+> Promote sẵn có, không thêm đường ghi kệ.
 
 Nằm cạnh nhưng **không** thuộc doc này — chỉ trỏ sang:
 
@@ -333,10 +354,21 @@ hỏng bootstrap. Một schema, hai parser (`sources.py` cho Python, `sources.sh
 `CC0-1.0` · `CC-BY-4.0`. Lý do allowlist: template promoted là **tác phẩm phái sinh** (đã dịch + migrate
 DSL), nên copyleft/non-commercial không redistribute được.
 
-**`validate()` không nằm trên đường chạy.** `load_sources()` **không** gọi nó; `build_index.py` và
-`check_provenance.py` cũng không. Nó chỉ chạy trong `sources.py` khi gọi CLI không kèm `--list`, và
-trong `test_registry_is_clean_and_permissive`. Một license non-permissive thêm vào registry vẫn được
-clone và index bình thường — test là thứ duy nhất chặn.
+**`validate()` giờ CÓ trên đường chạy (spec 075 S3).** `load_sources()` vẫn **không** gọi nó (parse
+thuần), nhưng `build_index.py main()` — sau khi venv tồn tại — nay tách `validate` làm hai: license
+non-permissive → **block** (exit ≠ 0, không ghi index); thiếu field bắt buộc → **warn**, build vẫn chạy.
+`check_provenance.py` vẫn không gọi. Bootstrap của `setup.sh` (trước venv) **không đổi** — gate nằm ở
+bước build_index sau venv, nên một license copyleft thêm vào registry giờ **đỏ `build_index.py`**, không
+chỉ đỏ test. Hai generator `license_problems` / `missing_field_problems` là split đó; `validate()` compose
+cả hai (giữ nguyên cho CLI `sources.py` + parity test).
+
+**`sources_admin.py` = cửa "add/doctor" an toàn (spec 075 S5).** `add` validate **trước khi ghi** (license
++ field + an-toàn-flat-schema), từ chối nếu có vấn đề, rồi **append text phẳng thủ công** — KHÔNG
+`yaml.safe_dump` (reflow sẽ phá awk shim, đúng hazard §schema-phẳng ở trên) — và chỉ **in** lệnh
+clone+index, không tự `git clone` (permission). `add` ghi `ref: main`, **không** pin SHA (để track C —
+pin SHA sẽ vô hiệu freshness-check của `update_corpus.sh`). `doctor` chỉ **đọc**: license lệch / thiếu
+field = lỗi (exit 1); ref pinned-SHA + clone thiếu = cảnh báo (exit 0). `build_index.py` cũng nay **nêu
+TÊN** mọi YAML parse-fail thay vì đếm ẩn danh (S4); YAML hợp lệ nhưng không-phải-workflow vẫn bỏ im lặng.
 
 ## 7. Guard ở đâu
 
@@ -344,7 +376,7 @@ clone và index bình thường — test là thứ duy nhất chặn.
 |---|---|
 | `tests/test_promote_gate.py` | verdict xanh/đỏ; sweep orphan theo probe name; `pending` → inconclusive; thiếu cred → lint-only; model rỗng là warning; **4 linter thật** chạy trên fixture + pattern; dedup candidate; trục staleness version |
 | `tests/test_provenance.py` | parse header thật; round-trip `format_header`↔`parse_header`; hazard reserialization; `classify` current/stale/orphan; license hygiene; `--strict` |
-| `tests/test_sources_registry.py` | shape registry; **parity shim bash ↔ reader Python**; default + parse `indexed`; `indexed:false` không thành scan target; clone gitignored **vẫn** được index (kể cả tên ASCII) |
+| `tests/test_sources_registry.py` | shape registry; **parity shim bash ↔ reader Python**; default + parse `indexed`; `indexed:false` không thành scan target; clone gitignored **vẫn** được index (kể cả tên ASCII); **S3** license non-permissive → `build_index` đỏ, thiếu field chỉ warn + split `license_problems`/`missing_field_problems`; **S4** YAML hỏng được nêu tên (không-phải-workflow bỏ im); **S5** `sources_admin add` ghi phẳng → **awk shim đọc lại đúng 6 field** + parity, add license xấu/dup/hazard bị từ chối không ghi, `doctor` license đỏ / ref-pin + clone-thiếu chỉ warn |
 | `tests/test_pattern_consistency.py` | mọi `templates/patterns/*.yml` có `# Use case:` + `# TODO:`. (Nửa `dependencies` của file test này thuộc [readiness-and-plugins.md](readiness-and-plugins.md) §10) |
 | `tests/test_lint_refs.py` · `tests/test_validate_workflow.py` | quét `templates/patterns/*.yml` — **chỉ** tầng này |
 | `tests/test_docs_drift.py` | số file ở `INDEX.md` nằm trong dải; headline `~N template` của `README.md` **bằng** số đó |

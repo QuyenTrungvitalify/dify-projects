@@ -30,22 +30,24 @@ const NON_TOOL_YAML = 'workflow:\n  graph:\n    nodes:\n    - data:\n        typ
 const JARGON = ['plugin hash', 'dependencies', 'provider_id', '# TODO', 'unresolved_plugin_todo'];
 
 // ── spec 066 S5: the join seam can never fuse two sentences again ────────────────────────────────
+// The separator is '\n' (was ' '): the report UI renders notes as a bullet list by splitting on
+// newlines (ArtifactPanel `.split('\n')` → <li>), per "format report notes as bullet list" (a4a2942).
 describe('spec 066 S5 — joinNotes', () => {
   test('the historical run-on: an unterminated part is terminated BEFORE the join', () => {
     // The real dossier (run 1784192313811) read "all linters passed preflight: not runnable…" —
     // which parses as "all linters passed preflight", i.e. a PASS. The verdict was mid-sentence.
     const out = joinNotes(['all linters passed', 'preflight: not runnable out-of-the-box']);
     assert.ok(!out.includes('passed preflight'), 'the two sentences must not fuse');
-    assert.equal(out, 'all linters passed. preflight: not runnable out-of-the-box.');
+    assert.equal(out, 'all linters passed.\npreflight: not runnable out-of-the-box.');
   });
 
   test('parts that already self-terminate are untouched (. ! ? 。 and a closing paren)', () => {
     assert.equal(joinNotes(['Done.', 'Really?', 'Yes!', '完了しました。', 'See it (here)']),
-      'Done. Really? Yes! 完了しました。 See it (here)');
+      'Done.\nReally?\nYes!\n完了しました。\nSee it (here)');
   });
 
   test('blank/whitespace parts are dropped, never punctuated into noise', () => {
-    assert.equal(joinNotes(['A', '', '   ', 'B']), 'A. B.');
+    assert.equal(joinNotes(['A', '', '   ', 'B']), 'A.\nB.');
     assert.equal(joinNotes([]), '');
   });
 });

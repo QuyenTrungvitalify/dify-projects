@@ -190,6 +190,66 @@ describe('spec 037 S2 — harvestWorkspaceFacts', () => {
   });
 });
 
+// ── spec 075 S1: each harvest arm carries a Node-timeout so a hung Dify can't block Implement ─────
+// Before, only sync.py's client-side timeout=60 capped a hung arm and runSyncPy passed no Node
+// timeout, so a slow/hung console blocked the Implement hot-path for ~60s. These pin that every arm
+// now spawns with a positive ceiling, that env tuning reaches all three, and that a timed-out arm
+// degrades exactly like any other failure (never throws, the ALL-THREE bail still governs blocking).
+describe('spec 075 S1 — harvest arm timeout', () => {
+  test('every arm is spawned with the default 15s ceiling', async () => {
+    delete process.env.DIFY_HARVEST_TIMEOUT_MS;
+    const seen: Array<{ arm: string; timeoutMs?: number }> = [];
+    await harvestWorkspaceFacts(dir, TASK, log, async (d, args, opts) => {
+      seen.push({ arm: args[0], timeoutMs: opts?.timeoutMs });
+      return okSync(d, args);
+    });
+    assert.deepEqual(seen.map((s) => s.arm).sort(), ['datasets', 'models', 'plugins']);
+    for (const s of seen) assert.equal(s.timeoutMs, 15000, `arm ${s.arm} bounded by the default ceiling`);
+  });
+
+  test('DIFY_HARVEST_TIMEOUT_MS overrides the ceiling for every arm', async () => {
+    process.env.DIFY_HARVEST_TIMEOUT_MS = '3000';
+    const seen: Array<number | undefined> = [];
+    try {
+      await harvestWorkspaceFacts(dir, TASK, log, async (d, args, opts) => {
+        seen.push(opts?.timeoutMs);
+        return okSync(d, args);
+      });
+    } finally {
+      delete process.env.DIFY_HARVEST_TIMEOUT_MS;
+    }
+    assert.deepEqual(seen, [3000, 3000, 3000]);
+  });
+
+  test('a non-numeric / non-positive env falls back to the 15s default', async () => {
+    for (const bad of ['0', '-5', 'abc', '']) {
+      process.env.DIFY_HARVEST_TIMEOUT_MS = bad;
+      let seen: number | undefined;
+      try {
+        await harvestWorkspaceFacts(dir, TASK, log, async (d, args, opts) => {
+          seen = opts?.timeoutMs;
+          return okSync(d, args);
+        });
+      } finally {
+        delete process.env.DIFY_HARVEST_TIMEOUT_MS;
+      }
+      assert.equal(seen, 15000, `env ${JSON.stringify(bad)} → default, never 0/NaN (0 would disable the timeout)`);
+    }
+  });
+
+  test('a timed-out arm degrades like any failure — file still written, arm not-ok, never throws', async () => {
+    // execFile on timeout SIGTERMs the child → runSyncPy maps it to a non-zero code (its own doc §B2).
+    await harvestWorkspaceFacts(dir, TASK, log, async (d, args) =>
+      args[0] === 'datasets'
+        ? { code: 1, stdout: '', stderr: 'spawn timed out after 15000ms' }
+        : okSync(d, args));
+    const facts = JSON.parse(readFileSync(wsPath(), 'utf8')) as WorkspaceFacts;
+    assert.equal(facts.sources?.datasets.ok, false, 'the timed-out arm is not authoritative');
+    assert.deepEqual(facts.datasets, [], 'and degrades to []');
+    assert.equal(facts.sources?.models.ok, true, 'the arms that answered still count');
+  });
+});
+
 // ── AC 9: creds-gated LIVE shape pin (the 032 parseModels discipline) ───────────────────────────
 
 describe('AC 9 — live shape pin (skipped without real creds)', () => {

@@ -2,7 +2,7 @@
  * Spec 049 D2 — the ④ import-probe: push the produced YAML to the REAL Dify, delete the probe app,
  * surface the verdict as an ADVISORY note (never a gate).
  *
- *   AC 3 — with selfhost creds the static ④ probes once ('[probe] <slug>' name, delete follows with
+ *   AC 3 — with selfhost creds the static ④ probes once ('[probe] <taskId>' name, delete follows with
  *          the returned appId); a probe FAILURE carries Dify's redacted error and changes NO verdict;
  *          a failed push triggers NO delete; no creds → probe never called; live path → undefined.
  *   AC 4 — a planted secret in the probe stderr never reaches the note (redactSecrets).

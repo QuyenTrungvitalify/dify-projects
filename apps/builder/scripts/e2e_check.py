@@ -73,6 +73,10 @@ JARGON_BLOCKLIST: tuple[str, ...] = (
 JARGON_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\{\{#[^}]+#\}\}", "raw {{#…#}} variable ref"),
     (r"\b\d{13}\b", "bare 13-digit node id"),
+    # spec 078 S2 regression lock: the promote nudge is a dev-surface field (report.promote_hint,
+    # devMode-rendered) and must NEVER reach digest/notes. Its wording-stable phrase (promote-hint.ts
+    # PROMOTE_HINT_PREFIX) in the userview means someone rerouted it through the notes channel.
+    (r"chưa có trên kệ mẫu", "promote-nudge (spec 078) leaked into the user view"),
 )
 
 

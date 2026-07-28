@@ -19,6 +19,7 @@ import { patternFeatureGap, patternAdvisoryLine } from './analysis.js';
 import { loadWorkspaceFacts, enabledModelCount } from './dify-io.js'; // spec 066 S3 / 067 S6
 import { readEvents } from './run-events.js';
 import { classifyCriteria, criteriaSummaryNote, summarizeTimeline } from './report-analysis.js'; // spec 075 S1
+import { computePromoteHint } from './promote-hint.js'; // spec 078 S2
 import type { Task } from '../state/task.js';
 import type { SessionLogger } from './claude-session.js';
 
@@ -417,6 +418,19 @@ export async function runReport(
   // The duplicate warning leads the notes so the UI surfaces it prominently (spec footgun).
   if (duplicateWarning) noteParts.unshift(`⚠ ${duplicateWarning}`);
 
+  // Spec 078 S2 — the self-harvest promote nudge: a from-scratch, lint-clean build whose shape is
+  // absent from the curated shelf (LIVE `catalog.py check --shelf` parse) gets a DEV-ONLY hint
+  // pointing at the existing Promote button. A separate report/task field, NEVER a noteParts entry
+  // — notes are structurally user-facing (Chat.tsx render + build_userview), and the nudge in the
+  // userview is an AUTO-FAIL comprehension case. Advisory: a catalog failure changes nothing.
+  let promoteHint: string | null = null;
+  try {
+    promoteHint = await computePromoteHint(projectsDir, task, wfRel, isLintClean, runPython);
+  } catch {
+    /* advisory — the nudge must never break the ④ gate */
+  }
+  task.promoteHint = promoteHint ?? undefined;
+
   const report = {
     workflow_file: wfRel,
     lint: {
@@ -431,6 +445,9 @@ export async function runReport(
     accepted_lint_failure: accepted,
     // D2 (017): advisory only — recorded for the deploy step / UI; does NOT affect `lintClean`.
     unresolved_plugin_todo: unresolvedPluginTodo,
+    // Spec 078 S2: dev-surface ONLY (devMode render) — deliberately a sibling of `notes`, never
+    // inside it, so build_userview (digest+notes) structurally cannot leak it to the user.
+    promote_hint: promoteHint,
     notes: joinNotes(noteParts),
     // Spec 075 S1 — ADDITIVE. The build's own acceptance criteria, each bucketed (auto_fail is sound,
     // auto_pass withheld to structural-only, else manual), plus the per-phase working timeline the run

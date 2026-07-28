@@ -48,6 +48,9 @@ MYTH_PATTERNS = [
     (r"add plugin hash from target workspace", "the pattern-authoring TODO"),
     (r"intentionally never checked in", "the SKILL.md claim that a filled dependencies is unshippable"),
     (r"one-time per plugin per workspace", "the procedure header"),
+    # 2026-07-18: GUIDE.md §7.4 carried the myth in VIETNAMESE ("copy exact từ workflow đã export
+    # ra từ target workspace") and every pattern above is English-only — it sat green for months.
+    (r"copy .{0,40}từ .{0,40}export|export ra từ .{0,30}workspace", "the Vietnamese phrasing that dodged the English-only patterns"),
 ]
 
 # A line is exempt if it is quoting the retired rule rather than stating it.
@@ -102,6 +105,7 @@ def test_the_guard_actually_catches_the_myth(tmp_path):
             r"add plugin hash from target workspace": "# TODO: add plugin hash from target workspace",
             r"intentionally never checked in": "A filled dependencies entry is intentionally never checked in.",
             r"one-time per plugin per workspace": "How to obtain a real plugin hash (one-time per plugin per workspace)",
+            r"copy .{0,40}từ .{0,40}export|export ra từ .{0,30}workspace": "Hash đổi theo plugin version → copy exact từ workflow đã export ra từ target workspace.",
         }[rx]
         assert re.search(rx, sample, re.I), f"pattern {rx!r} no longer matches its own myth sample"
         assert not HISTORY_MARKERS.search(sample), f"sample for {rx!r} accidentally reads as history"

@@ -36,6 +36,29 @@ and `--check` reports per-source fresh/stale. INDEX is rebuilt once at the end; 
 3. **Report** the result: the new short SHA, any DSL files added/removed (the script prints a
    diff), and whether lint stayed clean.
 
+Steps 4–5 run **only when step 2 actually applied an update** (spec 079 S1). Both are advisory —
+they never block or roll back the update — and when a check is clean, say nothing about it at all.
+
+4. **Enrichment gap** — run:
+
+   ```bash
+   .venv/bin/python tools/dify_base/enrich.py --check
+   ```
+
+   If there are missing or stale keys, list them and ask the user: *"Enrich these now, in this
+   session?"* On yes: write the entries (`summary_en`, `tags`, `when_to_use`, `gotchas`,
+   `orig_sha256`) into `tools/dify_base/enrichment.json`, re-run `build_index.py`, and report the
+   diff — the user reviews before committing. On no: note it and move on. Sources with
+   `indexed: false` never appear here (intake-only by design, spec 023); if such a source is ever
+   flipped to indexed and the missing list is large, enrich in batches of ≤15 files per session.
+
+5. **Provenance staleness** — the update script already prints the `check_provenance.py` verdict
+   at the end of step 2; read it (re-run the tool if it scrolled away). For each **stale** template
+   ask: *"Look at the upstream diff and re-distill via `/template-promote`?"* — on yes, show the
+   diff of the upstream file and hand into that skill (one file per run). For each **orphan**
+   (upstream deleted the original file), offer the choice: keep the template and flip its
+   provenance to `source=original` (it lives on its own now), or retire it.
+
 ## Follow-up
 
 - If the script warns the **DSL file count changed**, report it — a corpus that grew or shrank means

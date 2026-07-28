@@ -1,0 +1,10 @@
+{
+  "_comment": "Auto-generated corpus pin for reproducible setup (spec 077 C1). Each entry freezes corpus/<name> to a SHA; scripts/setup.sh fetches it so a fresh clone rebuilds the exact corpus. Written by scripts/update_corpus.sh — do not hand-edit.",
+  "sources": {
+    "awesome-dify-workflow-en": {
+      "resolved_sha": "88842fcef7fd44be2ed0aea63c223468ba4c4a1a",
+      "ref": "main",
+      "updated": "2026-07-26T16:36:39Z"
+    }
+  }
+}

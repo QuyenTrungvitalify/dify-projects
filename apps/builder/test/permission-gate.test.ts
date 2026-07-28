@@ -49,6 +49,9 @@ describe('analyzeBashCommand — allow the fixed phase command set', () => {
   test('the allow-set is exactly the 6 phase scripts (sync.py / init_project.py absent)', () => {
     assert.equal(ALLOWED_PYTHON_SCRIPTS.has('tools/dify_base/sync.py'), false);
     assert.equal(ALLOWED_PYTHON_SCRIPTS.has('tools/dify_base/init_project.py'), false);
+    // spec 078: catalog.py is backend/CLI-only (it WRITES collected.json via record/seed/hunt-log —
+    // a turn must not reach it even through the allowed-python door).
+    assert.equal(ALLOWED_PYTHON_SCRIPTS.has('tools/dify_base/catalog.py'), false);
     assert.equal(ALLOWED_PYTHON_SCRIPTS.size, 6); // +lint_node_bodies.py (spec 038 P3)
   });
 });
@@ -101,6 +104,9 @@ describe('checkForbiddenPath — hard deny of secrets + protected writes', () =>
     assert.ok(checkForbiddenPath('Write', { file_path: 'apps/builder/.env' }, TASK));
     assert.ok(checkForbiddenPath('Write', { file_path: '.claude/settings.local.json' }, TASK));
     assert.ok(checkForbiddenPath('Write', { file_path: 'tools/dify_base/sync.py' }, TASK));
+    // spec 078 §6: the collection memory is tracked state a turn must never write — pinned to the
+    // tools/ rule here AND to the static `Write(tools/**)` deny in headless-settings.json.
+    assert.ok(checkForbiddenPath('Write', { file_path: 'tools/dify_base/collected.json' }, TASK));
     assert.ok(checkForbiddenPath('Write', { file_path: 'skills/mango-svip/scripts/generate_id.py' }, TASK));
     assert.ok(checkForbiddenPath('Write', { file_path: '/home/u/.zshrc' }, TASK));
     // spec 040 D1: bare root files (INDEX.md), docs/, and templates/ are now defended SOLELY by this hook

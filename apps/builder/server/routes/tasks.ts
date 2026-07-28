@@ -520,10 +520,10 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     }
 
     // D9: an Ask's abort is SCOPED — force-kill the child but never converge task.status/gate (D3 keeps
-    // the gate parked throughout an Ask). Skip markCancelled entirely: this must NOT set the shared
-    // `cancelledTasks` flag a phase turn's cancel uses, or a stale isCancelled(taskId)===true would
-    // permanently block every FUTURE phase turn for this task (there is no terminal settle here to evict
-    // it — Ask never converges to done/error/cancelled).
+    // the gate parked throughout an Ask). Skip markCancelled entirely: an Ask never converges to
+    // done/error/cancelled, so there is no terminal settle to evict the shared `cancelledTasks` flag —
+    // it would linger (leaking the spec-014-D7 bound, and wrongly 409ing PATCH's isCancelled re-check)
+    // until this task's next acquireTurn clears it ("fresh slate on (re)acquire", lock.ts).
     if (liveKind(id) === 'ask') {
       const sess = liveSession(id);
       if (sess) {

@@ -14,50 +14,50 @@ Sorted by source, then complexity.
 
 | Source | File | Nodes | Complexity | Key Features | Plugins | Description |
 |---|---|---|---|---|---|---|
-| `corpus:awesome-dify-workflow-en` | [AdvancedTranslate.yml](corpus/awesome-dify-workflow-en/Workflow-Store/AdvancedTranslate.yml) | 4 | Simple | llm, tool | - | 中译英，分2步进行翻译。1、传统的翻译引擎翻译；2、LLM模型指出错误、3、意译。即节省了token |
-| `corpus:awesome-dify-workflow-en` | [Chinese2English.yml](corpus/awesome-dify-workflow-en/Workflow-Store/Chinese2English.yml) | 3 | Simple | llm | - | 中译英 |
-| `corpus:awesome-dify-workflow-en` | [English2Chinese.yml](corpus/awesome-dify-workflow-en/Workflow-Store/English2Chinese.yml) | 3 | Simple | llm | - | 翻译 GPT 的提示词更新和优化 |
-| `corpus:awesome-dify-workflow-en` | [Python Coding Prompt.yml](corpus/awesome-dify-workflow-en/Workflow-Store/Python%20Coding%20Prompt.yml) | 3 | Simple | llm | - | 一个很好用的，针对写Python 代码的聊天机器人 |
-| `corpus:awesome-dify-workflow-en` | [SEO Slug Generator.yml](corpus/awesome-dify-workflow-en/Workflow-Store/SEO%20Slug%20Generator.yml) | 3 | Simple | llm | - | This GPT will convert input titles or content into |
-| `corpus:awesome-dify-workflow-en` | [TitleCreator.yml](corpus/awesome-dify-workflow-en/Workflow-Store/TitleCreator.yml) | 4 | Simple | code, llm | - | 标题党创作 |
-| `corpus:awesome-dify-workflow-en` | [chart_demo.yml](corpus/awesome-dify-workflow-en/Workflow-Store/chart_demo.yml) | 4 | Simple | http, code | - | 一个图表渲染的示例 |
-| `corpus:awesome-dify-workflow-en` | [jieba.yml](corpus/awesome-dify-workflow-en/Workflow-Store/jieba.yml) | 3 | Simple | code | - | jieba |
-| `corpus:awesome-dify-workflow-en` | [json-repair.yml](corpus/awesome-dify-workflow-en/Workflow-Store/json-repair.yml) | 3 | Simple | code | - | json-repair |
-| `corpus:awesome-dify-workflow-en` | [matplotlib.yml](corpus/awesome-dify-workflow-en/Workflow-Store/matplotlib.yml) | 3 | Simple | code | - | matplotlib |
-| `corpus:awesome-dify-workflow-en` | [Text to Card Iteration.yml](corpus/awesome-dify-workflow-en/Workflow-Store/Text%20to%20Card%20Iteration.yml) | 5 | Medium | http, param-extract, jinja | - | 文字转卡片-迭代 |
-| `corpus:awesome-dify-workflow-en` | [translation_workflow.yml](corpus/awesome-dify-workflow-en/Workflow-Store/translation_workflow.yml) | 8 | Medium | llm, if-else | - | 使用吴恩达提出 Agentic Workflow 制作的翻译工具 |
-| `corpus:awesome-dify-workflow-en` | [AdvancedSearch.yml](corpus/awesome-dify-workflow-en/Workflow-Store/AdvancedSearch.yml) | 14 | Complex | iteration, http, code, llm, if-else, tool, jinja | - | 搜索大师3 |
-| `corpus:awesome-dify-workflow-en` | [All-in-One Ops.yml](corpus/awesome-dify-workflow-en/Workflow-Store/All-in-One%20Ops.yml) | 51 | Complex | http, code, llm, jinja | - | 运营一条龙 |
-| `corpus:awesome-dify-workflow-en` | [ArticleRewrite.yml](corpus/awesome-dify-workflow-en/Workflow-Store/ArticleRewrite.yml) | 23 | Complex | iteration, code, llm, if-else, tool, param-extract, jinja | - | 输入一个网页实现文章内容的仿写和改写 |
-| `corpus:awesome-dify-workflow-en` | [BookTranslate.yml](corpus/awesome-dify-workflow-en/Workflow-Store/BookTranslate.yml) | 9 | Complex | iteration, code, llm, jinja | - | 全书翻译 |
-| `corpus:awesome-dify-workflow-en` | [Claude3 Code Translation.yml](corpus/awesome-dify-workflow-en/Workflow-Store/Claude3%20Code%20Translation.yml) | 8 | Complex | iteration, code, llm, tool | - | Claude3 Code Translation |
-| `corpus:awesome-dify-workflow-en` | [Document_chat_template.yml](corpus/awesome-dify-workflow-en/Workflow-Store/Document_chat_template.yml) | 23 | Complex | llm, if-else, rag, jinja | - | document chat |
-| `corpus:awesome-dify-workflow-en` | [FormChat.yml](corpus/awesome-dify-workflow-en/Workflow-Store/FormChat.yml) | 10 | Complex | code, llm, if-else, jinja | - | Form表单聊天Demo |
-| `corpus:awesome-dify-workflow-en` | [Jina Reader Jinja.yml](corpus/awesome-dify-workflow-en/Workflow-Store/Jina%20Reader%20Jinja.yml) | 10 | Complex | iteration, code, llm, tool, jinja | - | Jina Reader Jinja |
-| `corpus:awesome-dify-workflow-en` | [LanguageConsistencyChecker.yml](corpus/awesome-dify-workflow-en/Workflow-Store/LanguageConsistencyChecker.yml) | 12 | Complex | code, llm, tool | - | 三语一致性检查 |
-| `corpus:awesome-dify-workflow-en` | [dify_course_demo.yml](corpus/awesome-dify-workflow-en/Workflow-Store/dify_course_demo.yml) | 8 | Complex | iteration, code, llm | - | 可以自动化生成全套教程。 开始时输入想要生成的教程名称。 |
-| `corpus:awesome-dify-workflow-en` | [json_translate.yml](corpus/awesome-dify-workflow-en/Workflow-Store/json_translate.yml) | 8 | Complex | iteration, code, tool | - | json_translate |
-| `corpus:awesome-dify-workflow-en` | [llm2o1.cn.yml](corpus/awesome-dify-workflow-en/Workflow-Store/llm2o1.cn.yml) | 9 | Complex | iteration, code, llm, param-extract, jinja | - | 使用常规大语言模型模拟 o1 的思维链，具备更强的推理能力。 |
-| `corpus:awesome-dify-workflow-en` | [memorytest.yml](corpus/awesome-dify-workflow-en/Workflow-Store/memorytest.yml) | 37 | Complex | code, llm, if-else, tool | - | 记忆测试 |
-| `corpus:awesome-dify-workflow-en` | [simple-kimi.yml](corpus/awesome-dify-workflow-en/Workflow-Store/simple-kimi.yml) | 38 | Complex | code, llm, if-else, tool, doc-extract, jinja | - | simple-kimi |
-| `example` | [main.yml](examples/md_en2ja/workflows/main.yml) | 5 | Medium | code, llm | - | Translate English markdown documents to Japanese,  |
-| `library` | [seo-slug-generator.yml](templates/library/seo-slug-generator.yml) | 3 | Simple | llm | - | Convert a title or content into a concise, SEO-fri |
-| `patterns` | [agent-with-tools.yml](templates/patterns/agent-with-tools.yml) | 3 | Simple | agent | - | Pattern: ReAct-style agent with pluggable tools |
-| `patterns` | [file-to-llm.yml](templates/patterns/file-to-llm.yml) | 4 | Simple | file-in, llm, doc-extract | - | Upload a file, extract text, run one LLM call, ret |
-| `patterns` | [rag-qa.yml](templates/patterns/rag-qa.yml) | 4 | Simple | llm, rag | - | Pattern: RAG question-answering (knowledge retriev |
-| `patterns` | [meta-workflow-builder.yml](templates/patterns/meta-workflow-builder.yml) | 5 | Medium | http, code, llm | - | Generate a new Dify workflow YAML from a natural-l |
-| `patterns` | [multi-step-llm.yml](templates/patterns/multi-step-llm.yml) | 5 | Medium | llm | - | Pattern: chain 3 LLM calls (generate → critique →  |
-| `patterns` | [scheduled-fetch-notify.yml](templates/patterns/scheduled-fetch-notify.yml) | 6 | Medium | trigger, http, code, llm | - | Schedule trigger → fetch data over HTTP → defensiv |
-| `patterns` | [scheduled-tool-append.yml](templates/patterns/scheduled-tool-append.yml) | 6 | Medium | trigger, http, code, llm, tool | google_sheets | Schedule trigger → fetch over HTTP → shape rows →  |
-| `patterns` | [file-iteration.yml](templates/patterns/file-iteration.yml) | 7 | Complex | iteration, file-in, code, doc-extract | - | Pattern: upload file → parse → split → iterate per |
-| `patterns` | [per-row-notify-excel.yml](templates/patterns/per-row-notify-excel.yml) | 12 | Complex | iteration, file-in, http, code, llm, if-else, doc-extract | - | Excel upload → per-row conditional notify: extract |
-| `patterns` | [per-row-notify.yml](templates/patterns/per-row-notify.yml) | 9 | Complex | iteration, http, code, llm, if-else | - | Per-row conditional notify dispatch: iterate list  |
-| `patterns` | [webhook-per-row-notify.yml](templates/patterns/webhook-per-row-notify.yml) | 7 | Complex | iteration, trigger, http, code, llm | - | TODO: webhook(POST) を起点に対象行を抽出し、行ごとに宛先を解決して個別通知する汎 |
-| `skill-assets` | [simple_llm_workflow.yml](skills/mango-svip/assets/simple_llm_workflow.yml) | 3 | Simple | llm | - | A basic workflow with start, LLM, and end nodes |
-| `skill-assets` | [conditional_workflow.yml](skills/mango-svip/assets/conditional_workflow.yml) | 6 | Medium | llm, if-else | - | Workflow with if-else conditional branching |
-| `skill-assets` | [error_handling_workflow.yml](skills/mango-svip/assets/error_handling_workflow.yml) | 6 | Medium | code, llm | - | Workflow demonstrating error handling with fail-br |
-| `skill-assets` | [manual_search.yml](skills/Tomatio13/example/manual_search.yml) | 6 | Medium | llm, rag | - | マニュアル質問応答システム |
-| `skill-assets` | [adoviser_bot.yml](skills/Tomatio13/example/adoviser_bot.yml) | 11 | Complex | llm, if-else, param-extract, jinja | - | タスク分析アドバイザー |
+| `corpus:awesome-dify-workflow-en` | [AdvancedTranslate.yml](corpus/awesome-dify-workflow-en/Workflow-Store/AdvancedTranslate.yml) | 4 | Simple | llm, tool | - | Two-pass Chinese-to-English academic translation:  |
+| `corpus:awesome-dify-workflow-en` | [Chinese2English.yml](corpus/awesome-dify-workflow-en/Workflow-Store/Chinese2English.yml) | 3 | Simple | llm | - | A single-LLM Chinese-to-English academic translato |
+| `corpus:awesome-dify-workflow-en` | [English2Chinese.yml](corpus/awesome-dify-workflow-en/Workflow-Store/English2Chinese.yml) | 3 | Simple | llm | - | A single-LLM any-language-to-Chinese translator us |
+| `corpus:awesome-dify-workflow-en` | [Python Coding Prompt.yml](corpus/awesome-dify-workflow-en/Workflow-Store/Python%20Coding%20Prompt.yml) | 3 | Simple | llm | - | An advanced-chat Python coding assistant whose sys |
+| `corpus:awesome-dify-workflow-en` | [SEO Slug Generator.yml](corpus/awesome-dify-workflow-en/Workflow-Store/SEO%20Slug%20Generator.yml) | 3 | Simple | llm | - | A single-LLM workflow that converts an input title |
+| `corpus:awesome-dify-workflow-en` | [TitleCreator.yml](corpus/awesome-dify-workflow-en/Workflow-Store/TitleCreator.yml) | 4 | Simple | code, llm | - | A workflow that prompts an LLM to generate five vi |
+| `corpus:awesome-dify-workflow-en` | [chart_demo.yml](corpus/awesome-dify-workflow-en/Workflow-Store/chart_demo.yml) | 4 | Simple | http, code | - | Renders a chart from user data: a code node builds |
+| `corpus:awesome-dify-workflow-en` | [jieba.yml](corpus/awesome-dify-workflow-en/Workflow-Store/jieba.yml) | 3 | Simple | code | - | An advanced-chat workflow that runs Chinese word s |
+| `corpus:awesome-dify-workflow-en` | [json-repair.yml](corpus/awesome-dify-workflow-en/Workflow-Store/json-repair.yml) | 3 | Simple | code | - | Repairs malformed or invalid JSON via a single cod |
+| `corpus:awesome-dify-workflow-en` | [matplotlib.yml](corpus/awesome-dify-workflow-en/Workflow-Store/matplotlib.yml) | 3 | Simple | code | - | Generates a plot with Python matplotlib inside a c |
+| `corpus:awesome-dify-workflow-en` | [Text to Card Iteration.yml](corpus/awesome-dify-workflow-en/Workflow-Store/Text%20to%20Card%20Iteration.yml) | 5 | Medium | http, param-extract, jinja | - | A workflow that renders author and body text into  |
+| `corpus:awesome-dify-workflow-en` | [translation_workflow.yml](corpus/awesome-dify-workflow-en/Workflow-Store/translation_workflow.yml) | 8 | Medium | llm, if-else | - | An Andrew-Ng-style agentic reflection translation  |
+| `corpus:awesome-dify-workflow-en` | [AdvancedSearch.yml](corpus/awesome-dify-workflow-en/Workflow-Store/AdvancedSearch.yml) | 14 | Complex | iteration, http, code, llm, if-else, tool, jinja | - | A conversational search agent that expands a query |
+| `corpus:awesome-dify-workflow-en` | [All-in-One Ops.yml](corpus/awesome-dify-workflow-en/Workflow-Store/All-in-One%20Ops.yml) | 51 | Complex | http, code, llm, jinja | - | A social-media cover-image generator that turns a  |
+| `corpus:awesome-dify-workflow-en` | [ArticleRewrite.yml](corpus/awesome-dify-workflow-en/Workflow-Store/ArticleRewrite.yml) | 23 | Complex | iteration, code, llm, if-else, tool, param-extract, jinja | - | An article paraphrasing pipeline that scrapes a so |
+| `corpus:awesome-dify-workflow-en` | [BookTranslate.yml](corpus/awesome-dify-workflow-en/Workflow-Store/BookTranslate.yml) | 9 | Complex | iteration, code, llm, jinja | - | A long-document English-to-Chinese translator that |
+| `corpus:awesome-dify-workflow-en` | [Claude3 Code Translation.yml](corpus/awesome-dify-workflow-en/Workflow-Store/Claude3%20Code%20Translation.yml) | 8 | Complex | iteration, code, llm, tool | - | A source-code translator between languages (e.g. P |
+| `corpus:awesome-dify-workflow-en` | [Document_chat_template.yml](corpus/awesome-dify-workflow-en/Workflow-Store/Document_chat_template.yml) | 23 | Complex | llm, if-else, rag, jinja | - | A RAG document-chat workflow that gates on whether |
+| `corpus:awesome-dify-workflow-en` | [FormChat.yml](corpus/awesome-dify-workflow-en/Workflow-Store/FormChat.yml) | 10 | Complex | code, llm, if-else, jinja | - | An advanced-chat demo that renders an HTML login f |
+| `corpus:awesome-dify-workflow-en` | [Jina Reader Jinja.yml](corpus/awesome-dify-workflow-en/Workflow-Store/Jina%20Reader%20Jinja.yml) | 10 | Complex | iteration, code, llm, tool, jinja | - | A search-and-summarize workflow that runs a Tavily |
+| `corpus:awesome-dify-workflow-en` | [LanguageConsistencyChecker.yml](corpus/awesome-dify-workflow-en/Workflow-Store/LanguageConsistencyChecker.yml) | 12 | Complex | code, llm, tool | - | A trilingual documentation consistency checker tha |
+| `corpus:awesome-dify-workflow-en` | [dify_course_demo.yml](corpus/awesome-dify-workflow-en/Workflow-Store/dify_course_demo.yml) | 8 | Complex | iteration, code, llm | - | A workflow that auto-generates a full multi-chapte |
+| `corpus:awesome-dify-workflow-en` | [json_translate.yml](corpus/awesome-dify-workflow-en/Workflow-Store/json_translate.yml) | 8 | Complex | iteration, code, tool | - | A workflow that translates the string values insid |
+| `corpus:awesome-dify-workflow-en` | [llm2o1.cn.yml](corpus/awesome-dify-workflow-en/Workflow-Store/llm2o1.cn.yml) | 9 | Complex | iteration, code, llm, param-extract, jinja | - | An advanced-chat workflow that simulates o1-style  |
+| `corpus:awesome-dify-workflow-en` | [memorytest.yml](corpus/awesome-dify-workflow-en/Workflow-Store/memorytest.yml) | 37 | Complex | code, llm, if-else, tool | - | A complex advanced-chat health-assistant workflow  |
+| `corpus:awesome-dify-workflow-en` | [simple-kimi.yml](corpus/awesome-dify-workflow-en/Workflow-Store/simple-kimi.yml) | 38 | Complex | code, llm, if-else, tool, doc-extract, jinja | - | A Kimi-style advanced-chat assistant that optional |
+| `example` | [main.yml](examples/md_en2ja/workflows/main.yml) | 5 | Medium | code, llm | - | Translates English Markdown documents to Japanese  |
+| `library` | [seo-slug-generator.yml](templates/library/seo-slug-generator.yml) | 3 | Simple | llm | - | Converts a title or long content into a concise, S |
+| `patterns` | [agent-with-tools.yml](templates/patterns/agent-with-tools.yml) | 3 | Simple | agent | - | A ReAct-style Agent node takes a user query, calls |
+| `patterns` | [file-to-llm.yml](templates/patterns/file-to-llm.yml) | 4 | Simple | file-in, llm, doc-extract | - | Upload one file, extract its text with a document  |
+| `patterns` | [rag-qa.yml](templates/patterns/rag-qa.yml) | 4 | Simple | llm, rag | - | Answers a user question grounded in a knowledge ba |
+| `patterns` | [meta-workflow-builder.yml](templates/patterns/meta-workflow-builder.yml) | 5 | Medium | http, code, llm | - | From a natural-language requirement, an LLM planne |
+| `patterns` | [multi-step-llm.yml](templates/patterns/multi-step-llm.yml) | 5 | Medium | llm | - | Chains three LLM calls where each output feeds the |
+| `patterns` | [scheduled-fetch-notify.yml](templates/patterns/scheduled-fetch-notify.yml) | 6 | Medium | trigger, http, code, llm | - | A schedule trigger fires on a cadence with no oper |
+| `patterns` | [scheduled-tool-append.yml](templates/patterns/scheduled-tool-append.yml) | 6 | Medium | trigger, http, code, llm, tool | google_sheets | A schedule trigger fires unattended, GETs source d |
+| `patterns` | [file-iteration.yml](templates/patterns/file-iteration.yml) | 7 | Complex | iteration, file-in, code, doc-extract | - | Upload a structured file, extract its text, split  |
+| `patterns` | [per-row-notify-excel.yml](templates/patterns/per-row-notify-excel.yml) | 12 | Complex | iteration, file-in, http, code, llm, if-else, doc-extract | - | Operator uploads a rows Excel and a key-to-destina |
+| `patterns` | [per-row-notify.yml](templates/patterns/per-row-notify.yml) | 9 | Complex | iteration, http, code, llm, if-else | - | Takes a JSON rows array, a destination map, and a  |
+| `patterns` | [webhook-per-row-notify.yml](templates/patterns/webhook-per-row-notify.yml) | 7 | Complex | iteration, trigger, http, code, llm | - | A webhook trigger receives a pushed batch (rows, i |
+| `skill-assets` | [simple_llm_workflow.yml](skills/mango-svip/assets/simple_llm_workflow.yml) | 3 | Simple | llm | - | A minimal start → LLM → end workflow that passes a |
+| `skill-assets` | [conditional_workflow.yml](skills/mango-svip/assets/conditional_workflow.yml) | 6 | Medium | llm, if-else | - | Routes a user query through an if-else branch to e |
+| `skill-assets` | [error_handling_workflow.yml](skills/mango-svip/assets/error_handling_workflow.yml) | 6 | Medium | code, llm | - | Parses JSON in a code node whose fail-branch route |
+| `skill-assets` | [manual_search.yml](skills/Tomatio13/example/manual_search.yml) | 6 | Medium | llm, rag | - | Classifies a question as Docker or Ubuntu, retriev |
+| `skill-assets` | [adoviser_bot.yml](skills/Tomatio13/example/adoviser_bot.yml) | 11 | Complex | llm, if-else, param-extract, jinja | - | Classifies a task into one of three domains, gener |
 
 ## By Feature
 

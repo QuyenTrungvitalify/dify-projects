@@ -56,21 +56,19 @@ nền, vừa có một **web app cục bộ ("Builder app")** điều khiển bu
 
 ### 3b. Builder app (kiến trúc runtime)
 
-```
-Người dùng
-   │
-   ▼  (trình duyệt)
-[ SPA — Preact + Vite ]  ◄──HTTP / SSE (thực况 realtime)──►  [ Backend — Node + Fastify ]
-                                                                  │  │  │
-                        ①②③ mỗi phase = 1 lượt claude ───────────┘  │  └── file cục bộ
-                        ④ Test = backend tự chạy (không AI)           │      (projects/, .runs/)
-                        Python tools (validate / lint / sync) ────────┘
-                        Token Dify chỉ ở backend, KHÔNG đưa cho AI ──► Dify Console API
+```mermaid
+flowchart LR
+  U["Người dùng"] --> B["SPA trình duyệt<br/>(Preact + Vite)"]
+  B <-->|"HTTP / SSE (realtime)"| S["Backend<br/>(Node + Fastify)"]
+  S -->|"①②③ mỗi phase = 1 lượt claude"| C["claude CLI<br/>(Claude, headless)"]
+  S -->|"subprocess"| P["Python tools<br/>(validate · lint · sync)"]
+  S -.->|"token CHỈ ở backend<br/>không đưa cho AI"| D["Dify Console API"]
+  S --> F["File cục bộ<br/>(projects/ · .runs/)"]
 ```
 
 - **Frontend (SPA):** chỉ hiển thị + thao tác, không giữ logic.
 - **Backend (Fastify):** bộ não — khởi động lượt AI, kiểm tra, quản lý trạng thái, nói chuyện với Dify.
-- **claude CLI (Claude Opus):** AI thực sự phân tích / viết spec / implement.
+- **claude CLI:** AI thực sự phân tích / viết spec / implement (model theo cấu hình CLI).
 - **Python tools:** nền "Dify as code" — sinh khung, validate, lint, sync với Dify.
 - Tất cả chạy trên `127.0.0.1` (máy của bạn), **không mở ra ngoài**.
 
@@ -78,12 +76,13 @@ Người dùng
 
 ## 4. Quy trình build 4 phase (trái tim của hệ thống)
 
-```
-Yêu cầu (ngôn ngữ tự nhiên)
-   │
-   ▼
-① Analyze  ──gate──►  ② Spec  ──gate──►  ③ Implement  ──gate──►  ④ Test  ──►  main.yml
- (phân tích)          (viết spec)        (sinh YAML)             (kiểm tra)     hoàn thành
+```mermaid
+flowchart LR
+  R["Yêu cầu<br/>(ngôn ngữ tự nhiên)"] --> A["① Analyze<br/>phân tích"]
+  A -->|gate| S["② Spec<br/>viết spec"]
+  S -->|gate| I["③ Implement<br/>sinh YAML + vòng validate→fix"]
+  I -->|gate| T["④ Test<br/>backend, không AI"]
+  T --> O["main.yml hoàn thành<br/>(tùy chọn import vào Dify)"]
 ```
 
 **①②③ là lượt AI** (mỗi phase khởi động một `claude` mới, hoàn toàn sạch). **④ là backend tự
@@ -93,8 +92,8 @@ chạy** (không dùng AI). Sau mỗi phase, hệ thống **dừng ở một "ga
 |---|---|---|---|
 | **① Analyze** | Hiểu & chốt lại yêu cầu. Với build từ đầu: xuất một **bản tóm tắt yêu cầu** (mục tiêu + các điểm cần đúng + input→output) để user xác nhận đúng ý *trước khi* viết spec. Với build có "base" (seed): thêm phần **tóm tắt cấu trúc workflow gốc** + các điểm sẽ sửa. | Lượt AI | `analyze.json` + tóm tắt trong chat |
 | **② Spec** | Chốt "sẽ làm gì": pattern chọn (+lý do), bảng node, luồng biến, plugin, và **3–7 tiêu chí chấp nhận** (Acceptance Criteria). Là bản thiết kế để phase sau bám theo; đề xuất `slug`/`name` cho workflow mới. | Lượt AI | `SPEC.md` |
-| **③ Implement** | Phase "gánh nặng" nhất. Mint node ID 13-số, dựng/sửa YAML từ pattern đã duyệt, ráp biến tham chiếu + edge, rồi chạy **vòng validate→fix (tối đa 5 vòng)** cho tới khi cả 4 linter exit 0. Plugin hash để trống + `# TODO`. | Lượt AI | `workflows/<file>.yml` |
-| **④ Test & Report** | Chạy lại toàn bộ 4 linter (đây mới là kết luận "có pass không"); **từ chối** ghi report `done` đè lên workflow còn lỗi lint (tránh bẫy "done nhưng hỏng"). Theo `{{DEPLOY}}`: `none` = chỉ validate; `selfhost` = import vào Dify thật; `cloud` = xuất YAML để dán tay vào Studio. | **Backend** | `report.json` (+ import nếu bật) |
+| **③ Implement** | Phase "gánh nặng" nhất. Mint node ID 13-số, dựng/sửa YAML từ pattern đã duyệt, ráp biến tham chiếu + edge, rồi chạy **vòng validate→fix (tối đa 5 vòng)** cho tới khi cả 4 linter exit 0. Plugin hash: **resolve từ marketplace công khai** (keyed theo version — spec 067) và điền `dependencies:` — **không** để trống, **không** bịa. | Lượt AI | `workflows/<file>.yml` |
+| **④ Test & Report** | Chạy lại toàn bộ 4 linter (đây mới là kết luận "có pass không"); **từ chối** ghi report `done` đè lên workflow còn lỗi lint (tránh bẫy "done nhưng hỏng"); chạy **import-probe** advisory lên Dify thật (đẩy thử rồi xoá ngay) nếu có creds. Đích deploy **không chọn lúc start** mà theo **năng lực tại gate** (spec 036): có creds selfhost + lint sạch → dừng ở nút **Import/Skip** cho người quyết; hoặc bấm **Test with workflow** (live-test) từ gate ③ / build done. | **Backend** | `report.json` (+ import nếu người bấm) |
 
 > **Vì sao tách 4 phase + có gate?** Để không "giao khoán" cho AI. Mỗi bước ra một *artifact*
 > kiểm được, con người xác nhận đúng ý rồi mới đi tiếp — sai thì sửa sớm, rẻ hơn nhiều so với
@@ -106,11 +105,11 @@ chạy** (không dùng AI). Sau mỗi phase, hệ thống **dừng ở một "ga
 
 Ở mỗi gate, có 3 lựa chọn:
 
-```
-   gate (dừng)
-   ├─ ✓ Continue        → đi tiếp phase sau
-   ├─ 💬 Request changes → yêu cầu sửa lại phase hiện tại (chat góp ý)
-   └─ ✕ Discard         → hủy build
+```mermaid
+flowchart LR
+  G{"gate (dừng)"} --> Y["✓ Continue<br/>đi tiếp phase sau"]
+  G --> R["💬 Request changes<br/>sửa lại phase hiện tại (chat góp ý)"]
+  G --> X["✕ Discard<br/>hủy build"]
 ```
 
 **Chế độ xác nhận (mức tự động hóa)** — chọn khi tạo task:
@@ -134,6 +133,15 @@ vượt; `spec_only` → vượt mọi phase trừ `spec`; `each_step` → khôn
 Trung tâm là **engine build dùng chung** `.claude/skills/dify-build/` (định nghĩa thủ tục
 Analyze→Spec→Implement→Test). Cùng engine đó, hai cách dùng:
 
+```mermaid
+flowchart TD
+  E["AI engine dùng chung<br/>(.claude/skills/dify-build)<br/>Analyze→Spec→Implement→Test"]
+  A["① App version<br/>(Web UI)"] --> E
+  B["② CLI / AI-driven"] --> E
+  A -.- A2["gate = nút bấm<br/>xem diff / panel trên màn hình<br/>hợp non-engineer, demo"]
+  B -.- B2["gate = hội thoại xác nhận<br/>chỉ cần terminal<br/>hợp developer, automation"]
+```
+
 | | ① App version (Web UI) | ② CLI / AI-driven |
 |---|---|---|
 | Cách chạy | Mở Builder app, thao tác trên trình duyệt | Gọi thẳng `claude` + skill `dify-build` |
@@ -155,9 +163,9 @@ vì Dify hay "import thành công rồi chạy mới lỗi".
 |---|---|---|
 | `validate_workflow.py` | Cấu trúc DSL: ID trùng, edge tham chiếu, field bắt buộc, coherence `cases[]`/`conditions` | Chặn YAML sai khung ngay từ đầu |
 | `lint_refs.py` | Biến tham chiếu `{{#node.field#}}` + `value_selector` phải trỏ node có thật, field có trong `outputs`, node ở phía trên | Nguyên nhân #1 của "import xong chạy fail âm thầm" |
-| `lint_plugin_hashes.py` | Định dạng plugin identifier `@<sha256>` hợp lệ; cấm bịa hash | Hash bịa làm import fail ở workspace khác |
+| `lint_plugin_hashes.py` | Định dạng plugin identifier `@<sha256>` hợp lệ; **coverage** — mọi tool node marketplace phải có entry `dependencies:` (spec 067) | Hash bịa làm import fail; `dependencies: []` làm Dify không hỏi cài plugin → chết lúc runtime |
 | `lint_node_bodies.py` | Thân mỗi node khớp schema `NodeData_*` sinh từ Dify (spec 038) | Bắt sai field mà validate khung không thấy |
-| `find.py` | Tra ~45 template theo feature/complexity/plugin | Chọn được khung gần nhất, đỡ dựng lại từ 0 |
+| `find.py` | Tra template theo feature/complexity/plugin (trên INDEX sinh tự động bởi `build_index.py`) | Chọn được khung gần nhất, đỡ dựng lại từ 0 |
 | `sync.py` | GitOps với Dify: `list`/`pull`/`diff`/`push` | Đồng bộ workspace ↔ git (token chỉ ở đây) |
 | `init_project.py` | Scaffold 2 tầng project/workflow (spec 030) | Mỗi dự án theo đúng convention |
 | `promote_gate.py` | Cổng chất lượng khi "thăng cấp" build đã chạy thành template tái dùng (spec 050) | Chỉ pattern đủ tốt mới vào thư viện |
@@ -172,17 +180,18 @@ khi commit.
 
 ## 8. Thiết kế an toàn (phần "gan ruột")
 
-```
-[ Lượt AI — được phép sửa file ]
-        │
-        ▼
-[ Kiểm tra sau lượt: git status ]
-   ├─ ghi ra ngoài phạm vi  → tự động revert (hoàn tác)
-   └─ chỉ trong phạm vi     → chấp nhận
+```mermaid
+flowchart TD
+  T["Mỗi tool call của lượt AI"] --> HK{"Lớp 1 — PreToolUse hook<br/>(chặn TRƯỚC khi chạy, phòng tuyến chính)"}
+  HK -->|"shell nguy hiểm / ghi ngoài phạm vi<br/>đọc .env, secret"| DENY["deny ngay<br/>(không được thực thi)"]
+  HK -->|"trong allowlist"| RUN["thực thi"]
+  RUN --> PC["Lớp 2 — kiểm tra sau lượt<br/>git status so với baseline (backstop)"]
+  PC -->|"ghi ra ngoài phạm vi"| RV["tự động revert + báo lỗi"]
+  PC -->|"chỉ trong phạm vi"| OK["chấp nhận"]
 ```
 
 - 🔒 **Chỉ chạy cục bộ:** cố định `127.0.0.1`, không truy cập được từ ngoài.
-- 🛡 **Sandbox (permission model C):** lượt AN bị chặn shell nguy hiểm (`grep`/`find`/`rm`/pipe...),
+- 🛡 **Sandbox (permission model C):** lượt AI bị chặn shell nguy hiểm (`grep`/`find`/`rm`/pipe...),
   chỉ cho `.venv/bin/python <6 script đã biết>` + vài lệnh đọc. Lỡ ghi ra ngoài phạm vi task →
   kiểm tra `git status` sau lượt phát hiện và **tự revert**.
 - 🔑 **Không đưa token Dify cho AI:** creds chỉ nằm trong subprocess của backend, không lộ ra
@@ -195,7 +204,7 @@ khi commit.
 
 ---
 
-## 9. Các nhóm tính năng nổi bật (theo thời gian, ~55 specs)
+## 9. Các nhóm tính năng nổi bật (theo thời gian, ~70 specs đã hoàn thành)
 
 Builder lớn dần qua các spec. Nhóm theo chủ đề:
 
@@ -223,8 +232,17 @@ Builder lớn dần qua các spec. Nhóm theo chủ đề:
   không chặn (theo convention để trống model, tự điền lúc deploy).
 - **Analyze thành digest (055):** build từ đầu ra bản **tóm tắt yêu cầu** để user xác nhận, thay
   vì bỏ qua bước phân tích.
+- **Trigger-entry & tool node thật (056–057, 067, 071):** workflow khởi động bằng **trigger**
+  (schedule/webhook — nhớ set timezone `Asia/Tokyo`, mặc định Dify là UTC); **tool node build được
+  thật** — hash resolve từ marketplace công khai + `dependencies:` bắt buộc (lật huyền thoại
+  "hash theo workspace"); promote một **YAML ngoài** thành pattern (kèm provenance trung thực);
+  pattern webhook-per-row + oracle từ chối lệnh.
+- **Đo lường & E2E (058–062, 065–066):** harness e2e fire→gate→check + gate tốc độ/chi phí; export
+  **dossier** (transcript từng attempt, cost & nguyên nhân); bơm `{{REFERENCES}}` — file mẫu phủ phần
+  pattern thiếu; chuẩn hoá note cho người đọc (bullet list, JA frame).
 
-> Danh mục đầy đủ: [docs/specs/README.md](specs/README.md) và các file `docs/specs/*.md`.
+> Toàn bộ specs 001–067 đã hoàn thành và **retire** khỏi cây (xem: `git show ca5e39e:docs/specs/`);
+> specs mới bắt đầu từ **071** tại [docs/specs/](specs/).
 
 ---
 
@@ -233,9 +251,9 @@ Builder lớn dần qua các spec. Nhóm theo chủ đề:
 | Lớp | Công nghệ |
 |---|---|
 | Frontend | Preact + Vite + TypeScript (dark theme) |
-| Giao tiếp | HTTP + **SSE** (thực况 realtime lên UI) |
+| Giao tiếp | HTTP + **SSE** (stream tiến trình realtime lên UI) |
 | Backend | Node.js + Fastify — **không DB**, trạng thái là file JSON |
-| AI | **Claude Opus** (`claude` CLI chạy headless) |
+| AI | **Claude** (`claude` CLI chạy headless — model theo cấu hình CLI) |
 | Tool nền | Python (scaffold, validate/lint, `sync.py`) |
 | Kết nối | Dify Console API (pull/push) |
 
@@ -254,7 +272,7 @@ dify-projects/
 ├── projects/                    # sản phẩm: <project>/<workflow>/ (2 tầng, spec 030)
 ├── examples/                    # dự án mẫu chạy được (md_en2ja)
 ├── tests/                       # pytest harness cho workflow đã deploy
-└── docs/                        # GUIDE, architecture, specs/, overview (file này)
+└── docs/                        # GUIDE, architecture, state/ (hiện trạng), specs/ (mới từ 071), overview (file này)
 ```
 
 ---
@@ -263,9 +281,12 @@ dify-projects/
 
 - ✅ **Core hoàn chỉnh:** 4 phase + gate + validate + kết nối Dify, đã tích hợp.
 - ✅ **Đã tăng cường chất lượng:** đa build song song (lock theo lượt), thăng cấp pattern, upload
-  base, live-test, retry khi lỗi, sửa lại sau done, model tùy chọn, Analyze digest (spec 055).
-- ✅ **Test:** bộ unit test backend xanh (456/456); QA trình duyệt cho các kịch bản chính.
-- 📋 **Còn lại:** một số kiểm tra nhẹ (thực chạy chế độ auto), và các mục polish trong docs/specs.
+  base, live-test, retry khi lỗi, sửa lại sau done, trigger-entry, tool node + hash resolve,
+  e2e harness + dossier (xem §9).
+- ✅ **Test:** toàn bộ unit test server + web xanh (số lượng xem bằng `npm test` — không ghi cứng
+  ở đây); QA trình duyệt cho các kịch bản chính.
+- 📋 **Còn lại:** kiểm tra tay nhẹ (thực chạy mode auto; **bật trigger sau import** là thao tác tay
+  trên Dify — API không expose enable). Specs 001–067 đã retire; specs mới từ 071.
 
 ---
 
