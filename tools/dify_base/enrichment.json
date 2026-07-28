@@ -391,6 +391,22 @@
     "gotchas": "Skeleton ships with empty model and empty tools list plus empty dependencies[]; register plugin tools and pick a strong tool-use model before it runs. Curated pattern — copy-paste-ready seed for this shape.",
     "orig_sha256": "b8ef33da4a1b7ea890bd461df177e3826437c38bf42dfea5fe5459d125a892b5"
   },
+  "patterns/ai-1-user-input.yml": {
+    "summary_en": "The minimal single-LLM text transformer: one free-text input passes through ONE LLM (analyze + transform in the same prompt) to one formatted text output. No branching, no external fetch, no state aggregation — start → llm → end.",
+    "tags": [
+      "llm",
+      "text-transform",
+      "rewrite",
+      "summarize",
+      "translate",
+      "single-llm",
+      "prompt-skeleton",
+      "formatting"
+    ],
+    "when_to_use": "When one raw free-text input (notes/drafts, language-agnostic) must become a polished ready-to-use output by a single LLM pass: tone rewriting, reformatting, translate-to-house-style, draft-to-final. Choose this over multi-node shapes when detection and generation both fit in one prompt.",
+    "gotchas": "Deliberately minimal — resist adding if-else / question-classifier: detecting audience/format AND generating both fit inside ONE prompt; split only when a branch needs a DIFFERENT downstream graph. Pin the OUTPUT contract (fixed blocks + literal delimiters) in the SYSTEM prompt, not the user turn (which carries only the raw variable ref). State the OUTPUT LANGUAGE explicitly — input is language-agnostic, else the model mirrors input language non-deterministically. Empty model ships by design (wire it at deploy).",
+    "orig_sha256": "48727e79fc2fce27d052d91c7c81a45649b3531ff7f492cd7938bbdacf7b4ef9"
+  },
   "patterns/chatwork-1-10-20.yml": {
     "summary_en": "A scheduled, unattended job that ingests items from MULTIPLE sources (custom-auth HTTP attachments read by a Vision LLM, plus a web-search tool), merges them by a priority rule, ranks a top-N shortlist with an LLM, writes each item up with an LLM, dedupes against an existing spreadsheet, appends only new rows, and notifies just when there is something new.",
     "tags": [

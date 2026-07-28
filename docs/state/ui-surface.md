@@ -4,7 +4,7 @@ User thấy gì, làm được gì ở mỗi trạng thái, và cái gì **chỉ
 
 Phạm vi: `web/src/store.ts` · `web/src/sse-client.ts` · và **toàn bộ** `web/src/lib/`: `i18n.ts` ·
 `gate-foot.ts` · `thread-persist.ts` · `crumb.ts` · `phase.ts` · `markdown.ts` · `diff-parser.ts` ·
-`slug.ts` · `attachments.ts` · `dev.ts`.
+`slug.ts` · `attachments.ts` · `dev.ts` · `promote-visibility.ts`.
 
 **Không** thuộc doc này, và vẫn **chưa có chủ**: `web/src/api.ts` (shape HTTP + `ApiError`),
 `web/src/types.ts` (`Wire*`), `web/src/components/**`, `main.tsx`, `data.ts`. Doc này trỏ vào chúng
@@ -255,6 +255,7 @@ Tách khỏi component để test được, không giữ state:
 |---|---|---|
 | `gate-foot.ts` | `terminalFootActions` (restore/editAgain/runTest) · `replyButtonKind` | **Restore cố ý KHÔNG đòi `project`/`workflowSlug`** — build from-scratch cancel **trước** scaffold có cả hai là null; AND chúng vào là mất nút Restore. Edit-again thì **có** đòi (cần target thật). **runTest cố ý KHÔNG khoá theo `liveTargets.selfhost`** — hiện luôn để user biết tính năng tồn tại; creds kiểm lúc **click** (`store.liveTest` → message localized) và server re-guard 409. |
 | `phase.ts` | `PHASE_LABELS` · `phaseIndex` · `phaseLabelAt` | `phaseIndex` trả `0` cho key lạ; `phaseLabelAt` **clamp** vào `1..N` nên `PHASE_LABELS[-1]` không xảy ra — phase lạ degrade về label đầu, **không throw** (throw ở đây làm trắng cả thread). |
+| `promote-visibility.ts` | `canPromoteFromConversation(view, task)` — nút "Promote to pattern" hiện khi (spec 052/85ecfa8) | Hiện ở **`done` HOẶC `awaiting_confirm`+phase `test`** (④ gate), KHÔNG chỉ `done` — main.yml đã final+lint-sạch ở ④, và user lấy yml rồi đi thì không bao giờ tới `done`. **Loại** promote-task (không promote một promote) và build chưa scaffold (`project`/`workflowSlug` null). |
 | `markdown.ts` | `renderMarkdownHtml` — escape-by-default, không sanitizer, không `innerHTML` của raw input | Emphasis **chỉ** khớp khi marker kề ký tự **không phải word** — `my_var_name` / `a*b` mà Claude stream liên tục sẽ bị in nghiêng nếu "đơn giản hoá" regex. Code span và anchor được rút ra **sentinel `\x00`** trước, cài lại sau, để pass emphasis/link không phá nội dung bên trong. |
 | `diff-parser.ts` | `parsePatch` · `buildSplitRows` · `computeWordDiff` (Myers trên token) | — |
 | `crumb.ts` | `wfDisplayName` · `projectDisplayName` · `workflowOptions` · `newTaskCrumb` · `runContextCrumb` | `workflowOptions` sort theo **recency** (`tasks[0].id` là timestamp ms 13 chữ số), không alphabet; `_drafts` bị loại. |
