@@ -20,6 +20,7 @@ import * as store from '../store';
 import { type ComposerAttachment, MAX_ATTACHMENTS, isAcceptedFile, fileToDataUrl, toWire } from '../lib/attachments';
 import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed, NewTaskOpts } from '../types';
 import { newTaskCrumb, runContextCrumb, workflowOptions, type NewTaskCrumb } from '../lib/crumb';
+import { canPromoteFromConversation } from '../lib/promote-visibility';
 
 let _attUid = 0;
 const attUid = (): string => 'att' + ++_attUid;
@@ -413,9 +414,8 @@ export function App() {
                   lint-clean the moment ④ opens, and many users treat "I have the yml" as finished and never
                   click import/skip — gating promote behind `done` hid it exactly when they'd want it. This
                   matches the "edit this workflow" button's condition above, and the moment the 078 nudge fires. */}
-              {view === 'conversation' && task && task.kind !== 'promote' && task.project && task.workflowSlug &&
-                (task.status === 'done' || (task.status === 'awaiting_confirm' && task.phase === 'test')) && (
-                <button className="ghost-pill" onClick={() => void store.promote(task.project!, task.workflowSlug!)} title={tr('promoteToPatternHint')}>
+              {canPromoteFromConversation(view, task) && (
+                <button className="ghost-pill" onClick={() => void store.promote(task!.project!, task!.workflowSlug!)} title={tr('promoteToPatternHint')}>
                   <I.spark />{tr('promoteToPattern')}
                 </button>
               )}
