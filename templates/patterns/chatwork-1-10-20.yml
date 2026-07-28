@@ -1,0 +1,1327 @@
+# x-provenance: source=original repo=
+#   commit= file="projects/_drafts/chatwork_1_10_20/workflows/main.yml" orig_sha256= promoted=2026-07-28
+#   license=MIT spec=052 known_good_dify=
+# Pattern: Scheduled multi-source digest → rank → per-item LLM writeup → idempotent append → notify-on-empty
+#
+# Use case: an unattended recurring job that INGESTS from more than one source (e.g. attachment
+#   images read by a Vision LLM + a web-search tool), MERGES them with a priority rule, RANKS to a
+#   top-N shortlist, fetches each item's full source and has an LLM WRITE it up, then APPENDS one row
+#   per item to a spreadsheet tool WITHOUT duplicating on re-run, and PINGS a channel when nothing was
+#   written. The shape a stakeholder asks for as 「毎朝…集めて記事化してスプレッドシートに追記、0件なら通知」.
+#
+# WHY THIS PATTERN EXISTS: existing scheduled patterns model ONE source and a single append
+#   (scheduled-tool-append) or one-row-per-item notify (per-row-notify). This is the first that
+#   combines: multi-source ingest, a Vision-in-iteration read, cross-source dedupe with a priority
+#   winner, an LLM ranker, a second per-item iteration that fetches + writes, read-existing→dedupe→
+#   append idempotency, and a conditional notify. Reach for it when a build needs MORE than one of
+#   those steps; for a plain "fetch → write one thing" use scheduled-tool-append instead.
+#
+# Flow:
+#   Trigger: Schedule (visual, daily, explicit timezone Asia/Tokyo)
+#     → Code: config + JST time window (edit the REPLACE_ME values)
+#     → HTTP: GET list attachments from the source API (custom auth header)
+#     → Code: filter to images in the last 24h (defensive, never raises; caps at 30 = iteration max)
+#     → Iteration A (continue-on-error): per image → HTTP GET a download URL → Vision LLM extract JSON
+#     → Code: shape source-A records
+#     → Tool: web search (swap for any catalogued tool) → Code: shape source-B records
+#     → Code: merge + dedupe by normalized URL, source-A wins on collision (priority)
+#     → LLM: pick the top-N urls → Code: restore the full records for the picked urls (fill to N)
+#     → Iteration B (continue-on-error): per pick → Code parse → HTTP GET full text → LLM write article
+#     → Code: drop the skipped (empty) ones
+#     → Tool: read existing sheet rows → Code: dedupe vs existing + build append rows + JST stamp
+#     → Tool: append rows (one item = one row) → Code: run summary + should_notify (write_count == 0)
+#     → If-else: should_notify?  true → HTTP POST a notification  /  false → End
+#     → End (summary / write_count / skipped)
+#
+# Customization points (# TODO:):
+#   1. Schedule time in the trigger (12-hour visual format); keep the timezone explicit.
+#   2. The REPLACE_ME config values in "config" (source container id, search keywords, sheet range,
+#      URL column index).
+#   3. Source API URL + the custom auth header name in the two HTTP nodes; the env var it reads.
+#   4. Every LLM prompt (extract / rank / write) + its output schema, and the model on each llm node
+#      (provider/name are blank placeholders — wire a model, Vision-capable for the image reader).
+#   5. THE TOOLS: swap provider_id/provider_name/tool_name/tool_parameters for the tool you need AND
+#      swap the matching `dependencies:` entry (both from templates/tool-catalog.json, or resolve via
+#      .venv/bin/python tools/dify_base/marketplace.py resolve <org>/<name>).
+#   6. The notification endpoint + body in the final HTTP POST; the summary/message text in "summary".
+#
+# GOTCHA: passing a source's temporary DOWNLOAD URL straight into a Vision LLM is NOT verified on real
+#   Dify — the http-request `files` output → Vision `variable_selector` is the default here, but if a
+#   URL can't be handed to the model directly you must add a child node that re-fetches the URL as a
+#   BINARY file variable. Confirm this on the first live test.
+# GOTCHA: merge order IS the priority rule — feed the trusted/priority source FIRST into the dedupe so
+#   the first-wins loop keeps it on a URL collision (here source-A before web). Reversing it silently
+#   flips which duplicate survives.
+# GOTCHA: idempotency lives in the read-existing → dedupe → append trio, NOT in the tool. Same-day
+#   re-runs must READ the destination first and drop URLs already present, or every run re-appends.
+# GOTCHA: notify-on-empty is deliberate — a 0-write run POSTs a message so an empty sheet the next
+#   morning has a visible cause (unreadable inputs / inaccessible sources / all-duplicate). Without it
+#   the failure is silent.
+# GOTCHA: both iterations use error_handle_mode: continue-on-error so ONE unreadable image / one
+#   inaccessible article is skipped and the run finishes; the shape-code after each iteration drops the
+#   empty ({}) results those skips produce.
+# GOTCHA: compute JST from UTC INSIDE the code (utcnow + 9h), never trust the sandbox timezone.
+# GOTCHA: Dify schedule triggers default to UTC — an "8:00 AM" JST job fires at 17:00 JST unless
+#   `timezone: Asia/Tokyo` is set. And publishing is not enough: the trigger must also be ENABLED in
+#   Dify Studio before it fires.
+# GOTCHA: env vars are declared with `name:` (NOT `variable:`) or the import fails; `dependencies:`
+#   must stay NON-EMPTY for tool nodes or Dify never prompts to install and the tool fails at runtime.
+app:
+  description: 'Scheduled multi-source digest → dedupe, rank, write per item, idempotent append to a spreadsheet tool, notify-on-empty; multi-source ingest (attachment images via Vision + web search) merged with a priority winner, top-N selection, per-row article writeup in a continue-on-error iteration, read-existing→dedupe→append for idempotency (trigger-entry, no operator; spec 052)'
+  icon: "\U0001F4F0"
+  icon_background: '#E4FBCC'
+  icon_type: emoji
+  mode: workflow
+  name: scheduled_multisource_digest_to_sheet
+  use_icon_as_answer_icon: false
+# 版固定・公開のマーケットプレイス識別子（templates/tool-catalog.json より逐語コピー）。
+# hash は (plugin, version) キーの公開チェックサム。版を上げる場合は再解決が必須。
+# TODO: swap these to match the tool nodes you keep — dependencies must list every tool plugin used.
+dependencies:
+- type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: omluc/google_sheets:0.0.2@17f06eaa1d905595e1a76460e7249707a722142353d551cf14aed3d8517c134f
+- type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: langgenius/google:0.1.5@cbe3d3ef2530384c1d23653e6b3f6d527839db2dc60a47a0c14ac774f0bbe856
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables:
+  # 環境変数は name: 形式（variable: だと import 失敗）。値は Dify 側で貼り付け。
+  # TODO: rename to your source's token var; keep value_type: secret.
+  - name: SOURCE_API_TOKEN
+    value_type: secret
+    value: ''
+  - name: SPREADSHEET_ID
+    value_type: secret
+    value: ''
+  features:
+    file_upload:
+      enabled: false
+    opening_statement: ''
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+  graph:
+    edges:
+    - id: 1785218032460-source-1785218032462-target
+      source: '1785218032460'
+      target: '1785218032462'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: trigger-schedule, targetType: code }
+      zIndex: 0
+    - id: 1785218032462-source-1785218032465-target
+      source: '1785218032462'
+      target: '1785218032465'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: http-request }
+      zIndex: 0
+    - id: 1785218032465-source-1785218032467-target
+      source: '1785218032465'
+      target: '1785218032467'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: http-request, targetType: code }
+      zIndex: 0
+    - id: 1785218032467-source-1785218032469-target
+      source: '1785218032467'
+      target: '1785218032469'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: iteration }
+      zIndex: 0
+    - id: 1785218032469-source-1785218032476-target
+      source: '1785218032469'
+      target: '1785218032476'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: iteration, targetType: code }
+      zIndex: 0
+    - id: 1785218032476-source-1785218032478-target
+      source: '1785218032476'
+      target: '1785218032478'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: tool }
+      zIndex: 0
+    - id: 1785218032478-source-1785218032480-target
+      source: '1785218032478'
+      target: '1785218032480'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: tool, targetType: code }
+      zIndex: 0
+    - id: 1785218032480-source-1785218032483-target
+      source: '1785218032480'
+      target: '1785218032483'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: code }
+      zIndex: 0
+    - id: 1785218032483-source-1785218032485-target
+      source: '1785218032483'
+      target: '1785218032485'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: llm }
+      zIndex: 0
+    - id: 1785218032485-source-1785218032487-target
+      source: '1785218032485'
+      target: '1785218032487'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: code }
+      zIndex: 0
+    - id: 1785218032487-source-1785218032490-target
+      source: '1785218032487'
+      target: '1785218032490'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: iteration }
+      zIndex: 0
+    - id: 1785218032490-source-1785218032496-target
+      source: '1785218032490'
+      target: '1785218032496'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: iteration, targetType: code }
+      zIndex: 0
+    - id: 1785218032496-source-1785218032498-target
+      source: '1785218032496'
+      target: '1785218032498'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: tool }
+      zIndex: 0
+    - id: 1785218032498-source-1785218032501-target
+      source: '1785218032498'
+      target: '1785218032501'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: tool, targetType: code }
+      zIndex: 0
+    - id: 1785218032501-source-1785218032503-target
+      source: '1785218032501'
+      target: '1785218032503'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: tool }
+      zIndex: 0
+    - id: 1785218032503-source-1785218032505-target
+      source: '1785218032503'
+      target: '1785218032505'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: tool, targetType: code }
+      zIndex: 0
+    - id: 1785218032505-source-1785218032507-target
+      source: '1785218032505'
+      target: '1785218032507'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: if-else }
+      zIndex: 0
+    - id: 1785218032507-true-1785218032509-target
+      source: '1785218032507'
+      target: '1785218032509'
+      sourceHandle: 'true'
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: if-else, targetType: http-request }
+      zIndex: 0
+    - id: 1785218032507-false-1785218032512-target
+      source: '1785218032507'
+      target: '1785218032512'
+      sourceHandle: 'false'
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: if-else, targetType: end }
+      zIndex: 0
+    - id: 1785218032509-source-1785218032512-target
+      source: '1785218032509'
+      target: '1785218032512'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: http-request, targetType: end }
+      zIndex: 0
+    # ── Iteration A（画像読取）内部エッジ ──
+    - id: 1785218032469start-source-1785218032471-target
+      source: 1785218032469start
+      target: '1785218032471'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1785218032469', sourceType: iteration-start, targetType: http-request }
+      zIndex: 1002
+    - id: 1785218032471-source-1785218032474-target
+      source: '1785218032471'
+      target: '1785218032474'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1785218032469', sourceType: http-request, targetType: llm }
+      zIndex: 1002
+    # ── Iteration B（記事化）内部エッジ ──
+    - id: 1785218032490start-source-1785218346136-target
+      source: 1785218032490start
+      target: '1785218346136'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1785218032490', sourceType: iteration-start, targetType: code }
+      zIndex: 1002
+    - id: 1785218346136-source-1785218032492-target
+      source: '1785218346136'
+      target: '1785218032492'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1785218032490', sourceType: code, targetType: http-request }
+      zIndex: 1002
+    - id: 1785218032492-source-1785218032494-target
+      source: '1785218032492'
+      target: '1785218032494'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: true, isInLoop: false, iteration_id: '1785218032490', sourceType: http-request, targetType: llm }
+      zIndex: 1002
+    nodes:
+    # 1. 定時起動（毎日・タイムゾーン明示）
+    - id: '1785218032460'
+      type: custom
+      data:
+        title: Scheduled trigger (daily)
+        type: trigger-schedule
+        mode: visual
+        frequency: daily
+        # TODO: set the fire time (12-hour visual format).
+        # GOTCHA: timezone 未指定だと UTC 既定で 8:00 JST が 17:00 JST に化ける。必ず明示。
+        visual_config:
+          time: 8:00 AM
+        timezone: Asia/Tokyo
+      position: { x: 0, y: 200 }
+      positionAbsolute: { x: 0, y: 200 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+    # 2. 設定値と時刻しきい値（JST）
+    - id: '1785218032462'
+      type: custom
+      data:
+        title: config + time window
+        type: code
+        code_language: python3
+        # TODO: edit room_id / keywords / sheet_range / url_col_index to your real values.
+        code: |
+          import datetime
+
+
+          def main() -> dict:
+              # ── customization point ─────────────────────────
+              room_id = "REPLACE_ME"            # id of the source container (chat room / folder / feed)
+              keywords = ""                      # web-search keywords (empty = skip the web source)
+              sheet_range = "Sheet1!A:F"         # destination range (date/title/url/media/summary/body)
+              url_col_index = 2                  # 0-based index of the existing-URL column (C = 2)
+              # ────────────────────────────────────────────────
+              # サンドボックスのTZに依存せず UTC 起点で JST を算出
+              now_utc = datetime.datetime.utcnow()
+              now_jst = now_utc + datetime.timedelta(hours=9)
+              epoch = datetime.datetime(1970, 1, 1)
+              now_ts = int((now_utc - epoch).total_seconds())
+              since_ts = now_ts - 24 * 60 * 60
+              return {
+                  "room_id": room_id,
+                  "keywords": keywords,
+                  "sheet_range": sheet_range,
+                  "url_col_index": url_col_index,
+                  "since_ts": since_ts,
+                  "run_at_jst": now_jst.strftime("%Y-%m-%d %H:%M:%S"),
+              }
+        variables: []
+        outputs:
+          room_id: { type: string, children: null }
+          keywords: { type: string, children: null }
+          sheet_range: { type: string, children: null }
+          url_col_index: { type: number, children: null }
+          since_ts: { type: number, children: null }
+          run_at_jst: { type: string, children: null }
+      position: { x: 300, y: 200 }
+      positionAbsolute: { x: 300, y: 200 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    # 3. ソースAPI: 添付一覧取得
+    - id: '1785218032465'
+      type: custom
+      data:
+        title: list attachments
+        type: http-request
+        method: get
+        # TODO: point at your source API that lists recent items/attachments for the container.
+        url: 'https://api.example.com/v1/containers/{{#1785218032462.room_id#}}/files'
+        authorization: { type: no-auth }
+        # GOTCHA: many SaaS APIs use a CUSTOM auth header, not standard Bearer. no-auth + header token (env secret).
+        # TODO: rename the header to your API's (e.g. Authorization: Bearer ...).
+        headers: |
+          X-Source-Token: {{#env.SOURCE_API_TOKEN#}}
+        params: ''
+        body: { type: none, data: [] }
+        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 10 }
+      position: { x: 600, y: 200 }
+      positionAbsolute: { x: 600, y: 200 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    # 4. 画像のみ・直近24hに絞り込み
+    - id: '1785218032467'
+      type: custom
+      data:
+        title: filter images (24h + ext)
+        type: code
+        code_language: python3
+        code: |
+          import json
+
+
+          def main(files_json: str, since_ts) -> dict:
+              try:
+                  files = json.loads(files_json) if files_json else []
+              except Exception:
+                  files = []
+              if not isinstance(files, list):
+                  files = []
+              try:
+                  threshold = int(since_ts)
+              except Exception:
+                  threshold = 0
+              exts = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+              ids = []
+              for f in files:
+                  if not isinstance(f, dict):
+                      continue
+                  name = str(f.get("filename", "") or "").lower()
+                  up = f.get("upload_time", 0) or 0
+                  try:
+                      up = int(up)
+                  except Exception:
+                      up = 0
+                  if up < threshold:
+                      continue
+                  if not name.endswith(exts):   # non-image (Excel/PDF/...) excluded
+                      continue
+                  fid = f.get("file_id")
+                  if fid is None:
+                      continue
+                  ids.append(str(fid))
+              ids = ids[:30]   # iteration は最大30件
+              return {"file_ids": ids, "image_count": len(ids)}
+        variables:
+        - variable: files_json
+          value_type: string
+          value_selector: ['1785218032465', body]
+        - variable: since_ts
+          value_type: number
+          value_selector: ['1785218032462', since_ts]
+        outputs:
+          file_ids: { type: 'array[string]', children: null }
+          image_count: { type: number, children: null }
+      position: { x: 900, y: 200 }
+      positionAbsolute: { x: 900, y: 200 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+    # 5. 画像ごとに読取（iteration, 1件失敗しても継続）
+    - id: '1785218032469'
+      type: custom
+      data:
+        title: read each image (iteration)
+        type: iteration
+        error_handle_mode: continue-on-error
+        is_parallel: false
+        iterator_input_type: 'array[string]'
+        iterator_selector: ['1785218032467', file_ids]
+        output_selector: ['1785218032474', text]
+        output_type: 'array[string]'
+        start_node_id: 1785218032469start
+        width: 720
+        height: 260
+      position: { x: 1200, y: 160 }
+      positionAbsolute: { x: 1200, y: 160 }
+      width: 720
+      height: 260
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1
+    - id: 1785218032469start
+      type: custom-iteration-start
+      data:
+        title: ''
+        type: iteration-start
+        desc: ''
+        isInIteration: true
+      parentId: '1785218032469'
+      position: { x: 24, y: 90 }
+      positionAbsolute: { x: 1224, y: 250 }
+      width: 44
+      height: 48
+      sourcePosition: right
+      targetPosition: left
+      draggable: false
+      selectable: false
+      zIndex: 1002
+    # 6. 画像の一時ダウンロードURL取得（Iteration A 子）
+    - id: '1785218032471'
+      type: custom
+      data:
+        title: get download URL
+        type: http-request
+        isInIteration: true
+        iteration_id: '1785218032469'
+        method: get
+        # TODO: your source API endpoint that returns a temporary download URL / binary for one item.
+        url: 'https://api.example.com/v1/containers/{{#1785218032462.room_id#}}/files/{{#1785218032469.item#}}?download=1'
+        authorization: { type: no-auth }
+        headers: |
+          X-Source-Token: {{#env.SOURCE_API_TOKEN#}}
+        params: ''
+        body: { type: none, data: [] }
+        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 10 }
+      parentId: '1785218032469'
+      extent: parent
+      position: { x: 100, y: 90 }
+      positionAbsolute: { x: 1300, y: 250 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+    # 7. 画像から情報を抽出（ビジョンLLM, Iteration A 子）
+    - id: '1785218032474'
+      type: custom
+      data:
+        title: image → info (Vision)
+        type: llm
+        isInIteration: true
+        iteration_id: '1785218032469'
+        model:
+          # TODO: wire your model — MUST be a Vision-capable model for this node.
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params: { temperature: 0 }
+        prompt_template:
+        # TODO: adapt this extraction prompt and its JSON schema to YOUR images and target fields.
+        - role: system
+          text: |
+            You are an assistant that extracts structured information from an image.
+            Read the image and output ONLY a JSON object with these keys: {"title": ..., "media": ..., "url": ..., "content": ...}.
+            If the image is unreadable, output an empty JSON {} only. No prose, no code fences.
+        - role: user
+          text: |
+            Read the attached image and output the JSON above.
+            Reference (source API response, includes a download_url): {{#1785218032471.body#}}
+        # GOTCHA/KEY RISK: handing a temporary download URL to a Vision LLM needs live verification.
+        # Default = connect http-request `files` output → Vision variable. If the URL can't be passed
+        # directly, add a child node that re-fetches it as a BINARY file variable.
+        vision:
+          enabled: true
+          configs:
+            variable_selector: ['1785218032471', files]
+            detail: high
+        context: { enabled: false, variable_selector: [] }
+      parentId: '1785218032469'
+      extent: parent
+      position: { x: 400, y: 90 }
+      positionAbsolute: { x: 1600, y: 250 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+    # 8. 抽出結果を正規化レコードへ（source-A, 優先）
+    - id: '1785218032476'
+      type: custom
+      data:
+        title: shape source-A records
+        type: code
+        code_language: python3
+        code: |
+          import json
+
+
+          def main(items) -> dict:
+              if not isinstance(items, list):
+                  items = []
+              records = []
+              for it in items:
+                  try:
+                      obj = json.loads(it) if isinstance(it, str) else (it if isinstance(it, dict) else {})
+                  except Exception:
+                      obj = {}
+                  if not isinstance(obj, dict):
+                      obj = {}
+                  title = str(obj.get("title", "") or "").strip()
+                  url = str(obj.get("url", "") or "").strip()
+                  if not title and not url:
+                      continue   # unreadable image (empty JSON) → skip
+                  records.append({
+                      "title": title,
+                      "media": str(obj.get("media", "") or "").strip(),
+                      "url": url,
+                      "content": str(obj.get("content", "") or "").strip(),
+                      "source": "primary",
+                      "is_priority": True,   # source-A items win on collision
+                  })
+              return {"records_json": json.dumps(records, ensure_ascii=False), "count": len(records)}
+        variables:
+        - variable: items
+          value_type: 'array[string]'
+          value_selector: ['1785218032469', output]
+        outputs:
+          records_json: { type: string, children: null }
+          count: { type: number, children: null }
+      position: { x: 2000, y: 200 }
+      positionAbsolute: { x: 2000, y: 200 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+    # 9. 第二ソース: Web検索（catalogued tool, 差し替え可）
+    - id: '1785218032478'
+      type: custom
+      data:
+        title: web search (source-B)
+        type: tool
+        # TODO: swap this tool (provider/tool_name/parameters) AND the matching dependencies entry.
+        provider_id: langgenius/google/google
+        provider_type: builtin
+        provider_name: langgenius/google/google
+        tool_name: google_search
+        tool_label: GoogleSearch
+        tool_configurations: {}
+        tool_parameters:
+          query:
+            type: mixed
+            value: '{{#1785218032462.keywords#}}'
+          language_code:
+            type: constant
+            value: ja
+      position: { x: 2300, y: 200 }
+      positionAbsolute: { x: 2300, y: 200 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    # 10. 検索結果を正規化レコードへ（source-B）
+    - id: '1785218032480'
+      type: custom
+      data:
+        title: shape source-B records
+        type: code
+        code_language: python3
+        code: |
+          import json
+          import re
+
+
+          def main(text: str) -> dict:
+              text = text or ""
+              records = []
+              # tool text output is unstructured — try JSON first, else extract URLs.
+              try:
+                  data = json.loads(text)
+              except Exception:
+                  data = None
+              if isinstance(data, list):
+                  for d in data:
+                      if not isinstance(d, dict):
+                          continue
+                      records.append({
+                          "title": str(d.get("title", "") or "").strip(),
+                          "media": str(d.get("source", d.get("media", "")) or "").strip(),
+                          "url": str(d.get("link", d.get("url", "")) or "").strip(),
+                          "content": str(d.get("snippet", d.get("content", "")) or "").strip(),
+                          "source": "web",
+                          "is_priority": False,
+                      })
+              else:
+                  for b in re.split(r"\n{2,}", text):
+                      urls = re.findall(r"https?://[^\s)]+", b)
+                      if not urls:
+                          continue
+                      lines = [l.strip() for l in b.splitlines() if l.strip()]
+                      title = lines[0] if lines else ""
+                      records.append({
+                          "title": title[:200],
+                          "media": "",
+                          "url": urls[0],
+                          "content": b.strip()[:500],
+                          "source": "web",
+                          "is_priority": False,
+                      })
+              return {"records_json": json.dumps(records, ensure_ascii=False), "count": len(records)}
+        variables:
+        - variable: text
+          value_type: string
+          value_selector: ['1785218032478', text]
+        outputs:
+          records_json: { type: string, children: null }
+          count: { type: number, children: null }
+      position: { x: 2600, y: 200 }
+      positionAbsolute: { x: 2600, y: 200 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+    # 11. 2系統を統合し重複排除（source-A を優先＝先勝ち）
+    - id: '1785218032483'
+      type: custom
+      data:
+        title: merge + dedupe
+        type: code
+        code_language: python3
+        code: |
+          import json
+          import re
+
+
+          def _norm(u):
+              u = (u or "").strip().lower()
+              u = re.sub(r"#.*$", "", u)
+              u = re.sub(r"\?.*$", "", u)
+              u = re.sub(r"/+$", "", u)
+              u = re.sub(r"^https?://", "", u)
+              u = re.sub(r"^www\.", "", u)
+              return u
+
+
+          def _load(s):
+              try:
+                  v = json.loads(s) if s else []
+              except Exception:
+                  v = []
+              return v if isinstance(v, list) else []
+
+
+          def main(cw_json: str, web_json: str) -> dict:
+              cw = _load(cw_json)
+              web = _load(web_json)
+              by_key = {}
+              order = []
+              for rec in cw + web:   # source-A first = priority source survives a URL collision (first-wins)
+                  if not isinstance(rec, dict):
+                      continue
+                  key = _norm(rec.get("url")) or ("t:" + str(rec.get("title", "")).strip().lower())
+                  if not key or key in by_key:
+                      continue
+                  by_key[key] = rec
+                  order.append(key)
+              merged = [by_key[k] for k in order]
+              return {"records_json": json.dumps(merged, ensure_ascii=False), "count": len(merged)}
+        variables:
+        - variable: cw_json
+          value_type: string
+          value_selector: ['1785218032476', records_json]
+        - variable: web_json
+          value_type: string
+          value_selector: ['1785218032480', records_json]
+        outputs:
+          records_json: { type: string, children: null }
+          count: { type: number, children: null }
+      position: { x: 2900, y: 200 }
+      positionAbsolute: { x: 2900, y: 200 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+    # 12. 注目度で上位N件を選定（優先ソースを優先）
+    - id: '1785218032485'
+      type: custom
+      data:
+        title: pick top-N
+        type: llm
+        model:
+          # TODO: wire your model.
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params: { temperature: 0 }
+        prompt_template:
+        # TODO: adapt the selection criteria (how many, what "notable" means) to your use case.
+        - role: system
+          text: |
+            You are an editor. From the candidate items, pick the top 2 most notable.
+            IMPORTANT: prefer items where is_priority is true.
+            Output ONLY the selected items' url values as a JSON array, e.g. ["https://...", "https://..."].
+            No prose, no code fences. If fewer than 2 candidates exist, return only what exists.
+        - role: user
+          text: 'Candidate items (JSON): {{#1785218032483.records_json#}}'
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+      position: { x: 3200, y: 200 }
+      positionAbsolute: { x: 3200, y: 200 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    # 13. 選定URLに対応する完全レコードを復元（最大N件, 不足分は先頭から補完）
+    - id: '1785218032487'
+      type: custom
+      data:
+        title: restore picked records
+        type: code
+        code_language: python3
+        code: |
+          import json
+          import re
+
+
+          def _norm(u):
+              u = (u or "").strip().lower()
+              u = re.sub(r"#.*$", "", u)
+              u = re.sub(r"\?.*$", "", u)
+              u = re.sub(r"/+$", "", u)
+              u = re.sub(r"^https?://", "", u)
+              u = re.sub(r"^www\.", "", u)
+              return u
+
+
+          def main(selected: str, records_json: str) -> dict:
+              try:
+                  sel = json.loads(selected) if selected else []
+              except Exception:
+                  sel = re.findall(r"https?://[^\s\"']+", selected or "")
+              if not isinstance(sel, list):
+                  sel = []
+              try:
+                  recs = json.loads(records_json) if records_json else []
+              except Exception:
+                  recs = []
+              if not isinstance(recs, list):
+                  recs = []
+              index = {}
+              for r in recs:
+                  if isinstance(r, dict):
+                      index[_norm(r.get("url"))] = r
+              picked, seen = [], set()
+              for s in sel:
+                  if isinstance(s, dict):
+                      s = s.get("url", "")
+                  k = _norm(s if isinstance(s, str) else "")
+                  if k and k in index and k not in seen:
+                      picked.append(index[k])
+                      seen.add(k)
+              # fill: if fewer than N, top up from the merged list (priority order)
+              for r in recs:
+                  if len(picked) >= 2:
+                      break
+                  if not isinstance(r, dict):
+                      continue
+                  k = _norm(r.get("url"))
+                  if k and k not in seen:
+                      picked.append(r)
+                      seen.add(k)
+              picked = picked[:2]
+              items = [json.dumps(r, ensure_ascii=False) for r in picked]
+              return {"selected_items": items, "count": len(items)}
+        variables:
+        - variable: selected
+          value_type: string
+          value_selector: ['1785218032485', text]
+        - variable: records_json
+          value_type: string
+          value_selector: ['1785218032483', records_json]
+        outputs:
+          selected_items: { type: 'array[string]', children: null }
+          count: { type: number, children: null }
+      position: { x: 3500, y: 200 }
+      positionAbsolute: { x: 3500, y: 200 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+    # 14. 選定N件を全文取得→記事化（iteration, アクセス不能はスキップ）
+    - id: '1785218032490'
+      type: custom
+      data:
+        title: write each article (iteration)
+        type: iteration
+        error_handle_mode: continue-on-error
+        is_parallel: false
+        iterator_input_type: 'array[string]'
+        iterator_selector: ['1785218032487', selected_items]
+        output_selector: ['1785218032494', text]
+        output_type: 'array[string]'
+        start_node_id: 1785218032490start
+        width: 980
+        height: 260
+      position: { x: 3800, y: 160 }
+      positionAbsolute: { x: 3800, y: 160 }
+      width: 980
+      height: 260
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1
+    - id: 1785218032490start
+      type: custom-iteration-start
+      data:
+        title: ''
+        type: iteration-start
+        desc: ''
+        isInIteration: true
+      parentId: '1785218032490'
+      position: { x: 24, y: 90 }
+      positionAbsolute: { x: 3824, y: 250 }
+      width: 44
+      height: 48
+      sourcePosition: right
+      targetPosition: left
+      draggable: false
+      selectable: false
+      zIndex: 1002
+    # 15. item(JSON文字列)からURL等を取り出す（Iteration B 子）
+    - id: '1785218346136'
+      type: custom
+      data:
+        title: parse picked row
+        type: code
+        code_language: python3
+        isInIteration: true
+        iteration_id: '1785218032490'
+        code: |
+          import json
+
+
+          def main(item: str) -> dict:
+              try:
+                  rec = json.loads(item) if item else {}
+              except Exception:
+                  rec = {}
+              if not isinstance(rec, dict):
+                  rec = {}
+              return {
+                  "url": str(rec.get("url", "") or "").strip(),
+                  "media": str(rec.get("media", "") or "").strip(),
+                  "title": str(rec.get("title", "") or "").strip(),
+                  "content": str(rec.get("content", "") or "").strip(),
+              }
+        variables:
+        - variable: item
+          value_type: string
+          value_selector: ['1785218032490', item]
+        outputs:
+          url: { type: string, children: null }
+          media: { type: string, children: null }
+          title: { type: string, children: null }
+          content: { type: string, children: null }
+      parentId: '1785218032490'
+      extent: parent
+      position: { x: 100, y: 90 }
+      positionAbsolute: { x: 3900, y: 250 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+    # 16. 元記事の全文取得（Iteration B 子, アクセス不能は継続）
+    - id: '1785218032492'
+      type: custom
+      data:
+        title: fetch full source
+        type: http-request
+        isInIteration: true
+        iteration_id: '1785218032490'
+        method: get
+        url: '{{#1785218346136.url#}}'
+        authorization: { type: no-auth }
+        headers: ''
+        params: ''
+        body: { type: none, data: [] }
+        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 10 }
+      parentId: '1785218032490'
+      extent: parent
+      position: { x: 400, y: 90 }
+      positionAbsolute: { x: 4200, y: 250 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+    # 17. 記事を書き起こし（Iteration B 子, 長文生成 → max_tokens 明示）
+    - id: '1785218032494'
+      type: custom
+      data:
+        title: write article
+        type: llm
+        isInIteration: true
+        iteration_id: '1785218032490'
+        model:
+          # TODO: wire your model.
+          provider: ''
+          name: ''
+          mode: chat
+          # GOTCHA: long-form generation → set max_tokens explicitly, or the body is truncated at the default.
+          completion_params: { temperature: 0.3, max_tokens: 4000 }
+        prompt_template:
+        # TODO: adapt the writing brief (tone, language, length, output schema) to your use case.
+        - role: system
+          text: |
+            You are a professional editor. From the full text of the source, write a publishable article.
+            Output ONLY a JSON object with keys: {"title": ..., "body": ..., "summary": ..., "url": ..., "media": ...}.
+            If the body cannot be fetched / is insufficient (source inaccessible), output an empty JSON {} only.
+            Use the input URL as-is for url. No prose, no code fences.
+        - role: user
+          text: |
+            URL: {{#1785218346136.url#}}
+            Known media name: {{#1785218346136.media#}}
+            Reference (excerpt from search/image): {{#1785218346136.content#}}
+            Source full text (empty means inaccessible):
+            {{#1785218032492.body#}}
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+      parentId: '1785218032490'
+      extent: parent
+      position: { x: 700, y: 90 }
+      positionAbsolute: { x: 4500, y: 250 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+      zIndex: 1002
+    # 18. 記事化結果を整形（空=スキップ分を除去）
+    - id: '1785218032496'
+      type: custom
+      data:
+        title: shape articles (drop skipped)
+        type: code
+        code_language: python3
+        code: |
+          import json
+
+
+          def main(items) -> dict:
+              if not isinstance(items, list):
+                  items = []
+              arts = []
+              for it in items:
+                  try:
+                      o = json.loads(it) if isinstance(it, str) else (it if isinstance(it, dict) else {})
+                  except Exception:
+                      o = {}
+                  if not isinstance(o, dict):
+                      continue
+                  title = str(o.get("title", "") or "").strip()
+                  body = str(o.get("body", "") or "").strip()
+                  url = str(o.get("url", "") or "").strip()
+                  if not (title and body and url):
+                      continue   # drop the ones skipped (empty {}) for inaccessible sources
+                  arts.append({
+                      "title": title,
+                      "body": body,
+                      "summary": str(o.get("summary", "") or "").strip(),
+                      "url": url,
+                      "media": str(o.get("media", "") or "").strip(),
+                  })
+              return {"articles_json": json.dumps(arts, ensure_ascii=False), "count": len(arts)}
+        variables:
+        - variable: items
+          value_type: 'array[string]'
+          value_selector: ['1785218032490', output]
+        outputs:
+          articles_json: { type: string, children: null }
+          count: { type: number, children: null }
+      position: { x: 4900, y: 200 }
+      positionAbsolute: { x: 4900, y: 200 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+    # 19. 宛先の既存行を読取（冪等判定用）
+    - id: '1785218032498'
+      type: custom
+      data:
+        title: read existing rows
+        type: tool
+        # TODO: swap this tool + dependencies if your destination is not Google Sheets.
+        provider_id: omluc/google_sheets/google_sheets
+        provider_type: builtin
+        provider_name: omluc/google_sheets/google_sheets
+        tool_name: batch_get
+        tool_label: Batch Get
+        tool_configurations: {}
+        tool_parameters:
+          spreadsheet_id:
+            type: mixed
+            value: '{{#env.SPREADSHEET_ID#}}'
+          ranges:
+            type: mixed
+            value: '{{#1785218032462.sheet_range#}}'
+      position: { x: 5200, y: 200 }
+      positionAbsolute: { x: 5200, y: 200 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    # 20. 既記録と突合し未記録のみ残す + JST日時付与 + 追記データ生成
+    - id: '1785218032501'
+      type: custom
+      data:
+        title: dedupe vs existing + build rows
+        type: code
+        code_language: python3
+        code: |
+          import json
+          import re
+
+
+          def _norm(u):
+              u = (u or "").strip().lower()
+              u = re.sub(r"#.*$", "", u)
+              u = re.sub(r"\?.*$", "", u)
+              u = re.sub(r"/+$", "", u)
+              u = re.sub(r"^https?://", "", u)
+              u = re.sub(r"^www\.", "", u)
+              return u
+
+
+          def main(articles_json: str, existing: str, run_at: str) -> dict:
+              try:
+                  arts = json.loads(articles_json) if articles_json else []
+              except Exception:
+                  arts = []
+              if not isinstance(arts, list):
+                  arts = []
+              existing = existing or ""
+              existing_norm = set(_norm(u) for u in re.findall(r"https?://[^\s\"',\]]+", existing))
+              rows = []
+              skipped = 0
+              for a in arts:
+                  if not isinstance(a, dict):
+                      continue
+                  key = _norm(a.get("url"))
+                  if not key or key in existing_norm:
+                      skipped += 1   # already recorded → never re-append (idempotent on same-day re-run)
+                      continue
+                  existing_norm.add(key)
+                  rows.append([
+                      run_at or "",
+                      a.get("title", ""),
+                      a.get("url", ""),
+                      a.get("media", ""),
+                      a.get("summary", ""),
+                      a.get("body", ""),
+                  ])
+              return {
+                  "rows_json": json.dumps(rows, ensure_ascii=False),
+                  "write_count": len(rows),
+                  "skipped": skipped,
+              }
+        variables:
+        - variable: articles_json
+          value_type: string
+          value_selector: ['1785218032496', articles_json]
+        - variable: existing
+          value_type: string
+          value_selector: ['1785218032498', text]
+        - variable: run_at
+          value_type: string
+          value_selector: ['1785218032462', run_at_jst]
+        outputs:
+          rows_json: { type: string, children: null }
+          write_count: { type: number, children: null }
+          skipped: { type: number, children: null }
+      position: { x: 5500, y: 200 }
+      positionAbsolute: { x: 5500, y: 200 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+    # 21. 1件=1行で宛先に追記
+    - id: '1785218032503'
+      type: custom
+      data:
+        title: append rows (1 item = 1 row)
+        type: tool
+        provider_id: omluc/google_sheets/google_sheets
+        provider_type: builtin
+        provider_name: omluc/google_sheets/google_sheets
+        tool_name: batch_update
+        tool_label: Batch Update
+        tool_configurations: {}
+        # TODO(live): the append tool's expected `data` shape (2-D values array only vs {"range","values"})
+        #   depends on the installed tool version — confirm on the first live test; reshape in the dedupe
+        #   node if the tool needs {"range":..., "values":[...]}.
+        tool_parameters:
+          spreadsheet_id:
+            type: mixed
+            value: '{{#env.SPREADSHEET_ID#}}'
+          data:
+            type: mixed
+            value: '{{#1785218032501.rows_json#}}'
+          value_input_option:
+            type: constant
+            value: USER_ENTERED
+      position: { x: 5800, y: 200 }
+      positionAbsolute: { x: 5800, y: 200 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+    # 22. 実行サマリと通知要否
+    - id: '1785218032505'
+      type: custom
+      data:
+        title: run summary + notify?
+        type: code
+        code_language: python3
+        code: |
+          def main(write_count, skipped, image_count, run_at) -> dict:
+              def i(x):
+                  try:
+                      return int(x)
+                  except Exception:
+                      return 0
+              wc, sk, ic = i(write_count), i(skipped), i(image_count)
+              should_notify = wc == 0   # 0 written → notify (make the empty-sheet cause visible)
+              summary = "run {}: items {} / written {} / skipped {}".format(run_at or "", ic, wc, sk)
+              if should_notify:
+                  message = (
+                      "[digest] {} No new rows were written today "
+                      "(source items {}, skipped {}). Possible causes: unreadable inputs, "
+                      "inaccessible sources, or all-duplicate. Please check."
+                  ).format(run_at or "", ic, sk)
+              else:
+                  message = summary
+              return {"summary": summary, "message": message, "should_notify": should_notify}
+        variables:
+        - variable: write_count
+          value_type: number
+          value_selector: ['1785218032501', write_count]
+        - variable: skipped
+          value_type: number
+          value_selector: ['1785218032501', skipped]
+        - variable: image_count
+          value_type: number
+          value_selector: ['1785218032467', image_count]
+        - variable: run_at
+          value_type: string
+          value_selector: ['1785218032462', run_at_jst]
+        outputs:
+          summary: { type: string, children: null }
+          message: { type: string, children: null }
+          should_notify: { type: boolean, children: null }
+      position: { x: 6100, y: 200 }
+      positionAbsolute: { x: 6100, y: 200 }
+      width: 242
+      height: 140
+      sourcePosition: right
+      targetPosition: left
+    # 23. 通知要否で分岐
+    - id: '1785218032507'
+      type: custom
+      data:
+        title: should notify?
+        type: if-else
+        logical_operator: and
+        conditions:
+        - variable_selector: ['1785218032505', should_notify]
+          comparison_operator: is
+          value: 'true'
+        cases:
+        - case_id: 'true'
+          id: 'true'
+          logical_operator: and
+          conditions:
+          - variable_selector: ['1785218032505', should_notify]
+            comparison_operator: is
+            value: 'true'
+      position: { x: 6400, y: 200 }
+      positionAbsolute: { x: 6400, y: 200 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    # 24. 通知（同一チャンネルへ）
+    - id: '1785218032509'
+      type: custom
+      data:
+        title: notify channel
+        type: http-request
+        method: POST
+        # TODO: your notification endpoint (chat message / webhook). Swap auth + body to match.
+        url: 'https://api.example.com/v1/containers/{{#1785218032462.room_id#}}/messages'
+        authorization: { type: no-auth }
+        headers: |
+          X-Source-Token: {{#env.SOURCE_API_TOKEN#}}
+        params: ''
+        body:
+          type: x-www-form-urlencoded
+          data:
+          - key: body
+            type: text
+            value: '{{#1785218032505.message#}}'
+        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 10 }
+      position: { x: 6700, y: 100 }
+      positionAbsolute: { x: 6700, y: 100 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    # 25. 出力
+    - id: '1785218032512'
+      type: custom
+      data:
+        title: output
+        type: end
+        outputs:
+        - variable: summary
+          value_selector: ['1785218032505', summary]
+          value_type: string
+        - variable: write_count
+          value_selector: ['1785218032501', write_count]
+          value_type: number
+        - variable: skipped
+          value_selector: ['1785218032501', skipped]
+          value_type: number
+      position: { x: 7000, y: 200 }
+      positionAbsolute: { x: 7000, y: 200 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    viewport: { x: 0, y: 0, zoom: 0.4 }

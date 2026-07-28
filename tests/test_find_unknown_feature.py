@@ -27,8 +27,10 @@ def test_unknown_feature_errors_with_the_valid_list():
 
 
 def test_known_feature_with_zero_matches_is_not_an_error():
-    # trigger-schedule AND iteration: both real keys, but no single pattern has both → empty, exit 0.
-    r = run("--has", "trigger-schedule", "--has", "iteration")
+    # agent AND trigger-schedule: both real keys, but no single pattern has both → empty, exit 0.
+    # (Was trigger-schedule+iteration until chatwork-1-10-20 — a scheduled iterating digest — filled it;
+    # this combo is inherently fragile to new patterns, so re-pick an empty valid pair if it ever matches.)
+    r = run("--has", "agent", "--has", "trigger-schedule")
     assert r.returncode == 0, r.stderr
     assert "unknown feature" not in r.stderr
     assert "No matching" in r.stdout

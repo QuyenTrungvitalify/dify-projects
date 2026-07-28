@@ -391,6 +391,27 @@
     "gotchas": "Skeleton ships with empty model and empty tools list plus empty dependencies[]; register plugin tools and pick a strong tool-use model before it runs. Curated pattern — copy-paste-ready seed for this shape.",
     "orig_sha256": "b8ef33da4a1b7ea890bd461df177e3826437c38bf42dfea5fe5459d125a892b5"
   },
+  "patterns/chatwork-1-10-20.yml": {
+    "summary_en": "A scheduled, unattended job that ingests items from MULTIPLE sources (custom-auth HTTP attachments read by a Vision LLM, plus a web-search tool), merges them by a priority rule, ranks a top-N shortlist with an LLM, writes each item up with an LLM, dedupes against an existing spreadsheet, appends only new rows, and notifies just when there is something new.",
+    "tags": [
+      "scheduled",
+      "trigger",
+      "iteration",
+      "vision",
+      "web-search",
+      "llm",
+      "http-request",
+      "tool",
+      "spreadsheet",
+      "notify",
+      "digest",
+      "idempotent",
+      "aggregation"
+    ],
+    "when_to_use": "When a recurring job with no operator present must gather from more than one source, rank to a shortlist, have an LLM write each item up, and append to a running log (Google Sheet) without duplicating past entries — notifying only on non-empty results.",
+    "gotchas": "Empty LLM models ship by design (wire a model per node; the image node MUST be Vision-capable). Schedule trigger timezone defaults to UTC — set Asia/Tokyo explicitly. Custom auth header uses authorization:{type:no-auth} + the token in headers via a secret env var (api-key auth types rewrite headers). Both iterations use continue-on-error so one bad item never stalls the run. Idempotency comes from reading existing sheet rows and deduping before append. 17 # TODO customization points (source API, room/keywords, sheet range, extraction prompt, fire time). Curated pattern distilled from a proven build (spec 052).",
+    "orig_sha256": "a2be302a3ebb7bae4e582b1192c22e4005808811fc803f61053023808753cd23"
+  },
   "patterns/file-iteration.yml": {
     "summary_en": "Upload a structured file, extract its text, split it into items, process each item in a parallel iteration, then aggregate the per-item results into one output.",
     "tags": [
