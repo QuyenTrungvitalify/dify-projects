@@ -1,0 +1,28 @@
+{
+  "taskId": "1785072873799",
+  "slug": "t_i_c_m",
+  "ground_truth": null,
+  "status": "done",
+  "prompt": "Tôi có một file CSV doanh số, hãy phân tích và vẽ biểu đồ cột trực quan hoá",
+  "context": "spec 076 E1+E2 end-to-end validation — does the enriched retrieval lift translate to build quality?",
+  "phases": {
+    "analyze": {"process_ok": true, "note": "only wrote analyze.json; pattern=file-to-llm; features=[file-input,document-extractor,code,llm]; find_query used --has (NOT --name)"},
+    "spec": {"process_ok": true, "note": "searched patterns, no ID mint, no YAML"},
+    "implement": {"process_ok": true, "errors_real": 0, "note": "ran generate_id + all 3 validators; 1 benign chained-command rejection re-run individually"},
+    "test": {"process_ok": true, "errors_real": 0, "note": "backend-run; validators re-run clean"}
+  },
+  "must_do": [
+    {"item": "parse the sales CSV", "verdict": "met (code node: csv parse + group-by + sum)"},
+    {"item": "analyze sales", "verdict": "met (summary: top/bottom group, total; LLM VI commentary)"},
+    {"item": "draw a bar chart / visualize", "verdict": "met (```echarts bar-chart markdown block, Dify-rendered)"},
+    {"item": "Vietnamese output (prompt language)", "verdict": "met"}
+  ],
+  "lint": {"validate": 0, "lint_refs": 0, "lint_plugin_hashes": 0},
+  "runnable": false,
+  "runnable_blockers": ["model.provider/name empty on llm node (standard runtime fill)"],
+  "code_safety": "stdlib-only (csv, io, json) — no sandbox trap (no matplotlib/requests)",
+  "runtime": "NOT VERIFIED",
+  "genuine_misses": [],
+  "retrieval_finding": "phase ① searched find.py --has file-input --has code (feature-flag path), NOT --name — so the E1/E2 BM25 --name improvement was NOT exercised by this build. Build quality here came from the model's own echarts knowledge, not from surfacing enriched examples.",
+  "verdict": "PASS (Tier-1) — valid, lint-clean, meets the requirement with a stdlib echarts bar chart + VI analysis; runtime unverified (empty model, deploy=none). Caveat: this run did not exercise the shipped retrieval improvement."
+}

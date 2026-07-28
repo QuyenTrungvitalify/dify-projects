@@ -6,8 +6,7 @@ Runtime is manual spot-check → `runtime` stays `NOT VERIFIED` until a `/report
 
 | # | run / slug | analyze | spec | implement (lint) | mode | requirement-fit | runtime | verdict |
 |---|---|---|---|---|---|---|---|---|
-
-_No runs yet — the 2026-07-17 workspace reset cleared the previous campaign. Fill one row per `/report #N`._
+| e2e `trigger-schedule` | 1784995332601 / `9_https_jsonplaceholder_typicode` | ✅ | ✅ | ✅ (0/0/0/0) | workflow | 5/5 met | NOT VERIFIED | **PASS** (Tier-1) |
 
 ## Notes / lessons
 
@@ -34,3 +33,13 @@ Its two technical lessons were **fixed at the source** and need no re-reading:
   `answer` node instead of `end`).
 - iteration-start vs the implement gate — `post-turn.ts` `idsOk` now matches `^\d{13}(start)?$`, so a
   legitimate `<id>start` child no longer false-parks the build at `still_failing`.
+
+---
+
+## Active runs (post-reset)
+
+| run · slug | ① | ② | ③ | ④ | lint | mode | requirement-fit | runtime | verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| 1784276705086 · d_t_llm_chatwork_3 | ✅ | ✅ | ✅ | park | 0/0/0 | workflow (trigger-schedule) | 6/6 met | NOT VERIFIED | **Tier-1 PASS** — PARKED @③, click continue for ④ |
+
+Detail: [report-d_t_llm_chatwork_3-1784276705086.md](report-d_t_llm_chatwork_3-1784276705086.md)
