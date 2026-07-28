@@ -133,6 +133,7 @@ const EN: Dict = {
   /* disclosure */
   running: 'Running',
   stoppedDuring: 'Stopped during',
+  distillStep: 'Distillation', // spec 052: a promote task's single turn — not "④ Test"
   working: 'Working…',
 
   /* gate — meta + per-state copy */
@@ -463,6 +464,7 @@ const JA: Dict = {
   /* disclosure */
   running: '実行中',
   stoppedDuring: '停止しました：',
+  distillStep: '蒸留', // spec 052: promote タスクの1ターン — 「④ テスト」ではない
   working: '処理中…',
 
   /* gate */

@@ -448,7 +448,7 @@ export function App() {
                       return <div key={item.id} className="msg msg-user"><div className="bubble-user">{item.text}</div></div>;
                     if (item.kind === 'run')
                       return <div key={item.id} className="msg msg-assistant">
-                        <Disclosure phaseKey={item.phase} running={item.running} output={item.output} stopped={item.stopped} />
+                        <Disclosure phaseKey={item.phase} running={item.running} output={item.output} stopped={item.stopped} promote={task?.kind === 'promote'} />
                       </div>;
                     if (item.kind === 'qa')
                       return <div key={item.id} className="msg msg-assistant">

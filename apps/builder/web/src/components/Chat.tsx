@@ -100,22 +100,26 @@ export function PhaseTrack({ phaseStates, current }: { phaseStates: PhaseStates;
 }
 
 /* ---- disclosure: "Running ① Analyze…" / "Stopped during ① Analyze" / streamed output ---- */
-export function Disclosure({ phaseKey, running, output, stopped }: {
+export function Disclosure({ phaseKey, running, output, stopped, promote }: {
   phaseKey: PhaseKey;
   running: boolean;
   output: string;
   /** the phase's turn was cancelled mid-flight — muted "Stopped during …" + alert icon (design handoff). */
   stopped?: boolean;
+  /** spec 052: a `kind:'promote'` task does NOT run the ①②③④ FSM — its single turn is the distillation.
+   *  Label it "Distillation", never "④ Test" (promote tasks carry phase:'test' as a default). */
+  promote?: boolean;
 }) {
   const [open, setOpen] = useState(running);
   useEffect(() => { if (running) setOpen(true); }, [running]);
   const idx = phaseIndex(phaseKey);
   const phLabel = phaseLabel(phaseLabelAt(idx));
+  const step = promote ? <>{tr('distillStep')}</> : <>{numCircle(idx)} {phLabel}</>;
   const label = running
-    ? <>{tr('running')} <b style={{ color: 'var(--tx-1)', fontWeight: 500 }}>{numCircle(idx)} {phLabel}</b><span className="dots" /></>
+    ? <>{tr('running')} <b style={{ color: 'var(--tx-1)', fontWeight: 500 }}>{step}</b><span className="dots" /></>
     : stopped
-      ? <>{tr('stoppedDuring')} <b style={{ color: 'var(--tx-2)', fontWeight: 500 }}>{numCircle(idx)} {phLabel}</b></>
-      : <>{numCircle(idx)} {phLabel}</>;
+      ? <>{tr('stoppedDuring')} <b style={{ color: 'var(--tx-2)', fontWeight: 500 }}>{step}</b></>
+      : <>{step}</>;
   // D6 (017): memoize the markdown render on the buffer so an unrelated re-render (another thread
   // item, a sibling signal) doesn't re-parse the whole accumulated output. Byte-identical HTML.
   const html = useMemo(() => (output.trim() ? renderMarkdownHtml(output) : ''), [output]);
@@ -169,8 +173,11 @@ function promoteGateView(t: WireTask): GateView {
       summary: [tr('promoteCancelledSummary')] };
   }
   if (t.status === 'done') {
+    // spec 081: a shared promotion narrates the pushed branch (the hub opens the PR from it).
+    const shared = p?.share?.state === 'pushed' && p.share.branch
+      ? [tf('promoteSharePushedLine', { branch: p.share.branch })] : [];
     return { tone: 'done', badge: tr('promoteDoneBadge'), title: tr('promoteDoneTitle'), meta: '',
-      summary: [p?.target ? tf('promoteTargetLine', { target: p.target }) : tr('promoteDoneSummary'), ...(note ? [note] : [])],
+      summary: [p?.target ? tf('promoteTargetLine', { target: p.target }) : tr('promoteDoneSummary'), ...shared, ...(note ? [note] : [])],
       showYamlLink: true };
   }
   // awaiting_confirm — keyed on the promote gate flag.
@@ -181,6 +188,35 @@ function promoteGateView(t: WireTask): GateView {
   if (t.gate?.flag === 'promote_distill_failed') {
     return { tone: 'warn', badge: tr('promoteDistillFailedBadge'), title: tr('promoteDistillFailedTitle'), meta: '',
       summary: reasons.length ? reasons : [note || tr('promoteDistillFailedSummary')] };
+  }
+  // spec 081 — the share-offer gate: the pattern is already promoted locally; ask whether to push it.
+  if (t.gate?.flag === 'promote_share_offer') {
+    return { tone: 'done', badge: tr('promoteDoneBadge'), title: tr('promoteShareOfferTitle'), meta: '',
+      summary: [
+        p?.target ? tf('promoteTargetLine', { target: p.target }) : tr('promoteDoneSummary'),
+        tr('promoteShareOfferSummary'),
+      ],
+      showYamlLink: true };
+  }
+  // spec 081 — the share-review gate (cổng 1): preflight results + the MIT line, parked for the confirm.
+  if (t.gate?.flag === 'promote_share_review') {
+    const sh = p?.share;
+    const lines: string[] = [];
+    if (sh?.state === 'failed' && sh.error) lines.push(tf('promoteShareFailedLine', { error: sh.error }));
+    if (sh?.note) lines.push(sh.note);
+    const found = sh?.findings ?? [];
+    if (found.length) {
+      lines.push(tf('promoteShareFindingsLine', { n: String(found.length) }));
+      for (const f of found.slice(0, 8)) lines.push(`L${f.line} [${f.kind}] ${f.excerpt}`);
+      if (found.length > 8) lines.push(tf('promoteShareMoreFindings', { n: String(found.length - 8) }));
+    } else if (sh?.state !== 'failed') {
+      lines.push(tr('promoteShareScanClean'));
+    }
+    if (sh?.dup) lines.push(tf('promoteShareDupLine', { dup: sh.dup }));
+    lines.push(tr('promoteShareLicenseLine'));
+    return { tone: found.length || sh?.state === 'failed' ? 'warn' : 'deploy',
+      badge: tr('promoteShareReviewBadge'), title: tr('promoteShareReviewTitle'), meta: '',
+      summary: lines, showYamlLink: true };
   }
   // promote_review (incl. the collision variant, which carries `note`).
   const summary = [tr('promoteReviewSummary')];
