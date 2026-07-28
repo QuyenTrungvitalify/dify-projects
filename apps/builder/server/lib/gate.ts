@@ -73,10 +73,43 @@ const ERROR_GATE: Gate = { actions: [REPLY('retry', 'Retry phase')] };
  *   - `review`         → a clean distill. Approve is the ONLY write to templates/patterns/; Request-changes
  *                        re-runs the distill note-steered; Discard sweeps (nothing written). On a slug
  *                        collision at Approve, `reviewCollision` swaps in Overwrite / Save-as-new + Discard.
+ *
+ * Spec 081 adds the two post-finalize SHARE gates (both /confirm-only — no cancel action, so a
+ * "no" never marks the finished promotion `cancelled`):
+ *   - `share_offer`  → "push this pattern to the shared repo?" (origin exists + provenance shareable)
+ *   - `share_review` → the preflight results (leak scan + near-dup) parked for the contributor's
+ *                      explicit confirm — the first human gate; nothing leaves the machine before it.
+ *   - `share_retry`  → a failed push re-parked with guidance (same flag as share_review).
  */
-export type PromoteGateState = 'blocked' | 'distill_failed' | 'review' | 'reviewCollision';
+export type PromoteGateState =
+  | 'blocked' | 'distill_failed' | 'review' | 'reviewCollision'
+  | 'share_offer' | 'share_review' | 'share_retry';
 export function computePromoteGate(state: PromoteGateState): Gate {
   switch (state) {
+    case 'share_offer':
+      return {
+        actions: [
+          CONFIRM('share', 'Share to team shelf'),
+          CONFIRM('share_skip', 'Keep local only'),
+        ],
+        flag: 'promote_share_offer',
+      };
+    case 'share_review':
+      return {
+        actions: [
+          CONFIRM('share_confirm', 'Push to shared repo'),
+          CONFIRM('share_skip', 'Keep local only'),
+        ],
+        flag: 'promote_share_review',
+      };
+    case 'share_retry':
+      return {
+        actions: [
+          CONFIRM('share_confirm', 'Try push again'),
+          CONFIRM('share_skip', 'Keep local only'),
+        ],
+        flag: 'promote_share_review',
+      };
     case 'blocked':
       return { actions: [CANCEL('discard', 'Discard')], flag: 'promote_blocked' };
     case 'distill_failed':
@@ -174,7 +207,10 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy, t
         return {
           actions: [
             CONFIRM('import', 'Import to Dify'),
-            CONFIRM('skip_import', 'Skip import'),
+            // Label reads as COMPLETION, not "skip a step": this action finishes the build `done`
+            // (the yml is on disk). Users who only want the file were leaving the build parked at
+            // this gate because "Skip import" didn't read as "I'm finished". Action id is unchanged.
+            CONFIRM('skip_import', 'Finish without importing'),
             REPLY('changes', 'Request changes'), // spec 041: edit the workflow before importing (→ re-run Implement)
             DISCARD(), // F1: dismiss a build parked at the selfhost Import gate (the linted .yml stays on disk)
           ],
