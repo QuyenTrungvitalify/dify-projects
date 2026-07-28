@@ -24,8 +24,10 @@ Usage:
     python3 tools/dify_base/catalog.py seed                     # idempotent; every tier incl. skill-assets
     python3 tools/dify_base/catalog.py check <file> [--shelf] [--json]
     python3 tools/dify_base/catalog.py record <file> --decision rejected --reason "..." [--url ...]
+    python3 tools/dify_base/catalog.py record --url <repo-url> --decision rejected --reason "..."  # repo-level, no file
     python3 tools/dify_base/catalog.py hunt-log --query "..." [--new N] [--dup N] [--rejected N]
-    python3 tools/dify_base/catalog.py doctor
+    python3 tools/dify_base/catalog.py doctor [--json]
+    python3 tools/dify_base/catalog.py stats [--json]         # spec 080: the shelf-dashboard feed (read-only)
 
 `check` modes (spec 078 S1/S2 — deliberately different comparison sets):
   * default    — against the WHOLE collected.json memory (every tier + recorded decisions). This is
@@ -43,11 +45,14 @@ import sys
 from collections import Counter
 from datetime import date
 from pathlib import Path
+from statistics import median
 
 import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
-from sources import load_sources  # noqa: E402
+from sources import load_sources, read_lock_sha  # noqa: E402
+from provenance import parse_header  # noqa: E402 — spec 080: the promote timeline reads x-provenance
+from enrich import check_data  # noqa: E402 — spec 080: enrichment coverage reuses --check's rules
 
 # dify-projects/tools/dify_base/catalog.py -> parent.parent.parent = repo root
 BASE = Path(__file__).parent.parent.parent
@@ -78,6 +83,10 @@ STATIC_TIERS = (
 CURATED_TIERS = ("templates/patterns", "templates/library")
 
 VALID_DECISIONS = ("vendored", "promoted", "rewritten", "rejected", "study", "shelf")
+
+# Entries that ARE the shelf (seeded or accepted) — hunt leftovers (rejected/study/rewritten) are
+# memory about the outside world and must not count toward shelf diversity (spec 080 v1.1).
+ON_SHELF_DECISIONS = ("shelf", "vendored", "promoted")
 
 
 # ── fingerprint ───────────────────────────────────────────────────────────────────────────────────
@@ -261,11 +270,14 @@ def check_file(path, shelf=False, root=BASE, catalog_path=CATALOG_PATH):
             for rel, _tier, i in scan_files(root, tiers=CURATED_TIERS)
         ]
     else:
+        # Repo-level entries (URL-keyed, no sha256/fingerprint — record without a file) are memory
+        # about a REPO, not a file: they can never match a candidate file, so skip them here instead
+        # of KeyError-ing the whole check (latent since repo-level record landed).
         candidates = [
-            {"sha256": e["sha256"], "fingerprint": e["fingerprint"], "node_count": e.get("node_count"),
+            {"sha256": e["sha256"], "fingerprint": e.get("fingerprint"), "node_count": e.get("node_count"),
              "match": e.get("path") or e.get("url") or e["key"],
              "decision": e.get("decision"), "reason": e.get("reason")}
-            for e in load_catalog(catalog_path)["entries"].values()
+            for e in load_catalog(catalog_path)["entries"].values() if e.get("sha256")
         ]
 
     verdict = {
@@ -310,23 +322,39 @@ def cmd_check(args):
 
 def record(path, decision, reason, url=None, name=None, license_=None, tier=None,
            catalog_path=CATALOG_PATH):
-    """Upsert one decision entry, keyed by the file's sha12. Returns the entry."""
-    info = fingerprint_file(path)
-    if info is None:
-        raise ValueError(f"{path}: valid YAML but not a workflow (no graph nodes)")
+    """Upsert one decision entry. Keyed by the file's sha12 — or, when `path` is None (a REPO-level
+    decision: empty repo, plugin-not-DSL, no-license repo — there is no workflow file to hash), by
+    sha12 of the URL. Scout found this gap on hunt #1 (2026-07-28): file-keyed-only memory could not
+    remember repo-level rejects, so every later hunt re-surfaced them."""
     cat = load_catalog(catalog_path)
-    key = info["sha256"][:12]
-    entry = cat["entries"].get(key, {})
-    entry.update({
-        "key": key,
-        "name": name or entry.get("name") or Path(path).name,
-        "sha256": info["sha256"],
-        "fingerprint": info["fingerprint"],
-        "node_count": info["node_count"],
-        "decision": decision,
-        "reason": reason,
-        "date": date.today().isoformat(),
-    })
+    if path is None:
+        if not url:
+            raise ValueError("repo-level record needs --url when no file is given")
+        key = hashlib.sha256(url.encode("utf-8")).hexdigest()[:12]
+        entry = cat["entries"].get(key, {})
+        entry.update({
+            "key": key,
+            "name": name or entry.get("name") or url.rstrip("/").rsplit("/", 1)[-1],
+            "decision": decision,
+            "reason": reason,
+            "date": date.today().isoformat(),
+        })
+    else:
+        info = fingerprint_file(path)
+        if info is None:
+            raise ValueError(f"{path}: valid YAML but not a workflow (no graph nodes)")
+        key = info["sha256"][:12]
+        entry = cat["entries"].get(key, {})
+        entry.update({
+            "key": key,
+            "name": name or entry.get("name") or Path(path).name,
+            "sha256": info["sha256"],
+            "fingerprint": info["fingerprint"],
+            "node_count": info["node_count"],
+            "decision": decision,
+            "reason": reason,
+            "date": date.today().isoformat(),
+        })
     if url:
         entry["url"] = url
     if license_:
@@ -368,26 +396,30 @@ def cmd_hunt_log(args):
     return 0
 
 
+def _collisions(rows):
+    """Group (rel, tier, info) rows into (sha_dups, fp_strong, fp_weak). Shared by doctor (live scan)
+    and stats (curated live + house-from-collected, spec 080 v1.1)."""
+    by_sha, by_fp = {}, {}
+    for rel, _tier, info in rows:
+        by_sha.setdefault(info["sha256"], []).append(rel)
+        by_fp.setdefault((info["fingerprint"], info["node_count"]), []).append(rel)
+    sha_dups = [paths for paths in by_sha.values() if len(paths) > 1]
+    # exclude byte-identical groups from the shape report: they're already sha dups
+    sha_dup_set = {p for grp in sha_dups for p in grp}
+    fp_strong = [(fp, n, paths) for (fp, n), paths in by_fp.items()
+                 if len(paths) > 1 and n >= WEAK_SHAPE_NODES
+                 and not all(p in sha_dup_set for p in paths)]
+    fp_weak = [(fp, n, paths) for (fp, n), paths in by_fp.items()
+               if len(paths) > 1 and n < WEAK_SHAPE_NODES
+               and not all(p in sha_dup_set for p in paths)]
+    return sha_dups, fp_strong, fp_weak
+
+
 def doctor(root=BASE):
     """Scan for internal duplicates. Returns (curated_problems, house_notes) — only the former
     should gate anything: on the curated shelf 0 dups is the expectation (spec 078 §5-c); across the
     whole house, same-shape 3-node workflows are legitimate and reported as weak-signal info only."""
-    def collisions(rows):
-        by_sha, by_fp = {}, {}
-        for rel, _tier, info in rows:
-            by_sha.setdefault(info["sha256"], []).append(rel)
-            by_fp.setdefault((info["fingerprint"], info["node_count"]), []).append(rel)
-        sha_dups = [paths for paths in by_sha.values() if len(paths) > 1]
-        # exclude byte-identical groups from the shape report: they're already sha dups
-        sha_dup_set = {p for grp in sha_dups for p in grp}
-        fp_strong = [(fp, n, paths) for (fp, n), paths in by_fp.items()
-                     if len(paths) > 1 and n >= WEAK_SHAPE_NODES
-                     and not all(p in sha_dup_set for p in paths)]
-        fp_weak = [(fp, n, paths) for (fp, n), paths in by_fp.items()
-                   if len(paths) > 1 and n < WEAK_SHAPE_NODES
-                   and not all(p in sha_dup_set for p in paths)]
-        return sha_dups, fp_strong, fp_weak
-
+    collisions = _collisions
     curated = list(scan_files(root, tiers=CURATED_TIERS))
     house = list(scan_files(root))
 
@@ -412,8 +444,11 @@ def doctor(root=BASE):
     return problems, notes
 
 
-def cmd_doctor(_args):
+def cmd_doctor(args):
     problems, notes = doctor()
+    if getattr(args, "json", False):
+        print(json.dumps({"curated_problems": problems, "house_notes": notes}))
+        return 1 if problems else 0
     for n in notes:
         print(f"  ! {n}")
     for p in problems:
@@ -423,6 +458,145 @@ def cmd_doctor(_args):
               file=sys.stderr)
         return 1
     print("curated shelf is dup-free" + (f" ({len(notes)} house note(s) above)" if notes else ""))
+    return 0
+
+
+# ── stats (spec 080 S1) — one JSON for the shelf dashboard ───────────────────────────────────────
+
+def stats(root=BASE, catalog_path=CATALOG_PATH):
+    """Compose the whole shelf picture into ONE dict (read-only — never writes anything).
+
+    Design (spec 080 v1.1): everything comes from files that already exist — index.json (tiers,
+    features, complexity, tags, enrichment-merged fields), collected.json (shape diversity, hunts),
+    x-provenance headers on BOTH curated dirs (the promote timeline — finalizePromotion stamps
+    patterns/, not just library/), the source registry + lock. YAML is live-parsed ONLY for the
+    ~12 curated files (the one tier whose dup-expectation is zero); house-level shape collisions
+    are derived from collected.json, whose freshness `seed_coverage` reports explicitly."""
+    root = Path(root)
+    index_path = root / "tools" / "dify_base" / "index.json"
+    if not index_path.exists():
+        return {"ok": False, "reason": f"no index at {index_path.relative_to(root)}",
+                "hint": ".venv/bin/python tools/dify_base/build_index.py"}
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    out = {"ok": True, "generated_at": date.today().isoformat(), "hints": [], "total": len(index)}
+
+    tier_counts = Counter(e["source"] for e in index)
+    out["tiers"] = [{"tier": t, "count": c}
+                    for t, c in sorted(tier_counts.items(), key=lambda x: (-x[1], x[0]))]
+
+    # Feature coverage — the find.py vocabulary verbatim (index carries the full has_* key set per
+    # entry, so a 0-count hole IS visible). Ascending = the diversity gaps lead.
+    feat_keys = sorted({k for e in index for k in e if k.startswith("has_")})
+    out["features"] = sorted(
+        ({"key": k, "count": sum(1 for e in index if e.get(k) is True)} for k in feat_keys),
+        key=lambda f: (f["count"], f["key"]))
+
+    out["complexity"] = dict(Counter(e.get("complexity") for e in index))
+    per_tier_cx = {}
+    for e in index:
+        per_tier_cx.setdefault(e["source"], Counter())[e.get("complexity")] += 1
+    out["complexity_per_tier"] = {t: dict(c) for t, c in sorted(per_tier_cx.items())}
+
+    tag_counts = Counter(t for e in index for t in (e.get("tags") or []))
+    out["tags"] = {"unique": len(tag_counts),
+                   "top": [{"tag": t, "count": c} for t, c in tag_counts.most_common(10)]}
+
+    # Diversity — ONLY on-shelf entries; hunt leftovers (rejected/study, incl. URL-keyed repo-level
+    # entries with no fingerprint) are memory about the outside world, not the shelf.
+    cat = load_catalog(catalog_path)
+    shelf = [e for e in cat["entries"].values()
+             if e.get("decision") in ON_SHELF_DECISIONS and e.get("fingerprint")]
+    if shelf:
+        per_tier = {}
+        for e in shelf:
+            per_tier.setdefault(e.get("tier", "?"), []).append(e["fingerprint"])
+        out["diversity"] = {
+            "files": len(shelf),
+            "unique_fingerprints": len({e["fingerprint"] for e in shelf}),
+            "weak_shapes": sum(1 for e in shelf if e.get("node_count", 99) < WEAK_SHAPE_NODES),
+            "per_tier": [{"tier": t, "files": len(v), "unique_shapes": len(set(v))}
+                         for t, v in sorted(per_tier.items())],
+        }
+    else:
+        out["diversity"] = None
+    out["seed_coverage"] = {"indexed": len(index), "seeded": len(shelf),
+                            "stale": len(shelf) != len(index)}
+    if out["seed_coverage"]["stale"]:
+        out["hints"].append(
+            "collected.json out of sync with the index — run: .venv/bin/python tools/dify_base/catalog.py seed")
+
+    # Enrichment — the exact --check rules (missing/stale/orphan), not a summary_en count.
+    try:
+        enr = check_data(index_path=index_path,
+                         enrich_path=root / "tools" / "dify_base" / "enrichment.json")
+        out["enrichment"] = {"covered": enr["covered"], "total": enr["index_total"],
+                             "missing": len(enr["missing"]), "stale": len(enr["stale"]),
+                             "orphan": len(enr["orphan"])}
+    except Exception:
+        out["enrichment"] = None  # advisory — the dashboard shows a dash, never breaks
+
+    # Doctor — curated live-parse (the 0-dup gate) + house collisions from collected fingerprints.
+    c_sha, c_strong, c_weak = _collisions(list(scan_files(root, tiers=CURATED_TIERS)))
+    problems = [f"curated sha256 dup: {' == '.join(g)}" for g in c_sha]
+    problems += [f"curated shape collision [{fp}]: {' ~ '.join(g)}" for fp, _n, g in c_strong]
+    notes = [f"curated weak-signal shape ({fp}): {' ~ '.join(g)}" for fp, _n, g in c_weak]
+    house_rows = [(e.get("path") or e["key"], e.get("tier", "?"),
+                   {"sha256": e["sha256"], "fingerprint": e["fingerprint"],
+                    "node_count": e.get("node_count", 0)}) for e in shelf]
+    _h_sha, h_strong, h_weak = _collisions(house_rows)
+    notes += [f"house shape collision [{fp}]: {' ~ '.join(g)}" for fp, _n, g in h_strong]
+    if h_weak:
+        notes.append(f"house weak-signal shape collisions (<{WEAK_SHAPE_NODES} nodes, expected): "
+                     f"{len(h_weak)} group(s)")
+    out["doctor"] = {"curated_problems": problems, "house_notes": notes}
+
+    # Promote timeline — BOTH curated dirs (v1.1: finalizePromotion stamps patterns/); a hand-written
+    # pattern has no x-provenance header → no date → silently absent, by design.
+    promotes = []
+    for rel_dir, tier in (("templates/patterns", "patterns"), ("templates/library", "library")):
+        d = root / rel_dir
+        for yml in sorted(d.glob("*.yml")) if d.exists() else []:
+            try:
+                h = parse_header(yml)
+            except Exception:
+                h = None
+            if h and h.get("promoted"):
+                promotes.append({"file": yml.name, "tier": tier, "promoted": h["promoted"],
+                                 "source": h.get("source"), "license": h.get("license")})
+    out["promotes"] = sorted(promotes, key=lambda p: p["promoted"], reverse=True)
+
+    out["sources"] = [{"name": s["name"], "license": s["license"], "indexed": s["indexed"],
+                       "locked_sha": read_lock_sha(s["name"]) or None,
+                       "cloned": (root / "corpus" / s["name"] / ".git").exists()}
+                      for s in load_sources()]
+
+    hunts = cat.get("hunts", [])
+    out["hunts"] = {"count": len(hunts),
+                    "last": max((h.get("date", "") for h in hunts), default=None) or None,
+                    "median_new": median(h.get("new", 0) for h in hunts) if hunts else None}
+    return out
+
+
+def cmd_stats(args):
+    s = stats()
+    if args.json:
+        print(json.dumps(s, ensure_ascii=False))
+        return 0 if s.get("ok") else 1
+    if not s.get("ok"):
+        print(f"✗ {s['reason']} — {s['hint']}", file=sys.stderr)
+        return 1
+    tiers = " · ".join(f"{t['tier']}:{t['count']}" for t in s["tiers"])
+    print(f"{s['total']} examples — {tiers}")
+    if s["diversity"]:
+        d = s["diversity"]
+        print(f"shapes: {d['unique_fingerprints']} unique / {d['files']} files ({d['weak_shapes']} weak <4-node)")
+    gaps = [f for f in s["features"] if f["count"] <= 1]
+    if gaps:
+        print("thin features (≤1 example): " + ", ".join(f"{g['key']}={g['count']}" for g in gaps))
+    print(f"promotes: {len(s['promotes'])} stamped · latest {s['promotes'][0]['promoted'] if s['promotes'] else '—'}"
+          f" · hunts: {s['hunts']['count']}")
+    for h in s["hints"]:
+        print(f"  ! {h}")
     return 0
 
 
@@ -445,8 +619,8 @@ def main(argv):
     p_chk.add_argument("--json", action="store_true")
     p_chk.set_defaults(func=cmd_check)
 
-    p_rec = sub.add_parser("record", help="record a hunt decision for a candidate file")
-    p_rec.add_argument("file")
+    p_rec = sub.add_parser("record", help="record a hunt decision for a candidate file (or --url only for a repo-level decision)")
+    p_rec.add_argument("file", nargs="?", default=None)
     p_rec.add_argument("--decision", required=True, choices=[d for d in VALID_DECISIONS if d != "shelf"])
     p_rec.add_argument("--reason", required=True)
     p_rec.add_argument("--url")
@@ -464,7 +638,12 @@ def main(argv):
     p_hl.set_defaults(func=cmd_hunt_log)
 
     p_doc = sub.add_parser("doctor", help="scan the shelf for internal duplicates")
+    p_doc.add_argument("--json", action="store_true")
     p_doc.set_defaults(func=cmd_doctor)
+
+    p_st = sub.add_parser("stats", help="one JSON with the whole shelf picture (spec 080 dashboard)")
+    p_st.add_argument("--json", action="store_true")
+    p_st.set_defaults(func=cmd_stats)
 
     args = parser.parse_args(argv)
     return args.func(args)

@@ -8,10 +8,13 @@ weak-signal near-dup, never a dup), decision replay after `record`, live `--shel
 Fixtures are SYNTHESIZED (spec 078 S1): the real-world aircrushin↔corpus dup is illustration
 only — committing a no-license file as a fixture would violate the spec's own §8.
 """
+import hashlib
 import json
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 import yaml
 
@@ -226,3 +229,25 @@ def test_cli_check_shelf_json_on_a_real_pattern():
     v = json.loads(out.stdout)
     assert v["verdict"] == "dup"
     assert v["fingerprint"].startswith("agent:1")
+
+
+# ── repo-level record (--url, no file) — gap found on hunt #1 (2026-07-28) ───────────────────────
+
+def test_record_url_only_repo_level(tmp_path):
+    """A repo-level decision (empty repo / plugin-not-DSL) has no file to hash — record must accept
+    --url alone, key by sha12(url), and replay on re-record (upsert, not duplicate)."""
+    cat_path = tmp_path / "collected.json"
+    url = "https://github.com/someone/empty-dify-repo"
+    e = catalog.record(None, "rejected", "0 yml files", url=url, tier="B", catalog_path=cat_path)
+    assert e["key"] == hashlib.sha256(url.encode()).hexdigest()[:12]
+    assert "sha256" not in e and "fingerprint" not in e  # no file → no content hashes
+    # upsert: re-record same url updates, does not duplicate
+    catalog.record(None, "rejected", "still empty", url=url, catalog_path=cat_path)
+    cat = catalog.load_catalog(cat_path)
+    assert len([k for k, v in cat["entries"].items() if v.get("url") == url]) == 1
+    assert cat["entries"][e["key"]]["reason"] == "still empty"
+
+
+def test_record_no_file_no_url_is_an_error(tmp_path):
+    with pytest.raises(ValueError):
+        catalog.record(None, "rejected", "x", catalog_path=tmp_path / "c.json")

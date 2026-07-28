@@ -32,7 +32,13 @@ hunts; the point is to MEASURE that (§5-b gates any future hunter UI on ≥3 hu
    - (a) Repo search: `gh search repos "dify workflow" --sort updated`, plus topics —
      `gh search repos --topic dify-workflow`, `--topic dify-dsl`.
    - (b) **Code search for DSL markers** — catches single workflows in repos not named "dify":
-     `gh search code '"mode: workflow" app language:YAML' --limit 50` (and `kind: app` / `dsl_version`).
+     `gh search code '"kind: app" "mode: workflow"' --language yaml --limit 50`.
+     ⚠ **Known-dead in some environments** (hunt #1, 2026-07-28: `gh search code` returned empty
+     for EVERY query incl. `import numpy` — API/scope limitation, exit 0, no error). Probe first
+     with a guaranteed-hit query; if empty ⇒ the prong is unavailable: say so, note it in the
+     hunt-log (`--note "code-search dead"`), and do NOT read empty results as "no code hits".
+     Optional fallback: a web search for `github "mode: workflow" dify yml` — treat results as
+     candidate URLs to vet in step 3, never as verified.
    - (c) Delta only: append `pushed:>{last-hunt-date}` to (a) when a watermark exists.
    - (d) Re-check seen-but-not-vendored repos: entries in `collected.json` with `url` +
      decision `study`/`rejected(revisit)` — `gh api repos/{owner}/{repo}/git/trees/HEAD` tree-sha
@@ -63,6 +69,9 @@ hunts; the point is to MEASURE that (§5-b gates any future hunter UI on ≥3 hu
      the loop if the result proves a new shape).
    - **Skip** → `.venv/bin/python tools/dify_base/catalog.py record <tmpfile> --decision rejected
      --reason "…" --url <url> --tier B`.
+   - **Skip cấp-REPO** (repo rỗng / plugin-không-phải-DSL / no-license cả repo — không có file để
+     hash): `… record --url <repo-url> --decision rejected --reason "…"` (key = sha12 của URL;
+     thêm sau hunt #1 khi phát hiện reject cấp-repo không ghi được → hunt sau re-surface).
 
 5. **Close the hunt — always, even a zero-yield one** (the §5-b metric depends on it):
    `.venv/bin/python tools/dify_base/catalog.py hunt-log --query "<queries used>" --new N --dup N

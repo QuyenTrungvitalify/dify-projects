@@ -144,6 +144,15 @@
       "sha256": "5859d8c833593069cfe781da27d585a24cdbbf5e03a50af56b2ae01045d491ad",
       "tier": "corpus:awesome-dify-workflow-en"
     },
+    "6357e133b645": {
+      "date": "2026-07-28",
+      "decision": "rejected",
+      "key": "6357e133b645",
+      "name": "latchshot-dify",
+      "reason": "Dify PLUGIN (manifest/provider/tools), not workflow DSL",
+      "tier": "A",
+      "url": "https://github.com/BaiqingL/latchshot-dify"
+    },
     "6bfa55043753": {
       "date": "2026-07-27",
       "decision": "shelf",
@@ -240,6 +249,15 @@
       "sha256": "7eebc7fe85150e131956718a4ecaca0f88ea8faa1cd2ec8545d6228fb0bd2243",
       "tier": "skill-assets"
     },
+    "81289ee5b07a": {
+      "date": "2026-07-28",
+      "decision": "rejected",
+      "key": "81289ee5b07a",
+      "name": "awesome-dify-agents",
+      "reason": "MIT but 0 workflow yml (checked 2026-07-27 + 2026-07-28 — README-only)",
+      "tier": "A",
+      "url": "https://github.com/shamspias/awesome-dify-agents"
+    },
     "84198d24b559": {
       "date": "2026-07-27",
       "decision": "shelf",
@@ -323,6 +341,15 @@
       "reason": "seeded from corpus:awesome-dify-workflow-en",
       "sha256": "9530693c4159b422b4be165d364a2ee358db47904b4a01109b502e83a3a00daa",
       "tier": "corpus:awesome-dify-workflow-en"
+    },
+    "9a16e3207f58": {
+      "date": "2026-07-28",
+      "decision": "rejected",
+      "key": "9a16e3207f58",
+      "name": "awesome-dify-workflow",
+      "reason": "no license + files duplicate corpus verbatim (Document_chat_template, SEO Slug…)",
+      "tier": "B",
+      "url": "https://github.com/aircrushin/awesome-dify-workflow"
     },
     "9ad848826384": {
       "date": "2026-07-27",
@@ -479,6 +506,15 @@
       "reason": "seeded from corpus:awesome-dify-workflow-en",
       "sha256": "ec24aa3fec6e82d106ccc6a15705e24d2f6cec0a7bd147dec0b3841aab238c55",
       "tier": "corpus:awesome-dify-workflow-en"
+    },
+    "f25ca09f47f2": {
+      "date": "2026-07-28",
+      "decision": "rejected",
+      "key": "f25ca09f47f2",
+      "name": "dify-workflow-dsl-skill",
+      "reason": "no license (51★ — revisit if a LICENSE lands)",
+      "tier": "B",
+      "url": "https://github.com/yzmw123/dify-workflow-dsl-skill"
     },
     "f8f4f8341af1": {
       "date": "2026-07-27",
