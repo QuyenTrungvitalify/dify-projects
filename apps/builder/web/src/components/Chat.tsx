@@ -73,6 +73,15 @@ export function numCircle(n: number): string {
   return ['①', '②', '③', '④'][n - 1] || String(n);
 }
 
+/** A gate-summary line that jams a "; "-separated list into one bullet (the readiness/setup note, the
+ *  lint-failure list) reads as one wall of text. Split on "; " → one item per line (a soft break inside
+ *  the bullet). A line with no "; " renders unchanged (single richText call). */
+export function summaryLineParts(s: string): (VNode | string)[] {
+  const parts = s.split('; ');
+  if (parts.length < 2) return richText(s);
+  return parts.flatMap((p, i) => (i === 0 ? richText(p) : [<br key={`br${i}`} />, ...richText(p)]));
+}
+
 /* ---- phase indicator ---- */
 export function PhaseTrack({ phaseStates, current }: { phaseStates: PhaseStates; current: PhaseKey | null }) {
   return (
@@ -173,9 +182,13 @@ function promoteGateView(t: WireTask): GateView {
       summary: [tr('promoteCancelledSummary')] };
   }
   if (t.status === 'done') {
-    // spec 081: a shared promotion narrates the pushed branch (the hub opens the PR from it).
-    const shared = p?.share?.state === 'pushed' && p.share.branch
-      ? [tf('promoteSharePushedLine', { branch: p.share.branch })] : [];
+    // spec 081/083: a shared promotion narrates its shipped transport — drop (team inbox, primary)
+    // shows the admin-review line; git (fallback) shows the pushed branch (the hub opens the PR).
+    const shared = p?.share?.state === 'pushed'
+      ? [p.share.mode === 'git' && p.share.branch
+          ? tf('promoteSharePushedLine', { branch: p.share.branch })
+          : tr('promoteShareSentLine')]
+      : [];
     return { tone: 'done', badge: tr('promoteDoneBadge'), title: tr('promoteDoneTitle'), meta: '',
       summary: [p?.target ? tf('promoteTargetLine', { target: p.target }) : tr('promoteDoneSummary'), ...shared, ...(note ? [note] : [])],
       showYamlLink: true };
@@ -481,7 +494,9 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
       {v.summary.length > 0 && (
         <div className="gate-body">
           <ul className="gate-list">
-            {v.summary.map((s, i) => <li key={i}>{richText(s)}</li>)}
+            {v.summary.map((s, i) => (
+              <li key={i}>{summaryLineParts(s)}</li>
+            ))}
           </ul>
         </div>
       )}

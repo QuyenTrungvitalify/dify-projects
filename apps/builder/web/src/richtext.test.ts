@@ -1,7 +1,7 @@
 /* Autolink coverage for richText (Chat.tsx) — the gate-summary render path (e.g. a done-build's
    `app: http://…/workflow` line), which does NOT go through the markdown renderer. */
 import { describe, it, expect } from 'vitest';
-import { richText } from './components/Chat';
+import { richText, summaryLineParts } from './components/Chat';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function anchors(nodes: any[]): any[] {
@@ -33,5 +33,22 @@ describe('richText — bare-URL autolink', () => {
 
   it('emits no anchor for a URL-free line', () => {
     expect(anchors(richText('plain text only') as any[])).toHaveLength(0);
+  });
+});
+
+describe('summaryLineParts — split "; " list-notes onto lines', () => {
+  const brs = (nodes: any[]) => nodes.filter((n) => n && typeof n === 'object' && n.type === 'br');
+
+  it('a line with no "; " renders unchanged (no <br>)', () => {
+    expect(brs(summaryLineParts('a single note') as any[])).toHaveLength(0);
+  });
+
+  it('splits a 3-item readiness note into 3 lines (2 <br>)', () => {
+    const note = 'you need to: the AI model; a value for X — paste it; a value for Y — paste it. (setup)';
+    expect(brs(summaryLineParts(note) as any[])).toHaveLength(2);
+  });
+
+  it('one "; " → one <br> (two lines)', () => {
+    expect(brs(summaryLineParts('lint failures: a; b') as any[])).toHaveLength(1);
   });
 });

@@ -84,6 +84,21 @@ describe('classifyRunnability (pure — AC 1/1b/1c semantics)', () => {
       'still self-declares as non-blocking — in words a user parses, and it TERMINATES (066 S5)');
   });
 
+  test('identical setup details are deduped — 3 empty LLM nodes → ONE AI-model line', () => {
+    const p = classifyRunnability(
+      facts({ model_nodes: [
+        { id: 'n1', type: 'llm', empty: true },
+        { id: 'n2', type: 'llm', empty: true },
+        { id: 'n3', type: 'llm', empty: true },
+      ] }),
+      ''
+    );
+    const note = preflightNote(p)!;
+    const hits = (note.match(/the AI model \(filled in automatically when you test/g) || []).length;
+    assert.equal(hits, 1, `3 empty LLM nodes must collapse to ONE line in the note, got ${hits}`);
+    assert.equal(p.blockers.length, 3, 'all 3 blockers still ride the structured object (dev/report)');
+  });
+
   // ── spec 066 S3: the model advisory may only PROMISE auto-fill when auto-fill can happen ────────
   test('S3: the model reassurance is only made when a model EXISTS to auto-fill', () => {
     const f = facts({ model_nodes: [{ id: 'n1', type: 'llm', empty: true }] });

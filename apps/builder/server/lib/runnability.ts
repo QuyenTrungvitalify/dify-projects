@@ -258,7 +258,9 @@ export function sourceContractNote(p: Preflight): string | null {
  *  Self-declaring as advisory — the `patternAdvisory` voice (D3). */
 export function preflightNote(p: Preflight): string | null {
   if (!p.blockers.length) return null;
-  const parts = p.blockers.map((b) => b.detail);
+  // Dedup identical details: a workflow with 3 empty LLM nodes produced the same
+  // "the AI model (filled in automatically…)" line 3× — one setup step, one line. (Set keeps order.)
+  const parts = [...new Set(p.blockers.map((b) => b.detail))];
   // Spec 066 S5: the FRAME goes plain too. Spec 064 made each blocker `detail` readable but left this
   // wrapper as `preflight: not runnable out-of-the-box — needs: … Advisory — does not block the build.`
   // — "preflight"/"Advisory" are internal vocabulary (an aviation/CI term and a status word), and the
