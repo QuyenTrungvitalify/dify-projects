@@ -406,10 +406,15 @@ export function App() {
                 </button>
               )}
               {/* spec 052 D1: "Promote to pattern" — always-visible when the view has a RESOLVED on-disk
-                  workflow. In the conversation view: a proven/done build (not itself a promote). On the
+                  workflow. In the conversation view: a proven build (not itself a promote). On the
                   new-task surface: a base pre-selected from the sidebar workflow row (editingSel). Absent on
-                  a from-scratch new task. Click → POST /api/promote and opens the promote build. */}
-              {view === 'conversation' && task && task.kind !== 'promote' && task.status === 'done' && task.project && task.workflowSlug && (
+                  a from-scratch new task. Click → POST /api/promote and opens the promote build.
+                  Visible at the ④ gate (awaiting_confirm@test), NOT only at `done`: main.yml is final and
+                  lint-clean the moment ④ opens, and many users treat "I have the yml" as finished and never
+                  click import/skip — gating promote behind `done` hid it exactly when they'd want it. This
+                  matches the "edit this workflow" button's condition above, and the moment the 078 nudge fires. */}
+              {view === 'conversation' && task && task.kind !== 'promote' && task.project && task.workflowSlug &&
+                (task.status === 'done' || (task.status === 'awaiting_confirm' && task.phase === 'test')) && (
                 <button className="ghost-pill" onClick={() => void store.promote(task.project!, task.workflowSlug!)} title={tr('promoteToPatternHint')}>
                   <I.spark />{tr('promoteToPattern')}
                 </button>
