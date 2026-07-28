@@ -1,0 +1,159 @@
+# x-provenance: source=original repo=
+#   commit= file="projects/_drafts/ai_1_user_input/workflows/main.yml" orig_sha256= promoted=2026-07-28
+#   license=MIT spec=052 known_good_dify=
+# Pattern: Single-LLM text transformer (one free-text input → one formatted text output)
+# Use case: Turn one raw free-text input (language-agnostic notes/drafts) into a polished, ready-to-use
+#           output by a single LLM pass — no branching, no external fetch, no state aggregation.
+#           Fits "analyze + rewrite/convert/summarize in one prompt" jobs (tone rewriting, reformatting,
+#           translation-to-house-style, draft-to-final).
+# Flow: start (user_input) → llm (analyze + transform in one prompt) → end (result)
+# Customization points (# TODO:): wire the LLM model; replace the system prompt (role/goal/steps/
+#           output-format) with your own task; adjust the start variable label/hint; rename the end output.
+# GOTCHA: This is deliberately the MINIMAL correct shape — resist adding if-else / question-classifier.
+#         Detection (who is the audience / which format) AND generation both fit inside ONE prompt; a
+#         classifier node here is over-engineering. Only split into multiple nodes when a branch needs a
+#         DIFFERENT downstream graph, not merely a different sentence in the output.
+# GOTCHA: Pin the OUTPUT contract in the SYSTEM prompt, not the user turn. Enforce an exact output
+#         skeleton (fixed blocks + literal delimiters) in the system role so the shape survives regardless
+#         of what free-text the user pastes; the user role should carry ONLY the raw variable ref.
+# GOTCHA: Decide the OUTPUT language explicitly in the prompt. Input is language-agnostic, so if you don't
+#         state the target language the model mirrors the input language non-deterministically.
+app:
+  description: 'Single-LLM text transformer: rewrite/convert one free-text input into a formatted, ready-to-use output in one pass'
+  icon: "\U0001F4DD"
+  icon_background: '#EFF1F5'
+  icon_type: emoji
+  mode: workflow
+  name: Single-LLM Text Transformer
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload: { enabled: false }
+    opening_statement: ''
+    retriever_resource: { enabled: true }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: 1785248363542-source-1785248363544-target
+      source: '1785248363542'
+      target: '1785248363544'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: llm }
+      zIndex: 0
+    - id: 1785248363544-source-1785248363546-target
+      source: '1785248363544'
+      target: '1785248363546'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: end }
+      zIndex: 0
+    nodes:
+    - id: '1785248363542'
+      type: custom
+      data:
+        title: 'Input'
+        type: start
+        variables:
+        # TODO: rename variable/label/hint to your task; keep exactly ONE required free-text field so the
+        #       operator's only physical input is this raw text (satisfies the trigger-surface rule).
+        - variable: user_input
+          label: user_input
+          type: paragraph
+          required: true
+          max_length: 5000
+          hint: 'Paste the raw text (notes / draft) to transform — any language'
+          options: []
+          placeholder: ''
+      position: { x: 0, y: 280 }
+      positionAbsolute: { x: 0, y: 280 }
+      width: 242
+      height: 107
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1785248363544'
+      type: custom
+      data:
+        title: 'LLM — transform'
+        type: llm
+        # TODO: wire your model — set provider/name to a model your workspace has installed.
+        model:
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.3
+        prompt_template:
+        # TODO: replace this entire SYSTEM prompt with your task. Keep the four sections
+        #       (# Role / # Goal / # Steps / # Output format) — pinning an EXACT output skeleton with
+        #       literal delimiters in the SYSTEM role is what makes the shape robust to arbitrary input.
+        #       State the target OUTPUT language explicitly (input is language-agnostic).
+        - role: system
+          text: |
+            # Role
+            You are an expert assistant for <TODO: domain — e.g. business communication>.
+
+            # Goal
+            From a single free-text input (any language), infer the intent and transform it into a
+            ready-to-use <TODO: output artifact — e.g. polished message / summary / rewrite>.
+            Write the output in <TODO: target output language — e.g. Japanese>.
+
+            # Steps
+            1. Detect the key points and the intended context/audience from the input, regardless of its
+               language.
+            2. Produce <TODO: the desired transformation — e.g. professional, context-appropriate phrasing>.
+            3. Choose the appropriate delivery format (# TODO: e.g. chat vs email) for the situation.
+
+            # Output format (follow this shape exactly, delimiter lines included)
+            ---
+            [BLOCK 1 — TODO: primary artifact, copy-paste ready]
+            (the finished output)
+
+            [BLOCK 2 — TODO: metadata, e.g. audience/purpose]
+            (the detected context)
+
+            [BLOCK 3 — TODO: one-line note / tip]
+            (a single-line note)
+            ---
+        - role: user
+          text: '{{#1785248363542.user_input#}}'
+        memory: null
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+      position: { x: 342, y: 280 }
+      positionAbsolute: { x: 342, y: 280 }
+      width: 241
+      height: 98
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1785248363546'
+      type: custom
+      data:
+        title: 'Output'
+        type: end
+        outputs:
+        # TODO: rename the output variable to your task.
+        - variable: result
+          value_selector: ['1785248363544', text]
+          value_type: string
+      position: { x: 684, y: 280 }
+      positionAbsolute: { x: 684, y: 280 }
+      width: 241
+      height: 107
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.8 }
