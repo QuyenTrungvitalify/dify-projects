@@ -1,0 +1,134 @@
+# x-provenance: source=original repo=
+#   commit= file="projects/_drafts/x_y_m_t/workflows/main.yml" orig_sha256= promoted=2026-07-31
+#   license=MIT spec=052 known_good_dify=
+# Pattern: Single-LLM conversational chatbot with multi-turn memory
+# Use case: A plain question-answer chatbox — user types a message, one LLM acts as a general assistant,
+#           remembers prior turns (multi-turn), and streams the reply back into the chat. No RAG, no tools,
+#           no branching. Fits low-latency "chat with an assistant persona" jobs where every turn is a
+#           single LLM call over the running conversation.
+# Flow: start (chat entry) → llm (assistant persona + memory) → answer (streamed reply)
+# Customization points (# TODO:): wire the LLM model; replace the SYSTEM prompt (persona / rules / output
+#           language) with your own; tune the memory window size; adjust temperature.
+# GOTCHA: This app runs in `mode: advanced-chat` and MUST terminate in an `answer` node, NOT an `end` node.
+#         In advanced-chat the user's message auto-lands in the system variable {{#sys.query#}} — the start
+#         node declares NO input variable (the chat box IS the only input surface). Wiring a start variable
+#         or ending in `end` breaks the chat contract.
+# GOTCHA: Streaming (token-by-token reply) is intrinsic to the `answer` node in advanced-chat — there is no
+#         separate streaming switch to flip. The answer node just references {{#<llm_node>.text#}}.
+# GOTCHA: Multi-turn context is a single flag on the LLM node (memory.window). Enable it and set a window
+#         size (~10 turns) to balance keeping the thread vs. burning context. Without it, every turn is
+#         stateless and the assistant forgets what was just said.
+# GOTCHA: An empty model (provider/name blank) is EXPECTED in a pattern, but a live workspace with no OpenAI
+#         plugin / API key raises "Model not exist" at run time — install the provider and wire a model first.
+app:
+  description: 'Conversational chatbot with multi-turn memory: chat message -> one LLM assistant -> streamed answer. Low-latency, no RAG, no tools.'
+  icon: "\U0001F4AC"
+  icon_background: '#E0F2FE'
+  icon_type: emoji
+  mode: advanced-chat
+  name: Conversational LLM Chatbot (memory)
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload: { enabled: false }
+    # TODO: set your own greeting (or '' for none).
+    opening_statement: 'Hi! I am your AI assistant. Ask me anything.'
+    retriever_resource: { enabled: false }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: 1785467587639-source-1785467587642-target
+      source: '1785467587639'
+      target: '1785467587642'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: llm }
+      zIndex: 0
+    - id: 1785467587642-source-1785467587644-target
+      source: '1785467587642'
+      target: '1785467587644'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: answer }
+      zIndex: 0
+    nodes:
+    # 1. Chat entry. In advanced-chat the user message auto-lands in {{#sys.query#}} — declare NO input
+    #    variable here (the chat box is the only input surface).
+    - id: '1785467587639'
+      type: custom
+      data:
+        title: 'Start'
+        type: start
+        variables: []
+      position: { x: 0, y: 280 }
+      positionAbsolute: { x: 0, y: 280 }
+      width: 242
+      height: 54
+      sourcePosition: right
+      targetPosition: left
+    # 2. The assistant LLM. memory.window ON = multi-turn context.
+    - id: '1785467587642'
+      type: custom
+      data:
+        title: 'Assistant LLM'
+        type: llm
+        # TODO: wire your model — set provider/name to a model your workspace has installed
+        #       (e.g. provider: langgenius/openai, name: gpt-4o-mini). Left blank in the pattern on purpose.
+        model:
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.3
+        prompt_template:
+        # TODO: replace this SYSTEM prompt with your assistant's persona, rules, and OUTPUT LANGUAGE.
+        - role: system
+          text: |
+            You are a helpful AI assistant. Answer clearly, concisely, and to the point.
+            <TODO: state the target output language and any language-mirroring rule, e.g.
+             "Answer in the user's language; if unsure, ask.">
+            If you are not sure, say so plainly instead of making things up.
+        # The user role carries ONLY the chat system variable — do not add a start-node ref here.
+        - role: user
+          text: '{{#sys.query#}}'
+        # Conversation memory: keep the last ~N turns for multi-turn context.
+        memory:
+          window:
+            enabled: true
+            size: 10
+        context:
+          enabled: false
+          variable_selector: []
+        vision:
+          enabled: false
+      position: { x: 342, y: 280 }
+      positionAbsolute: { x: 342, y: 280 }
+      width: 242
+      height: 98
+      sourcePosition: right
+      targetPosition: left
+    # 3. Stream the reply back to the chat box. Streaming is intrinsic to `answer` in advanced-chat.
+    - id: '1785467587644'
+      type: custom
+      data:
+        title: 'Answer'
+        type: answer
+        answer: '{{#1785467587642.text#}}'
+      position: { x: 684, y: 280 }
+      positionAbsolute: { x: 684, y: 280 }
+      width: 242
+      height: 105
+      sourcePosition: right
+      targetPosition: left
+    viewport: { x: 0, y: 0, zoom: 0.8 }
