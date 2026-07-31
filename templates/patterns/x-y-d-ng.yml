@@ -1,0 +1,146 @@
+# x-provenance: source=original repo=
+#   commit= file="projects/_drafts/x_y_d_ng/workflows/main.yml" orig_sha256= promoted=2026-07-31
+#   license=MIT spec=052 known_good_dify=
+# Pattern: Conversational chatbot (single LLM, session memory, streaming answer)
+# Use case: A basic chat-mode Q&A assistant — the user types a message, ONE LLM node fuses a
+#           system persona/style with the user turn, remembers earlier turns in the same session,
+#           and streams the reply into the chat. No RAG, no external calls, no state aggregation.
+#           Fits "give me a polite domain assistant that holds a conversation" jobs.
+# Flow: start (chat entry, sys.query) → llm (persona + memory) → answer (streams reply to chat)
+# Customization points (# TODO:): wire the LLM model; replace the SYSTEM persona/style/rules; set the
+#           reply language; tune the memory window size; edit the opening_statement greeting.
+# GOTCHA: This is a CHAT app (mode: advanced-chat), so it ends in an `answer` node, NOT an `end` node.
+#         `answer` is what streams tokens into the chat window — an `end` node here would be wrong shape
+#         and would not render a conversational reply. Streaming is inherent to the answer node in chat
+#         mode; it is NOT a separate config toggle you add elsewhere.
+# GOTCHA: The user message arrives on the system variable `{{#sys.query#}}` — you do NOT declare an input
+#         variable on the start node (`variables: []`). Referencing sys.query is what makes this a chat
+#         app; a custom start variable would turn it into a form-style workflow instead.
+# GOTCHA: Memory is a CONFIG FLAG on the LLM node (memory.window.enabled), not a separate node. Keep the
+#         persona/role/rules in the SYSTEM prompt and put ONLY `{{#sys.query#}}` in the user turn, so the
+#         contract survives whatever the user types. Set the reply language explicitly in the system
+#         prompt — otherwise the model mirrors the input language non-deterministically.
+# GOTCHA: The memory window size is a real tradeoff — too large blows the context budget on long chats,
+#         too small drops the thread so follow-up questions lose their referent. 10 is a sane default.
+app:
+  description: 'Conversational Q&A chatbot: single LLM, session memory, streaming reply (chat mode) with a customizable persona'
+  icon: "\U0001F4AC"
+  icon_background: '#EFF1F5'
+  icon_type: emoji
+  mode: advanced-chat
+  name: Conversational Chatbot (memory)
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload: { enabled: false }
+    # TODO: replace this greeting with your assistant's opening line (or set '' for none).
+    opening_statement: 'Hi! How can I help you today?'
+    retriever_resource: { enabled: true }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: 1785458262356-source-1785458262359-target
+      source: '1785458262356'
+      target: '1785458262359'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: llm }
+      zIndex: 0
+    - id: 1785458262359-source-1785458262361-target
+      source: '1785458262359'
+      target: '1785458262361'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: answer }
+      zIndex: 0
+    nodes:
+    - id: '1785458262356'
+      type: custom
+      data:
+        title: 'Start'
+        desc: 'Chat entry point; the user message is available on the system variable sys.query.'
+        type: start
+        variables: []
+      position: { x: 80, y: 282 }
+      positionAbsolute: { x: 80, y: 282 }
+      width: 244
+      height: 54
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1785458262359'
+      type: custom
+      data:
+        title: 'LLM — reply'
+        desc: 'Fuse the system persona/style with the user question; memory keeps session context.'
+        type: llm
+        # TODO: wire your model — set provider/name to a model your workspace has installed.
+        #       A small/fast model (e.g. a Haiku-class model) suits a latency-sensitive chatbot.
+        model:
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.5
+            max_tokens: 2048
+        prompt_template:
+        # TODO: replace this SYSTEM persona with your own. Keep role/style/rules HERE (not in the user
+        #       turn) and STATE THE REPLY LANGUAGE explicitly so it doesn't drift with the input.
+        - role: system
+          text: |
+            # Role
+            You are a friendly, polite and clear Q&A assistant for <TODO: domain>.
+
+            # Answer rules
+            - Reply in <TODO: target language — e.g. English>, unless the user asks for another language.
+            - Be polite, coherent, and go straight to the point of the question.
+            - If a question is unclear, ask one short clarifying question before answering.
+            - Use the in-session conversation history to understand follow-up questions.
+            - Do not fabricate information; if unsure, say so plainly.
+        - role: user
+          text: '{{#sys.query#}}'
+        memory:
+          role_prefix:
+            user: ''
+            assistant: ''
+          # TODO: tune the window size — larger remembers more but costs context; smaller loses the thread.
+          window:
+            enabled: true
+            size: 10
+          query_prompt_template: '{{#sys.query#}}'
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+      position: { x: 380, y: 282 }
+      positionAbsolute: { x: 380, y: 282 }
+      width: 244
+      height: 98
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1785458262361'
+      type: custom
+      data:
+        title: 'Answer'
+        desc: 'Stream the LLM reply into the chat window, token by token.'
+        type: answer
+        answer: '{{#1785458262359.text#}}'
+        variables: []
+      position: { x: 680, y: 282 }
+      positionAbsolute: { x: 680, y: 282 }
+      width: 244
+      height: 107
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.8 }
