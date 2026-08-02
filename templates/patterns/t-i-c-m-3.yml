@@ -1,0 +1,389 @@
+# x-provenance: source=original repo=
+#   commit= file="projects/_drafts/t_i_c_m_3/workflows/main.yml" orig_sha256= promoted=2026-08-02
+#   license=MIT spec=052 known_good_dify=
+# Pattern: Upload one file → extract → aggregate in code → LLM writeup → compose → return (with an inline echarts chart)
+# Use case: a user uploads ONE tabular/text file (CSV, etc.); the workflow parses and AGGREGATES it in a
+#   single code node (label/value roll-up, totals), an LLM writes a short natural-language analysis of the
+#   aggregated summary, and the final result stitches the writeup together with a visualization rendered as
+#   an inline ```echarts markdown block — no external render service, no image library.
+# Flow: start (file-list, one file) → document-extractor (raw text, array[string])
+#   → code (parse + aggregate → echarts option string + a markdown summary table)
+#   → llm (write an analysis of the summary table) → code (compose writeup + ```echarts block)
+#   → end (one markdown result variable)
+# Customization points (# TODO:):
+#   1. start: which file extensions/types the input accepts, and the hint that documents the expected columns.
+#   2. analyze code: which column is the label vs the numeric value, and how to aggregate (sum/avg/count).
+#   3. echarts option: chart type ('bar'/'line'/'pie') and titles/axis names.
+#   4. llm: the analysis prompt (what to highlight) + wire a real chat model (provider/name are blanked).
+# GOTCHA: the code runtime only has Python's standard library — NO pandas/matplotlib. Build the chart as an
+#   echarts *option* JSON string and emit it inside a ```echarts fenced block; Dify renders it inline, so you
+#   never touch an image library or an external render HTTP call.
+# GOTCHA: document-extractor with is_array_file:true outputs `text` as array[string]; the downstream code
+#   MUST defensively take element [0] (a list may be empty) before parsing, or an aggregate over the whole
+#   file silently reads nothing.
+# GOTCHA: aggregate the whole file in ONE code node rather than an iteration — a per-row loop caps at 30
+#   items and can't build a single cross-row roll-up; a single code node has neither limit.
+app:
+  description: 'Upload one CSV/tabular file, aggregate it, and return an inline echarts chart + LLM analysis.'
+  icon: "\U0001F4CA"
+  icon_background: '#E8F0FE'
+  icon_type: emoji
+  mode: workflow
+  name: 'File → aggregate → echarts chart + LLM writeup'
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .csv
+      allowed_file_types:
+      - document
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        batch_count_limit: 1
+        file_size_limit: 15
+        file_upload_limit: 1
+        workflow_file_upload_limit: 1
+      number_limits: 1
+    opening_statement: ''
+    retriever_resource: { enabled: true }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - id: 1785081237955-source-1785081237957-target
+      source: '1785081237955'
+      target: '1785081237957'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: document-extractor }
+      zIndex: 0
+    - id: 1785081237957-source-1785081237960-target
+      source: '1785081237957'
+      target: '1785081237960'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: document-extractor, targetType: code }
+      zIndex: 0
+    - id: 1785081237960-source-1785081237962-target
+      source: '1785081237960'
+      target: '1785081237962'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: llm }
+      zIndex: 0
+    - id: 1785081237962-source-1785081237965-target
+      source: '1785081237962'
+      target: '1785081237965'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: llm, targetType: code }
+      zIndex: 0
+    - id: 1785081237965-source-1785081237967-target
+      source: '1785081237965'
+      target: '1785081237967'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: end }
+      zIndex: 0
+    nodes:
+    - id: '1785081237955'
+      type: custom
+      data:
+        # TODO: name the input file for your use case.
+        title: 'Input file'
+        type: start
+        variables:
+        # TODO: set the extensions/types you accept and the hint documenting the expected columns.
+        - allowed_file_extensions:
+          - .csv
+          allowed_file_types:
+          - document
+          allowed_file_upload_methods:
+          - local_file
+          - remote_url
+          hint: 'Upload ONE file. Assumption: the first text column is the label (category/period), the first numeric column is the value. If your file differs, adjust the column detection in the analyze node.'
+          label: input_file
+          max_length: 1
+          options: []
+          placeholder: ''
+          required: true
+          type: file-list
+          variable: input_file
+      position: { x: 0, y: 280 }
+      positionAbsolute: { x: 0, y: 280 }
+      width: 242
+      height: 107
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1785081237957'
+      type: custom
+      data:
+        title: 'Extract text'
+        type: document-extractor
+        is_array_file: true
+        variable_selector:
+        - '1785081237955'
+        - input_file
+      position: { x: 342, y: 280 }
+      positionAbsolute: { x: 342, y: 280 }
+      width: 241
+      height: 103
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1785081237960'
+      type: custom
+      data:
+        title: 'Parse & aggregate'
+        type: code
+        code_language: python3
+        # TODO: adapt the parse/aggregate to your file shape — which column is the label, which is the
+        # numeric value, and how to roll up (sum/avg/count). Emit an echarts option string + a markdown
+        # summary table for the LLM to read. Only Python's standard library is available here.
+        code: |
+          import csv
+          import io
+          import json
+
+          def main(text_list) -> dict:
+              # Defensive: document-extractor emits array[string]; take element [0] (may be empty).
+              if isinstance(text_list, list):
+                  text = text_list[0] if text_list else ""
+              else:
+                  text = text_list or ""
+              text = str(text)
+
+              def to_num(v):
+                  if v is None:
+                      return None
+                  s = str(v).strip().replace(",", "")
+                  if s == "":
+                      return None
+                  try:
+                      return float(s)
+                  except Exception:
+                      return None
+
+              def fmt(n):
+                  try:
+                      return str(int(n)) if float(n) == int(n) else str(round(float(n), 2))
+                  except Exception:
+                      return str(n)
+
+              def empty(msg):
+                  option = {
+                      "title": {"text": "Chart"},
+                      "tooltip": {},
+                      "xAxis": {"type": "category", "data": []},
+                      "yAxis": {"type": "value"},
+                      "series": [{"name": "Value", "type": "bar", "data": []}],
+                  }
+                  return {
+                      "echarts_option": json.dumps(option, ensure_ascii=False),
+                      "summary": msg,
+                  }
+
+              rows = []
+              try:
+                  reader = csv.reader(io.StringIO(text))
+                  rows = [r for r in reader if any((c or "").strip() for c in r)]
+              except Exception:
+                  rows = []
+              if not rows:
+                  return empty("Could not read any valid rows from the file.")
+
+              # Header inference: first row is a header if no cell is numeric.
+              header = rows[0]
+              has_header = all(to_num(c) is None for c in header)
+              data_rows = rows[1:] if has_header else rows
+              if not data_rows:
+                  return empty("The file has no data rows beyond the header.")
+
+              ncols = max(len(r) for r in rows)
+
+              # Value column = the column with the most numeric hits across data rows.
+              num_hits = [0] * ncols
+              for r in data_rows:
+                  for i in range(ncols):
+                      if i < len(r) and to_num(r[i]) is not None:
+                          num_hits[i] += 1
+              if not any(num_hits):
+                  return empty("No numeric (value) column found in the file.")
+              value_col = max(range(ncols), key=lambda i: num_hits[i])
+
+              # Label column = the first column other than the value column.
+              label_col = value_col
+              for i in range(ncols):
+                  if i != value_col:
+                      label_col = i
+                      break
+
+              totals = {}
+              order = []
+              for r in data_rows:
+                  label = str(r[label_col]).strip() if label_col < len(r) else ""
+                  val = to_num(r[value_col]) if value_col < len(r) else None
+                  if label == "" or val is None:
+                      continue
+                  if label not in totals:
+                      totals[label] = 0.0
+                      order.append(label)
+                  totals[label] += val
+
+              if not order:
+                  return empty("No valid (label, value) pairs after aggregation.")
+
+              labels = order
+              values = [totals[l] for l in labels]
+
+              label_name = header[label_col] if (has_header and label_col < len(header)) else "category"
+              value_name = header[value_col] if (has_header and value_col < len(header)) else "value"
+
+              option = {
+                  "title": {"text": "Value by " + str(label_name)},
+                  "tooltip": {"trigger": "axis"},
+                  "xAxis": {"type": "category", "data": labels},
+                  "yAxis": {"type": "value"},
+                  # TODO: change 'bar' to 'line'/'pie' etc. for a different chart type.
+                  "series": [{"name": str(value_name), "type": "bar", "data": values}],
+              }
+              echarts_option = json.dumps(option, ensure_ascii=False)
+
+              lines = ["| Label | Value |", "| --- | ---: |"]
+              for l, v in zip(labels, values):
+                  lines.append("| " + str(l) + " | " + fmt(v) + " |")
+              lines.append("| **Total** | **" + fmt(sum(values)) + "** |")
+              summary = "\n".join(lines)
+
+              return {"echarts_option": echarts_option, "summary": summary}
+        outputs:
+          echarts_option: { type: string, children: null }
+          summary: { type: string, children: null }
+        variables:
+        - value_selector: ['1785081237957', text]
+          value_type: 'array[string]'
+          variable: text_list
+      position: { x: 684, y: 280 }
+      positionAbsolute: { x: 684, y: 280 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1785081237962'
+      type: custom
+      data:
+        title: 'Write analysis'
+        type: llm
+        # TODO: wire your model (provider/name are intentionally blank in a pattern).
+        model:
+          provider: ''
+          name: ''
+          mode: chat
+          completion_params:
+            temperature: 0.3
+            max_tokens: 1500
+        prompt_template:
+        # TODO: rewrite the prompt for your domain — what the analysis should highlight.
+        - role: system
+          text: |
+            You are a data analyst. Based on the aggregated summary table provided, write a short, clear
+            analysis that covers:
+            - the overall highlights (total, number of groups);
+            - the highest and lowest group;
+            - any notable trends or gaps between groups.
+            Return ONLY the prose analysis. Do NOT repeat the table verbatim and do NOT draw a chart
+            (the chart is added in a later step).
+        - role: user
+          text: |
+            Aggregated summary table (markdown):
+            ---
+            {{#1785081237960.summary#}}
+            ---
+        memory: null
+        context: { enabled: false, variable_selector: [] }
+        vision: { enabled: false }
+      position: { x: 1026, y: 280 }
+      positionAbsolute: { x: 1026, y: 280 }
+      width: 241
+      height: 98
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1785081237965'
+      type: custom
+      data:
+        title: 'Compose writeup + chart'
+        type: code
+        code_language: python3
+        # TODO: adjust the section headings / wording of the final markdown as needed.
+        code: |
+          def main(analysis, echarts_option) -> dict:
+              analysis = str(analysis or "").strip()
+              option = str(echarts_option or "").strip()
+
+              parts = []
+              parts.append("## Analysis")
+              if analysis:
+                  parts.append(analysis)
+              else:
+                  parts.append("(No analysis content.)")
+
+              parts.append("## Chart")
+              if option:
+                  parts.append("```echarts\n" + option + "\n```")
+              else:
+                  parts.append("(Chart unavailable.)")
+
+              return {"result": "\n\n".join(parts)}
+        outputs:
+          result: { type: string, children: null }
+        variables:
+        - value_selector: ['1785081237962', text]
+          value_type: string
+          variable: analysis
+        - value_selector: ['1785081237960', echarts_option]
+          value_type: string
+          variable: echarts_option
+      position: { x: 1368, y: 280 }
+      positionAbsolute: { x: 1368, y: 280 }
+      width: 241
+      height: 82
+      sourcePosition: right
+      targetPosition: left
+
+    - id: '1785081237967'
+      type: custom
+      data:
+        title: 'Result'
+        type: end
+        outputs:
+        - variable: result
+          value_selector: ['1785081237965', result]
+          value_type: string
+      position: { x: 1710, y: 280 }
+      positionAbsolute: { x: 1710, y: 280 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+
+    viewport: { x: 0, y: 0, zoom: 0.6 }
