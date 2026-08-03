@@ -433,7 +433,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
    build belongs to. Sits left of the phase track; truncates gracefully on narrow widths. */
 .run-crumb {
   display: inline-flex; align-items: center; gap: 6px;
-  min-width: 0; max-width: 280px; flex-shrink: 1;
+  /* flex-shrink:100 — the crumb (which already ellipsizes) yields space BEFORE the pill group so the
+     primary header actions (成果物 / エクスポート) stay visible; only after it has collapsed does the
+     pill group start scrolling. */
+  min-width: 0; max-width: 280px; flex-shrink: 100;
   font-size: 12.5px; color: var(--tx-muted);
 }
 .run-crumb .crumb-ic { width: 13px; height: 13px; color: var(--tx-faint); flex-shrink: 0; }
@@ -469,12 +472,20 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .phase-step.error { color: var(--danger); }
 .phase-sep { color: var(--tx-faint); font-size: 11px; opacity: 0.5; }
 
-.chat-top-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+/* margin-left:auto pushes the pill group right. The CONTAINER is allowed to shrink (flex-shrink:1 +
+   min-width:0) so on a crowded header it becomes a horizontal scroll region instead of overflowing the
+   viewport and clipping its last pill — while each pill inside stays at full intrinsic size (flex-shrink:0,
+   nowrap below). The breadcrumb (.run-crumb) shrinks/ellipsizes first as it has less shrink resistance. */
+.chat-top-right { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.chat-top-right::-webkit-scrollbar { display: none; }
 .ghost-pill {
   display: flex; align-items: center; gap: 7px;
   padding: 5px 10px; border-radius: var(--r-pill);
   border: 1px solid var(--border); background: transparent;
   color: var(--tx-muted); font-size: 12px;
+  /* CJK labels (日本語, 成果物, エクスポート) wrap character-by-character when a pill is allowed to
+     shrink below its text width — keep every pill on ONE line and at its intrinsic size. */
+  white-space: nowrap; flex-shrink: 0;
   transition: background 0.14s, color 0.14s, border-color 0.14s;
 }
 .ghost-pill:hover { background: var(--bg-elevated); color: var(--tx-1); border-color: var(--border-strong); }
