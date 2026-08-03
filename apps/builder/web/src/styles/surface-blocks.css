@@ -338,14 +338,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .tree-project { padding: 7px 8px 7px 9px; margin-top: 6px; }
 .tree-project .tw-name { color: var(--tx-1); font-weight: 500; font-size: 13px; }
 .tree-project .tw-twist { color: var(--tx-faint); }
-.tree-project:hover .row-actions { opacity: 1; }
 
 /* level 2: workflow */
 .tree-workflow { padding: 6px 8px 6px 26px; }
 .tree-workflow .tw-name { color: var(--tx-2); font-size: 12.5px; font-family: var(--mono); letter-spacing: -0.01em; }
-.tree-workflow:hover .row-actions { opacity: 1; }
-/* reveal the per-task "edit this workflow" action on hover (tree task rows, not just the sb-active list) */
-.tree-task:hover .row-actions { opacity: 1; }
 
 /* level 3: task */
 .tree-task { padding: 6px 10px 6px 44px; }
@@ -356,7 +352,6 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* F1: the in-progress row's hover-× (cancel without opening). The × shares the row with the status
    hint; on hover the hint stays and the × fades in beside it. */
 .sb-active .tree-task .row-actions { margin-left: 4px; }
-.sb-active .tree-task:hover .row-actions { opacity: 1; }
 
 .tree-task.active { background: var(--bg-elevated-2); }
 .tree-task.active .tw-name { color: var(--tx-strong); font-weight: 450; }
@@ -386,7 +381,11 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .tw-ic svg { width: 100%; height: 100%; }
 .tw-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
-.row-actions { display: flex; gap: 1px; margin-left: auto; opacity: 0; transition: opacity 0.12s; flex-shrink: 0; }
+/* Idle: the actions take NO layout space (display:none, not opacity:0) so the title (.tw-name) uses the
+   FULL row width and truncates as little as possible. On hover they appear and the title yields room —
+   i.e. the title is wider when idle, narrower (current look) while hovering. */
+.row-actions { display: none; gap: 1px; margin-left: auto; flex-shrink: 0; }
+.tree-row:hover .row-actions { display: flex; }
 .row-actions .icon-btn { width: 22px; height: 22px; }
 .row-actions .icon-btn svg { width: 13px; height: 13px; }
 
