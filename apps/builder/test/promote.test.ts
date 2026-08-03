@@ -25,9 +25,10 @@ import {
   resolvePromoteSource,
   resolvePastedPromoteSource,
   firstFreePatternSlug,
+  undoPromotion,
 } from '../server/lib/promote.js';
-import { createPromoteTask, loadTask } from '../server/state/task.js';
-import { readArtifactContents } from '../server/lib/artifacts.js';
+import { createPromoteTask, loadTask, saveTask } from '../server/state/task.js';
+import { readArtifactContents, buildTree, listPromoteTasks } from '../server/lib/artifacts.js';
 import { acquireTurn, releaseTurn } from '../server/lib/lock.js';
 import type { OrchestratorCtx } from '../server/lib/orchestrator-shared.js';
 import type { ShellResult } from '../server/lib/shell.js';
@@ -60,7 +61,9 @@ describe('promote flow (spec 052)', () => {
     return { code: 0, stdout: '', stderr: '' };
   };
 
-  const fakeRunTurn = async (): Promise<TurnResult> => {
+  const fakeRunTurn = async (_s: unknown, _p: unknown, _u: unknown, opts?: { onText?: (t: string) => void }): Promise<TurnResult> => {
+    // spec 084: emit some streamed text so `distillLog` capture is exercised.
+    opts?.onText?.('Distilled the pattern — genericized the room_id and token into placeholders.');
     // Simulate the distill turn's on-disk effect: write the staged pattern (+ optional notes).
     const t = await loadTask(dir, currentTaskId);
     if (stagedContent != null) {
@@ -163,18 +166,17 @@ describe('promote flow (spec 052)', () => {
     assert.ok(!existsSync(join(dir, 'templates/patterns')));
   });
 
-  // ── AC3: the distill turn stages only under the run dir ──
-  test('AC3 — an eligible source distills to the run dir and parks at promote_review', async () => {
+  // ── AC3 / spec 084: an eligible NO-collision source AUTO-finalizes onto the shelf ──
+  test('spec 084 — an eligible no-collision source auto-finalizes onto the shelf (no review gate)', async () => {
     const id = await startEligible();
     const t = await loadTask(dir, id);
-    assert.equal(t.status, 'awaiting_confirm');
-    assert.equal(t.gate?.flag, 'promote_review');
-    assert.equal(t.promote!.staged, `apps/builder/.runs/${id}/promote/my-flow.yml`);
-    assert.ok(existsSync(join(dir, t.promote!.staged!)), 'staged pattern written under the run dir');
-    assert.ok(!existsSync(join(dir, 'templates/patterns')), 'nothing under templates/ before Approve');
+    assert.equal(t.status, 'done', 'no git origin → done (auto-approved, no review gate parked)');
+    assert.equal(t.promote!.target, 'templates/patterns/my-flow.yml');
+    assert.ok(existsSync(join(dir, 'templates/patterns/my-flow.yml')), 'auto-finalized onto the shelf');
     // both gates ran: B1 (check) + B2′ (check --distilled).
     assert.equal(calls.filter((a) => a.includes('check')).length, 2);
     assert.ok(calls.some((a) => a.includes('--distilled')));
+    assert.ok(calls.some((a) => a.some((x) => x.includes('build_index.py'))), 'INDEX rebuilt on auto-finalize');
   });
 
   // ── AC4: re-gate reject + candidate rule ──
@@ -191,25 +193,17 @@ describe('promote flow (spec 052)', () => {
     notes = { mechanicalRules: [{ rule: 'env vars use name: not variable:', citation: 'vendor/dify-src/x' }], designGotchas: ['idempotency'] };
     const id = await startEligible();
     const t = await loadTask(dir, id);
-    assert.equal(t.gate?.flag, 'promote_review');
+    assert.equal(t.status, 'done'); // spec 084: candidate rules recorded, then auto-finalized
     assert.deepEqual(t.promote!.rules, ['env vars use name: not variable:']);
     const cand = calls.find((a) => a.includes('candidate'));
     assert.ok(cand);
     assert.ok(cand!.includes('--rule') && cand!.includes('env vars use name: not variable:'));
   });
 
-  // ── AC5/AC6: Approve is the only write to templates/patterns/, with provenance + INDEX ──
-  test('AC5/AC6 — Approve stamps provenance, moves to templates/patterns/, rebuilds INDEX', async () => {
+  // ── AC5/AC6 / spec 084: auto-finalize stamps provenance + INDEX; a collision is never auto-clobbered ──
+  test('spec 084 — a no-collision distill auto-finalizes: provenance stamped, staged moved, INDEX rebuilt', async () => {
     const id = await startEligible();
-    assert.ok(!existsSync(join(dir, 'templates/patterns/my-flow.yml')), 'not there before Approve');
-    let t = await loadTask(dir, id);
-    assert.ok(acquireTurn(id));
-    try {
-      await promoteConfirm(t, 'approve', makeCtx());
-    } finally {
-      releaseTurn(id);
-    }
-    t = await loadTask(dir, id);
+    const t = await loadTask(dir, id);
     assert.equal(t.status, 'done');
     assert.equal(t.promote!.target, 'templates/patterns/my-flow.yml');
     const written = await readFile(join(dir, 'templates/patterns/my-flow.yml'), 'utf8');
@@ -220,20 +214,14 @@ describe('promote flow (spec 052)', () => {
     assert.ok(calls.some((a) => a.some((x) => x.includes('build_index.py'))), 'INDEX rebuilt');
   });
 
-  test('AC6 — a slug collision surfaces overwrite/rename, never a silent clobber', async () => {
+  test('AC6 / spec 084 — a slug collision is NEVER auto-clobbered: parks Overwrite/Save-as-new', async () => {
     // pre-seed an existing pattern at the target slug.
     await mkdir(join(dir, 'templates/patterns'), { recursive: true });
     await writeFile(join(dir, 'templates/patterns/my-flow.yml'), '# existing pattern\n', 'utf8');
+    // spec 084: the collision is detected at the END of the distill turn → NO auto-finalize, the choice is
+    // parked immediately (no separate Approve needed to surface it).
     const id = await startEligible();
     let t = await loadTask(dir, id);
-    assert.ok(acquireTurn(id));
-    try {
-      await promoteConfirm(t, 'approve', makeCtx());
-    } finally {
-      releaseTurn(id);
-    }
-    t = await loadTask(dir, id);
-    // still parked at review, now offering the collision choice — the existing file is UNTOUCHED.
     assert.equal(t.status, 'awaiting_confirm');
     assert.equal(t.gate?.flag, 'promote_review');
     assert.ok(t.gate?.actions.some((a) => a.id === 'approve_overwrite'));
@@ -254,43 +242,104 @@ describe('promote flow (spec 052)', () => {
     assert.equal(await readFile(join(dir, 'templates/patterns/my-flow.yml'), 'utf8'), '# existing pattern\n', 'never clobbered');
   });
 
-  test('AC5 — Request-changes re-runs the distill turn (note-steered), no write to templates/', async () => {
+  test('spec 084 — Request-changes/Resend re-runs the distill from a FAILED gate, no write to templates/', async () => {
+    // With auto-approve, Request-changes/Resend is reachable from the distill_failed gate (the review gate
+    // no longer parks on a clean no-collision distill). A note-less re-run is the tray [Resend].
+    reGate = VERDICT(false, ['lint_refs.py exit 1: dangling ref {{#999.text#}}']);
     const id = await startEligible();
+    let t = await loadTask(dir, id);
+    assert.equal(t.gate?.flag, 'promote_distill_failed');
     calls = [];
-    const t = await loadTask(dir, id);
     assert.ok(acquireTurn(id));
     try {
-      await promoteReply(t, 'make the description shorter', makeCtx());
+      await promoteReply(t, '', makeCtx()); // empty note = Resend (clean re-run)
     } finally {
       releaseTurn(id);
     }
-    const t2 = await loadTask(dir, id);
-    assert.equal(t2.gate?.flag, 'promote_review'); // re-parked at review after the re-run
+    t = await loadTask(dir, id);
+    assert.equal(t.gate?.flag, 'promote_distill_failed'); // reGate still fails → re-parked
     assert.equal(calls.filter((a) => a.includes('check')).length, 1); // re-gate ran again (B2′)
     assert.ok(!existsSync(join(dir, 'templates/patterns')));
   });
 
-  test('review-gate artifact pane shows the STAGED pattern (not the not-yet-written target)', async () => {
+  test('a failed gate artifact pane shows the STAGED pattern (not a not-yet-written target)', async () => {
+    reGate = VERDICT(false, ['bad ref']);
     const id = await startEligible();
     const t = await loadTask(dir, id);
-    assert.equal(t.gate?.flag, 'promote_review');
-    // `target` is set at review (the proposed path) but not on disk — readArtifactContents must read staged.
+    assert.equal(t.gate?.flag, 'promote_distill_failed');
+    // `staged` is set before the re-gate fails; target is never written — readArtifactContents reads staged.
     const art = await readArtifactContents(dir, t);
     assert.match(art.yaml ?? '', /# Pattern: demo/, 'the staged pattern is surfaced for the reviewer');
     assert.equal(art.spec, null);
   });
 
-  test('after Approve, the artifact pane reads the finalized target (staged was moved)', async () => {
+  test('after auto-finalize, the artifact pane reads the finalized target (staged was moved)', async () => {
     const id = await startEligible();
-    assert.ok(acquireTurn(id));
-    try {
-      await promoteConfirm(await loadTask(dir, id), 'approve', makeCtx());
-    } finally {
-      releaseTurn(id);
-    }
     const t = await loadTask(dir, id);
     const art = await readArtifactContents(dir, t);
     assert.match(art.yaml ?? '', /# x-provenance: source=original/, 'reads the promoted file with its header');
+  });
+
+  test('spec 084 — the distill turn output is persisted (distillLog) for later replay', async () => {
+    const id = await startEligible();
+    const t = await loadTask(dir, id);
+    assert.match(t.promote!.distillLog ?? '', /genericized the room_id and token/);
+  });
+
+  test('spec 084 DEV — a test distill parks at review and NEVER auto-finalizes (no shelf write)', async () => {
+    const src = resolvePromoteSource(dir, 'proj', 'my-flow');
+    assert.ok(src.ok);
+    const task = await createPromoteTask(dir, {
+      project: 'proj', workflow: 'my-flow',
+      sourceFile: (src as { sourceFile: string }).sourceFile, slug: (src as { slug: string }).slug, test: true,
+    });
+    currentTaskId = task.taskId;
+    assert.ok(acquireTurn(task.taskId));
+    try {
+      await startPromote(task, makeCtx());
+    } finally {
+      releaseTurn(task.taskId);
+    }
+    const t = await loadTask(dir, task.taskId);
+    assert.equal(t.promote!.test, true);
+    assert.equal(t.status, 'awaiting_confirm');
+    assert.equal(t.gate?.flag, 'promote_review'); // parked, not auto-finalized
+    assert.ok(!existsSync(join(dir, 'templates/patterns')), 'a dry-run test writes NOTHING to the shelf');
+  });
+
+  // ── spec 084 S1.5: the distill/promote tasks get their own "蒸留" section, out of the build tree ──
+  test('spec 084 S1.5 — a promote task lists in listPromoteTasks and is EXCLUDED from the build tree', async () => {
+    const task = await createPromoteTask(dir, {
+      project: 'proj', workflow: 'my-flow', sourceFile: 'projects/proj/my-flow/workflows/main.yml', slug: 'my-flow',
+    });
+    const promotes = await listPromoteTasks(dir, Date.now());
+    assert.ok(promotes.some((p) => p.id === task.taskId), 'appears in the 蒸留 section list');
+    const tree = await buildTree(dir, Date.now());
+    assert.ok(!JSON.stringify(tree).includes(task.taskId), 'NOT bucketed into the build tree (no clutter)');
+  });
+
+  test('spec 084 S1.5 — a cancelled promote is excluded from the section (Discard/Clear removes it)', async () => {
+    const task = await createPromoteTask(dir, { project: 'proj', workflow: 'gone', sourceFile: 's', slug: 'gone' });
+    const t = await loadTask(dir, task.taskId);
+    t.status = 'cancelled';
+    await saveTask(dir, t);
+    const promotes = await listPromoteTasks(dir, Date.now());
+    assert.ok(!promotes.some((p) => p.id === task.taskId), 'a cancelled distill is not history');
+  });
+
+  // ── spec 084 S2: Undo (inverse of finalize — unlink + rebuild index, no git) ──
+  test('spec 084 — undoPromotion unlinks the shelf file + rebuilds INDEX; a missing file is a no-op', async () => {
+    const id = await startEligible(); // auto-finalized templates/patterns/my-flow.yml
+    assert.ok(existsSync(join(dir, 'templates/patterns/my-flow.yml')));
+    calls = [];
+    const t = await loadTask(dir, id);
+    const r1 = await undoPromotion(t, makeCtx());
+    assert.equal(r1.removed, true);
+    assert.ok(!existsSync(join(dir, 'templates/patterns/my-flow.yml')), 'shelf file gone after undo');
+    assert.ok(calls.some((a) => a.some((x) => x.includes('build_index.py'))), 'INDEX rebuilt on undo (catalog stays in sync)');
+    // idempotent: a second undo is a no-op (removed:false), never an error.
+    const r2 = await undoPromotion(t, makeCtx());
+    assert.equal(r2.removed, false);
   });
 
   test('promoteReply at the blocked gate is a no-op (never re-runs a distill on an ineligible source)', async () => {
@@ -361,35 +410,29 @@ describe('promote flow (spec 052)', () => {
     return task.taskId;
   }
 
-  test('070 — a pasted source is staged at the run-dir ROOT + carries origin=external, then parks at review', async () => {
+  test('070 — a pasted source is staged at the run-dir ROOT + carries origin=external, then auto-finalizes', async () => {
     const id = await startEligibleExternal();
     assert.ok(existsSync(join(dir, `apps/builder/.runs/${id}/source.yml`)), 'pasted YAML staged at the run-dir root');
     assert.ok(!existsSync(join(dir, `apps/builder/.runs/${id}/promote/source.yml`)), 'NOT under promote/ (relocate hazard)');
     const t = await loadTask(dir, id);
     assert.equal(t.promote!.origin, 'external');
     assert.equal(t.promote!.sourceFile, `apps/builder/.runs/${id}/source.yml`);
-    assert.equal(t.gate?.flag, 'promote_review');
+    assert.equal(t.status, 'done'); // spec 084: external no-collision auto-finalizes too
+    assert.ok(existsSync(join(dir, `templates/patterns/${t.promote!.slug}.yml`)), 'landed on the shelf');
   });
 
-  test('070 — a shorthand-writing distill turn relocates cleanly (the ENOTEMPTY hazard if source sat in promote/)', async () => {
+  test('070 — a shorthand-writing distill turn relocates cleanly then auto-finalizes (the ENOTEMPTY hazard)', async () => {
     turnWritesShorthand = true; // force relocateRunArtifacts to actually run (production cwd=repo root)
     const id = await startEligibleExternal();
     const t = await loadTask(dir, id);
-    assert.equal(t.gate?.flag, 'promote_review', 'relocate did not throw → the flow reached review');
+    assert.equal(t.status, 'done', 'relocate did not throw → the flow finalized');
     assert.ok(existsSync(join(dir, `apps/builder/.runs/${id}/source.yml`)), 'staged source survived relocate');
-    assert.ok(existsSync(join(dir, t.promote!.staged!)), 'distilled output relocated into the canonical promote/');
+    assert.ok(existsSync(join(dir, `templates/patterns/${t.promote!.slug}.yml`)), 'distilled output landed on the shelf');
   });
 
-  test('070 (G3) — Approve an external distill stamps source=external + the declared license, NOT source=original/MIT', async () => {
+  test('070 (G3) — an external distill AUTO-finalizes with source=external + the declared license, NOT source=original/MIT', async () => {
     const id = await startEligibleExternal('CC-BY-4.0');
-    let t = await loadTask(dir, id);
-    assert.ok(acquireTurn(id));
-    try {
-      await promoteConfirm(t, 'approve', makeCtx());
-    } finally {
-      releaseTurn(id);
-    }
-    t = await loadTask(dir, id);
+    const t = await loadTask(dir, id);
     assert.equal(t.status, 'done');
     const written = await readFile(join(dir, `templates/patterns/${t.promote!.slug}.yml`), 'utf8');
     assert.match(written, /# x-provenance: source=external/);

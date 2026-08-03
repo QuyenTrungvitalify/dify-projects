@@ -1,0 +1,40 @@
+name: contrib-pr
+
+# Spec 081 S2b — auto-open a PR for every pushed `contrib/**` branch (the Builder's share turn
+# pushes the branch; the contributor's journey ends there — no GitHub steps on their machine).
+# The PR title/body are lifted verbatim from the head commit: its BODY is the metadata channel the
+# Builder filled (gate verdict, share-scan result, near-dup check, reviewer checklist).
+#
+# CI note: this PR is created with GITHUB_TOKEN, so it does NOT trigger `pull_request` workflows
+# (GitHub's anti-recursion rule). ci.yml therefore push-triggers on `contrib/**` too — the checks
+# run on the contributor's own push and attach to the PR via the head SHA. No PAT needed.
+
+on:
+  push:
+    branches: ['contrib/**']
+
+jobs:
+  open-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Idempotent (the sync-corpus existing-PR idiom): a second push to the same branch just
+      # updates the existing PR — never opens a duplicate.
+      - name: Open PR for this contrib branch (if none)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          branch="${GITHUB_REF_NAME}"
+          existing=$(gh pr list --search "is:open head:$branch" --json number --jq '.[].number' | head -1)
+          if [ -n "$existing" ]; then
+            echo "PR #$existing already open for $branch — nothing to do."
+            exit 0
+          fi
+          title=$(git log -1 --format=%s)
+          body=$(git log -1 --format=%b)
+          [ -n "$body" ] || body="(no metadata in the commit body)"
+          gh pr create --base main --head "$branch" --title "$title" --body "$body"

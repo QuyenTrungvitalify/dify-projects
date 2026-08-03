@@ -1,5 +1,5 @@
 # x-provenance: source=original repo=
-#   commit= file="projects/_drafts/chatwork_1_10_20/workflows/main.yml" orig_sha256= promoted=2026-07-28
+#   commit= file="projects/_drafts/chatwork_1_10_20/workflows/main.yml" orig_sha256= promoted=2026-07-30
 #   license=MIT spec=052 known_good_dify=
 # Pattern: Scheduled multi-source digest → rank → per-item LLM writeup → idempotent append → notify-on-empty
 #

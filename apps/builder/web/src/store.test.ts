@@ -331,7 +331,7 @@ describe('resetToNew clears the reconnect rev-guard (019 C2)', () => {
 describe('resetToNew resets the new-build base selectors', () => {
   it('clears workflow → none and seed → null (confirm preference persists)', () => {
     // spec 036: RunSettings no longer carries deploy/test (they are gate-time now, not composer chips).
-    settings.value = { workflow: 'workflow_uppercases_input_string', confirm: 'auto', seed: 's1', fast: true, targetProject: 'my_app' };
+    settings.value = { workflow: 'workflow_uppercases_input_string', confirm: 'auto', seed: 's1', fast: true, targetProject: 'my_app', mode: 'build' };
     resetToNew();
     expect(settings.value.workflow).toBe('none');
     expect(settings.value.seed).toBe(null);

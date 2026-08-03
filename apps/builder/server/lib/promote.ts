@@ -29,7 +29,7 @@ import { deriveSlugName } from './slug.js';
 import { ClaudeSession } from './claude-session.js';
 import { renderPrompt } from './phases.js';
 import { relocateRunArtifacts } from './scaffold.js';
-import { clearSession, isCancelled, setSession, turnHolderId } from './lock.js';
+import { buildHolderId, clearSession, isCancelled, setSession } from './lock.js';
 import {
   emit,
   errMsg,
@@ -38,6 +38,12 @@ import {
   type ConfirmPayload,
 } from './orchestrator-shared.js';
 import { computePromoteGate } from './gate.js';
+import {
+  finishShareSkipped,
+  runSharePreflight,
+  runShareShip,
+  shareOfferEligible,
+} from './share.js';
 import { saveTask, type PromoteVerdict, type Task } from '../state/task.js';
 
 const SKILL = '.claude/skills/dify-build';
@@ -155,7 +161,7 @@ export async function runDistillTurn(task: Task, ctx: OrchestratorCtx, noteText?
   const prompt = noteText ? `${rendered}\n\n${CHANGE}\n${noteText}` : rendered;
 
   // NEVER spawn for a build that no longer owns the turn lock (mirrors runPhase's guard).
-  if (isCancelled(task.taskId) || turnHolderId() !== task.taskId) {
+  if (isCancelled(task.taskId) || buildHolderId() !== task.taskId) {
     task.status = 'cancelled';
     task.gate = undefined;
     await saveTask(projectsDir, task);
@@ -165,11 +171,20 @@ export async function runDistillTurn(task: Task, ctx: OrchestratorCtx, noteText?
   log.info({ taskId: task.taskId }, 'spawning promote distill turn');
   const session = new ClaudeSession(`${task.taskId}:promote`, { taskId: task.taskId, workingDir: projectsDir, settingsPath, log });
   setSession(task.taskId, session);
+  // spec 084: accumulate the streamed output alongside the live broadcast, so it can be persisted (below)
+  // and replayed when the task is opened AFTER it finished (a bg distill's live SSE was never watched).
+  let distillText = '';
   const turn = await runTurn(session, prompt, undefined, {
     timeoutMs: TURN_TIMEOUT_MS,
-    onText: (text) => ctx.broadcast?.(task.taskId, 'phase:output', { phase: 'test', text }),
+    onText: (text) => {
+      distillText += text;
+      ctx.broadcast?.(task.taskId, 'phase:output', { phase: 'test', text });
+    },
   });
   clearSession(task.taskId);
+  // Persist the narrative (replaces any prior run's log on a Request-changes/Resend re-run). Set before the
+  // cancel/stage checks so even a cancelled or failed distill keeps its partial reasoning for review.
+  p.distillLog = distillText || undefined;
   if (isCancelled(task.taskId)) {
     task.status = 'cancelled';
     task.gate = undefined;
@@ -215,11 +230,28 @@ export async function runDistillTurn(task: Task, ctx: OrchestratorCtx, noteText?
   // by promote_gate.py itself). DESIGN gotchas stay in the pattern's `# GOTCHA:` header (not automated).
   p.rules = await recordCandidateRules(task, ctx);
 
-  task.status = 'awaiting_confirm';
-  task.gate = computePromoteGate('review');
   task.promote!.target = targetRel(p.slug);
   task.promote!.note = undefined;
-  await emit(task, ctx);
+  // spec 084 (DEV): a `test` distill NEVER auto-finalizes — always park the review gate so repeated dev
+  // testing writes nothing to the shelf. Approve is still reachable (then it's clearable via the tray).
+  if (p.test) {
+    task.status = 'awaiting_confirm';
+    task.gate = computePromoteGate('review');
+    await emit(task, ctx);
+    return;
+  }
+  // spec 084 S2: auto-approve a NO-collision new pattern — skip the genericity `review` gate (accepted
+  // for the 1-dev/own-build context, netted by the tray's report + 1-click [Undo]). The write STILL goes
+  // through the single door `finalizePromotion`. A slug COLLISION is never auto-clobbered: park the
+  // Overwrite / Save-as-new choice (`reviewCollision`) exactly as promoteConfirm would have at Approve.
+  if (existsSync(join(projectsDir, targetRel(p.slug)))) {
+    task.status = 'awaiting_confirm';
+    task.gate = computePromoteGate('reviewCollision');
+    task.promote!.note = `templates/patterns/${p.slug}.yml already exists — overwrite it or save as a new pattern.`;
+    await emit(task, ctx);
+    return;
+  }
+  await finalizePromotion(task, ctx, p.slug);
 }
 
 async function parkDistillFailed(task: Task, ctx: OrchestratorCtx, reasons: string[]): Promise<void> {
@@ -265,8 +297,23 @@ export async function promoteConfirm(
   _payload?: ConfirmPayload
 ): Promise<void> {
   const p = task.promote!;
-  if (task.status !== 'awaiting_confirm' || task.gate?.flag !== 'promote_review') {
+  if (task.status !== 'awaiting_confirm') {
     return; // stale/no-op — the route already validated the action is current, but re-guard defensively
+  }
+  // Spec 081 — the post-finalize share gates. Both are /confirm-only (a "no" is `share_skip`, never a
+  // cancel — the promotion itself is already done and must not read as cancelled).
+  if (task.gate?.flag === 'promote_share_offer') {
+    if (actionId === 'share') return runSharePreflight(task, ctx);
+    if (actionId === 'share_skip') return finishShareSkipped(task, ctx);
+    return;
+  }
+  if (task.gate?.flag === 'promote_share_review') {
+    if (actionId === 'share_confirm') return runShareShip(task, ctx);
+    if (actionId === 'share_skip') return finishShareSkipped(task, ctx);
+    return;
+  }
+  if (task.gate?.flag !== 'promote_review') {
+    return;
   }
   if (!p.staged || !existsSync(join(ctx.projectsDir, p.staged))) {
     task.status = 'error';
@@ -347,9 +394,38 @@ async function finalizePromotion(task: Task, ctx: OrchestratorCtx, slug: string)
   }
   p.target = target;
   p.slug = slug;
-  task.status = 'done';
-  task.gate = { actions: [] };
+  // Spec 081 — when this workspace can share (origin remote + shareable provenance), park at the
+  // share-offer gate instead of ending. False-safe: any doubt ⇒ the exact pre-081 terminal state.
+  if (await shareOfferEligible(task, ctx)) {
+    task.status = 'awaiting_confirm';
+    task.gate = computePromoteGate('share_offer');
+  } else {
+    task.status = 'done';
+    task.gate = { actions: [] };
+  }
   await emit(task, ctx);
+}
+
+/** spec 084 S2 — Undo an auto-approved promotion: the INVERSE of finalizePromotion, kept deliberately
+ *  simple (NO git — the 074 clean-copy has users without it). Unlink `templates/patterns/<slug>.yml` +
+ *  rebuild INDEX/provenance (the exact runPython commands finalize uses), so the catalog never dangles a
+ *  pattern that no longer exists. A missing target (already removed / overwritten) is a NO-OP, not an
+ *  error — the tray's [Undo] is "instant regret", idempotent by design. */
+export async function undoPromotion(task: Task, ctx: OrchestratorCtx): Promise<{ removed: boolean }> {
+  const { projectsDir } = ctx;
+  const { runPython } = resolveRunners(ctx);
+  const slug = task.promote?.slug;
+  if (!slug) return { removed: false };
+  const targetAbs = join(projectsDir, targetRel(slug));
+  let removed = false;
+  if (existsSync(targetAbs)) {
+    await unlink(targetAbs).catch(() => {});
+    removed = true;
+  }
+  // Rebuild the catalog whether or not the file was present (a prior partial state could still be stale).
+  await runPython(projectsDir, ['tools/dify_base/build_index.py']).catch(() => undefined);
+  await runPython(projectsDir, ['tools/dify_base/check_provenance.py']).catch(() => undefined);
+  return { removed };
 }
 
 /** The x-provenance header (spec 052 D6), following the `template-promote` pattern-target convention

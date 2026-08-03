@@ -188,5 +188,56 @@ def test_original_source_promotion_has_no_license_noise():
     assert cp.license_problems(fields, {}) == []
 
 
+# ── Spec 081 — share-scan (advisory leak scan at publish time) ──────────────────────────────────
+
+def test_share_scan_flags_credential_shapes():
+    text = "\n".join([
+        "url: https://example.com/hook",
+        "headers: 'Authorization: Bearer abcdef0123456789abcdef'",
+        "api_key: sk-proj-abcdefghijklmnopqrstuv",
+        "aws: AKIAIOSFODNN7EXAMPLE",
+    ])
+    kinds = {f["kind"] for f in pg.share_scan_text(text)}
+    assert "bearer token" in kinds and "provider key" in kinds
+    lines = {f["line"] for f in pg.share_scan_text(text)}
+    assert 1 not in lines, "example.com is an allowed placeholder host"
+
+
+def test_share_scan_flags_urls_emails_and_internal_hosts():
+    text = "\n".join([
+        "url: https://api.mycompany.co.jp/v1/notify",
+        "contact: alice@vitalify.jp",
+        "host: gitlab.corp",
+        "ip: 192.168.10.20",
+    ])
+    kinds = [f["kind"] for f in pg.share_scan_text(text)]
+    assert kinds.count("non-placeholder url") == 1
+    assert "email address" in kinds and "internal host/ip" in kinds
+
+
+def test_share_scan_placeholder_context_is_exempt_but_credentials_are_not():
+    text = "\n".join([
+        "url: https://your-service.example.com/webhook  # TODO: set your endpoint",
+        "url: '{{#env.SERVICE_URL#}}/notify'",
+        "token: '{{#env.API_TOKEN#}}'",
+        "secret: changeme-placeholder",
+        "# TODO: rotate — old key was Bearer abcdef0123456789abcdef",
+    ])
+    findings = pg.share_scan_text(text)
+    assert [f["kind"] for f in findings] == ["bearer token"], findings
+    assert findings[0]["line"] == 5, "a real credential is reported even in TODO context"
+
+
+def test_share_scan_clean_on_the_committed_pattern_and_cli_exit_zero(capsys):
+    """The committed distilled pattern must scan clean, and the CLI is advisory (exit 0) even
+    when findings exist — the contributor decides at the confirm gate, never this tool."""
+    result = pg.share_scan(PATTERN)
+    assert result["clean"], result["findings"]
+    assert pg.main(["share-scan", str(PATTERN)]) == 0
+    assert "clean" in capsys.readouterr().out
+    dirty = BASE / "tests" / "fixtures" / "promote" / "per_row_notify.yml"
+    assert pg.main(["share-scan", str(dirty), "--json"]) == 0, "findings never change the exit code"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

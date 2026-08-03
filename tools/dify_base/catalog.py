@@ -280,6 +280,16 @@ def check_file(path, shelf=False, root=BASE, catalog_path=CATALOG_PATH):
             for e in load_catalog(catalog_path)["entries"].values() if e.get("sha256")
         ]
 
+    # A file is never a duplicate of ITSELF. The share preflight (spec 083) checks a pattern AFTER
+    # finalize already landed it on templates/patterns/, so its own shelf entry would sha-match —
+    # and, because the sha-dup loop returns first, MASK any real near-dup with a different file.
+    try:
+        self_rel = str(Path(path).resolve().relative_to(Path(root).resolve()))
+    except ValueError:
+        self_rel = None  # candidate outside the scan root (e.g. a shelf-inbox drop) — nothing to exclude
+    if self_rel:
+        candidates = [c for c in candidates if c["match"] != self_rel]
+
     verdict = {
         "verdict": "new", "match": None, "prior_decision": None, "prior_reason": None,
         "fingerprint": info["fingerprint"], "node_count": info["node_count"],

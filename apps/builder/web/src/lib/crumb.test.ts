@@ -5,7 +5,7 @@
  * by store.test.ts (resetToNew) and manual QA.
  */
 import { describe, it, expect } from 'vitest';
-import { newTaskCrumb, wfDisplayName, runContextCrumb, workflowOptions } from './crumb';
+import { newTaskCrumb, wfDisplayName, runContextCrumb, workflowOptions, activeSidebarProject, activeSidebarWorkflow } from './crumb';
 import { setLang } from './i18n';
 import type { WireTreeProject, WireTreeTask, WireTask } from '../types';
 
@@ -124,6 +124,24 @@ describe('workflowOptions (recency-sorted composer dropdown)', () => {
   it('value is the compound "project/workflow"; label is "Project / Workflow"', () => {
     const nw = workflowOptions(rtree).find((o) => o.v === 'proj_b/new_wf');
     expect(nw?.l).toBe('Proj B / New WF');
+  });
+});
+
+describe('084 S1.5 · activeSidebar{Project,Workflow} — a distill never co-highlights its source', () => {
+  it('a promote task returns null (its home is the Distill section, not the Build tree)', () => {
+    const promote = { kind: 'promote', project: '_drafts', workflowSlug: 'x_y_m_t' } as unknown as WireTask;
+    expect(activeSidebarProject(promote)).toBe(null);
+    expect(activeSidebarWorkflow(promote)).toBe(null);
+  });
+  it('a normal build task still highlights its project/workflow as before', () => {
+    const build = { kind: undefined, project: 'proj', workflowSlug: 'flow' } as unknown as WireTask;
+    expect(activeSidebarProject(build)).toBe('proj');
+    expect(activeSidebarWorkflow(build)).toBe('proj/flow');
+  });
+  it('a consult (no project) yields null workflow, project null — unchanged', () => {
+    const consult = { kind: 'consult', project: null, workflowSlug: null } as unknown as WireTask;
+    expect(activeSidebarProject(consult)).toBe(null);
+    expect(activeSidebarWorkflow(consult)).toBe(null);
   });
 });
 

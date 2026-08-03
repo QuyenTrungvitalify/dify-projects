@@ -6,6 +6,7 @@
    builder backend, which owns all I/O (token never reaches here).
    ============================================================ */
 import type { WireTask, WireTreeProject, WireTreeTask, Seed, WireConfirmMode } from './types';
+import type { ShelfResponse } from './lib/shelf';
 
 /** Thrown on a non-2xx response; carries the HTTP status so callers can branch (e.g. 409 busy), the
  *  `holder` taskId from a turn-collision 409 body (offer "open the running build"), and `existing` from
@@ -91,15 +92,32 @@ export const api = {
    *  gate/status change. Responds `{ok:true}` immediately; the answer streams over SSE (ask:answer/done). */
   ask: (id: string, text: string): Promise<{ ok: boolean }> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/ask`, { text }),
+  /** spec 082: POST /api/consult → start a `kind:'consult'` chat task (chat lane; a running build never
+   *  blocks it). `text` is the first message; every later message is a plain api.ask(id, text). */
+  createConsult: (body: { text: string; files?: Attachment[] }): Promise<WireTask> =>
+    request('POST', '/api/consult', body),
+  /** spec 082: GET /api/consults → the consult chats (newest first) for the sidebar's own section. */
+  consults: (): Promise<{ consults: WireTreeTask[] }> => request('GET', '/api/consults'),
+  /** spec 084 S1.5: GET /api/promotes → the distill/promote tasks (newest first) for the sidebar's own
+   *  "蒸留" section. Shows ALL (incl. done/shared) as history; excluded from /api/tree. */
+  promotes: (): Promise<{ promotes: WireTreeTask[] }> => request('GET', '/api/promotes'),
   /** PATCH /api/tasks/:id → live-patch confirm_mode on a non-terminal build (spec 010 F2; 409 if terminal). */
   patchTask: (id: string, patch: { confirm_mode: string }): Promise<WireTask> =>
     request('PATCH', `/api/tasks/${encodeURIComponent(id)}`, patch),
   /** POST /api/tasks/:id/cancel → abandon: kill child, terminal status, release lock (AC #24). */
   cancel: (id: string): Promise<WireTask> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/cancel`),
+  /** spec 084 follow-up: DELETE /api/tasks/:id → permanently remove the task record (.runs/<id>). 409 if
+   *  its turn is running (cancel first); 404 if already gone. */
+  deleteTask: (id: string): Promise<{ ok: boolean }> =>
+    request('DELETE', `/api/tasks/${encodeURIComponent(id)}`),
   /** POST /api/tasks/:id/restore → reopen a cancelled build at the previous phase's gate (undo Continue). */
   restore: (id: string): Promise<WireTask> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/restore`),
+  /** spec 084 S2: POST /api/tasks/:id/undo-promote → gỡ an auto-approved pattern (unlink + rebuild index,
+   *  no git). Idempotent — a missing file responds `{ok:true, removed:false}`. */
+  undoPromote: (id: string): Promise<{ ok: boolean; removed: boolean }> =>
+    request('POST', `/api/tasks/${encodeURIComponent(id)}/undo-promote`),
   /** spec 036 D5: POST /api/tasks/:id/live-test → run a live workflow test from a terminal `done`
    *  autonomous build (the done-state "Run test with workflow" foot). 409 if the gate no longer holds. */
   liveTest: (id: string): Promise<WireTask> =>
@@ -117,6 +135,14 @@ export const api = {
    *  ApiError.status===409 with `existing` set; 400 name_charset/name_required is a plain message. */
   createProject: (name: string): Promise<{ project: string; name: string }> =>
     request('POST', '/api/projects', { name }),
+  /** spec 084 follow-up: DELETE /api/projects/:project → permanently remove a whole project (folder + all
+   *  its build records). 400 (_drafts / bad slug), 404 (missing), 409 (a build's turn is running). */
+  deleteProject: (project: string): Promise<{ ok: boolean; tasksRemoved: number }> =>
+    request('DELETE', `/api/projects/${encodeURIComponent(project)}`),
+  /** spec 084 follow-up: DELETE /api/projects/:project/workflows/:workflow → remove ONE workflow (folder +
+   *  its build records). The "delete a junk build" door for the Build/`_drafts` rows. 400/404/409 as above. */
+  deleteWorkflow: (project: string, workflow: string): Promise<{ ok: boolean; tasksRemoved: number }> =>
+    request('DELETE', `/api/projects/${encodeURIComponent(project)}/workflows/${encodeURIComponent(workflow)}`),
   /** POST /api/bases → import one standalone YAML as a local edit-existing base (spec 051 D1). Returns
    *  the resolved `{ project, workflow }` (+ an optional `slugNote` when a collision was auto-suffixed);
    *  400 (bad YAML / limits / linter reject) surfaces as ApiError with the verbatim message. */
@@ -128,8 +154,8 @@ export const api = {
    *  Two source doors: a LOCAL project workflow `{project, workflow}` (source=original), or spec 070's
    *  EXTERNAL pasted/uploaded YAML `{origin:'paste', yaml, ...}` (stamped source=external). */
   promote: (body:
-    | { project: string; workflow: string }
-    | { origin: 'paste'; yaml: string; sourceLabel?: string; license?: string; fileName?: string }
+    | { project: string; workflow: string; test?: boolean }
+    | { origin: 'paste'; yaml: string; sourceLabel?: string; license?: string; fileName?: string; test?: boolean }
   ): Promise<WireTask> =>
     request('POST', '/api/promote', body),
   /** GET /api/tree → the Project ▸ Workflow ▸ Task sidebar tree (AC #13). */
@@ -142,7 +168,35 @@ export const api = {
    *  the flag is off, ApiError(409) when a build turn is running; a failed BUILD returns `{ok:false,log}`. */
   devRebuild: (): Promise<{ ok: boolean; restarting?: boolean; phase?: string; log?: string; reason?: string }> =>
     request('POST', '/api/dev/rebuild', {}),
+  /** spec 080 dev-only (BUILDER_DEV=1): the shelf dashboard feed — `catalog.py stats --json`
+   *  passthrough. Throws ApiError(404) when the server runs without BUILDER_DEV. */
+  devShelf: (): Promise<ShelfResponse> => request('GET', '/api/dev/shelf'),
+  /** spec 083 dev-only (BUILDER_DEV=1): the settings registry + per-machine local overrides
+   *  (secrets masked). Throws ApiError(404) when the server runs without BUILDER_DEV. */
+  devSettings: (): Promise<DevSettingsResponse> => request('GET', '/api/dev/settings'),
+  /** spec 083 dev-only: apply a validated patch to the local override file; returns the fresh view.
+   *  A 400 (bad value / unknown key) surfaces as ApiError with the verbatim message. */
+  devSaveSettings: (patch: { values?: Record<string, string | number>; clearSecrets?: string[] }): Promise<DevSettingsResponse> =>
+    request('POST', '/api/dev/settings', patch),
 };
+
+/** One settable field as the ⚙ modal sees it (mirrors server ResolvedField). */
+export interface DevSettingField {
+  key: string;
+  label: string;
+  help: string;
+  type: 'text' | 'password' | 'number';
+  section: string;
+  placeholder?: string;
+  secret: boolean;
+  value: string | number | null;
+  set: boolean;
+  fallback: string;
+}
+export interface DevSettingsResponse {
+  ok: boolean;
+  fields: DevSettingField[];
+}
 
 /** Map the UI's public Confirm-mode label → the backend's verbose `confirm_mode` value (AC #15). */
 export function confirmModeWire(label: string): string {

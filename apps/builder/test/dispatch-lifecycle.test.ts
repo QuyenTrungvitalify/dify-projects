@@ -27,7 +27,7 @@ import Fastify from 'fastify';
 import tasksRoutes, { type TasksRoutesOptions } from '../server/routes/tasks.js';
 import { loadTask, type Task } from '../server/state/task.js';
 import { PHASES } from '../server/lib/phases.js';
-import { cancelledCount, releaseTurn, turnBusy, turnHolderId } from '../server/lib/lock.js';
+import { cancelledCount, releaseTurn, buildTurnBusy, buildHolderId } from '../server/lib/lock.js';
 import { applyInitFake } from './helpers/scaffold-fake.js';
 import type { ClaudeSession, SessionLogger } from '../server/lib/claude-session.js';
 import type { TurnResult } from '../server/lib/turn-runner.js';
@@ -144,7 +144,7 @@ describe('dispatch() — the route-level lock/failSafe/evict wiring', () => {
     dir = await fixtureDir();
   });
   afterEach(async () => {
-    if (turnHolderId()) releaseTurn(turnHolderId()!); // never leak the single global slot into the next test
+    if (buildHolderId()) releaseTurn(buildHolderId()!); // never leak the single global slot into the next test
     latestTaskFile = null;
     await rm(dir, { recursive: true, force: true });
   });
@@ -156,8 +156,8 @@ describe('dispatch() — the route-level lock/failSafe/evict wiring', () => {
 
     // The route returns the id immediately (the UI needs it to open the SSE stream before ① finishes),
     // but the dispatched work is still running — so the lock is HELD, and it is held by THIS build.
-    assert.ok(turnBusy(), 'a turn is running → the lock is held after the route responded');
-    assert.equal(turnHolderId(), task.taskId, 'held by the dispatched build');
+    assert.ok(buildTurnBusy(), 'a turn is running → the lock is held after the route responded');
+    assert.equal(buildHolderId(), task.taskId, 'held by the dispatched build');
 
     // A second build cannot start meanwhile — the 409 carries `holder` (the turn-collision shape).
     const busy = await h.app.inject({ method: 'POST', url: '/api/tasks', payload: { requirement: 'other' } });
@@ -165,24 +165,24 @@ describe('dispatch() — the route-level lock/failSafe/evict wiring', () => {
     assert.equal(busy.json().holder, task.taskId, 'the 409 names the build actually holding the turn');
 
     gate.release();
-    await waitFor(() => !turnBusy(), 'the dispatch finally to free the lock');
+    await waitFor(() => !buildTurnBusy(), 'the dispatch finally to free the lock');
 
     // Freed because the build PARKED (not because it terminated) — the whole point of a turn-level lock.
     const parked = await loadTask(dir, task.taskId);
     assert.equal(parked.status, 'awaiting_confirm', 'parked at the ① gate');
-    assert.equal(turnHolderId(), null, 'a build parked at a gate holds NOTHING');
+    assert.equal(buildHolderId(), null, 'a build parked at a gate holds NOTHING');
 
     // And the slot is genuinely reusable now: the previously-rejected second build can start.
     const after = await h.app.inject({ method: 'POST', url: '/api/tasks', payload: { requirement: 'other' } });
     assert.equal(after.statusCode, 200, 'the freed slot is acquirable — release was real, not just a flag flip');
-    await waitFor(() => !turnBusy(), 'the second build to settle');
+    await waitFor(() => !buildTurnBusy(), 'the second build to settle');
     await h.app.close();
   });
 
   test('the race-loser past the fast-path is pinned `rejected — another turn is running` (§5 / Q6)', async () => {
     const gate = deferred();
     const h = await build(dir, { gate: gate.promise });
-    // Fire two POSTs in the same synchronous block. Both handlers pass the synchronous `turnBusy()`
+    // Fire two POSTs in the same synchronous block. Both handlers pass the synchronous `buildTurnBusy()`
     // fast-path before either reaches `acquireTurn`: each handler yields at createTask's fs awaits
     // (macrotasks), and the second handler's start is queued as ticks/microtasks which run first. So
     // BOTH mint a task, and exactly one then loses the strict acquire — the branch under test.
@@ -208,7 +208,7 @@ describe('dispatch() — the route-level lock/failSafe/evict wiring', () => {
     assert.equal(loser.error, 'rejected — another turn is running');
 
     gate.release();
-    await waitFor(() => !turnBusy(), 'the winner to park');
+    await waitFor(() => !buildTurnBusy(), 'the winner to park');
     await h.app.close();
   });
 
@@ -219,7 +219,7 @@ describe('dispatch() — the route-level lock/failSafe/evict wiring', () => {
       },
     });
     const task = await start(h);
-    await waitFor(() => !turnBusy(), 'the throwing chain to settle');
+    await waitFor(() => !buildTurnBusy(), 'the throwing chain to settle');
 
     const t = await loadTask(dir, task.taskId);
     assert.equal(t.status, 'error', 'a throw must never leave the build stuck at running');
@@ -228,7 +228,7 @@ describe('dispatch() — the route-level lock/failSafe/evict wiring', () => {
       h.events.some((e) => e.status === 'error' && /internal error: boom/.test(e.error ?? '')),
       'failSafe RELAYS the error (a browser mirroring SSE must not sit on a stale `running`)'
     );
-    assert.equal(turnHolderId(), null, 'the finally runs after the catch — a throw never leaks the lock');
+    assert.equal(buildHolderId(), null, 'the finally runs after the catch — a throw never leaks the lock');
     await h.app.close();
   });
 
@@ -245,7 +245,7 @@ describe('dispatch() — the route-level lock/failSafe/evict wiring', () => {
     assert.equal(cancelledCount(), before + 1, 'flag tracked while the chain is still unwinding');
 
     gate.release();
-    await waitFor(() => !turnBusy(), 'the cancelled chain to settle');
+    await waitFor(() => !buildTurnBusy(), 'the cancelled chain to settle');
 
     const t = await loadTask(dir, task.taskId);
     assert.equal(t.status, 'cancelled', 'converged terminal');
@@ -260,7 +260,7 @@ describe('PATCH /api/tasks/:id — confirm_mode is only patchable at rest', () =
     dir = await fixtureDir();
   });
   afterEach(async () => {
-    if (turnHolderId()) releaseTurn(turnHolderId()!);
+    if (buildHolderId()) releaseTurn(buildHolderId()!);
     latestTaskFile = null;
     await rm(dir, { recursive: true, force: true });
   });
@@ -278,7 +278,7 @@ describe('PATCH /api/tasks/:id — confirm_mode is only patchable at rest', () =
     assert.match(res.json().error, /turn running/);
 
     gate.release();
-    await waitFor(() => !turnBusy(), 'the chain to park');
+    await waitFor(() => !buildTurnBusy(), 'the chain to park');
     const t = await loadTask(dir, task.taskId);
     assert.equal(t.confirmMode, 'each_step', 'the rejected patch never reached disk');
     await h.app.close();
@@ -289,7 +289,7 @@ describe('PATCH /api/tasks/:id — confirm_mode is only patchable at rest', () =
     const h = await build(dir, { gate: gate.promise });
     const task = await start(h);
     gate.release();
-    await waitFor(() => !turnBusy(), 'the chain to park');
+    await waitFor(() => !buildTurnBusy(), 'the chain to park');
 
     const before = (await loadTask(dir, task.taskId)).rev ?? 0;
     const res = await patch(h, task.taskId, 'auto');
@@ -316,7 +316,7 @@ describe('POST /api/tasks/:id/confirm — the route layer itself', () => {
     dir = await fixtureDir();
   });
   afterEach(async () => {
-    if (turnHolderId()) releaseTurn(turnHolderId()!);
+    if (buildHolderId()) releaseTurn(buildHolderId()!);
     latestTaskFile = null;
     await rm(dir, { recursive: true, force: true });
   });
@@ -329,18 +329,18 @@ describe('POST /api/tasks/:id/confirm — the route layer itself', () => {
     const h = await build(dir, { gate: gate.promise });
     const task = await start(h);
     gate.release();
-    await waitFor(() => !turnBusy(), 'the ① chain to park');
+    await waitFor(() => !buildTurnBusy(), 'the ① chain to park');
 
     // The action is validated BEFORE acquireTurn — the early 409 must not take (or leak) the slot.
     const bad = await confirm(h, task.taskId, { actionId: 'not-a-real-action' });
     assert.equal(bad.statusCode, 409);
     assert.equal('holder' in bad.json(), false, 'validation-409 shape — NOT the turn-collision shape');
-    assert.equal(turnBusy(), false, 'rejected before acquireTurn — nothing held, nothing leaked');
+    assert.equal(buildTurnBusy(), false, 'rejected before acquireTurn — nothing held, nothing leaked');
 
     // The gate is still fully usable: the real `continue` advances ①→② through the same route.
     const ok = await confirm(h, task.taskId, { actionId: 'continue' });
     assert.equal(ok.statusCode, 200, ok.body);
-    await waitFor(() => !turnBusy(), 'the ② chain to park');
+    await waitFor(() => !buildTurnBusy(), 'the ② chain to park');
     const t = await loadTask(dir, task.taskId);
     assert.equal(t.phase, 'spec');
     assert.equal(t.status, 'awaiting_confirm');
@@ -351,7 +351,7 @@ describe('POST /api/tasks/:id/confirm — the route layer itself', () => {
     const h = await build(dir); // no gate: each turn settles immediately, each_step parks every boundary
     const task = await start(h);
     const advance = async (payload: Record<string, unknown>) => {
-      await waitFor(() => !turnBusy(), 'park before the next confirm');
+      await waitFor(() => !buildTurnBusy(), 'park before the next confirm');
       const r = await confirm(h, task.taskId, payload);
       assert.equal(r.statusCode, 200, r.body);
     };
@@ -364,7 +364,7 @@ describe('POST /api/tasks/:id/confirm — the route layer itself', () => {
       actionId: 'continue',
       reuseLint: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 },
     });
-    await waitFor(() => !turnBusy(), 'the ④ chain to settle');
+    await waitFor(() => !buildTurnBusy(), 'the ④ chain to settle');
 
     const t = await loadTask(dir, task.taskId);
     assert.equal(t.status, 'done', 'the each_step deploy-none build finished ④');

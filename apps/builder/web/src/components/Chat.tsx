@@ -203,10 +203,13 @@ function promoteGateView(t: WireTask): GateView {
       summary: reasons.length ? reasons : [note || tr('promoteDistillFailedSummary')] };
   }
   // spec 081 — the share-offer gate: the pattern is already promoted locally; ask whether to push it.
+  // `note` must ride along: finalize parks HERE (not at done), so an INDEX-rebuild warning would
+  // otherwise stay invisible until the share question is answered.
   if (t.gate?.flag === 'promote_share_offer') {
     return { tone: 'done', badge: tr('promoteDoneBadge'), title: tr('promoteShareOfferTitle'), meta: '',
       summary: [
         p?.target ? tf('promoteTargetLine', { target: p.target }) : tr('promoteDoneSummary'),
+        ...(note ? [note] : []),
         tr('promoteShareOfferSummary'),
       ],
       showYamlLink: true };
@@ -422,12 +425,14 @@ export function QaAnswer({ answer, done, seededFrom }: { answer: string; done: b
     <div className="qa-bubble">
       <div className="qa-head">
         {done ? <I.checkCircle style={{ width: 13, height: 13, color: 'var(--ok)' }} /> : <span className="spin" />}
-        <span className="qa-badge">{done ? tr('qaAnswered') : tr('running')}</span>
+        {/* spec 082: a Q&A/consult reply is NOT a build phase — the badge said tr('running')="実行中" +
+            a "処理中" body, which reads as "a phase is executing" during a plain chat. Use a chat-native
+            "Answering…" label (shared: improves Ask-at-gate too) and let the spinner+badge stand alone
+            while waiting — no redundant body line. */}
+        <span className="qa-badge">{done ? tr('qaAnswered') : tr('qaAnswering')}</span>
       </div>
       {html ? (
         <div className="qa-body md-stream" dangerouslySetInnerHTML={{ __html: html }} />
-      ) : !done ? (
-        <div className="qa-body"><div className="dd-line">{tr('working')}</div></div>
       ) : null}
       {/* spec 034 §2: a ④/terminal fresh-seeded answer captions which sources were folded into its seed,
           so a possibly-incomplete answer is visible rather than silently trusted. Phase Asks omit this. */}
@@ -607,7 +612,7 @@ function SettingSelect({ icon, label, value, options, onChange, mono, shrink, di
  *  built from the shared constants so it can't drift from the validator. */
 const ACCEPT_ATTR = [...ACCEPTED_IMAGE_MIME, ...[...ACCEPTED_EXT].map((e) => `.${e}`)].join(',');
 
-export function Composer({ value, onChange, onSend, settings, onSettings, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken }: {
+export function Composer({ value, onChange, onSend, settings, onSettings, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, onMode }: {
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
@@ -634,6 +639,12 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
   /** spec 033 FIX-J: bump this (any changing value) to focus the textarea — used when arming the
    *  composer's change-mode from a gate's reply-kind action, so typing the change starts immediately. */
   focusToken?: number;
+  /** spec 082 §4.5: the entry-mode chip (`モード: 相談|ビルド`) — EMPTY VIEW ONLY (inside a task the kind
+   *  is fixed, so conversation composers omit both). Renders FIRST in the row, same chip style as the
+   *  others; while mode==='consult' the build chips (workflow/confirm/fast) are hidden — they are
+   *  meaningless for a chat and the row stays short (the nowrap rule keeps its slack). */
+  mode?: 'consult' | 'build';
+  onMode?: (mode: 'consult' | 'build') => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -720,9 +731,17 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
         onKeyDown={onKeyDown} onPaste={onPaste}
       />
       <div className="composer-row">
+        {/* spec 082 §4.5: the Mode chip — first in the row, entry-only (empty view). Same SettingSelect
+            as every other chip for style/interaction parity (the user's explicit call). */}
+        {mode && onMode && (
+          <SettingSelect label={tr('mode')} value={mode}
+            options={[{ v: 'consult', l: tr('modeConsult') }, { v: 'build', l: tr('modeBuild') }]}
+            onChange={(v) => onMode(v as 'consult' | 'build')} title={tr('modeHint')} />
+        )}
         {/* spec 034 D3: the settings row is optional — a terminal Ask composer omits settings/onSettings,
-            so this whole block disappears and only the spacer + attach + send remain. */}
-        {settings && onSettings && (<>
+            so this whole block disappears and only the spacer + attach + send remain. spec 082: the build
+            chips also hide while the Mode chip says consult — meaningless for a chat. */}
+        {settings && onSettings && mode !== 'consult' && (<>
         <SettingSelect mono shrink icon={<I.sliders style={{ width: 12, height: 12 }} />} label={tr('workflow')}
           value={settings.workflow} options={workflowOpts} onChange={(v) => onSettings({ workflow: v })}
           disabled={lockStartBound} title={tr('workflowFixed')} />

@@ -79,7 +79,7 @@ You are producing a valid Dify workflow YAML that satisfies `SPEC.md`. Read
    > handle several per iteration, not iterate the raw list. A fixed chunk/batch SIZE does not guarantee
    > this — size the batch from N so the COUNT is clamped: `size = ceil(N/30)`. And
    > an LLM node emitting long content (a chapter, a translated chunk) needs an explicit
-   > `max_tokens`, or the default truncates it silently. Both: [docs/runtime-supplement.md §2-supplement](../../../docs/runtime-supplement.md).
+   > `max_tokens`, or the default truncates it silently. Both: `docs/runtime-supplement.md` §2-supplement.
 4. **Instantiate** `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}`:
    - **Source — pick the ONE that matches this build:**
      - new, a pattern fits → copy the file named by **Pattern** (*Inputs*) then customize every

@@ -118,18 +118,14 @@ def merge_enrichment(entries, enrichment=None, on_stale=None):
     return entries
 
 
-def check(strict=False):
-    """Report missing / stale / orphan / schema issues. Advisory (rc=0) unless --strict."""
-    enr = load_enrichment()
-    idx = load_index()
-    if not idx:
-        print(f"❌ index not found or empty at {INDEX_PATH} — run build_index.py first", file=sys.stderr)
-        return 1
+def check_data(index_path=None, enrich_path=None):
+    """Data-level half of --check (spec 080 S1): the same missing/stale/orphan/schema computation,
+    returned as a dict so `catalog.py stats` can embed it without re-deriving the rules. `check()`
+    below prints FROM this — one source of truth for what counts as missing/stale/orphan."""
+    enr = load_enrichment(enrich_path if enrich_path is not None else ENRICH_PATH)
+    idx = load_index(index_path if index_path is not None else INDEX_PATH)
     idx_paths = {entry_key(e["source"], e["file"]): e.get("path") for e in idx}
 
-    problems = schema_problems(enr)
-    missing = [k for k in idx_paths if k not in enr]
-    orphan = [k for k in enr if k not in idx_paths]
     stale = []
     for k, v in enr.items():
         want = v.get("orig_sha256") if isinstance(v, dict) else None
@@ -140,20 +136,39 @@ def check(strict=False):
                     stale.append(k)
             except OSError:
                 pass  # file vanished → surfaces as orphan, not stale
+    missing = sorted(k for k in idx_paths if k not in enr)
+    return {
+        "enrichment_total": len(enr),
+        "index_total": len(idx_paths),
+        "covered": len(idx_paths) - len(missing),
+        "missing": missing,
+        "stale": sorted(stale),
+        "orphan": sorted(k for k in enr if k not in idx_paths),
+        "problems": schema_problems(enr),
+    }
 
-    print(f"Enrichment: {len(enr)} entries · index: {len(idx)} entries")
-    print(f"  covered : {len(idx_paths) - len(missing)}/{len(idx_paths)}")
+
+def check(strict=False):
+    """Report missing / stale / orphan / schema issues. Advisory (rc=0) unless --strict."""
+    d = check_data()
+    if not d["index_total"]:
+        print(f"❌ index not found or empty at {INDEX_PATH} — run build_index.py first", file=sys.stderr)
+        return 1
+    missing, stale, orphan, problems = d["missing"], d["stale"], d["orphan"], d["problems"]
+
+    print(f"Enrichment: {d['enrichment_total']} entries · index: {d['index_total']} entries")
+    print(f"  covered : {d['covered']}/{d['index_total']}")
     if missing:
         print(f"  ⚠ missing enrichment ({len(missing)}):")
-        for k in sorted(missing):
+        for k in missing:
             print(f"      {k}")
     if stale:
         print(f"  ⚠ stale (source changed since enriched — re-run enrichment) ({len(stale)}):")
-        for k in sorted(stale):
+        for k in stale:
             print(f"      {k}")
     if orphan:
         print(f"  ⚠ orphan (enriched but no longer in index) ({len(orphan)}):")
-        for k in sorted(orphan):
+        for k in orphan:
             print(f"      {k}")
     if problems:
         print(f"  ✗ schema problems ({len(problems)}):", file=sys.stderr)

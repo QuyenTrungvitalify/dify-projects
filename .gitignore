@@ -1,5 +1,12 @@
+# Node dependencies — never committed
+node_modules/
+
 # Auto-generated index — rebuild with `python3 tools/dify_base/build_index.py`
 tools/dify_base/index.json
+
+# Per-machine dev-mode marker (spec 080): update-and-run.command starts with BUILDER_DEV=1 + ?dev=1
+# when this file exists. Local only — never commit it, so other users' launches stay non-dev.
+.builder-dev
 
 # External clones (re-clone if needed)
 skills/*/
@@ -25,6 +32,10 @@ htmlcov/
 .DS_Store
 .idea/
 # (Note: .vscode/settings.json IS committed — wires up YAML schema for the team)
+
+# Spec 083 dev Settings — per-machine overrides (drop URL/secret, display name). The team default
+# .dify-share.json IS committed; this local override file is NOT (secrets + per-user, never a diff).
+.dify-settings.local.json
 
 # Spec 009 Lát-0 spike (throwaway)
 spike/

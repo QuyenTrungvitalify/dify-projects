@@ -145,8 +145,12 @@ await app.register(uiRoutes, { projectsDir: DIFY_PROJECTS_DIR, now: () => Date.n
 // import so the module isn't even loaded otherwise. Registered before the static `/*` wildcard.
 if (process.env.BUILDER_DEV === '1') {
   const devRoutes = (await import('./routes/dev.js')).default;
-  await app.register(devRoutes, { builderDir: join(DIFY_PROJECTS_DIR, 'apps/builder'), port: PORT });
-  app.log.warn('BUILDER_DEV=1 — POST /api/dev/rebuild ENABLED (dev panel rebuild+restart button)');
+  await app.register(devRoutes, {
+    builderDir: join(DIFY_PROJECTS_DIR, 'apps/builder'),
+    port: PORT,
+    projectsDir: DIFY_PROJECTS_DIR, // spec 080: GET /api/dev/shelf runs catalog.py stats here
+  });
+  app.log.warn('BUILDER_DEV=1 — /api/dev/rebuild + /api/dev/shelf + /api/dev/settings ENABLED (dev panel)');
 }
 
 // ── Static SPA (web/dist) served at "/" — dependency-free handler (spec task 1) ──

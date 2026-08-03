@@ -462,6 +462,29 @@ python3 tools/dify_base/validate_workflow.py templates/<file>.yml
 
 ---
 
+## 9b. Chia sẻ pattern của bạn với team (spec 081 + 083)
+
+Sau khi một build trong Builder được **Promote** thành pattern (nó đã nằm trên kệ local
+`templates/patterns/` của bạn), Builder sẽ hỏi *"Share this pattern with the team?"*:
+
+1. Bấm **Share to team shelf** → Builder quét file (token/URL/hostname sót) + dò trùng với kệ,
+   rồi bày kết quả cho bạn xem.
+2. Đọc kết quả, bấm nút gửi — **đến đây là xong việc của bạn**. Chưa gật thì chưa có byte nào
+   rời máy; gật = đồng ý phát hành pattern theo MIT (như header đã stamp).
+3. Phần còn lại tự chạy: pattern + metadata bay về **hộp nhận của team** (drop URL trong
+   `.dify-share.json` — không cần git, không cần tài khoản GitHub, không cần cài gì thêm).
+   Admin quét hộp theo tuần (`/shelf-inbox`), duyệt rồi đưa lên kệ chung.
+
+Không muốn chia sẻ? **Keep local only** — pattern vẫn nằm nguyên trên kệ local của bạn.
+
+**Chiều nhận**: `git pull` như thường lệ — pattern của người khác (admin đã duyệt + commit) tự
+về kệ `templates/patterns/` + `INDEX.md` của bạn; build sau của Builder tự tham khảo được chúng.
+
+**Fallback cho dev**: máy chưa có `.dify-share.json` (url trống) nhưng có quyền push origin thì
+Share đi đường cũ: branch `contrib/*` + PR tự mở (spec 081). Lỗi thường gặp ở đường này: thiếu
+git identity → `git config --global user.name/email` rồi Share lại; không quyền push → xin owner.
+**Phía admin**: deploy hộp nhận một lần theo `tools/share_inbox/DEPLOY.md`.
+
 ## 10. Recipes & Walkthroughs
 
 Task-specific migration/upgrade guides. Add 1 mục mới mỗi khi gặp pattern reusable.

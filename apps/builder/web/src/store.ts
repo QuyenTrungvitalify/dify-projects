@@ -18,6 +18,9 @@ import type {
   WireTreeProject,
   WireTreeTask,
   WirePhase,
+  WireStatus,
+  WireGate,
+  WirePromoteShare,
   Seed,
   WireGateAction,
 } from './types';
@@ -37,7 +40,10 @@ export type LiveThreadItem =
    *  once the backend's `ask:done` settles (streaming stops; the "Answered" chrome renders).
    *  spec 034 §2: `seededFrom` (④/terminal Ask only) lists the sources folded into the fresh seed so a
    *  possibly-incomplete answer is visible rather than silently trusted; absent on a 033 phase Ask. */
-  | { id: string; kind: 'qa'; question: string; answer: string; done: boolean; seededFrom?: string[] };
+  | { id: string; kind: 'qa'; question: string; answer: string; done: boolean; seededFrom?: string[] }
+  /** spec 082 S3: a YAML report card — the no-LLM machine checks on a consult-attached .yml (lint /
+   *  preflight / source-contract; `note` names any tool that could not run — never silently clean). */
+  | { id: string; kind: 'card'; file: string; lint: string[]; preflight?: string; contract?: string; note?: string };
 
 /** Run-settings shown below the input (AC #14): Workflow · Confirm · Fast build (spec 036 dropped
  *  Deploy + Test — deploy/testMode are decided at the test gate from reachable creds, not start-bound). */
@@ -47,6 +53,27 @@ export interface RunSettings {
   seed: string | null; // selected seed id (degrades to none until Lát 5)
   fast: boolean; // spec 028: ⚡ Fast build (merge Analyze+Spec); backend force-offs it on seed/workflow/slug
   targetProject: string | null; // spec 030: the target PROJECT folder — the sidebar project-"+" folder, OR the parent project of a workflow-"+" edit. The build lands in projects/<targetProject>/.
+  /** spec 082 §4.5: the composer's entry mode — 'consult' (chat-first, the default per the user's call)
+   *  vs 'build' (the ①②③④ pipeline as today). Entry-only: inside a task the kind is fixed. Remembered
+   *  across reloads (localStorage) so a build-heavy user isn't re-flipping it every time. */
+  mode: 'consult' | 'build';
+}
+
+/** spec 082: the remembered composer mode (best-effort localStorage; default 'consult' — user's call). */
+const MODE_KEY = 'builder.composerMode';
+function initialMode(): RunSettings['mode'] {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'build' ? 'build' : 'consult';
+  } catch {
+    return 'consult';
+  }
+}
+export function rememberMode(mode: RunSettings['mode']): void {
+  try {
+    localStorage.setItem(MODE_KEY, mode);
+  } catch {
+    /* private mode / quota — the default just reapplies next load */
+  }
 }
 
 // ───────────────────────────── signals ─────────────────────────────
@@ -62,7 +89,94 @@ export const active = signal<WireTreeTask[]>([]);
 export const startError = signal<string | null>(null);
 /** The taskId whose turn is running, parsed from a 409 — lets the UI offer "open it" (Lát 6). */
 export const busyHolder = signal<string | null>(null);
-export const settings = signal<RunSettings>({ workflow: 'none', confirm: 'each step', seed: null, fast: false, targetProject: null });
+export const settings = signal<RunSettings>({ workflow: 'none', confirm: 'each step', seed: null, fast: false, targetProject: null, mode: initialMode() });
+/** spec 082: the consult chats for the sidebar's own section (GET /api/consults, newest first). */
+export const consults = signal<WireTreeTask[]>([]);
+/** spec 084 S1.5: the distill/promote tasks for the sidebar's own "蒸留" section (GET /api/promotes,
+ *  newest first) — ALL of them (incl. done/shared) as history; the tray only shows in-session ones. */
+export const promotes = signal<WireTreeTask[]>([]);
+
+// ───────────────────────────── spec 084: background distill tray ─────────────────────────────
+/** spec 084 (DEV): when on, new distills are dispatched as `test` — a dry-run that never auto-finalizes
+ *  (writes nothing to the shelf) and is clearable from the tray. A persisted switch in the ⚙ dev settings
+ *  ("turn it on and every distill is a test"): survives reload via localStorage. */
+const TEST_DISTILL_KEY = 'builder:testDistill';
+function initTestMode(): boolean {
+  try {
+    return localStorage.getItem(TEST_DISTILL_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+export const bgTestMode = signal<boolean>(initTestMode());
+export function setBgTestMode(on: boolean): void {
+  bgTestMode.value = on;
+  try {
+    localStorage.setItem(TEST_DISTILL_KEY, on ? '1' : '0');
+  } catch {
+    /* private mode / quota — the in-memory signal still applies for this session */
+  }
+}
+
+/** The promote-request body a queued distill retries with (mirrors api.promote's two doors). */
+export type BgDistillReq =
+  | { project: string; workflow: string; test?: boolean }
+  | { origin: 'paste'; yaml: string; sourceLabel?: string; license?: string; fileName?: string; test?: boolean };
+
+/** One background distill in the corner tray (spec 084). It never hijacks `task.value`: promote/
+ *  promoteExternalYaml push here and a POLL loop (§3 — SSE is single-stream) keeps it fresh. `status`
+ *  adds a synthetic 'queued' for the single-write-lane wait (§2): a 409 at dispatch parks the request
+ *  here and the poll retries it when the lane frees. */
+export interface BgDistill {
+  /** stable local key for rendering (survives queued→dispatched, before a taskId exists). */
+  key: string;
+  /** set once the backend minted the promote task; absent while `queued`. */
+  taskId?: string;
+  slug: string;
+  status: WireStatus | 'queued';
+  gate?: WireGate;
+  /** the distilled pattern's output path (mini-summary), from promote.target/staged. */
+  target?: string;
+  /** spec 081 share state — present once the share turn ran; `pushed` hides [Undo] (§4 S2.3). */
+  share?: WirePromoteShare;
+  sourceKind: 'local' | 'external';
+  /** the original request, replayed by the poll loop when a `queued` item's lane frees. */
+  req: BgDistillReq;
+  /** spec 084 (DEV): a test/dry-run distill — badged in the tray + wiped by clearTestDistills(). */
+  test?: boolean;
+}
+export const bgDistills = signal<BgDistill[]>([]);
+
+let _bgUid = 0;
+const bgKey = (): string => 'bg' + ++_bgUid;
+
+/** A bg distill is terminal when its promote task finished (done) or died (error/cancelled). A parked
+ *  gate (awaiting_confirm — review/collision/distill_failed/share_offer) is NON-terminal: still pollable
+ *  and actionable from the tray. */
+export function isBgTerminal(b: BgDistill): boolean {
+  return b.status === 'done' || b.status === 'error' || b.status === 'cancelled';
+}
+
+function upsertBg(key: string, patch: Partial<BgDistill>): void {
+  bgDistills.value = bgDistills.value.map((b) => (b.key === key ? { ...b, ...patch } : b));
+}
+/** Remove a tray item (the [Close] on a terminal one, or a superseded queued entry). */
+export function removeBg(key: string): void {
+  bgDistills.value = bgDistills.value.filter((b) => b.key !== key);
+}
+
+/** Fold an authoritative promote task snapshot into its tray item (never touches `task.value`). */
+function bgFieldsFromTask(t: WireTask, prevSlug: string): Partial<BgDistill> {
+  return {
+    taskId: t.taskId,
+    slug: t.promote?.slug ?? prevSlug,
+    status: t.status,
+    gate: t.gate,
+    target: t.promote?.target ?? t.promote?.staged,
+    share: t.promote?.share,
+    test: t.promote?.test, // authoritative: the backend only honors `test` under BUILDER_DEV
+  };
+}
 
 // ───────────────────────────── confirm dialog (common) ─────────────────────────────
 /** Options for the site-styled confirm dialog (replaces window.confirm()). */
@@ -227,6 +341,10 @@ export function applyTask(t: WireTask): void {
   _appliedTaskId = t.taskId;
   _appliedRev = t.rev ?? 0;
   setTaskValue(t);
+  // spec 082: a consult's thread is driven ENTIRELY by the ask machinery (user/qa/card items) — never
+  // by status transitions. Without this return, the born-`done` snapshot walks the gate branch below
+  // and pushes a phantom resolved gate card ("Test passed") into a chat that has no gates.
+  if (t.kind === 'consult') return;
   // spec 040 D4: on a real status transition (running→gate arrives via SSE with no user action; or
   // →done/cancelled), refresh the sidebar list so its hint isn't stale and a finished build leaves it.
   // Gated on the change so it fires a handful of times per build, not on every streaming rev.
@@ -449,6 +567,15 @@ export function applyAskDone(d: { ok: boolean; anomaly?: { files: AskAnomalyFile
   asking.value = false;
   const items = thread.value.slice();
   const idx = findOpenAskIdx(items);
+  // spec 082 §4.4: an armed graduate captures the finished distill answer for the App's prefill.
+  // Consumed exactly once; a failed distill (ok:false) disarms without prefilling garbage.
+  if (_graduateArmed) {
+    _graduateArmed = false;
+    if (d.ok && idx !== -1) {
+      const answer = (items[idx] as LiveThreadItem & { kind: 'qa' }).answer.trim();
+      if (answer) graduateDraft.value = answer;
+    }
+  }
   if (idx !== -1) {
     // spec 034 §2: fold `seededFrom` onto the qa item so QaAnswer can caption a ④/terminal answer with
     // the sources it was assembled from (absent → a 033 phase Ask, no caption).
@@ -608,18 +735,30 @@ function openStream(taskId: string): void {
   teardown?.();
   teardown = connectSSE(taskId, {
     // On (re)connect, re-fetch the authoritative state so a missed gate is restored (AC #22).
-    onInit: () => {
+    onInit: (d) => {
       // spec 033 FIX-H reconnect guard: a reconnect that spans an Ask's `ask:done` would DROP it (the
       // client's waitingForInit guard suppresses replayed events until init, and onAskDone honors it), so
-      // `asking` could stick true forever → the docked bar + composer stay disabled with no recovery. On
-      // every (re)connect, finalize any still-open qa item + clear `asking` (idempotent no-op on the very
-      // first connect, when nothing is open). A still-running turn's post-init live events are unaffected.
-      if (asking.value || findOpenAskIdx(thread.value) !== -1) applyAskDone({ ok: true });
+      // `asking` could stick true forever → the docked bar + composer stay disabled with no recovery.
+      // spec 082: gated on `reconnected` — startConsult legitimately arms an OPEN qa BEFORE the stream's
+      // very first init (the first turn is dispatched by POST /api/consult itself), and the unguarded
+      // finalize was closing it as an empty "Answered" + dropping the whole streamed answer. A true
+      // reconnect still finalizes (FIX-H's actual target); the first connect never spans an ask:done.
+      if (d.reconnected && (asking.value || findOpenAskIdx(thread.value) !== -1)) applyAskDone({ ok: true });
       void api.getTask(taskId).then(applyTask).catch(() => {});
     },
     onTaskUpdate: applyTask,
     onPhaseOutput: (d) => applyOutput(d.phase, d.text),
     onAskAnswer: (d) => applyAskAnswer(d.text),
+    // spec 082 S3: insert the YAML report card BEFORE the open qa item (it was emitted before the turn
+    // spawned, and should read that way — machine facts first, then the model's take).
+    onAskCard: (card) => {
+      const items = thread.value.slice();
+      const idx = findOpenAskIdx(items);
+      const item: LiveThreadItem = { id: uid(), kind: 'card', ...card };
+      if (idx === -1) items.push(item);
+      else items.splice(idx, 0, item);
+      thread.value = items;
+    },
     onAskDone: (d) => applyAskDone(d),
     onConnect: () => {
       connected.value = true;
@@ -715,6 +854,24 @@ export async function loadSeeds(): Promise<void> {
   }
 }
 
+/** spec 082: refresh the sidebar's consult list (best-effort, like loadActive). */
+export async function loadConsults(): Promise<void> {
+  try {
+    consults.value = (await api.consults()).consults;
+  } catch {
+    /* consult list is best-effort */
+  }
+}
+
+/** spec 084 S1.5: refresh the sidebar's "蒸留" section (the promote/distill task history). */
+export async function loadPromotes(): Promise<void> {
+  try {
+    promotes.value = (await api.promotes()).promotes;
+  } catch {
+    /* promote list is best-effort */
+  }
+}
+
 /** spec 030: parse the Workflow run-setting into an edit-existing target. 'none'/'' → null (from-scratch);
  *  a compound `project/workflow` → `{ project, workflow }`; a bare legacy value → workflow-only (project
  *  falls back to the sidebar target / `_drafts`). Exported for the store unit tests. */
@@ -766,23 +923,23 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
   }
 }
 
-/** spec 052 — start a "Promote to pattern" build from a resolved on-disk workflow (the header pill). Opens
- *  the promote build in the conversation view exactly like `start` (applyTask + SSE), so its B1/distill/
- *  review gates render in the thread. A 400/404 (bad source) surfaces via the shared error banner. */
-export async function promote(project: string, workflow: string): Promise<boolean> {
+/** spec 082 — start a consult chat from the composer's Trao đổi mode. Mirrors {@link start}: seeds the
+ *  thread with the user bubble + an open qa item (the first answer streams over ask:answer exactly like
+ *  an Ask), opens the task view + SSE. Runs on the backend's CHAT lane, so a running build never 409s it. */
+export async function startConsult(text: string, files?: Attachment[]): Promise<boolean> {
   clearErrors();
+  _lastPersisted = '';
   try {
-    // POST FIRST — a 400/404 (ineligible / bad source) must NOT wipe the current build's view (the pill is
-    // clicked from a done conversation view, not only the empty surface — unlike `start`). Reset + open the
-    // promote build only once the backend accepted it.
-    const t = await api.promote({ project, workflow });
-    _lastPersisted = '';
-    thread.value = [{ id: uid(), kind: 'user', text: tf('promoteThreadOpen', { project, workflow }) }];
+    const t = await api.createConsult({ text, ...(files && files.length ? { files } : {}) });
+    thread.value = [
+      { id: uid(), kind: 'user', text },
+      { id: uid(), kind: 'qa', question: text, answer: '', done: false },
+    ];
     task.value = null;
+    asking.value = true; // the first turn is already dispatched server-side — mirror ask()'s signal
     applyTask(t);
     openStream(t.taskId);
-    void loadTree();
-    void loadActive();
+    void loadConsults();
     return true;
   } catch (e) {
     surfaceError(e);
@@ -790,30 +947,272 @@ export async function promote(project: string, workflow: string): Promise<boolea
   }
 }
 
-/** spec 070 — distill an EXTERNAL (pasted/uploaded) YAML into a reusable pattern. Mirrors {@link promote}
- *  but the source exists in no project: the backend validates + stages the bytes, then runs the same
- *  B1/distill/review/Approve pipeline, stamping HONEST provenance (source=external). On success the promote
- *  build opens in the conversation view (`true`); a 400 (bad YAML / linter reject) is returned as an error
- *  shape so the modal renders it INLINE (like importBase) rather than blowing away the current view. */
+// ───────────────────────────── spec 082 · graduate (consult → build) ─────────────────────────────
+// The "Bắt đầu build" bridge: send a canned distill prompt through the NORMAL ask machinery (it shows
+// in the chat like any exchange), and when its ask:done{ok:true} lands, hand the full answer to the App
+// as `graduateDraft` — the App opens the new-task surface in build mode with the requirement prefilled.
+// Armed per-request; a failed distill (ok:false) simply disarms (no prefill of garbage — 082 §4.4).
+export const graduateDraft = signal<string | null>(null);
+let _graduateArmed = false;
+
+/** The canned distill prompt (EN instruction — the turn's langPin + the instruction itself steer the
+ *  ANSWER into the user's own language, which is what gets prefilled). */
+export const GRADUATE_PROMPT =
+  'Summarize our conversation so far into one complete, self-contained requirement for building this ' +
+  'Dify workflow. Reply with ONLY the requirement text, no preamble, in the language I have been using.';
+
+export async function graduate(): Promise<boolean> {
+  _graduateArmed = true;
+  const ok = await ask(GRADUATE_PROMPT);
+  if (!ok) _graduateArmed = false; // the POST itself failed — nothing will stream
+  return ok;
+}
+
+/** spec 084 — dispatch a distill into the BACKGROUND tray (was spec 052/070 foreground: task.value=null +
+ *  openStream, which hijacked the whole view). Mints the promote task and parks it in `bgDistills`; the
+ *  user stays on their current screen. A 409 (single write-lane busy, §2) does NOT surface as an error —
+ *  the item parks `queued` and the poll loop retries when the lane frees. `provisionalSlug` labels the
+ *  tray until the backend resolves the real slug. Returns the tray key. */
+function startBgDistill(req: BgDistillReq, sourceKind: 'local' | 'external', provisionalSlug: string): string {
+  const key = bgKey();
+  const test = req.test === true;
+  bgDistills.value = [{ key, slug: provisionalSlug, status: 'queued', sourceKind, req, ...(test ? { test: true } : {}) }, ...bgDistills.value];
+  void dispatchBgDistill(key);
+  startBgPoll();
+  return key;
+}
+
+/** POST the promote request for a `queued` tray item. Success → adopt the minted task's id/status/gate.
+ *  409 (lane busy) → stay `queued` (the poll retries). A 400 (bad external YAML) is terminal — surface it
+ *  on the item so the tray shows the reason rather than spinning forever. */
+async function dispatchBgDistill(key: string): Promise<void> {
+  const item = bgDistills.value.find((b) => b.key === key);
+  if (!item || item.taskId || item.status !== 'queued') return; // already dispatched / gone
+  try {
+    const t = await api.promote(item.req);
+    upsertBg(key, bgFieldsFromTask(t, item.slug));
+    void loadTree();
+    void loadPromotes(); // S1.5: surface the new distill in the sidebar section immediately
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 409) return; // lane busy — stay queued, poll retries
+    // 400/404/other — terminal: mark the item errored (the tray renders [Details] on it).
+    upsertBg(key, { status: 'error' });
+  }
+}
+
+/** spec 052 → 084 — distill a resolved on-disk workflow into a pattern, in the BACKGROUND tray. Returns
+ *  the tray key (never hijacks the current view). */
+export function promote(project: string, workflow: string): string {
+  return startBgDistill({ project, workflow, ...(bgTestMode.value ? { test: true } : {}) }, 'local', workflow);
+}
+
+/** spec 070 → 084 — distill an EXTERNAL (pasted/uploaded) YAML into a pattern, in the BACKGROUND tray. The
+ *  backend still validates the bytes inline: a 400 (bad YAML / linter reject) is caught at the modal BEFORE
+ *  this is called (via api.promote in the modal path), OR surfaces on the tray item. To keep the modal's
+ *  inline-error UX (spec 070), this variant awaits the FIRST POST and returns `{error}` on a 400; a 409
+ *  (lane busy) still parks `queued`. */
 export async function promoteExternalYaml(
   body: { yaml: string; sourceLabel?: string; license?: string; fileName?: string }
 ): Promise<true | { error: string }> {
-  clearErrors();
+  const label = body.sourceLabel || body.fileName || 'external YAML';
+  const test = bgTestMode.value;
+  const req: BgDistillReq = { origin: 'paste', ...body, ...(test ? { test: true } : {}) };
+  const key = bgKey();
+  bgDistills.value = [{ key, slug: label, status: 'queued', sourceKind: 'external', req, ...(test ? { test: true } : {}) }, ...bgDistills.value];
+  startBgPoll();
   try {
-    const t = await api.promote({ origin: 'paste', ...body });
-    _lastPersisted = '';
-    thread.value = [{ id: uid(), kind: 'user', text: tf('promoteExternalThreadOpen', { label: body.sourceLabel || body.fileName || 'external YAML' }) }];
-    task.value = null;
-    applyTask(t);
-    openStream(t.taskId);
+    const t = await api.promote(req);
+    upsertBg(key, bgFieldsFromTask(t, label));
     void loadTree();
-    void loadActive();
     return true;
   } catch (e) {
+    if (e instanceof ApiError && e.status === 409) return true; // lane busy — parked queued, poll retries
+    // 400 (bad YAML) is terminal — drop the tray item and hand the message to the modal for inline display.
+    removeBg(key);
     if (e instanceof ApiError && e.status === 400) return { error: e.message };
     surfaceError(e);
     return { error: e instanceof ApiError ? e.message : String(e) };
   }
+}
+
+// ── bg poll loop (§4 S1.2 — POLL, not a 2nd SSE stream) ───────────────────────────────────────────
+let _bgPollTimer: ReturnType<typeof setInterval> | null = null;
+export const BG_POLL_MS = 2000;
+
+/** One poll tick (exported for the unit test): refresh each active bg task, and re-dispatch AT MOST ONE
+ *  queued item (a burst of POSTs would all 409 but one). Terminal items are skipped. */
+export async function pollBgTick(): Promise<void> {
+  const items = bgDistills.value;
+  let dispatchedQueued = false;
+  await Promise.all(
+    items.map(async (b) => {
+      if (isBgTerminal(b)) return;
+      if (b.status === 'queued' || !b.taskId) {
+        if (dispatchedQueued) return; // one retry per tick
+        dispatchedQueued = true;
+        await dispatchBgDistill(b.key);
+        return;
+      }
+      try {
+        const t = await api.getTask(b.taskId);
+        upsertBg(b.key, bgFieldsFromTask(t, b.slug));
+      } catch {
+        /* transient GET failure — next tick retries */
+      }
+    }),
+  );
+  // spec 084 S1.5: keep the sidebar "蒸留" history in sync with the live distill lifecycle (a small GET;
+  // the poll only runs while a distill is active, so this is at most every ~2s during one).
+  void loadPromotes();
+  // Stop the interval once nothing is left to watch (all terminal / tray emptied).
+  if (!bgDistills.value.some((b) => !isBgTerminal(b))) stopBgPoll();
+}
+
+export function startBgPoll(): void {
+  if (_bgPollTimer !== null) return;
+  _bgPollTimer = setInterval(() => void pollBgTick(), BG_POLL_MS);
+}
+export function stopBgPoll(): void {
+  if (_bgPollTimer !== null) {
+    clearInterval(_bgPollTimer);
+    _bgPollTimer = null;
+  }
+}
+
+/** spec 084 §7 Q2 — rebuild the tray on load from the NON-TERMINAL promote tasks (parked at review /
+ *  collision / distill_failed / share). `/api/active` carries no `kind`, so GET each and keep the promote
+ *  ones that are still in-flight — a reload never strands a parked distill. Terminal (done/auto-approved)
+ *  tasks are intentionally NOT restored: [Undo] is "instant regret", session-scoped, not a permanent bin.
+ *  Best-effort + idempotent (skips ids already in the tray). */
+export async function restoreBgDistills(): Promise<void> {
+  try {
+    const { active } = await api.active();
+    const known = new Set(bgDistills.value.map((b) => b.taskId).filter(Boolean));
+    const restored: BgDistill[] = [];
+    for (const a of active) {
+      if (known.has(a.id)) continue;
+      let t: WireTask;
+      try {
+        t = await api.getTask(a.id);
+      } catch {
+        continue;
+      }
+      if (t.kind !== 'promote') continue;
+      if (t.status === 'done' || t.status === 'error' || t.status === 'cancelled') continue;
+      const external = t.promote?.project === '(external)';
+      restored.push({
+        key: bgKey(),
+        taskId: t.taskId,
+        slug: t.promote?.slug ?? t.workflowSlug ?? 'pattern',
+        status: t.status,
+        gate: t.gate,
+        target: t.promote?.target ?? t.promote?.staged,
+        share: t.promote?.share,
+        sourceKind: external ? 'external' : 'local',
+        ...(t.promote?.test ? { test: true } : {}),
+        // `req` only feeds the queued-retry path; a restored item already has a taskId, so it never dispatches.
+        req: external
+          ? { origin: 'paste', yaml: '' }
+          : { project: t.promote?.project ?? '', workflow: t.promote?.workflow ?? '' },
+      });
+    }
+    if (restored.length) {
+      bgDistills.value = [...restored, ...bgDistills.value];
+      startBgPoll();
+    }
+  } catch {
+    /* best-effort — a failed restore just means no tray until the next distill */
+  }
+}
+
+// ── tray gate actions (§2 — act on the BACKGROUND task, never `task.value`) ────────────────────────
+/** Confirm a gate action on a background distill (Approve / Overwrite / Save-as-new / Share / Keep local).
+ *  Unlike {@link confirm} this targets a specific taskId and does NOT optimisticAdvance `task.value`; the
+ *  poll loop folds the resulting next-gate back into the tray item. */
+export async function confirmBg(key: string, actionId: string): Promise<void> {
+  const item = bgDistills.value.find((b) => b.key === key);
+  if (!item?.taskId) return;
+  try {
+    const t = await api.confirm(item.taskId, actionId);
+    upsertBg(key, bgFieldsFromTask(t, item.slug));
+    if (task.value?.taskId === item.taskId) applyTask(t); // keep an open-in-foreground copy in sync
+    void loadTree();
+  } catch (e) {
+    surfaceError(e);
+  }
+}
+
+/** [Resend] on a distill_failed tray item — re-run the distill turn with NO note (a note-less reply). */
+export async function resendBg(key: string): Promise<void> {
+  const item = bgDistills.value.find((b) => b.key === key);
+  if (!item?.taskId) return;
+  try {
+    const t = await api.reply(item.taskId, ''); // empty note → clean re-run (promoteReply → runDistillTurn)
+    upsertBg(key, bgFieldsFromTask(t, item.slug));
+    if (task.value?.taskId === item.taskId) applyTask(t);
+  } catch (e) {
+    surfaceError(e);
+  }
+}
+
+/** [Close] on a tray item. Terminal → just drop it (the shelf file is untouched). Non-terminal → cancel
+ *  the promote task first (kills a running turn / discards a parked gate), then drop it. A queued item
+ *  (no taskId yet) is dropped locally. The confirm dialog for the non-terminal case is the caller's. */
+export async function closeBg(key: string): Promise<void> {
+  const item = bgDistills.value.find((b) => b.key === key);
+  if (!item) return;
+  if (item.taskId && !isBgTerminal(item)) {
+    try {
+      await api.cancel(item.taskId);
+      if (task.value?.taskId === item.taskId) applyTask(await api.getTask(item.taskId));
+    } catch (e) {
+      surfaceError(e);
+    }
+    void loadTree();
+    void loadActive();
+    void loadPromotes(); // S1.5: a cancelled distill drops out of the sidebar section
+  }
+  removeBg(key);
+}
+
+/** [Xem report] / [Chi tiết] — open the background distill in the FOREGROUND conversation view (the only
+ *  place it hijacks `task.value`, on explicit user request). Leaves the tray item in place. */
+export async function openBg(key: string): Promise<void> {
+  const item = bgDistills.value.find((b) => b.key === key);
+  if (item?.taskId) await openTask(item.taskId);
+}
+
+/** spec 084 (DEV) — wipe every TEST distill from the tray: undo any that finalized (unlink + rebuild
+ *  index; no-op if dry-run never wrote), cancel any still in-flight, then drop the item. Reuses the
+ *  existing undo/cancel routes — no new endpoint. Only ever called from the dev-gated tray control. */
+export async function clearTestDistills(): Promise<void> {
+  const tests = bgDistills.value.filter((b) => b.test);
+  for (const b of tests) {
+    if (b.taskId) {
+      if (b.status === 'done') await api.undoPromote(b.taskId).catch(() => {}); // unlink if it was approved
+      else if (!isBgTerminal(b)) await api.cancel(b.taskId).catch(() => {}); // kill a running / parked one
+    }
+    removeBg(b.key);
+  }
+  if (tests.length) {
+    void loadTree();
+    void loadActive();
+    void loadPromotes(); // S1.5: cleared test distills drop out of the sidebar section
+  }
+}
+
+/** spec 084 S2 — [Undo] on a promoted tray item: unlink the shelf file + rebuild index (no git), then
+ *  drop the item. Only offered pre-Share (a pushed pattern can't be recalled from Drive/PR — §4 S2.3). */
+export async function undoBg(key: string): Promise<void> {
+  const item = bgDistills.value.find((b) => b.key === key);
+  if (!item?.taskId) return;
+  try {
+    await api.undoPromote(item.taskId);
+    void loadTree();
+  } catch (e) {
+    surfaceError(e);
+  }
+  removeBg(key);
 }
 
 /** Confirm a gate action (kind:'confirm'). Slug/name carried at the Spec gate (AC #18); spec 036
@@ -962,6 +1361,58 @@ export async function liveTest(): Promise<void> {
   }
 }
 
+/** spec 084 follow-up — PERMANENTLY delete a task record (its .runs/<id> dir), the sidebar row-× on the
+ *  Chat / Distill / Build / Project lists ("user muốn tự control"). Refreshes every list; if it was the
+ *  open task, resets to the empty surface; if it was a tray distill, drops it there too. A 409 (turn
+ *  running) / other error surfaces via the shared banner — the caller confirms before calling this. */
+export async function removeTask(taskId: string): Promise<void> {
+  try {
+    await api.deleteTask(taskId);
+  } catch (e) {
+    surfaceError(e);
+    return;
+  }
+  const bg = bgDistills.value.find((b) => b.taskId === taskId);
+  if (bg) removeBg(bg.key);
+  if (task.value?.taskId === taskId) resetToNew();
+  void loadTree();
+  void loadActive();
+  void loadConsults();
+  void loadPromotes();
+}
+
+/** spec 084 follow-up — PERMANENTLY delete a whole project (folder + all its build records). The sidebar
+ *  ProjectRow ×. Refreshes the tree; if the open task belonged to this project, resets to the empty
+ *  surface. A 400 (_drafts) / 409 (turn running) surfaces via the shared banner — caller confirms first. */
+export async function removeProject(project: string): Promise<void> {
+  try {
+    await api.deleteProject(project);
+  } catch (e) {
+    surfaceError(e);
+    return;
+  }
+  if (task.value && task.value.project === project) resetToNew();
+  void loadTree();
+  void loadActive();
+  void loadPromotes(); // a promoted build from this project drops out of the 蒸留 section too
+}
+
+/** spec 084 follow-up — PERMANENTLY delete ONE workflow (folder + its build records). The Build/`_drafts`
+ *  rows are workflows, so this is the "delete a junk build" door. Refreshes the tree; if the open task
+ *  belonged to this workflow, resets. A 409 (turn running) surfaces via the shared banner. */
+export async function removeWorkflow(project: string, workflow: string): Promise<void> {
+  try {
+    await api.deleteWorkflow(project, workflow);
+  } catch (e) {
+    surfaceError(e);
+    return;
+  }
+  if (task.value && task.value.project === project && task.value.workflowSlug === workflow) resetToNew();
+  void loadTree();
+  void loadActive();
+  void loadPromotes();
+}
+
 /** F1: cancel a build by id WITHOUT it being the open task (the sidebar hover-×). The open task's
  *  `cancel()` only touches `task.value`; this dismisses a parked/running build from the in-progress
  *  list directly. If it happens to be the open build, mirror the terminal state into the thread too. */
@@ -1042,6 +1493,28 @@ export async function revealWorkflow(taskId: string): Promise<void> {
 
 /** Open an existing task from the sidebar: load state + stream it (history isn't persisted, so the
  *  thread starts from the requirement + current gate/run). */
+/** spec 082 (rev) — rebuild a consult chat thread from the backend transcript (`t.chat`): each user
+ *  line → a user bubble, each assistant line → a finalized qa answer. This is AUTHORITATIVE for a
+ *  consult (survives a cleared cache / another browser), replacing the localStorage restore for chats. */
+function consultThreadFromChat(chat: { role: 'user' | 'assistant'; text: string }[]): LiveThreadItem[] {
+  return chat.map((m) =>
+    m.role === 'user'
+      ? { id: uid(), kind: 'user' as const, text: m.text }
+      : { id: uid(), kind: 'qa' as const, question: '', answer: m.text, done: true }
+  );
+}
+
+/** spec 084 — rebuild a promote task's thread from the persisted distill log when there's no client-side
+ *  history (a bg distill opened AFTER it finished): the user bubble + the distill turn's output disclosure.
+ *  applyTask then appends the current/terminal gate card below it, so opening reads "report + what the
+ *  distill did" rather than just the terminal card. */
+function promoteThreadFromLog(t: WireTask): LiveThreadItem[] {
+  return [
+    { id: uid(), kind: 'user', text: t.requirement },
+    { id: uid(), kind: 'run', phase: 'test', running: false, output: t.promote!.distillLog! },
+  ];
+}
+
 export async function openTask(taskId: string): Promise<void> {
   clearErrors();
   // spec 033 FIX-I: a live Ask belongs to the PREVIOUS task's stream — switching tasks must not leave
@@ -1050,11 +1523,18 @@ export async function openTask(taskId: string): Promise<void> {
   _lastPersisted = ''; // task switch — force a re-persist for the newly-opened build (dedupe reset)
   try {
     const t = await api.getTask(taskId);
-    // Restore the client-side conversation (Q&A + resolved history) if we persisted it across a reload
-    // (D6-safe — client-only). hydrateForReopen already dropped any stale unresolved gate, so the ONE
-    // live gate comes fresh + authoritative from applyTask below — no phantom buttons for a phase the
-    // build advanced past while the tab was closed.
-    const restored = loadPersistedThread(taskId);
+    // spec 082 (rev): a consult restores from the BACKEND transcript (authoritative — survives a cleared
+    // cache / another machine); fall back to the localStorage thread, then the bare requirement bubble.
+    // A build restores the client-side conversation from localStorage (D6-safe — client-only);
+    // hydrateForReopen drops any stale unresolved gate so the ONE live gate comes fresh from applyTask.
+    // spec 084: a promote task opened AFTER a background distill has no localStorage thread — synthesize
+    // one from the persisted distill log (user bubble + the turn's output disclosure) so the reasoning is
+    // replayed, not just the terminal card. A foreground/already-opened promote keeps its persisted thread.
+    const restored =
+      t.kind === 'consult' && t.chat && t.chat.length
+        ? consultThreadFromChat(t.chat)
+        : loadPersistedThread(taskId) ??
+          (t.kind === 'promote' && t.promote?.distillLog ? promoteThreadFromLog(t) : null);
     thread.value = restored ?? [{ id: uid(), kind: 'user', text: t.requirement }];
     task.value = null;
     applyTask(t);

@@ -5,7 +5,8 @@ Cái kệ mẫu có những tầng nào, cái gì tìm ra chúng, và một th�
 Phạm vi: `templates/patterns/` · `templates/library/` · `templates/_base/` · `templates/probes/` ·
 `promote.ts` · `promote_gate.py` · `provenance.py` · `check_provenance.py` · `build_index.py` ·
 `sources.py` · `sources_admin.py` · `find.py` · `enrich.py` · `catalog.py` · `promote-hint.ts` ·
-`corpus/sources.yml` · `INDEX.md` · `tools/dify_base/index.json` · `tools/dify_base/enrichment.json` ·
+`shelf-stats.ts` · `web/src/lib/shelf.ts` · `corpus/sources.yml` · `INDEX.md` ·
+`tools/dify_base/index.json` · `tools/dify_base/enrichment.json` ·
 `tools/dify_base/collected.json` · `THIRD_PARTY.md`.
 
 > **Tầng enrichment (spec 076 E1).** `enrich.py` quản lý `enrichment.json` — metadata tiếng Anh do LLM
@@ -27,6 +28,15 @@ Phạm vi: `templates/patterns/` · `templates/library/` · `templates/_base/` �
 > **dev-only** `report.promote_hint`/`task.promoteHint` (DevPanel render dưới `devMode`) — không
 > bao giờ vào `notes` (userview có regression lock trong `e2e_check.py`). Nudge chỉ *trỏ* nút
 > Promote sẵn có, không thêm đường ghi kệ.
+
+> **Shelf dashboard (spec 080).** `catalog.py stats --json` = MỘT JSON toàn cảnh kệ (tier/feature/
+> complexity/tags từ index.json · diversity/hunts từ collected.json — chỉ entry trên-kệ · enrichment
+> qua `enrich.check_data()` · doctor curated live-parse + house-từ-collected · timeline promote đọc
+> `x-provenance` trên **cả** `patterns/` lẫn `library/` — `finalizePromotion` stamp patterns ·
+> sources + lock). Read-only tuyệt đối. Đường lên màn hình: `GET /api/dev/shelf`
+> (`shelf-stats.ts` passthrough, mount sau `BUILDER_DEV=1`) → overlay `ShelfOverlay` (nút 📊 cạnh
+> RebuildButton, `devMode`); derivation thuần cho render ở `web/src/lib/shelf.ts`. Số đo xem bằng
+> cách MỞ màn hình/chạy CLI — không chép vào doc.
 
 Nằm cạnh nhưng **không** thuộc doc này — chỉ trỏ sang:
 
@@ -442,3 +452,45 @@ TÊN** mọi YAML parse-fail thay vì đếm ẩn danh (S4); YAML hợp lệ nh�
   chỉ được chứng minh tới mức **luồng** (staging run-dir-root, relocate ghi-shorthand, finalize stamp
   `source=external`) — không phải một bản distill do model thật sinh từ một YAML dán. Cùng ranh giới với
   gạch đầu dòng "chất lượng bản distill là hành vi model" ở trên.
+
+## 9. Nhận contribution pattern từ user bản-sạch (spec 081)
+
+Máy contributor (Builder, sau promote) đẩy **một branch `contrib/<slug>-<yyyymmdd>`** lên origin
+chứa đúng 2 path: `templates/patterns/<slug>.yml` + `INDEX.md`. Toàn bộ luồng phía Builder sống ở
+`apps/builder/server/lib/share.ts` (Phạm vi: offer/preflight/push — commit dựng trong `git
+worktree` vứt-đi nên checkout của user không bao giờ bị đụng; guard: `share.test.ts` gồm cả test
+git thật). Hub tự mở PR
+(`.github/workflows/contrib-pr.yml` — title/body lấy nguyên văn từ commit; body do Builder soạn:
+verdict gate, kết quả share-scan, near-dup, checklist). CI chạy trên chính cú push
+(`ci.yml` push-trigger `contrib/**` — PR mở bằng `GITHUB_TOKEN` không kích `pull_request`).
+Phía gửi có 2 lớp chắn trước khi byte rời máy: preflight (`promote_gate.py share-scan` +
+`catalog.py check --shelf`) và cái gật của chính contributor; provenance `external` không
+permissive-license bị chặn từ đầu (không có nút Share).
+
+**Checklist review một PR `contrib/*`** (trùng với checklist in sẵn trong body PR):
+
+- [ ] Header `x-provenance` hợp lệ — `source=original`, hoặc `external` + license permissive.
+- [ ] Placeholder sạch: không URL nội bộ / token / hostname sót (share-scan là advisory,
+      mắt người là gate thật).
+- [ ] Không near-dup với pattern đã có trên kệ (verdict trong body PR; nghi ngờ thì
+      `catalog.py check <file> --shelf` lại).
+- [ ] Số pattern nhắc trong **README + AGENTS.md + docs/architecture.md** đã bump —
+      `test_docs_drift` pin số chính xác, thiếu là CI đỏ (đúng khuôn checklist PR sync-corpus).
+- [ ] `INDEX.md` conflict với contribution song song → regenerate (`build_index.py`) rồi commit,
+      đừng merge tay.
+
+Merge xong: mọi bản sạch nhận qua `git pull` thường (pattern + INDEX đều tracked trong sparse
+view 074); branch `contrib/*` dọn bằng GitHub "Automatically delete head branches".
+
+**Transport v2 (spec 083) — drop-URL là đường chính, branch+PR ở trên lùi làm fallback.**
+Branch+PR đòi push-right + git identity + GitHub account — không phục vụ được user không-dev.
+Đường chính mới: `.dify-share.json` (repo root, khuôn `.dify-tag`) chứa URL một Apps Script Web
+App do admin deploy một lần (`tools/share_inbox/` — `Code.gs` + `DEPLOY.md`); Builder POST
+`{yaml, meta}` lên đó (`share.ts` — `loadShareConfig`/`postContribution`; config có url → thắng,
+không có → probe origin như cũ; hỏng → degrade về git, không bao giờ vỡ promote). Receiver ghi
+vào Drive của admin theo `inbox/YYYY-MM/` (timezone Asia/Tokyo). Admin quét bằng skill
+`/shelf-inbox` (env `SHELF_INBOX_DIR` = bản sync local, chỉ máy admin cần Drive for Desktop):
+vet lại bằng đúng 3 gate (promote_gate check / share-scan / catalog check --shelf), approve →
+land + bump 3 docs + commit; mọi quyết định ghi `catalog.py record`; xử lý xong move sang
+`processed/YYYY-MM/`. Hai cổng người của 081 giữ nguyên — transport đổi, gate không đổi.
+Checklist review ở trên áp dụng nguyên vẹn cho một item inbox (thay "body PR" bằng `.meta.json`).

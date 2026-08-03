@@ -1,0 +1,6 @@
+{
+  "_setup": "Spec 083 — team share drop URL. Admin: deploy tools/share_inbox/ (see DEPLOY.md), then fill url+secret and commit. Empty url = the Builder's Share falls back to the git/PR path (spec 081).",
+  "url": "",
+  "secret": "",
+  "maxKb": 512
+}

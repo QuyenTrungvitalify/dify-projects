@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import Fastify from 'fastify';
 import tasksRoutes, { type TasksRoutesOptions } from '../server/routes/tasks.js';
 import type { ShellResult } from '../server/lib/shell.js';
-import { releaseTurn, turnHolderId } from '../server/lib/lock.js';
+import { releaseTurn, buildHolderId } from '../server/lib/lock.js';
 
 describe('POST /api/promote — external (pasted YAML) door (spec 070)', () => {
   let dir: string;
@@ -50,7 +50,7 @@ describe('POST /api/promote — external (pasted YAML) door (spec 070)', () => {
 
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'promote-ext-')); failLinter = null; });
   afterEach(async () => {
-    if (turnHolderId()) releaseTurn(turnHolderId()!); // never leak the single global turn slot
+    if (buildHolderId()) releaseTurn(buildHolderId()!); // never leak the single global turn slot
     await rm(dir, { recursive: true, force: true });
   });
 

@@ -14,8 +14,8 @@ import { join } from 'node:path';
 import {
   acquireTurn,
   releaseTurn,
-  turnBusy,
-  turnHolderId,
+  buildTurnBusy,
+  buildHolderId,
   liveKind,
   markCancelled,
   isCancelled,
@@ -30,17 +30,17 @@ const log = { info() {}, warn() {}, error() {}, debug() {} } as unknown as Sessi
 describe('acquire / release single-holder invariant', () => {
   test('only one turn holds the slot; a 2nd acquire fails until release', () => {
     assert.equal(acquireTurn('A'), true);
-    assert.equal(turnBusy(), true);
-    assert.equal(turnHolderId(), 'A');
+    assert.equal(buildTurnBusy(), true);
+    assert.equal(buildHolderId(), 'A');
     assert.equal(acquireTurn('B'), false); // busy → loser 409s
 
     releaseTurn('B'); // release-iff-matches: B is not the holder → no-op
-    assert.equal(turnBusy(), true);
-    assert.equal(turnHolderId(), 'A');
+    assert.equal(buildTurnBusy(), true);
+    assert.equal(buildHolderId(), 'A');
 
     releaseTurn('A');
-    assert.equal(turnBusy(), false);
-    assert.equal(turnHolderId(), null);
+    assert.equal(buildTurnBusy(), false);
+    assert.equal(buildHolderId(), null);
 
     assert.equal(acquireTurn('B'), true); // free now
     releaseTurn('B');

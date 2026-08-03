@@ -21,15 +21,22 @@ D2a — `candidate` subcommand: append a mechanical-rule note to docs/linter-can
 deduped on the exact rule statement (the D2b match-key discipline), so two promotions that
 surface the same lesson merge instead of duplicating.
 
+Spec 081 — `share-scan` subcommand: an ADVISORY leak scan run only when a pattern is about to
+LEAVE the machine (the Builder's share turn). It is deliberately not a lint_refs rule: URLs and
+tokens in a local build are legitimate — they only become a leak at publish time, so a lint rule
+would nag every normal build. Always exits 0; the contributor decides at the confirm gate.
+
 Usage:
   python3 tools/dify_base/promote_gate.py check <source.yml> [--distilled <out.yml>] [--json] [--skip-probe]
   python3 tools/dify_base/promote_gate.py candidate --rule "<statement>" --citation "<vendor/dify-src path>"
+  python3 tools/dify_base/promote_gate.py share-scan <pattern.yml> [--json]
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -157,6 +164,69 @@ def gate(source: Path, distilled: Path | None = None, run=run_cmd, skip_probe: b
     }
 
 
+# ── Spec 081 — share-scan (advisory, publish-time only) ─────────────────────────────────────────
+# Three finding classes; generic long-hex is deliberately NOT one of them (plugin-dependency
+# hashes and orig_sha256 in the provenance header are legitimate 64-hex strings — credential-
+# shaped patterns below carry the signal without that noise).
+
+_CREDENTIAL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("bearer token", re.compile(r"(?i)\bbearer\s+[a-z0-9._\-]{16,}")),
+    ("credential assignment",
+     re.compile(r"(?i)\b(?:api[_-]?key|apikey|access[_-]?token|auth[_-]?token|secret|passwd|password)\b"
+                r"[\"']?\s*[:=]\s*[\"']?(?P<val>[A-Za-z0-9._\-]{8,})")),
+    ("provider key",
+     re.compile(r"\b(?:sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,})\b")),
+)
+# Values that read as deliberate placeholders are not findings (the distill turn writes these).
+_PLACEHOLDER_VALUE = re.compile(r"(?i)your|placeholder|example|changeme|xxx|todo|dummy")
+_URL_RE = re.compile(r"https?://[^\s\"'`<>)\]}]+")
+# Hosts a distilled pattern may legitimately reference on a shared shelf.
+_URL_ALLOW = re.compile(r"(?i)^https?://(?:[a-z0-9-]+\.)*(?:example\.(?:com|org|net)|marketplace\.dify\.ai|github\.com)(?:[/:?#]|$)")
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_INTERNAL_HOST_RE = re.compile(
+    r"(?i)\b(?:[a-z0-9-]+\.)+(?:internal|local|corp|lan|intra)\b"
+    r"|\b(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\b")
+
+
+def share_scan_text(text: str) -> list[dict]:
+    """Findings for content about to be published: [{kind, line, excerpt}] (empty = clean).
+
+    A line carrying a Dify variable (`{{…}}`) or a `TODO` marker is placeholder context — its
+    URLs/identities are the customization points the distill turn deliberately left, not leaks.
+    Credential-shaped matches are still reported even there (a real key next to a TODO is a leak).
+    """
+    findings: list[dict] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        placeholder_context = "{{" in line or "TODO" in line.upper()
+
+        def add(kind: str) -> None:
+            findings.append({"kind": kind, "line": lineno, "excerpt": line.strip()[:160]})
+
+        for label, pat in _CREDENTIAL_PATTERNS:
+            m = pat.search(line)
+            if m:
+                val = m.groupdict().get("val") or ""
+                if val and _PLACEHOLDER_VALUE.search(val):
+                    continue
+                add(label)
+        if not placeholder_context:
+            for m in _URL_RE.finditer(line):
+                if not _URL_ALLOW.match(m.group(0)):
+                    add("non-placeholder url")
+            for m in _EMAIL_RE.finditer(line):
+                if not re.search(r"(?i)@(?:[a-z0-9-]+\.)*example\.(?:com|org|net)$", m.group(0)):
+                    add("email address")
+            if _INTERNAL_HOST_RE.search(line):
+                add("internal host/ip")
+    return findings
+
+
+def share_scan(path: Path) -> dict:
+    """The share-scan verdict for one file. Advisory — callers must not turn this into a block."""
+    findings = share_scan_text(path.read_text(encoding="utf-8"))
+    return {"file": str(path), "findings": findings, "clean": not findings}
+
+
 def add_candidate(rule: str, citation: str, log_path: Path = CANDIDATES_MD) -> bool:
     """D2a — append a linter-rule candidate, deduped on the exact rule statement. True = added."""
     rule = rule.strip()
@@ -181,12 +251,27 @@ def main(argv=None) -> int:
     cand = sub.add_parser("candidate", help="D2a linter-rule candidate note (deduped)")
     cand.add_argument("--rule", required=True)
     cand.add_argument("--citation", required=True)
+    scan = sub.add_parser("share-scan", help="spec 081 advisory leak scan before a pattern is shared")
+    scan.add_argument("file")
+    scan.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
 
     if args.cmd == "candidate":
         added = add_candidate(args.rule, args.citation)
         print("added" if added else "deduped (rule statement already recorded)")
         return 0
+
+    if args.cmd == "share-scan":
+        result = share_scan(Path(args.file))
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        elif result["clean"]:
+            print("✓ share-scan clean — nothing credential- or instance-shaped found")
+        else:
+            print(f"⚠ share-scan: {len(result['findings'])} finding(s) — review before sharing (advisory)")
+            for f in result["findings"]:
+                print(f"  L{f['line']} [{f['kind']}] {f['excerpt']}")
+        return 0  # advisory by contract — never a blocking exit
 
     verdict = gate(Path(args.source), Path(args.distilled) if args.distilled else None,
                    skip_probe=args.skip_probe)

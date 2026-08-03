@@ -41,6 +41,10 @@ export interface SSEHandlers {
    *  spec 034 §2: a ④/terminal fresh-seeded Ask also carries `seededFrom` (which of
    *  requirement/SPEC.md/main.yml/report.json/liveTest were folded in) — absent on a 033 phase Ask. */
   onAskDone: (data: { ok: boolean; anomaly?: { files: AskAnomalyFile[] }; seededFrom?: string[] }) => void;
+  /** spec 082 S3: a YAML report card (machine checks on a consult-attached .yml) — emitted BEFORE the
+   *  first turn spawns, so it renders while the model is still thinking. Optional: pre-082 servers
+   *  never send it. */
+  onAskCard?: (data: { file: string; lint: string[]; preflight?: string; contract?: string; note?: string }) => void;
   onConnect?: () => void;
   onDisconnect?: () => void;
 }
@@ -102,6 +106,11 @@ export function connectSSE(taskId: string, handlers: SSEHandlers): () => void {
     eventSource.addEventListener('ask:done', (e: MessageEvent) => {
       if (waitingForInit) return;
       handlers.onAskDone(JSON.parse(e.data));
+    });
+
+    eventSource.addEventListener('ask:card', (e: MessageEvent) => {
+      if (waitingForInit) return;
+      handlers.onAskCard?.(JSON.parse(e.data));
     });
   }
 

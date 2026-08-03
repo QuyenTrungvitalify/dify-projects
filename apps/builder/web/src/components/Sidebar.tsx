@@ -9,9 +9,12 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import type { JSX } from 'preact';
 import { I } from './Icon';
 import { t as tr, tf } from '../lib/i18n';
-import { askConfirm } from '../store';
+import { askConfirm, removeTask, removeProject, removeWorkflow } from '../store';
 import { devMode } from '../lib/dev';
+import { sidebarPageSize, pageList } from '../lib/sidebar-prefs';
 import { RebuildButton } from './RebuildButton';
+import { ShelfButton } from './ShelfOverlay';
+import { SettingsButton } from './SettingsModal';
 import type { WireTreeProject, WireTreeWorkflow, WireTreeTask, NewTaskOpts } from '../types';
 
 export function Twist({ open, onClick }: { open: boolean; onClick?: JSX.MouseEventHandler<HTMLSpanElement> }) {
@@ -20,6 +23,51 @@ export function Twist({ open, onClick }: { open: boolean; onClick?: JSX.MouseEve
       <I.chevron />
     </span>
   );
+}
+
+/** spec 084 follow-up — the hover "remove" × on a history row (Chat / Distill / Build / Project). Confirms
+ *  (destructive: permanently deletes the task record), then `removeTask`. Stops propagation so it never
+ *  opens the row. Placed inside a `.row-actions` span (hover-revealed, like the edit affordance). */
+function RemoveButton({ taskId, name }: { taskId: string; name: string }) {
+  const onClick = async (e: JSX.TargetedMouseEvent<HTMLButtonElement>): Promise<void> => {
+    e.stopPropagation();
+    const ok = await askConfirm({
+      title: tr('removeTaskTitle'),
+      message: tf('removeTaskMsg', { name }),
+      okLabel: tr('removeTaskOk'),
+      danger: true,
+    });
+    if (ok) void removeTask(taskId);
+  };
+  return (
+    <button className="icon-btn" title={tr('removeTask')} aria-label={tr('removeTask')} onClick={(e) => void onClick(e)}>
+      <I.close />
+    </button>
+  );
+}
+
+/** spec 084 follow-up — the WorkflowRow × : confirm (names the workflow + build count), then permanently
+ *  delete this workflow. Works in `_drafts` (clear a junk build) and in named projects alike. */
+async function confirmRemoveWorkflow(projectId: string, wf: WireTreeWorkflow): Promise<void> {
+  const ok = await askConfirm({
+    title: tr('removeWorkflowTitle'),
+    message: tf('removeWorkflowMsg', { name: wf.name, n: wf.tasks.length }),
+    okLabel: tr('removeWorkflowOk'),
+    danger: true,
+  });
+  if (ok) void removeWorkflow(projectId, wf.id);
+}
+
+/** spec 084 follow-up — the ProjectRow × : a STRONG confirm (names the project + workflow count + that it's
+ *  irreversible), then permanently deletes the whole project. Named projects only (never `_drafts`). */
+async function confirmRemoveProject(project: WireTreeProject): Promise<void> {
+  const ok = await askConfirm({
+    title: tr('removeProjectTitle'),
+    message: tf('removeProjectMsg', { name: project.name, n: project.workflows.length }),
+    okLabel: tr('removeProjectOk'),
+    danger: true,
+  });
+  if (ok) void removeProject(project.id);
 }
 
 function TaskRow({ task, activeTask, onOpen, projectId, workflowSlug, onNewTask }: {
@@ -39,6 +87,7 @@ function TaskRow({ task, activeTask, onOpen, projectId, workflowSlug, onNewTask 
           Surfaced here too so it's reachable from any task row (esp. in _drafts). */}
       <span className="row-actions" onClick={(e) => e.stopPropagation()}>
         <button className="icon-btn" title={tr('editThisWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: workflowSlug } })}><I.message /></button>
+        <RemoveButton taskId={task.id} name={task.name} />
       </span>
     </div>
   );
@@ -74,6 +123,10 @@ function WorkflowRow({ wf, projectId, activeTask, active, defaultOpen, onOpen, o
               {project, workflow} key (the same workflow name can exist in multiple projects). Distinct
               glyph (I.message, a "new build/chat on this workflow") vs the project "+" (I.plus). */}
           <button className="icon-btn" title={tr('newTaskInWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: wf.id } })}><I.message /></button>
+          {/* spec 084 follow-up — permanently delete this workflow (folder + its builds). The Build/`_drafts`
+              rows are workflows, so this is the "delete a junk build" ×. */}
+          <button className="icon-btn" title={tr('removeWorkflow')} aria-label={tr('removeWorkflow')}
+            onClick={() => void confirmRemoveWorkflow(projectId, wf)}><I.close /></button>
         </span>
       </div>
       {open && (
@@ -121,6 +174,12 @@ function ProjectRow({ project, activeTask, activeProject, activeWorkflow, defaul
             the folder). The reserved `_drafts` project is not a real target → degrade to a plain new task. */}
         <span className="row-actions" onClick={(e) => e.stopPropagation()}>
           <button className="icon-btn" title={tr('newTask')} onClick={() => onNewTask(isDrafts ? undefined : { targetProject: project.id })}><I.plus /></button>
+          {/* spec 084 follow-up — permanently delete this whole project (folder + all builds). Named
+              projects only; the reserved `_drafts` scratch home is never deletable. */}
+          {!isDrafts && (
+            <button className="icon-btn" title={tr('removeProject')} aria-label={tr('removeProject')}
+              onClick={() => void confirmRemoveProject(project)}><I.close /></button>
+          )}
         </span>
       </div>
       {open && (
@@ -175,7 +234,7 @@ function ActiveSection({ active, activeTask, onOpen, onCancel }: {
       <div className="tree-row tree-section" style={{ fontSize: 10, letterSpacing: '.06em', color: 'var(--tx-faint)', textTransform: 'uppercase', cursor: 'default' }}>
         {tr('inProgress')}
       </div>
-      {active.map((t) => (
+      <CollapsibleList items={active} render={(t) => (
         <div key={t.id} className={'tree-row tree-task' + (t.id === activeTask ? ' active' : '')} onClick={() => onOpen(t.id)}>
           <span className="tw-name">{t.name}</span>
           <span className="tw-time">{activeHint(t.status)}</span>
@@ -183,12 +242,83 @@ function ActiveSection({ active, activeTask, onOpen, onCancel }: {
             <button className="icon-btn" title={tr('cancelThisBuild')} onClick={(e) => void cancelRow(e, t)}><I.close /></button>
           </span>
         </div>
-      ))}
+      )} />
     </div>
   );
 }
 
-export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, tree, active, onOpen, onCancel, onNewTask, onNewProject, onAddYaml }: {
+/** spec 084 (follow-up) — a collapsible sibling list: shows the first `sidebarPageSize` rows, then a
+ *  "Show N more" / "Show less" toggle (the Nexus load-more pattern). Applied to EVERY sidebar section so a
+ *  long list never floods the panel. `render` returns keyed rows; the count is a client pref (⚙ modal). */
+function CollapsibleList<T,>({ items, render }: { items: T[]; render: (item: T) => JSX.Element }) {
+  const [expanded, setExpanded] = useState(false);
+  const { shown, overflow } = pageList(items, sidebarPageSize.value, expanded);
+  return (
+    <>
+      {shown.map(render)}
+      {overflow > 0 && (
+        <button className="sb-more" onClick={() => setExpanded((e) => !e)}>
+          {expanded ? tr('sbShowLess') : tf('sbShowMore', { n: overflow })}
+        </button>
+      )}
+    </>
+  );
+}
+
+/** spec 082 §4.5 rev — a section header rendered as a BUTTON (the チャット style): an icon + label so the
+ *  block is self-identifying, and a trailing "+" so "add new of this kind" is one obvious click. Used for
+ *  the Chat / Build / Project sections (NOT 進行中, which is a live-state list with nothing to add). */
+function SectionHeader({ icon, label, addTitle, onAdd }: {
+  icon: JSX.Element;
+  label: string;
+  addTitle: string;
+  onAdd: () => void;
+}) {
+  return (
+    <button className="sb-section-btn" onClick={onAdd} title={addTitle} aria-label={addTitle}>
+      <span className="sb-section-label">{icon}{label}</span>
+      <I.plus className="sb-section-plus" />
+    </button>
+  );
+}
+
+/** spec 082 §4.5 rev — one consult chat row (the Chat section body). */
+function ConsultRow({ consult, activeTask, onOpen }: {
+  consult: WireTreeTask;
+  activeTask: string | null;
+  onOpen: (taskId: string) => void;
+}) {
+  return (
+    <div className={'tree-row tree-task' + (consult.id === activeTask ? ' active' : '')} onClick={() => onOpen(consult.id)}>
+      <span className="tw-ic"><I.message /></span>
+      <span className="tw-name">{consult.name}</span>
+      <span className="tw-time">{consult.time}</span>
+      <span className="row-actions" onClick={(e) => e.stopPropagation()}>
+        <RemoveButton taskId={consult.id} name={consult.name} />
+      </span>
+    </div>
+  );
+}
+
+/** spec 084 S1.5 — one distill/promote task row (the 蒸留 section body). Mirrors {@link ConsultRow}. */
+function PromoteRow({ promote, activeTask, onOpen }: {
+  promote: WireTreeTask;
+  activeTask: string | null;
+  onOpen: (taskId: string) => void;
+}) {
+  return (
+    <div className={'tree-row tree-task' + (promote.id === activeTask ? ' active' : '')} onClick={() => onOpen(promote.id)}>
+      <span className="tw-ic"><I.spark /></span>
+      <span className="tw-name">{promote.name}</span>
+      <span className="tw-time">{promote.time}</span>
+      <span className="row-actions" onClick={(e) => e.stopPropagation()}>
+        <RemoveButton taskId={promote.id} name={promote.name} />
+      </span>
+    </div>
+  );
+}
+
+export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, tree, active, consults, promotes, onOpen, onCancel, onNewTask, onNewChat, onNewProject, onAddYaml }: {
   collapsed: boolean;
   activeTask: string | null;
   /** The active/selected project folder (open build's project, or the pre-selected target). */
@@ -197,51 +327,80 @@ export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, 
   activeWorkflow: string | null;
   tree: WireTreeProject[];
   active: WireTreeTask[];
+  /** spec 082: the consult chats for the Chat section. */
+  consults: WireTreeTask[];
+  /** spec 084 S1.5: the distill/promote tasks for the 蒸留 section. */
+  promotes: WireTreeTask[];
   onOpen: (taskId: string) => void;
   onCancel: (taskId: string) => void;
+  /** Start a new BUILD (Build "+" / a workflow-row edit). Opens the empty surface in build mode. */
   onNewTask: (opts?: NewTaskOpts) => void;
+  /** spec 082 §4.5 rev: start a new CHAT (Chat "+"). Opens the empty surface in consult mode. */
+  onNewChat: () => void;
   onNewProject: () => void;
-  /** spec 070: open the external-YAML intake modal (base OR distill) — the general Projects-header door. */
+  /** spec 070: open the external-YAML intake modal (base OR distill) — the general header door. */
   onAddYaml: () => void;
   onToggle: () => void;
 }) {
-  // Default-open the SELECTED project (menu highlight / new-project target), else the one holding the
-  // active task, else the first project.
+  // spec 082 §4.5 rev: split the tree into the loose-builds home (`_drafts` → the "Build" section) and
+  // the named projects (the "Project" section). `_drafts` always leads buildTree, so this is a clean
+  // partition. The Build section flattens `_drafts`'s workflows directly under its header — the section
+  // header REPLACES the old nested "Drafts" folder row.
+  const draftsProject = tree.find((p) => p.id === '_drafts');
+  const namedProjects = tree.filter((p) => p.id !== '_drafts');
+
+  // Default-open the SELECTED project (menu highlight / target), else the one holding the active task,
+  // else the first NAMED project.
   const taskProjectId = tree.find((p) =>
     p.workflows.some((w) => w.tasks.some((t) => t.id === activeTask))
   )?.id;
-  const openProjectId = activeProject ?? taskProjectId ?? tree[0]?.id;
+  const openProjectId = activeProject ?? taskProjectId ?? namedProjects[0]?.id;
 
   return (
     <aside className={'sidebar' + (collapsed ? ' collapsed' : '')}>
       <div className="sb-head">
-        <span className="sb-title">{tr('projects')}</span>
+        <span className="sb-title">{tr('appName')}</span>
         <div className="sb-head-actions">
-          {/* spec 059: the dev-only rebuild moved here (from the per-task DevPanel) so it's reachable
-              from any view. Left of New-project → the latter keeps its right-edge alignment. */}
+          {/* spec 059/080/083: dev-only rebuild + shelf dashboard + settings modal, reachable anywhere. */}
           {devMode && <RebuildButton />}
-          {/* spec 070: the general external-YAML intake door (base OR distill) — was a per-surface link on
-              the empty state; now a header action reachable from any view, left of New-project. The
-              paperclip matches the modal's own "Choose a .yml file" affordance (clean line-icon; the boxy
-              I.yaml glyph read as a mis-sized "YL" chip next to the document icon). */}
-          <button className="icon-btn" title={tr('intakeYamlBtn')} aria-label={tr('intakeYamlBtn')} onClick={onAddYaml}><I.paperclip /></button>
-          <button className="icon-btn" title={tr('newProject')} onClick={onNewProject}><I.newFile /></button>
+          {devMode && <ShelfButton />}
+          {devMode && <SettingsButton />}
+          {/* spec 084 follow-up: the external-YAML intake door moved to the 蒸留 section's "+" (add new =
+              distill a YAML), so the redundant header paperclip is dropped. `onAddYaml` is wired there. */}
         </div>
       </div>
 
-      <button className="sb-newtask" onClick={() => onNewTask()}>
-        <I.plus /><span>{tr('newTask')}</span>
-      </button>
-
       <div className="sb-scroll">
+        {/* ① 進行中 — a live-state list; a plain label with no "+" (nothing to add here directly). */}
         <ActiveSection active={active} activeTask={activeTask} onOpen={onOpen} onCancel={onCancel} />
-        {tree.length === 0 && <div className="tree-row"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noProjectsYet')}</span></div>}
-        {tree.map((p) => (
+
+        {/* ② Chat */}
+        <SectionHeader icon={<I.message />} label={tr('sectionChat')} addTitle={tr('newChat')} onAdd={onNewChat} />
+        <CollapsibleList items={consults} render={(c) => <ConsultRow key={c.id} consult={c} activeTask={activeTask} onOpen={onOpen} />} />
+
+        {/* ②.5 蒸留 (spec 084 S1.5) — the distill/promote task history. ALWAYS shown (even when empty) so
+            its "+" = the external-YAML intake door is always reachable (it replaced the header paperclip). */}
+        <SectionHeader icon={<I.spark />} label={tr('sectionDistill')} addTitle={tr('intakeYamlBtn')} onAdd={onAddYaml} />
+        <CollapsibleList items={promotes} render={(p) => <PromoteRow key={p.id} promote={p} activeTask={activeTask} onOpen={onOpen} />} />
+
+        {/* ③ Build — the loose builds (`_drafts`), flattened under this header. */}
+        <SectionHeader icon={<I.sliders />} label={tr('sectionBuild')} addTitle={tr('newBuild')} onAdd={() => onNewTask()} />
+        <CollapsibleList items={draftsProject?.workflows ?? []} render={(wf) => (
+          <WorkflowRow key={wf.id} wf={wf} projectId="_drafts" activeTask={activeTask}
+            active={activeWorkflow === `_drafts/${wf.id}`}
+            defaultOpen={activeWorkflow === `_drafts/${wf.id}` || taskProjectId === '_drafts'}
+            onOpen={onOpen} onNewTask={onNewTask} />
+        )} />
+
+        {/* ④ Project — the named project folders. */}
+        <SectionHeader icon={<I.folder />} label={tr('sectionProjects')} addTitle={tr('newProject')} onAdd={onNewProject} />
+        {namedProjects.length === 0 && <div className="tree-row"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noProjectsYet')}</span></div>}
+        <CollapsibleList items={namedProjects} render={(p) => (
           <ProjectRow key={p.id} project={p} activeTask={activeTask}
             activeProject={activeProject} activeWorkflow={activeWorkflow}
             defaultOpen={p.id === openProjectId}
             onOpen={onOpen} onNewTask={onNewTask} />
-        ))}
+        )} />
       </div>
     </aside>
   );

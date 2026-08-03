@@ -96,6 +96,18 @@
       "sha256": "43e9b884b3dfbcdd68be974aa0929584ef46c5d3ede56db16ce28c16f8fb219d",
       "tier": "corpus:awesome-dify-workflow-en"
     },
+    "48727e79fc2f": {
+      "date": "2026-07-28",
+      "decision": "shelf",
+      "fingerprint": "end:1|llm:1|start:1/e:2",
+      "key": "48727e79fc2f",
+      "name": "ai-1-user-input.yml",
+      "node_count": 3,
+      "path": "templates/patterns/ai-1-user-input.yml",
+      "reason": "seeded from patterns",
+      "sha256": "48727e79fc2fce27d052d91c7c81a45649b3531ff7f492cd7938bbdacf7b4ef9",
+      "tier": "patterns"
+    },
     "48c18188abe8": {
       "date": "2026-07-27",
       "decision": "shelf",
@@ -361,6 +373,18 @@
       "path": "templates/patterns/scheduled-tool-append.yml",
       "reason": "seeded from patterns",
       "sha256": "9ad8488263843ef2e80f1661f54eccb595156d87d551d1e14471d2bc7771aa07",
+      "tier": "patterns"
+    },
+    "a2be302a3ebb": {
+      "date": "2026-07-28",
+      "decision": "shelf",
+      "fingerprint": "code:10|end:1|http-request:4|if-else:1|iteration:2|llm:3|tool:3|trigger-schedule:1/e:23",
+      "key": "a2be302a3ebb",
+      "name": "chatwork-1-10-20.yml",
+      "node_count": 25,
+      "path": "templates/patterns/chatwork-1-10-20.yml",
+      "reason": "seeded from patterns",
+      "sha256": "a2be302a3ebb7bae4e582b1192c22e4005808811fc803f61053023808753cd23",
       "tier": "patterns"
     },
     "aa75d8820f21": {

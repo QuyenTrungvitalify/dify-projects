@@ -11,6 +11,7 @@ import { Sidebar } from './Sidebar';
 import { PhaseTrack, Disclosure, GateCard, GateActions, QaAnswer, Composer } from './Chat';
 import { ArtifactPanel } from './ArtifactPanel';
 import { CreateProjectModal, IntakeYamlModal, ConfirmModal } from './Modal';
+import { BgTray } from './BgTray';
 import { DevPanel } from './DevPanel';
 import { devMode } from '../lib/dev';
 import { I } from './Icon';
@@ -19,7 +20,7 @@ import { t as tr, tf, lang, toggleLang } from '../lib/i18n';
 import * as store from '../store';
 import { type ComposerAttachment, MAX_ATTACHMENTS, isAcceptedFile, fileToDataUrl, toWire } from '../lib/attachments';
 import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed, NewTaskOpts } from '../types';
-import { newTaskCrumb, runContextCrumb, workflowOptions, type NewTaskCrumb } from '../lib/crumb';
+import { newTaskCrumb, runContextCrumb, workflowOptions, activeSidebarProject, activeSidebarWorkflow, type NewTaskCrumb } from '../lib/crumb';
 import { canPromoteFromConversation } from '../lib/promote-visibility';
 
 let _attUid = 0;
@@ -27,6 +28,9 @@ const attUid = (): string => 'att' + ++_attUid;
 
 /** Which artifact tabs are available for a task (contents-driven, with a phase fallback). */
 function availableTabs(task: WireTask): ArtifactTab[] {
+  // spec 082: a consult chat produces no artifacts at all — no tabs (its phase='test' pin would
+  // otherwise fall through to the reached() fallback and offer empty panes).
+  if (task.kind === 'consult') return [];
   // spec 052: a promote build has only its distilled pattern (no SPEC.md / report / diff) — show the yaml
   // tab alone (the phase='test' fallback would otherwise offer empty Spec/Report panes).
   if (task.kind === 'promote') return task.artifactContents?.yaml ? ['yaml'] : [];
@@ -99,7 +103,21 @@ export function App() {
     void store.loadTree();
     void store.loadSeeds();
     void store.loadActive(); // load-recovery: list in-progress builds so a parked one isn't stranded (Lát 6)
+    void store.loadConsults(); // spec 082: the sidebar's Trao đổi section
+    void store.loadPromotes(); // spec 084 S1.5: the sidebar's 蒸留 (distill) section
+    void store.restoreBgDistills(); // spec 084 §7 Q2: rebuild the distill tray from non-terminal promote tasks
   }, []);
+  // spec 082 §4.4 — the graduate bridge: when the distill answer lands, open the new-task surface in
+  // BUILD mode with the requirement prefilled (user edits, then Run → the normal POST /api/tasks door).
+  const gradDraft = store.graduateDraft.value;
+  useEffect(() => {
+    if (!gradDraft) return;
+    store.graduateDraft.value = null; // consume exactly once
+    newTask();
+    store.settings.value = { ...store.settings.value, mode: 'build' };
+    setDraft(gradDraft);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gradDraft]);
   useEffect(() => {
     if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
   }, [thread]);
@@ -118,9 +136,11 @@ export function App() {
   // on the new-task surface it mirrors the pre-selection (project "+"/workflow "+"/a freshly-created
   // project via targetProject). `activeWorkflow` is the compound `project/workflow` key the tree rows use.
   const editingSel = task ? null : store.splitWorkflowSetting(settings.workflow);
-  const activeProject = task ? (task.project ?? null) : (editingSel?.project ?? settings.targetProject ?? null);
+  // spec 084 S1.5: a promote/distill task lives in the Distill section, so it must NOT co-highlight its
+  // SOURCE project/workflow in the Build tree (activeSidebarProject/Workflow null it out for promote).
+  const activeProject = task ? activeSidebarProject(task) : (editingSel?.project ?? settings.targetProject ?? null);
   const activeWorkflow = task
-    ? (task.project && task.workflowSlug ? `${task.project}/${task.workflowSlug}` : null)
+    ? activeSidebarWorkflow(task)
     : (editingSel?.project ? `${editingSel.project}/${editingSel.workflow}` : null);
   const settingsSubset: Settings = { workflow: settings.workflow, confirm: settings.confirm, fast: settings.fast };
   const onSettings = (patch: Partial<Settings>): void => {
@@ -189,7 +209,12 @@ export function App() {
     //   awaiting_confirm, mode==='ask'    → store.ask(text) — default at analyze/spec/implement AND ④ (034 D5)
     const st = store.task.value?.status;
     if (view === 'empty') {
-      void store.start(msg, atts).then(onDone); // a new build ignores `mode`; the next gate's useEffect resets it
+      // spec 082 §4.5: the Mode chip routes the entry — consult (chat lane, default) vs build (as today).
+      if (settings.mode === 'consult') {
+        void store.startConsult(msg, atts).then(onDone);
+      } else {
+        void store.start(msg, atts).then(onDone); // a new build ignores ask|change `mode`; the next gate's useEffect resets it
+      }
       return;
     }
     // spec 052: a promote build has no Ask surface — a typed message at a promote gate is always a
@@ -267,6 +292,9 @@ export function App() {
   // footer/manual "New task" passes no opts → a clean from-scratch slate).
   function newTask(opts?: NewTaskOpts): void {
     store.resetToNew();
+    // spec 082 §4.5 rev: every newTask entry (Build "+", a workflow-row edit, a project preselect) is a
+    // BUILD action — force the composer's entry mode to build so the empty surface shows the build chips.
+    store.settings.value = { ...store.settings.value, mode: 'build' };
     // spec 030: workflow-"+" pre-selects the COMPOUND `project/workflow` value (the dropdown format), so
     // edit-existing resolves the right pair; project-"+" sets just the target project folder (workflow
     // stays 'none' from resetToNew → a from-scratch build).
@@ -274,6 +302,13 @@ export function App() {
     if (opts?.targetProject) store.settings.value = { ...store.settings.value, targetProject: opts.targetProject };
     setArtifactOpen(false);
     setMode('ask'); // spec 033 FIX-I
+  }
+  // spec 082 §4.5 rev: the Chat "+" — a fresh empty surface in CONSULT mode (the sibling of newTask).
+  function newChat(): void {
+    store.resetToNew();
+    store.settings.value = { ...store.settings.value, mode: 'consult' };
+    setArtifactOpen(false);
+    setMode('ask');
   }
   // Stop pill (design handoff): the in-conversation way to cancel the OPEN build while its turn is
   // running (the gate card — the only other cancel affordance in the main view — isn't shown mid-turn).
@@ -331,10 +366,11 @@ export function App() {
   /* ---------- render ---------- */
   return (
     <div className={'app' + (sbCollapsed ? ' sb-collapsed' : '')}>
-      <Sidebar collapsed={sbCollapsed} activeTask={activeTaskId} activeProject={activeProject} activeWorkflow={activeWorkflow} tree={tree} active={active}
+      <Sidebar collapsed={sbCollapsed} activeTask={activeTaskId} activeProject={activeProject} activeWorkflow={activeWorkflow} tree={tree} active={active} consults={store.consults.value} promotes={store.promotes.value}
         onOpen={(id) => { setArtifactOpen(false); setMode('ask'); void store.openTask(id); }}
         onCancel={(id) => void store.cancelById(id)}
         onNewTask={newTask}
+        onNewChat={newChat}
         onNewProject={() => setCreateOpen(true)}
         onAddYaml={() => setImportBaseOpen(true)}
         onToggle={() => setSb((c) => !c)}
@@ -357,10 +393,12 @@ export function App() {
                     {runCtx.leaf && <span className="run-crumb-seg run-crumb-leaf">{runCtx.leaf}</span>}
                   </span>
                 )}
-                {/* spec 052: a promote build is not a ①②③④ pipeline — show its name in place of the phase track. */}
+                {/* spec 052/082: promote + consult are not ①②③④ pipelines — a label in place of the track. */}
                 {task?.kind === 'promote'
                   ? <span style={{ fontSize: 13, color: 'var(--tx-muted)' }}>{tr('promoteToPattern')}</span>
-                  : <PhaseTrack phaseStates={phaseStates} current={current} />}
+                  : task?.kind === 'consult'
+                    ? <span style={{ fontSize: 13, color: 'var(--tx-muted)' }}>{tr('consultChat')}</span>
+                    : <PhaseTrack phaseStates={phaseStates} current={current} />}
               </>
             ) : <span style={{ fontSize: 13, color: 'var(--tx-muted)' }}>{crumb.label}</span>}
             <div className="chat-top-right">
@@ -374,8 +412,13 @@ export function App() {
                 aria-label={theme === 'light' ? tr('switchToDark') : tr('switchToLight')}>
                 {theme === 'light' ? <I.sun /> : <I.moon />}
               </button>
-              {view === 'conversation' && busy && (
-                <button className="ghost-pill stop-pill" onClick={() => void onStop()} title={tr('stopRunningBuild')}>
+              {/* spec 082: a consult's live turn is an ask (busy never flips) — offer Stop during one,
+                  and skip the "stop build?" modal there (aborting an answer is harmless + scoped: the
+                  /cancel route's ask branch kills the child without touching status). */}
+              {view === 'conversation' && (busy || (asking && task?.kind === 'consult')) && (
+                <button className="ghost-pill stop-pill"
+                  onClick={() => { if (task?.kind === 'consult') void store.cancel(); else void onStop(); }}
+                  title={task?.kind === 'consult' ? tr('stopConsultAnswer') : tr('stopRunningBuild')}>
                   <span className="stop-sq" />{tr('stop')}
                 </button>
               )}
@@ -414,6 +457,14 @@ export function App() {
                   lint-clean the moment ④ opens, and many users treat "I have the yml" as finished and never
                   click import/skip — gating promote behind `done` hid it exactly when they'd want it. This
                   matches the "edit this workflow" button's condition above, and the moment the 078 nudge fires. */}
+              {/* spec 082 §4.4: the graduate bridge — visible on a consult; disabled while an answer
+                  streams. Sends the canned distill prompt through the normal ask machinery; the
+                  finished answer prefills the new-build composer (the graduateDraft effect above). */}
+              {view === 'conversation' && task?.kind === 'consult' && (
+                <button className="ghost-pill" disabled={asking} onClick={() => void store.graduate()} title={tr('graduateHint')}>
+                  <I.spark />{tr('graduateBtn')}
+                </button>
+              )}
               {canPromoteFromConversation(view, task) && (
                 <button className="ghost-pill" onClick={() => void store.promote(task!.project!, task!.workflowSlug!)} title={tr('promoteToPatternHint')}>
                   <I.spark />{tr('promoteToPattern')}
@@ -438,6 +489,7 @@ export function App() {
               onSeed={(id) => { store.settings.value = { ...store.settings.value, seed: id }; }}
               startError={startError} busyHolder={busyHolder}
               files={files} onAddFiles={(f) => void addFiles(f)} onRemoveFile={removeFile}
+              mode={settings.mode}
             />
           ) : (
             <>
@@ -453,6 +505,21 @@ export function App() {
                     if (item.kind === 'qa')
                       return <div key={item.id} className="msg msg-assistant">
                         <QaAnswer answer={item.answer} done={item.done} seededFrom={item.seededFrom} />
+                      </div>;
+                    // spec 082 S3: the YAML report card — machine facts, rendered before the model's take.
+                    if (item.kind === 'card')
+                      return <div key={item.id} className="msg msg-assistant">
+                        <div className="yaml-card" style={{ border: '1px solid var(--bd)', borderRadius: 10, padding: '10px 12px', fontSize: 13 }}>
+                          <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                            {tr('cardTitle')} — <code>{item.file}</code>
+                          </div>
+                          <div style={{ color: item.lint.length ? 'var(--err, #c33)' : 'var(--ok)' }}>
+                            {item.lint.length ? item.lint.map((l, i) => <div key={i}>✕ {l}</div>) : <>✓ {tr('cardLintClean')}</>}
+                          </div>
+                          {item.preflight && <div style={{ color: 'var(--tx-muted)', marginTop: 4 }}>{item.preflight}</div>}
+                          {item.contract && <div style={{ color: 'var(--tx-muted)', marginTop: 4 }}>{item.contract}</div>}
+                          {item.note && <div style={{ color: 'var(--tx-muted)', marginTop: 4 }}>⚠ {item.note}</div>}
+                        </div>
                       </div>;
                     // gate
                     return <div key={item.id} className="msg msg-assistant">
@@ -538,8 +605,9 @@ export function App() {
                     // spec 034 D3: a terminal (done/cancelled) build's composer is Ask-only — the settings
                     // row is DROPPED (Send no longer starts a new build) and attach is hidden (/ask takes no
                     // files). Starting a new build lives at the sidebar "+". Just a question box.
+                    // spec 082: a consult lives in this branch too (born done) — its own placeholder.
                     <Composer value={draft} onChange={setDraft} onSend={() => send()}
-                      placeholder={tr('phAskAboutBuild')} disabled={asking}
+                      placeholder={task?.kind === 'consult' ? tr('phConsultChat') : tr('phAskAboutBuild')} disabled={asking}
                     />
                   )}
                 </div>
@@ -580,6 +648,9 @@ export function App() {
           onImported={({ project, workflow }) => { setImportBaseOpen(false); newTask({ baseWorkflow: { project, workflow } }); }}
         />
       )}
+
+      {/* spec 084: the background-distill tray — a fixed corner panel, independent of the open view. */}
+      <BgTray />
 
       {/* The single mounted ConfirmModal — driven by store.askConfirm() from anywhere (replaces confirm()). */}
       {confirmReq && (
@@ -622,7 +693,7 @@ function StartErrorBanner({ startError, busyHolder, onOpen = (id) => void store.
 }
 
 /* ---------- empty / new-task surface ---------- */
-function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, crumb, onClearCrumb, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile }: {
+function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, crumb, onClearCrumb, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile, mode }: {
   draft: string;
   setDraft: (s: string) => void;
   send: (text?: string) => void;
@@ -639,28 +710,43 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, cr
   files: ComposerAttachment[];
   onAddFiles: (files: File[]) => void;
   onRemoveFile: (id: string) => void;
+  /** spec 082 §4.5 rev: the entry mode is now set by the sidebar Chat "+"/Build "+" (no composer chip);
+   *  the empty surface reads it to pick the placeholder + which chips to show. */
+  mode: 'consult' | 'build';
 }) {
+  const consult = mode === 'consult';
   return (
     <div className="empty">
       <div className="empty-wrap">
         {/* spec 029: the crumb reflects the "+" pre-selection and, when one is active, clicking it clears
-            back to a plain new task (the crumb IS the "×"). Inert when nothing is pre-selected (as before). */}
+            back to a plain new task (the crumb IS the "×"). Inert when nothing is pre-selected (as before).
+            spec 082: consult mode has no project/workflow target — show the chat crumb instead. */}
+        {consult ? (
+          <button className="empty-crumb">
+            <I.message className="crumb-ic" />
+            <span>{tr('consultChat')}</span>
+          </button>
+        ) : (
         <button className={'empty-crumb' + (crumb.active ? ' clearable' : '')}
           onClick={crumb.active ? onClearCrumb : undefined}
           title={crumb.active ? tr('clearPreselection') : undefined}>
           {crumb.icon === 'message' ? <I.message className="crumb-ic" /> : <I.folder className="crumb-ic" />}
           <span>{crumb.label}</span>
         </button>
+        )}
 
         <Composer value={draft} onChange={setDraft} onSend={() => send()}
           settings={settings} onSettings={onSettings} workflows={workflows}
-          placeholder={tr('phDescribeWorkflow')}
+          placeholder={consult ? tr('phConsult') : tr('phDescribeWorkflow')}
           files={files} onAddFiles={onAddFiles} onRemoveFile={onRemoveFile}
+          mode={mode}
         />
 
         <StartErrorBanner startError={startError} busyHolder={busyHolder} />
 
-        {/* Seed picker (AC #2): lists /api/seeds; degrades to an empty list until Lát 5. */}
+        {/* Seed picker (AC #2): lists /api/seeds; degrades to an empty list until Lát 5.
+            spec 082: hidden in consult mode — a seed is a build concept. */}
+        {!consult && (
         <div className="seed-picker">
           <div className="suggest-label seed-label-row">
             <span>{tr('seedFrom')}</span>
@@ -682,6 +768,7 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, cr
             </div>
           )}
         </div>
+        )}
 
         <div className="empty-suggest">
           <div className="suggest-label">{tr('try')}</div>

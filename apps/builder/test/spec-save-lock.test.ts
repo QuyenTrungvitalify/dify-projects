@@ -3,7 +3,7 @@
  * turn-lock check, unlike `/reply`/`/confirm`/`PATCH /api/tasks/:id`. A race with ANY live turn (a
  * phase turn OR an Ask) risked silent last-writer-wins data loss, and specifically undermined Ask's
  * layer-2 byte-compare (a legitimate Save landing inside the Ask snapshot window would be misattributed
- * to the Ask and wrongly restored-over). This pins the identical `turnHolderId() === id` → 409 guard
+ * to the Ask and wrongly restored-over). This pins the identical `buildHolderId() === id` → 409 guard
  * `PATCH /api/tasks/:id` already has.
  */
 import { test, describe, beforeEach, afterEach } from 'node:test';

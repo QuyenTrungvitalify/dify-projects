@@ -16,17 +16,17 @@
  */
 import type { FastifyPluginAsync } from 'fastify';
 import { existsSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { loadTask } from '../state/task.js';
-import { buildTree, listActiveTasks, specPathFor, workflowPathFor } from '../lib/artifacts.js';
+import { deleteTask, loadTask } from '../state/task.js';
+import { buildTree, listActiveTasks, listConsultTasks, listProjectTaskIds, listPromoteTasks, listWorkflowTaskIds, specPathFor, workflowPathFor } from '../lib/artifacts.js';
 import { buildBundle } from '../lib/bundle.js';
 import { revealInFileManager } from '../lib/reveal.js';
 import { listSeeds } from '../lib/dify-io.js';
 import { runPython as realRunPython } from '../lib/shell.js';
 import { checkProjectName, scaffoldProjectTier } from '../lib/project-create.js';
 import { importYamlAsBase, probeImportedBase, type BaseProbe } from '../lib/base-import.js';
-import { turnHolderId } from '../lib/lock.js';
+import { evictCancelled, taskTurnRunning } from '../lib/lock.js';
 
 export interface UiRoutesOptions {
   projectsDir: string;
@@ -77,6 +77,60 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
     return reply.send({ project: slug, name });
   });
 
+  // ── DELETE /api/projects/:project — spec 084 follow-up: PERMANENTLY remove a whole project (its
+  //    `projects/<slug>/` folder = ALL its workflows/YAML) + CASCADE-remove every build record (.runs/<id>
+  //    whose task.project matches), so no orphan task re-homes under _drafts. Guards:
+  //      - the `_drafts` scratch home is a SYSTEM project → 400 (never deletable).
+  //      - a traversal / bad slug → 400; a missing project → 404.
+  //      - any build of this project has a turn RUNNING → 409 (cancel it first). ──
+  app.delete<{ Params: { project: string } }>('/api/projects/:project', async (req, reply) => {
+    const slug = req.params.project;
+    if (!/^[A-Za-z0-9._-]+$/.test(slug) || slug === '..' || slug === '.') {
+      return reply.code(400).send({ error: 'invalid project slug' });
+    }
+    if (slug === '_drafts') {
+      return reply.code(400).send({ error: 'the _drafts scratch area is a system project and cannot be deleted' });
+    }
+    const projectDirAbs = join(projectsDir, 'projects', slug);
+    if (!existsSync(projectDirAbs)) return reply.code(404).send({ error: `no such project: ${slug}` });
+
+    const taskIds = await listProjectTaskIds(projectsDir, slug);
+    if (taskIds.some((id) => taskTurnRunning(id))) {
+      return reply.code(409).send({ error: 'a build in this project has a turn running — cancel it before deleting the project' });
+    }
+    await rm(projectDirAbs, { recursive: true, force: true }); // the folder (all workflows/YAML)
+    for (const id of taskIds) {
+      await deleteTask(projectsDir, id); // cascade the build records
+      evictCancelled(id);
+    }
+    return reply.send({ ok: true, tasksRemoved: taskIds.length });
+  });
+
+  // ── DELETE /api/projects/:project/workflows/:workflow — spec 084 follow-up: remove ONE workflow (its
+  //    `projects/<project>/<workflow>/` folder) + CASCADE its build records. The Build/`_drafts` rows ARE
+  //    workflows (a from-scratch build scaffolds `projects/_drafts/<slug>/`), so this is the "delete a junk
+  //    build" door. Guards mirror project-delete (bad slug → 400, missing → 404, a running turn → 409).
+  //    `_drafts` workflows ARE deletable here (that's the point — clearing scratch); only the `_drafts`
+  //    PROJECT itself is protected. ──
+  app.delete<{ Params: { project: string; workflow: string } }>('/api/projects/:project/workflows/:workflow', async (req, reply) => {
+    const { project, workflow } = req.params;
+    const safe = (s: string): boolean => /^[A-Za-z0-9._-]+$/.test(s) && s !== '..' && s !== '.';
+    if (!safe(project) || !safe(workflow)) return reply.code(400).send({ error: 'invalid slug' });
+    const wfDirAbs = join(projectsDir, 'projects', project, workflow);
+    if (!existsSync(wfDirAbs)) return reply.code(404).send({ error: `no such workflow: ${project}/${workflow}` });
+
+    const taskIds = await listWorkflowTaskIds(projectsDir, project, workflow);
+    if (taskIds.some((id) => taskTurnRunning(id))) {
+      return reply.code(409).send({ error: 'a build in this workflow has a turn running — cancel it before deleting it' });
+    }
+    await rm(wfDirAbs, { recursive: true, force: true });
+    for (const id of taskIds) {
+      await deleteTask(projectsDir, id);
+      evictCancelled(id);
+    }
+    return reply.send({ ok: true, tasksRemoved: taskIds.length });
+  });
+
   // ── POST /api/bases — import ONE standalone YAML as a local edit-existing base (spec 051 D1). A raw
   //    `.yml` a field user hands over reaches neither base door today; this validates it (D2: the same
   //    4-linter gate the ③ build gate runs), derives a folder slug (JP `app.name` preserved for the
@@ -106,6 +160,18 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
   //    + reach them all so a parked build is never stranded (extends AC #22 to the no-taskId case). ──
   app.get('/api/active', async () => {
     return { active: await listActiveTasks(projectsDir, now()) };
+  });
+
+  // ── GET /api/consults — the consult chats (spec 082), newest first. Their one listing surface:
+  //    excluded from /api/tree (no project) and from /api/active (born `done`, never non-terminal). ──
+  app.get('/api/consults', async () => {
+    return { consults: await listConsultTasks(projectsDir, now()) };
+  });
+
+  // ── GET /api/promotes — the distill/promote tasks (spec 084 S1.5), newest first. Their own sidebar
+  //    "蒸留" section: excluded from /api/tree, shows ALL (incl. done/shared) as history. ──
+  app.get('/api/promotes', async () => {
+    return { promotes: await listPromoteTasks(projectsDir, now()) };
   });
 
   // ── GET /api/seeds — existing Dify apps (backend `sync.py list`, token backend-only). Degrades
@@ -153,7 +219,7 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
     // Ask's layer-2 byte-compare (a legitimate Save landing inside the Ask's snapshot window would be
     // misattributed to the Ask and wrongly restored-over). Mirrors the identical guard at
     // PATCH /api/tasks/:id (routes/tasks.ts).
-    if (turnHolderId() === req.params.id) {
+    if (taskTurnRunning(req.params.id)) {
       return reply.code(409).send({ error: 'a turn is running for this build — save once it pauses' });
     }
     let task;

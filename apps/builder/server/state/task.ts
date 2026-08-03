@@ -14,7 +14,7 @@
  * Cleanups + §D) and stops — the next turn fires only on `/confirm`. `confirmMode` drives which
  * boundaries pause vs auto-advance (§D).
  */
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { difyTargets } from '../lib/dify-io.js';
 
@@ -102,7 +102,13 @@ export interface Gate {
     | 'infra_degraded'
     | 'promote_blocked'
     | 'promote_distill_failed'
-    | 'promote_review';
+    | 'promote_review'
+    // Spec 081 — the two share gates AFTER a finalized promote: `promote_share_offer` = "push this
+    // pattern to the shared repo?" (only when origin exists + provenance is shareable);
+    // `promote_share_review` = the preflight results (leak scan + near-dup) parked for the
+    // contributor's explicit confirm — the first human gate; nothing leaves the machine before it.
+    | 'promote_share_offer'
+    | 'promote_share_review';
 }
 
 /** Spec 052 — the verbatim `promote_gate.py check --json` verdict (B1 before the turn, B2′ re-gate after).
@@ -149,6 +155,43 @@ export interface PromoteState {
   originSha256?: string;
   /** spec 070 (external only): the user-declared license (default 'unknown'), stamped verbatim into the header. */
   license?: string;
+  /** Spec 081 — the share-upstream state after finalize (absent on a promote that was never offered
+   *  or where the user chose Keep-local-only). */
+  share?: PromoteShare;
+  /** spec 084 — the distill turn's streamed output (accumulated), persisted so OPENING the task after it
+   *  finished replays the "what I genericized" narrative. A background distill is watched over POLL (not
+   *  SSE), so its live output was never built into a client thread; without this, a reopen shows only the
+   *  terminal card. Replaced on each re-run (Request changes / Resend). */
+  distillLog?: string;
+  /** spec 084 — a DEV test distill (BUILDER_DEV only): runs the full flow but NEVER auto-finalizes (always
+   *  parks at review), so repeated dev testing writes nothing to the shelf. Tagged so the tray can badge it
+   *  and a dev "Clear test distills" can wipe it. Absent ⇒ a normal distill. */
+  test?: boolean;
+}
+
+/** Spec 081 — one advisory finding from `promote_gate.py share-scan` (a credential-shaped string, a
+ *  non-placeholder URL, an internal identity) shown to the contributor at the share confirm gate. */
+export interface PromoteShareFinding {
+  kind: string;
+  line: number;
+  excerpt: string;
+}
+
+/** Spec 081 — the share-upstream FSM state carried on a promote task. `review` = preflight done,
+ *  parked for the contributor's confirm; `pushed` = the contrib/* branch is on origin (the hub opens
+ *  the PR from it); `failed` = the push failed, `error` carries the human guidance, Try-again offered. */
+export interface PromoteShare {
+  state: 'review' | 'pushed' | 'failed';
+  /** Spec 083 — which transport shipped (or failed): 'drop' = POST to the team drop URL (primary),
+   *  'git' = the 081 contrib/* branch push (fallback). Absent until the ship step runs. */
+  mode?: 'drop' | 'git';
+  findings?: PromoteShareFinding[];
+  /** one-line near-dup verdict from `catalog.py check --shelf` ('new (no shelf match)' | 'near-dup of …'). */
+  dup?: string;
+  /** a preflight tool that failed to run is REPORTED here, never silently treated as clean. */
+  note?: string;
+  branch?: string;
+  error?: string;
 }
 
 /** Spec 059 — per-phase cost/metrics captured from a `claude` turn's terminal `result` stream-json
@@ -179,7 +222,10 @@ export interface Task {
   // task.json loads as a build). 'promote' is the gated distill flow (B1 gate → distill turn → B2′ re-gate
   // → human Approve → templates/patterns/) — it NEVER runs the ①②③④ state machine; the routes delegate its
   // gate actions to lib/promote.ts on `kind==='promote'`, so the phase FSM is literally untouched (AC7).
-  kind?: 'build' | 'promote';
+  // Spec 082: 'consult' is the chat-first mode — born terminal (`status:'done'`, no gate, no artifacts),
+  // its ONLY turn surface is /ask (routed by kind → consultWithin, chat lane, write-denied). It never
+  // enters the phase FSM either; /reply carve-outs it like promote.
+  kind?: 'build' | 'promote' | 'consult';
   // Spec 052: the promotion state for a `kind:'promote'` Task (absent on a build).
   promote?: PromoteState;
   // Spec 030: the on-disk hierarchy is REAL — a build lives at `projects/<project>/<workflowSlug>/`.
@@ -429,6 +475,12 @@ const taskFile = (projectsDir: string, taskId: string): string =>
   join(taskDir(projectsDir, taskId), 'task.json');
 export { runsRoot };
 
+/** spec 084 follow-up — PERMANENTLY delete a task record: remove its whole `.runs/<taskId>/` dir (task.json
+ *  + artifacts + staged files). Irreversible. Callers guard against deleting a task whose turn is running. */
+export async function deleteTask(projectsDir: string, taskId: string): Promise<void> {
+  await rm(taskDir(projectsDir, taskId), { recursive: true, force: true });
+}
+
 // Monotonic taskId mint: two POSTs in the same millisecond must NOT collide. The turn lock keys on
 // taskId, so a shared id would let the race-loser `acquireTurn` the SAME slot the winner holds (Q6 /
 // AC #21). `acquireTurn` is synchronous + strict (one slot), so distinct ids guarantee the loser 409s.
@@ -501,6 +553,8 @@ export async function createPromoteTask(
     // spec 070: an EXTERNAL (pasted/uploaded) source that exists in no project. Staged into the run dir
     // (the B1 gate + distill turn read the source from disk) + carried so finalize stamps source=external.
     external?: { yaml: string; label?: string; sha256?: string; license?: string };
+    // spec 084: a DEV test distill (dry-run — never auto-finalizes). Set ONLY when BUILDER_DEV (route-gated).
+    test?: boolean;
   }
 ): Promise<Task> {
   const taskId = mintTaskId();
@@ -519,6 +573,7 @@ export async function createPromoteTask(
       workflow: input.workflow,
       slug: input.slug,
       ...(ext ? { origin: 'external', originLabel: ext.label, originSha256: ext.sha256, license: ext.license } : {}),
+      ...(input.test ? { test: true } : {}),
     },
     project: input.project,
     workflowSlug: input.workflow,
@@ -549,6 +604,46 @@ export async function createPromoteTask(
     // read it — before any turn spawns or artifacts relocate. (Root, not promote/, per sourceFile above.)
     await writeFile(join(taskDir(projectsDir, taskId), 'source.yml'), ext.yaml, 'utf8');
   }
+  await saveTask(projectsDir, task);
+  return task;
+}
+
+/** Spec 082 §4.1 — mint a `kind:'consult'` Task: the chat-first mode. Born TERMINAL-askable —
+ *  `status:'done'`, no gate, no artifacts, project/workflowSlug null (nothing under `projects/` is
+ *  ever touched; only `.runs/<taskId>/` exists for task.json + uploads). `requirement` = the opening
+ *  message (it doubles as the sidebar title seed and the `languagePin` source). `phase:'test'` is
+ *  pinned like a promote task purely so the FE renders inline; the phase FSM is never entered —
+ *  /ask routes by kind → consultWithin, /reply carve-outs consult, /confirm finds no gate. A restart
+ *  mid-chat is harmless: reconcileOnBoot only touches running/scaffolding, and 'done' is neither. */
+export async function createConsultTask(
+  projectsDir: string,
+  input: { text: string; name?: string | null }
+): Promise<Task> {
+  const taskId = mintTaskId();
+  const text = input.text.trim();
+  const task: Task = {
+    taskId,
+    kind: 'consult',
+    project: null,
+    workflowSlug: null,
+    workflow: null,
+    workflowFile: 'main.yml',
+    requirement: text,
+    seedPath: null,
+    seedAppId: null,
+    deploy: 'none',
+    testMode: 'static',
+    appId: null,
+    appUrl: null,
+    confirmMode: 'each_step',
+    fastMode: false,
+    phase: 'test',
+    status: 'done',
+    name: input.name && input.name.trim() ? input.name.trim() : null,
+    sessionIds: {},
+    artifacts: {},
+  };
+  await mkdir(taskDir(projectsDir, taskId), { recursive: true });
   await saveTask(projectsDir, task);
   return task;
 }

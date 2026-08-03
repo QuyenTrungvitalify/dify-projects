@@ -13,15 +13,17 @@
  *     not just the phase's single gate artifact — mirroring `pathIsProtectedWrite`'s own write-allow
  *     surface so a layer-1 bypass is caught regardless of WHICH in-scope file it touches.
  */
-import { readFile, readdir, writeFile, rm, mkdir } from 'node:fs/promises';
+import { readFile, readdir, writeFile, rm, mkdir, appendFile } from 'node:fs/promises';
 import { join, relative, dirname, sep } from 'node:path';
 import { ClaudeSession } from './claude-session.js';
 import { clearSession, isAskCancelRequested, setSession } from './lock.js';
 import { attachmentBlock } from './attachments.js';
 import { unifiedDiffOfFiles } from './diff.js';
-import { PHASES } from './phases.js';
+import { languagePin, PHASES } from './phases.js';
+import { lintStandaloneYaml } from './base-import.js';
+import { checkRunnability, preflightNote, sourceContractNote } from './runnability.js';
 import { errMsg, resolveRunners, type OrchestratorCtx } from './orchestrator-shared.js';
-import { saveTask, workflowDir, type Task } from '../state/task.js';
+import { bumpRev, saveTask, taskDir, workflowDir, type Task } from '../state/task.js';
 
 /** Pinned shorter than the phase default (10 min) — an Ask is a quick conversational reply, not a long
  *  agentic turn (matches the existing JUDGE_TIMEOUT_MS convention for a short data-turn, live-test.ts).
@@ -436,6 +438,213 @@ export async function askTestWithin(task: Task, text: string, ctx: OrchestratorC
   } catch (e) {
     clearSession(task.taskId); // ensure the /cancel handle is cleared on any throw
     log.error({ taskId: task.taskId, err: errMsg(e) }, 'askTest: unexpected error — surfaced as ask:done{ok:false}');
+    ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
+  }
+}
+
+// ─────────────────────────────── spec 082 · consult chat (kind:'consult') ───────────────────────────
+
+/** Spec 082 §4.2 — the consult ROLE preamble, folded only into a FRESH spawn (a resumed session
+ *  already carries it in its history). Deliberately tiny: the latency win of a consult turn over a
+ *  phase turn is that NO phase doc is inlined — this line is the entire standing context beyond the
+ *  user's own messages and attachments. */
+export const CONSULT_PREAMBLE =
+  "You are the Dify workflow Builder's consult chat: help the user explore ideas, plan workflows, " +
+  "and discuss any attached YAML file. Answer conversationally, in the user's language. " +
+  'Do NOT create, modify, or delete any file — this is a conversation, not a change request. ' +
+  // Spec 082 §4.4: when the user asks to actually BUILD, don't dead-end on a refusal + improvised
+  // "paste it into the Build box" steps. There is a real one-click affordance — point them to it.
+  'When the user wants to actually build the workflow, do NOT just decline: tell them to click the ' +
+  '"Start build from this chat" button at the top of this chat — it turns this whole conversation into ' +
+  'a ready-to-run build requirement (they can edit it before running) — and keep helping them shape the ' +
+  'idea until they click it. Never tell them to copy-paste text into another box by hand.';
+
+/** Spec 082 S3 — one YAML report card: the MACHINE checks (no LLM, ~1s) run on a `.yml` the user
+ *  dropped into the consult. `lint` = the same 4-linter gate the promote paste door uses ([] = clean);
+ *  `preflight`/`contract` = the runnability advisories the ③ verify computes. A tool that fails to run
+ *  is REPORTED in `note` — never silently treated as clean (the 081 preflight DNA). */
+export interface ConsultCard {
+  file: string;
+  lint: string[];
+  preflight?: string;
+  contract?: string;
+  note?: string;
+}
+
+const isYamlRel = (rel: string): boolean => /\.ya?ml$/i.test(rel);
+
+/** Run the machine checks over the consult's attached YAMLs (first 3 — cap logged into the card note,
+ *  no silent truncation). Emits one `ask:card` per file BEFORE the turn spawns, and returns the prompt
+ *  block that folds the same facts into the model's seed so it discusses real data, not guesses. */
+async function yamlCards(task: Task, ctx: OrchestratorCtx): Promise<string> {
+  const { projectsDir, log } = ctx;
+  const { runPython } = resolveRunners(ctx);
+  const yamls = (task.attachments ?? []).filter(isYamlRel);
+  if (!yamls.length) return '';
+  const blocks: string[] = [];
+  for (const rel of yamls.slice(0, 3)) {
+    // Display name = the user's own filename: saveAttachments prefixes saved files with `<idx>_`
+    // (collision-proofing) — strip that machine prefix so the card reads `flow.yml`, not `0_flow.yml`.
+    const base = rel.split('/').pop() ?? rel;
+    const card: ConsultCard = { file: base.replace(/^\d+_/, ''), lint: [] };
+    try {
+      const content = await readFile(join(projectsDir, rel), 'utf8');
+      card.lint = await lintStandaloneYaml(projectsDir, content, runPython);
+    } catch (e) {
+      card.note = `could not run lint: ${errMsg(e)}`;
+    }
+    try {
+      const pf = await checkRunnability(projectsDir, rel, runPython);
+      card.preflight = preflightNote(pf) ?? undefined;
+      card.contract = sourceContractNote(pf) ?? undefined;
+    } catch (e) {
+      card.note = `${card.note ? card.note + ' · ' : ''}could not run preflight: ${errMsg(e)}`;
+    }
+    if (yamls.length > 3) card.note = `${card.note ? card.note + ' · ' : ''}only the first 3 files were checked (${yamls.length} attached)`;
+    ctx.broadcast?.(task.taskId, 'ask:card', card);
+    log.info({ taskId: task.taskId, file: card.file, lint: card.lint.length, note: card.note }, 'consult: yaml card');
+    blocks.push(
+      `## Machine check — ${card.file}\n` +
+      `- lint: ${card.lint.length ? card.lint.join(' | ') : 'clean'}\n` +
+      (card.preflight ? `- preflight: ${card.preflight}\n` : '') +
+      (card.contract ? `- source contract: ${card.contract}\n` : '') +
+      (card.note ? `- note: ${card.note}\n` : '')
+    );
+  }
+  return blocks.length ? `\n\n${blocks.join('\n')}` : '';
+}
+
+/**
+ * Spec 082 (rev 2026-07-30) — the consult transcript lives on the BACKEND at `.runs/<taskId>/chat.jsonl`
+ * (one `{role,text,at}` per line). This DEPARTS from a build Ask's ephemerality (033 D6 — no backend
+ * transcript for the build pipeline): a consult's conversation IS its deliverable, so a reopen must show
+ * it regardless of browser / cleared cache / a second machine — the localStorage-only path (§4.2b, now
+ * superseded) lost it on all three. Scoped to the consult's OWN run dir, so the build pipeline's D6
+ * invariant is untouched. Best-effort: a write failure never breaks the turn; the read degrades to [].
+ */
+export interface ConsultChatLine {
+  role: 'user' | 'assistant';
+  text: string;
+  at?: number;
+}
+async function appendChat(projectsDir: string, taskId: string, role: 'user' | 'assistant', text: string, at: number): Promise<void> {
+  try {
+    await appendFile(join(taskDir(projectsDir, taskId), 'chat.jsonl'), JSON.stringify({ role, text, at }) + '\n', 'utf8');
+  } catch {
+    /* transcript is best-effort — never let it affect the turn */
+  }
+}
+/** Read the persisted consult transcript (GET /api/tasks/:id folds it in for a `kind:'consult'` task). */
+export async function readConsultChat(projectsDir: string, taskId: string): Promise<ConsultChatLine[]> {
+  try {
+    const raw = await readFile(join(taskDir(projectsDir, taskId), 'chat.jsonl'), 'utf8');
+    return raw.split('\n').filter(Boolean).map((l) => JSON.parse(l) as ConsultChatLine);
+  } catch {
+    return []; // no transcript yet / unreadable → the FE falls back to the requirement bubble
+  }
+}
+
+/**
+ * `consultWithin(task, text, ctx)` — spec 082: the chat turn of a `kind:'consult'` task. The
+ * `askTestWithin` shape DUPLICATED (D8 DNA — the shipped ask paths keep byte-behavior), minus the
+ * per-question terminal seed and plus three consult-specific choices, each with a reason:
+ *   1. Seed (preamble + attachments) only on a FRESH spawn — nothing on disk changes between consult
+ *      questions, so a resume never re-folds context (askTestWithin re-seeds because ④ artifacts CAN
+ *      change between questions; a consult's can't). Directly serves the "chat is slow" complaint.
+ *   2. `languagePin(task.requirement)` on EVERY prompt (fresh + resume) — consult is a pure chat
+ *      surface for JP/VN users; prose must follow the user's language from token one.
+ *   3. Self-heal: a consult stranded at `status:'error'` (the create-race loser, or a failSafe on an
+ *      unexpected throw) flips back to 'done' after any successful turn — /ask routes consult by KIND
+ *      (any status), so one message is all it takes to recover the chat.
+ * Containment is layer 1 ONLY (askMode → the hook denies every write): like askTestWithin, there is
+ * no in-progress artifact to protect (D4). Never touches gate/phase; mirrors the never-throw guard.
+ */
+export async function consultWithin(task: Task, text: string, ctx: OrchestratorCtx): Promise<void> {
+  const { projectsDir, settingsPath, log } = ctx;
+  try {
+    // Mirror askWithin's review-#2 guard: a /cancel that landed before setSession (no live child yet —
+    // it merely flagged the holder) must abort here, not run the full turn holding the chat lane.
+    if (isAskCancelRequested(task.taskId)) {
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
+      return;
+    }
+
+    const fresh = !task.sessionIds.askTest;
+    const langPin = languagePin(task.requirement);
+    // S3: the machine checks run only on the FIRST turn (attachments only arrive at create — /ask
+    // carries no files) — card(s) stream to the FE before the model says a word, and the same facts
+    // fold into the seed. Never fatal: yamlCards reports tool failures inside the card itself.
+    const cardBlock = fresh ? await yamlCards(task, ctx) : '';
+    const prompt = fresh
+      ? `${langPin}${CONSULT_PREAMBLE}\n\n---\n\n${text}${attachmentBlock(task.attachments)}${cardBlock}`
+      : `${langPin}${text}`;
+
+    const { runTurn } = resolveRunners(ctx);
+    const session = new ClaudeSession(`${task.taskId}:consult`, {
+      taskId: task.taskId,
+      workingDir: projectsDir,
+      settingsPath,
+      log,
+      // 082 §4.1: consult reuses the `askTest` slot — its semantics are exactly "chat continuity
+      // outside phases" (034 D2), and a consult never has phase sessions to collide with.
+      resumeSessionId: task.sessionIds.askTest,
+      askMode: true, // layer-1 write-deny: BUILDER_ASK_MODE → the hook denies every Write/Edit
+    });
+    setSession(task.taskId, session); // hand the child to /cancel (scoped abort, D9)
+
+    let gotText = false;
+    let answer = ''; // accumulate the streamed answer → the backend transcript (chat.jsonl)
+    const turn = await runTurn(
+      session,
+      prompt,
+      (sid) => {
+        task.sessionIds.askTest = sid; // persist immediately so a mid-turn follow-up resumes it
+        void saveTask(projectsDir, task);
+      },
+      {
+        timeoutMs: ASK_TIMEOUT_MS,
+        onText: (chunk) => {
+          gotText = true;
+          answer += chunk;
+          ctx.broadcast?.(task.taskId, 'ask:answer', { text: chunk });
+        },
+      }
+    );
+    clearSession(task.taskId);
+    if (turn.sessionId) {
+      task.sessionIds.askTest = turn.sessionId;
+      await saveTask(projectsDir, task);
+    }
+
+    // Persist the transcript (rev 2026-07-30). The user's message always lands (the turn ran); the
+    // assistant line lands with whatever the turn produced — the real answer, or the canned error
+    // below — so the reopened chat matches exactly what streamed. `at`/`at+1` orders the pair.
+    const at = Date.now();
+    await appendChat(projectsDir, task.taskId, 'user', text, at);
+
+    // Choice 3 (self-heal): only ever flips error→done — a healthy consult (born 'done') is untouched.
+    if (!turn.isError && task.status === 'error') {
+      task.status = 'done';
+      task.error = undefined;
+      bumpRev(task); // direct broadcast bypasses emit — bump so a stale GET can't resurrect the error
+      await saveTask(projectsDir, task);
+      ctx.broadcast?.(task.taskId, 'task:update', task);
+    }
+
+    // FIX-D-analog: an error with no streamed text → a short canned message, never an empty bubble.
+    if (turn.isError && !gotText) {
+      const cause = turn.note ? ` (${turn.note})` : '';
+      const msg = `couldn't get an answer for that — try again.${cause}`;
+      ctx.broadcast?.(task.taskId, 'ask:answer', { text: msg });
+      await appendChat(projectsDir, task.taskId, 'assistant', msg, at + 1);
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
+      return;
+    }
+    if (gotText) await appendChat(projectsDir, task.taskId, 'assistant', answer, at + 1);
+    ctx.broadcast?.(task.taskId, 'ask:done', { ok: true });
+  } catch (e) {
+    clearSession(task.taskId); // ensure the /cancel handle is cleared on any throw
+    log.error({ taskId: task.taskId, err: errMsg(e) }, 'consult: unexpected error — surfaced as ask:done{ok:false}');
     ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
   }
 }

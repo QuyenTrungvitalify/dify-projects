@@ -240,6 +240,107 @@ export async function listActiveTasks(projectsDir: string, nowMs: number): Promi
 }
 
 /**
+ * Spec 082 — the consult chats (`GET /api/consults`): every `kind:'consult'` task in `.runs/`,
+ * newest first. Flat + slim (the {@link listActiveTasks} shape) for the sidebar's Trao đổi section;
+ * consults are excluded from {@link buildTree} (no project) and — being born `done` — never appear
+ * in listActiveTasks, so this is their one listing surface.
+ */
+export async function listConsultTasks(projectsDir: string, nowMs: number): Promise<TreeTaskNode[]> {
+  const root = runsRoot(projectsDir);
+  if (!existsSync(root)) return [];
+  const out: TreeTaskNode[] = [];
+  for (const taskId of await readdir(root)) {
+    const f = join(root, taskId, 'task.json');
+    if (!existsSync(f)) continue;
+    const raw = await readMaybe(f);
+    if (!raw) continue;
+    let task: Task;
+    try {
+      task = JSON.parse(raw) as Task;
+    } catch {
+      continue;
+    }
+    if (task.kind !== 'consult') continue;
+    out.push({
+      id: task.taskId,
+      name: taskTitle(task),
+      time: relTime(task.taskId, nowMs),
+      status: task.status,
+      phase: task.phase,
+    });
+  }
+  return out.sort((a, b) => Number(b.id) - Number(a.id)); // newest first
+}
+
+/**
+ * Spec 084 S1.5 — the distill/promote tasks (`GET /api/promotes`): every `kind:'promote'` task in
+ * `.runs/`, newest first, capped at ~20. Their own sidebar "蒸留" section (mirror of {@link
+ * listConsultTasks}); excluded from {@link buildTree} so a derivative one-shot never clutters the Build
+ * tree. Shows ALL of them (incl. done/shared) as history — the tray only shows the in-session ones.
+ */
+export async function listPromoteTasks(projectsDir: string, nowMs: number): Promise<TreeTaskNode[]> {
+  const root = runsRoot(projectsDir);
+  if (!existsSync(root)) return [];
+  const out: TreeTaskNode[] = [];
+  for (const taskId of await readdir(root)) {
+    const f = join(root, taskId, 'task.json');
+    if (!existsSync(f)) continue;
+    const raw = await readMaybe(f);
+    if (!raw) continue;
+    let task: Task;
+    try {
+      task = JSON.parse(raw) as Task;
+    } catch {
+      continue;
+    }
+    // Show all promote tasks EXCEPT cancelled/discarded ones (a cancelled distill — incl. a cleared dev
+    // test — is "deleted" intent, not useful history), so Discard/Clear effectively removes it here too.
+    if (task.kind !== 'promote' || task.status === 'cancelled') continue;
+    out.push({
+      id: task.taskId,
+      name: taskTitle(task),
+      time: relTime(task.taskId, nowMs),
+      status: task.status,
+      phase: task.phase,
+    });
+  }
+  return out.sort((a, b) => Number(b.id) - Number(a.id)).slice(0, 20); // newest first, capped
+}
+
+/** spec 084 follow-up — every task id whose `task.project` matches `project`. Used by project-delete to
+ *  (a) guard against a running turn and (b) cascade-remove the build records, so deleting a project folder
+ *  never leaves orphan `.runs/<id>` tasks (which buildTree would otherwise re-home under `_drafts`). */
+export async function listProjectTaskIds(projectsDir: string, project: string): Promise<string[]> {
+  return matchTaskIds(projectsDir, (t) => t.project === project);
+}
+
+/** spec 084 follow-up — every task id under a given (project, workflow). Used by workflow-delete for the
+ *  same guard-then-cascade as project-delete, one level narrower (the Build/`_drafts` rows ARE workflows —
+ *  a from-scratch build scaffolds `projects/_drafts/<slug>/`, so "junk builds" are junk workflows). */
+export async function listWorkflowTaskIds(projectsDir: string, project: string, workflow: string): Promise<string[]> {
+  return matchTaskIds(projectsDir, (t) => t.project === project && t.workflowSlug === workflow);
+}
+
+async function matchTaskIds(projectsDir: string, pred: (t: Task) => boolean): Promise<string[]> {
+  const root = runsRoot(projectsDir);
+  if (!existsSync(root)) return [];
+  const out: string[] = [];
+  for (const taskId of await readdir(root)) {
+    const f = join(root, taskId, 'task.json');
+    if (!existsSync(f)) continue;
+    const raw = await readMaybe(f);
+    if (!raw) continue;
+    try {
+      const task = JSON.parse(raw) as Task;
+      if (pred(task)) out.push(task.taskId);
+    } catch {
+      /* skip a corrupt task.json */
+    }
+  }
+  return out;
+}
+
+/**
  * Spec 030 — build the Project ▸ Workflow ▸ Task tree as a DIRECT 2-level read of the filesystem:
  * `projects/<project>/` are the Project rows, `projects/<project>/<workflow>/` (a dir with a
  * `workflows/` inside) are the Workflow rows. There is no more `project.group` grouping — the folder
@@ -267,6 +368,10 @@ export async function buildTree(projectsDir: string, nowMs: number): Promise<Tre
       } catch {
         continue;
       }
+      // 082: consults live in their own sidebar section (GET /api/consults), never in the project tree.
+      // 084 S1.5: promote/distill tasks likewise get their own "蒸留" section (GET /api/promotes) instead
+      // of cluttering the Build tree with derivative one-shot tasks.
+      if (task.kind === 'consult' || task.kind === 'promote') continue;
       const node: TreeTaskNode = {
         id: task.taskId,
         name: taskTitle(task),

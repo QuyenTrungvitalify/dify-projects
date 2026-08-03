@@ -83,7 +83,7 @@ const ERROR_GATE: Gate = { actions: [REPLY('retry', 'Retry phase')] };
  */
 export type PromoteGateState =
   | 'blocked' | 'distill_failed' | 'review' | 'reviewCollision'
-  | 'share_offer' | 'share_review' | 'share_retry';
+  | 'share_offer' | 'share_review' | 'share_retry' | 'share_blocked';
 export function computePromoteGate(state: PromoteGateState): Gate {
   switch (state) {
     case 'share_offer':
@@ -108,6 +108,14 @@ export function computePromoteGate(state: PromoteGateState): Gate {
           CONFIRM('share_confirm', 'Try push again'),
           CONFIRM('share_skip', 'Keep local only'),
         ],
+        flag: 'promote_share_review',
+      };
+    case 'share_blocked':
+      // spec 084 v1.4 — "Share = Push", BUT a real secret finding is a HARD fuse: no "push anyway" action,
+      // only keep-local. The findings are on p.share for the task view. Reuses the share_review flag so the
+      // wire contract is unchanged (the tray reads `share.findings` to render the block, not a new flag).
+      return {
+        actions: [CONFIRM('share_skip', 'Keep local only')],
         flag: 'promote_share_review',
       };
     case 'blocked':

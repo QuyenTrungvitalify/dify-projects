@@ -217,18 +217,29 @@ def test_doctor_flags_curated_dup_but_not_house_weak_collisions(tmp_path):
 
 # ── CLI smoke (the surface S2/S3 actually call) ──────────────────────────────────────────────────
 
-def test_cli_check_shelf_json_on_a_real_pattern():
-    """`check --shelf --json` on a curated file must self-report dup — proof the live parse sees
-    the shelf, over the real repo, through the exact CLI the backend invokes."""
+def test_cli_check_shelf_json_on_a_real_pattern(tmp_path):
+    """Proof the live shelf parse works through the exact CLI the backend invokes: a byte-identical
+    COPY (outside the shelf) must report dup-of the shelf original. The on-shelf file itself reads
+    'new' — spec 083 self-exclusion: the share preflight runs AFTER finalize landed the pattern, so
+    a self sha-match would read 'dup of itself' and mask any real near-dup."""
     target = BASE / "templates" / "patterns" / "agent-with-tools.yml"
+    copy = tmp_path / "candidate.yml"
+    copy.write_bytes(target.read_bytes())
     out = subprocess.run(
-        [sys.executable, str(BASE / "tools/dify_base/catalog.py"), "check", str(target),
+        [sys.executable, str(BASE / "tools/dify_base/catalog.py"), "check", str(copy),
          "--shelf", "--json"],
         capture_output=True, text=True, check=True,
     )
     v = json.loads(out.stdout)
     assert v["verdict"] == "dup"
+    assert v["match"] == "templates/patterns/agent-with-tools.yml"
     assert v["fingerprint"].startswith("agent:1")
+    out_self = subprocess.run(
+        [sys.executable, str(BASE / "tools/dify_base/catalog.py"), "check", str(target),
+         "--shelf", "--json"],
+        capture_output=True, text=True, check=True,
+    )
+    assert json.loads(out_self.stdout)["verdict"] == "new", "a file is never a duplicate of itself"
 
 
 # ── repo-level record (--url, no file) — gap found on hunt #1 (2026-07-28) ───────────────────────
@@ -251,3 +262,125 @@ def test_record_url_only_repo_level(tmp_path):
 def test_record_no_file_no_url_is_an_error(tmp_path):
     with pytest.raises(ValueError):
         catalog.record(None, "rejected", "x", catalog_path=tmp_path / "c.json")
+
+
+# ── stats (spec 080 S1) — the shelf-dashboard feed ───────────────────────────────────────────────
+
+def _fake_index(root, entries):
+    """Write a minimal index.json under the fake root (stats reads it root-relative)."""
+    p = root / "tools" / "dify_base" / "index.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(entries), encoding="utf-8")
+
+
+def _index_entry(source, file, **kw):
+    return {"source": source, "file": file, "path": f"{source}/{file}",
+            "complexity": kw.pop("complexity", "Simple"),
+            "has_llm": kw.pop("has_llm", True), "has_code": kw.pop("has_code", False),
+            "tags": kw.pop("tags", []), **kw}
+
+
+def _stamp_provenance(path, promoted, source="original"):
+    """Prepend an x-provenance header (the finalizePromotion / template-promote convention)."""
+    body = path.read_text(encoding="utf-8")
+    header = (f"# x-provenance: source={source} repo=https://example.git\n"
+              f'#   commit=abc1234 file="x.yml" orig_sha256=deadbeef promoted={promoted} license=MIT\n')
+    path.write_text(header + body, encoding="utf-8")
+
+
+def test_stats_schema_counts_and_patterns_promotes(tmp_path):
+    """The v1.1 case (a): a promote stamped in templates/patterns/ MUST appear in `promotes` —
+    finalizePromotion stamps patterns/, and a library-only reader is blind exactly where the
+    078 nudge lands its output."""
+    root = _shelf_root(tmp_path)
+    cat_path = tmp_path / "collected.json"
+    catalog.seed(root=root, catalog_path=cat_path)
+    _fake_index(root, [
+        _index_entry("patterns", "four.yml", has_code=True),
+        _index_entry("patterns", "trivial.yml", tags=["translate"]),
+        _index_entry("example", "agentic.yml", complexity="Medium", has_agent=True, tags=["agent"]),
+    ])
+    _stamp_provenance(root / "templates/patterns/four.yml", "2026-07-15")
+
+    s = catalog.stats(root=root, catalog_path=cat_path)
+    assert s["ok"] is True
+    assert s["total"] == 3
+    assert {t["tier"]: t["count"] for t in s["tiers"]} == {"patterns": 2, "example": 1}
+    feats = {f["key"]: f["count"] for f in s["features"]}
+    assert feats["has_llm"] == 3 and feats["has_code"] == 1 and feats["has_agent"] == 1
+    assert s["complexity"] == {"Simple": 2, "Medium": 1}
+    assert s["tags"]["unique"] == 2
+    assert [p["file"] for p in s["promotes"]] == ["four.yml"]
+    assert s["promotes"][0]["tier"] == "patterns"
+    assert s["seed_coverage"]["stale"] is False
+    assert s["doctor"]["curated_problems"] == []
+    assert s["hunts"] == {"count": 0, "last": None, "median_new": None}
+
+
+def test_stats_flags_stale_seed(tmp_path):
+    """The v1.1 case (b): an indexed file missing from collected.json → stale seed + a hint."""
+    root = _shelf_root(tmp_path)
+    cat_path = tmp_path / "collected.json"
+    catalog.seed(root=root, catalog_path=cat_path)
+    _fake_index(root, [_index_entry("patterns", f"f{i}.yml") for i in range(4)])  # 4 > 3 seeded
+    s = catalog.stats(root=root, catalog_path=cat_path)
+    assert s["seed_coverage"] == {"indexed": 4, "seeded": 3, "stale": True}
+    assert any("catalog.py seed" in h for h in s["hints"])
+
+
+def test_stats_rejected_and_repo_level_not_in_diversity(tmp_path):
+    """The v1.1 case (c): hunt leftovers — a rejected FILE and a URL-keyed repo-level entry —
+    are memory about the outside world, never shelf diversity."""
+    root = _shelf_root(tmp_path)
+    cat_path = tmp_path / "collected.json"
+    catalog.seed(root=root, catalog_path=cat_path)
+    reject = _write(tmp_path / "reject.yml",
+                    _wf(["start", "question-classifier", "llm", "llm", "end"],
+                        [(0, 1), (1, 2), (1, 3), (2, 4), (3, 4)]))
+    catalog.record(reject, "rejected", "no license", url="https://x/y", catalog_path=cat_path)
+    catalog.record(None, "rejected", "empty repo", url="https://x/empty", catalog_path=cat_path)
+    _fake_index(root, [_index_entry("patterns", f"f{i}.yml") for i in range(3)])
+    s = catalog.stats(root=root, catalog_path=cat_path)
+    assert s["diversity"]["files"] == 3  # the 3 seeded shelf files only
+    assert s["seed_coverage"]["seeded"] == 3
+
+
+def test_stats_missing_index_is_not_ok(tmp_path):
+    root = _shelf_root(tmp_path)  # no index.json written
+    s = catalog.stats(root=root, catalog_path=tmp_path / "collected.json")
+    assert s["ok"] is False
+    assert "build_index.py" in s["hint"]
+
+
+def test_stats_curated_dup_surfaces_in_doctor_block(tmp_path):
+    root = _shelf_root(tmp_path)
+    cat_path = tmp_path / "collected.json"
+    catalog.seed(root=root, catalog_path=cat_path)
+    src = root / "templates/patterns/four.yml"
+    (root / "templates/library/copy.yml").write_text(src.read_text(), encoding="utf-8")
+    _fake_index(root, [_index_entry("patterns", "four.yml")])
+    s = catalog.stats(root=root, catalog_path=cat_path)
+    assert any("sha256 dup" in p for p in s["doctor"]["curated_problems"])
+
+
+def test_cli_stats_json_on_the_real_repo():
+    """The exact surface GET /api/dev/shelf spawns — must emit one parseable JSON object."""
+    out = subprocess.run(
+        [sys.executable, str(BASE / "tools/dify_base/catalog.py"), "stats", "--json"],
+        capture_output=True, text=True, check=True,
+    )
+    s = json.loads(out.stdout)
+    assert s["ok"] is True and s["total"] >= 1
+    assert {"tiers", "features", "diversity", "doctor", "promotes", "sources", "hunts"} <= set(s)
+
+
+def test_check_shelf_excludes_the_candidate_itself(tmp_path):
+    """Spec 083 — the share preflight checks a pattern AFTER finalize already landed it on
+    templates/patterns/: its own shelf entry must not sha-match (else every share reads
+    'dup of itself'), and the self-match must not MASK a real dup with a DIFFERENT file."""
+    root = _shelf_root(tmp_path)
+    on_shelf = root / "templates/patterns/four.yml"
+    assert catalog.check_file(on_shelf, shelf=True, root=root)["verdict"] == "new"
+    _write(root / "templates/patterns/four-copy.yml", _wf(FOUR_NODE, FOUR_EDGES))
+    v = catalog.check_file(on_shelf, shelf=True, root=root)
+    assert v["verdict"] == "dup" and v["match"] == "templates/patterns/four-copy.yml"

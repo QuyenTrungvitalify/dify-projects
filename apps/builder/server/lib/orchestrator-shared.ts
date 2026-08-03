@@ -10,7 +10,7 @@
  */
 import type { SessionLogger } from './claude-session.js';
 import { postTurnCheck as realPostTurnCheck } from './post-turn.js';
-import { runPython as realRunPython } from './shell.js';
+import { runGit as realRunGit, runPython as realRunPython } from './shell.js';
 import { runTurn as realRunTurn } from './turn-runner.js';
 import { runReport as realRunReport } from './report.js';
 import {
@@ -36,9 +36,20 @@ import { saveTask, toWireTask, type Task } from '../state/task.js';
  * ③ Implement verdict flows through it — without it the advance ladder can't be driven without a real
  * `.venv` (013 Q3 seam scope).
  */
+/** Spec 083 — the minimal structural fetch the share drop-transport needs. Structural (not the DOM
+ *  Response type) so tests fake it with a plain object and the server needs no lib.dom. */
+export type FetchLike = (
+  url: string,
+  init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal }
+) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
+
 export interface OrchestratorRunners {
   runTurn: typeof realRunTurn;
   runPython: typeof realRunPython;
+  /** Spec 081: the share flow's git ops (origin probe, worktree commit, push). Tests inject a fake. */
+  runGit: typeof realRunGit;
+  /** Spec 083: the share drop-transport's HTTP POST. Tests inject a fake; default = global fetch. */
+  fetchFn: FetchLike;
   runReport: typeof realRunReport;
   postTurnCheck: typeof realPostTurnCheck;
   /** Spec 032: the live-test Dify ops (each shells sync.py). Tests inject fakes here to drive
@@ -92,6 +103,8 @@ export function resolveRunners(ctx: OrchestratorCtx): OrchestratorRunners {
   return {
     runTurn: r.runTurn ?? realRunTurn,
     runPython: r.runPython ?? realRunPython,
+    runGit: r.runGit ?? realRunGit,
+    fetchFn: r.fetchFn ?? (globalThis.fetch as unknown as FetchLike),
     runReport: r.runReport ?? realRunReport,
     postTurnCheck: r.postTurnCheck ?? realPostTurnCheck,
   };

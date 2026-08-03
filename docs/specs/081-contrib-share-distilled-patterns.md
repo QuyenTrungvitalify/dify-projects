@@ -1,14 +1,32 @@
 # Spec 081 — Chia sẻ ngược: user bản-sạch đẩy pattern đã chưng cất về repo chung
 
-**Status**: Draft v1 (2026-07-28). Kết quả của 2 vòng phân tích (giữ lại để không đề xuất lại):
+**Status**: Implemented (2026-07-28) — S1 (§9 templates-and-promotion.md) · S2 (`share.ts` +
+promote FSM 2 gate mới + UI/i18n; commit dựng trong `git worktree` vứt-đi nên checkout user không
+bị đụng) · S2b (`contrib-pr.yml` + ci.yml push-trigger `contrib/**`) · S3 (`promote_gate.py
+share-scan`) · S4 (GUIDE §9b). Test: pytest 384✓ · server 710✓ (gồm share.test.ts với git thật) ·
+web 198✓. Quyết định lúc implement: checklist đổi "README headline" → bump số pattern ở **3 docs**
+(README+AGENTS+architecture — drift suite pin số chính xác); share offer là gate `awaiting_confirm`
+(route /confirm không nhận task done); cả hai gate share chỉ có action confirm (không cancel — "không"
+không được biến promotion đã xong thành cancelled). **Nghiệm thu còn lại (cần push + GitHub thật)**:
+một lần share end-to-end từ máy thứ hai → PR tự mở, CI gắn check, merge → máy khác pull thấy pattern.
+**Amend (2026-07-29)**: transport branch+PR đòi push-right/git-identity/GitHub-account nên không
+phục vụ được all user → spec 083 chuyển đường chính sang drop-URL (Apps Script → Drive), git+PR
+lùi làm fallback. Gate/preflight/UI của spec này tái dùng nguyên vẹn.
+Kết quả của 3 vòng phân tích (giữ lại để không đề xuất lại):
 (1) đề xuất gốc của user "chưng cất xong thì **tự động** commit + push" — giữ nhu cầu, **loại chữ
 tự-động-không-gate** (secrets + chất lượng + quyền ghi, xem §7); (2) vòng 1 Claude đề xuất "repo
 community riêng làm corpus source" — **tự bác sau khi soi lại 074/052**: contributor bản-sạch đã có
 nguyên Builder + `templates/` + `tools/` trong view, và đường chưng cất của họ là **promote FSM có
 sẵn** (spec 052/070/078) vốn đã sanitize + gate + đóng dấu provenance; sản phẩm đó xứng đáng tầng
 `patterns` (precedence cao nhất khi retrieval), không phải tầng intake của một repo phụ phải nuôi
-thêm. Repo community chỉ còn là đường scale tương lai (§7).
-**Effort**: S1 ≈ XS · S2 ≈ S–M · S3 ≈ XS · S4 ≈ XS — tổng ≈ **M**, code mới tập trung ở Builder.
+thêm. Repo community chỉ còn là đường scale tương lai (§7); (3) v1 bắt contributor "bấm link mở
+trang tạo PR" — **user cắt**: hành trình trên máy user kết thúc ở cái gật; **hub tự mở PR** bằng
+Action khi thấy branch `contrib/**` (S2b), owner tự check PR theo nhịp riêng. Kéo theo gotcha đã
+verify: PR do Action mở bằng `GITHUB_TOKEN` KHÔNG kích hoạt workflow `pull_request` (luật chống
+đệ quy GitHub) và `ci.yml` hiện chỉ push-trigger trên `main` → phải nới push-trigger sang
+`contrib/**` để CI chạy ngay trên cú push và check tự gắn vào PR (không cần PAT).
+**Effort**: S1 ≈ XS · S2 ≈ S–M · S2b ≈ XS · S3 ≈ XS · S4 ≈ XS — tổng ≈ **M**, code mới tập trung
+ở Builder.
 **Phụ thuộc**: spec 074 (bản sạch) phải ship trước — contributor có clone thì mới có chỗ push.
 **Đóng spec**: qua `/spec-close 081`.
 
@@ -31,6 +49,9 @@ sau đó mọi bản sạch khác nhận qua `git pull` thường (đường upd
   cuối (kèm kết quả scan secrets) và gật **trước khi** push — nội dung chưa rời máy họ khi chưa
   gật; (b) owner review PR trước khi merge. Không auto-push, không auto-merge — cùng DNA
   human-gated của toàn hệ (promote, enrichment, sync-corpus đều thế).
+- **Hành trình contributor kết thúc ở cái gật.** Sau gật, mọi thứ còn lại (push, mở PR, CI) là
+  việc của máy — user không phải mở GitHub, không bấm link, không soạn gì. PR mở tự động phía hub
+  (S2b); owner check danh sách PR theo nhịp riêng của mình, không cần cơ chế báo riêng.
 - **Đơn vị chia sẻ = pattern đã chưng cất**, không bao giờ là raw build/project export — bài học
   E4: distill turn đã thay domain specifics bằng placeholder, blank model, đóng dấu provenance;
   đây chính là lớp sanitize-by-design, share chỉ bồi thêm một lượt scan.
@@ -82,12 +103,23 @@ provenance đủ điều kiện share (§3): gate cuối nhận thêm action `sh
 2. **User gật** (cổng người thứ nhất — bắt buộc, không có đường tắt).
 3. **Git ops** (server, rón rén): branch `contrib/<slug>-<YYYYMMDD>` từ HEAD hiện tại →
    pathspec-commit đúng 2 path (`templates/patterns/<slug>.yml`, `INDEX.md`) → `git push -u
-   origin <branch>` → dựng URL `https://github.com/<owner>/<repo>/compare/main...<branch>?expand=1`
-   trả về UI kèm nhắc "mở link để tạo PR". Body PR gợi ý sẵn (copy được): verdict gate +
-   known_good_dify + dup-check + checklist S1.
-4. **Lỗi git surface tử tế**: thiếu `user.email` → hướng dẫn `git config`; push bị từ chối
+   origin <branch>`. **Body của commit message mang khối metadata cho PR** (verdict gate +
+   known_good_dify + dup-check + checklist S1) — đây là kênh chuyển thông tin từ máy contributor
+   sang hub, vì PR do hub mở (S2b) chứ không phải máy user.
+4. **UI kết thúc tại đây**: hiện "Đã gửi pattern lên repo chung — owner sẽ review." Không link,
+   không bước GitHub nào cho user.
+5. **Lỗi git surface tử tế**: thiếu `user.email` → hướng dẫn `git config`; push bị từ chối
    (không quyền) → hướng dẫn fork thủ công (v1 không tự fork); offline → báo thử lại. Không lỗi
    nào được nuốt im.
+
+### S2b — Hub: Action tự mở PR cho branch `contrib/**` (XS)
+- Workflow mới `.github/workflows/contrib-pr.yml`: `on: push: branches: ['contrib/**']` →
+  check-out nông → nếu branch chưa có PR mở (khuôn check-existing của `sync-corpus.yml`) thì
+  `gh pr create --base main` với title = subject commit, body = body commit (khối metadata S2.3)
+  qua `GH_TOKEN=${{ secrets.GITHUB_TOKEN }}`. Idempotent: push tiếp lên branch cũ không mở PR đôi.
+- **Nới push-trigger của `ci.yml`**: `branches: [main]` → `[main, 'contrib/**']`, kèm comment nêu
+  lý do (PR mở bằng GITHUB_TOKEN không trigger `pull_request` — CI phải chạy trên chính cú push
+  để check gắn vào PR). Không cần PAT, không secret mới.
 
 ### S3 — `promote_gate.py share-scan` (XS)
 Mode mới, chỉ chạy lúc share (không đụng gate promote thường): scan file cho (a) chuỗi dạng
@@ -97,8 +129,9 @@ liệt kê cho user tự quyết ở bước gật (secrets thật thì họ s�
 `--json` cho server parse. + unit test cho từng lớp pattern.
 
 ### S4 — Docs + vòng nhận (XS)
-- GUIDE (phần user bản sạch): mục "Chia sẻ pattern của bạn" — bấm Share, mở link PR; và chiều
-  ngược lại: `git pull` là nhận được pattern người khác (index.json rebuild theo đường sẵn có).
+- GUIDE (phần user bản sạch): mục "Chia sẻ pattern của bạn" — bấm Share, xem lại, gật là xong;
+  và chiều ngược lại: `git pull` là nhận được pattern người khác (index.json rebuild theo đường
+  sẵn có).
 - Ghi rõ license: share = đồng ý phát hành pattern theo MIT (header promote đã stamp sẵn) —
   một dòng trong turn confirm, không cần CLA.
 
@@ -109,9 +142,11 @@ liệt kê cho user tự quyết ở bước gật (secrets thật thì họ s�
   dirty khác của user (dựng repo tạm có file dirty làm chứng); mọi nhánh lỗi git trả message,
   không throw chết task.
 - `share-scan`: unit test 3 lớp pattern + case sạch im lặng.
+- `contrib-pr.yml` + `ci.yml` sau sửa qua `yaml.safe_load` (khuôn sanity 077/079).
 - Toàn bộ suite hiện có không đổi hành vi khi **không** bấm share (promote thường byte-identical).
 - Nghiệm thu tay: một lần share thật end-to-end trên máy thứ hai (hoặc clone thứ hai giả lập
-  contributor) → PR mở được, CI xanh, merge xong máy kia `git pull` thấy pattern + INDEX.
+  contributor) → push xong PR **tự mở** với body đúng metadata, CI chạy và check gắn vào PR,
+  merge xong máy kia `git pull` thấy pattern + INDEX.
 
 ## 6. Open questions
 

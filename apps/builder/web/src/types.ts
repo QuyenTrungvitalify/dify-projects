@@ -28,6 +28,7 @@ export interface WireGate {
   actions: WireGateAction[];
   // spec 032: `test_result` = live-test verdict gate; `infra_degraded` = live couldn't run (degrade).
   // spec 052: the promote build's three parked gates (blocked / distill-failed / review-before-Approve).
+  // spec 081: the two post-finalize share gates (offer / preflight-review-before-push).
   flag?:
     | 'still_failing'
     | 'awaiting_import'
@@ -35,7 +36,21 @@ export interface WireGate {
     | 'infra_degraded'
     | 'promote_blocked'
     | 'promote_distill_failed'
-    | 'promote_review';
+    | 'promote_review'
+    | 'promote_share_offer'
+    | 'promote_share_review';
+}
+
+/** spec 081 — the share-upstream state on a promote task (mirrors server PromoteShare). */
+export interface WirePromoteShare {
+  state: 'review' | 'pushed' | 'failed';
+  /** spec 083: 'drop' = POSTed to the team drop URL (primary); 'git' = contrib/* branch (fallback). */
+  mode?: 'drop' | 'git';
+  findings?: { kind: string; line: number; excerpt: string }[];
+  dup?: string;
+  note?: string;
+  branch?: string;
+  error?: string;
 }
 
 /** spec 052 — the promotion state on a `kind:'promote'` Task (mirrors server PromoteState). */
@@ -49,6 +64,13 @@ export interface WirePromote {
   verdict?: { eligible: boolean; reasons: string[]; probe: string; probeDetail?: string; knownGoodDify?: string | null };
   rules?: string[];
   note?: string;
+  /** spec 081: present only while/after the share turn ran (absent = never offered or skipped). */
+  share?: WirePromoteShare;
+  /** spec 084: the distill turn's persisted output — replayed as a run disclosure when the task is opened
+   *  after it finished (a bg distill's live SSE was never watched). Absent on a pre-084 snapshot. */
+  distillLog?: string;
+  /** spec 084 (DEV): a test distill — dry-run (never auto-finalizes) + tray-clearable. Absent ⇒ normal. */
+  test?: boolean;
 }
 
 /** spec 032 — the live workflow-test result surfaced at the Test-result gate (mirrors the server). */
@@ -80,10 +102,14 @@ export interface WireArtifacts {
 
 export interface WireTask {
   taskId: string;
-  /** spec 052: the build kind. Absent ⇒ 'build' (the ①②③④ pipeline). 'promote' = the gated distill flow. */
-  kind?: 'build' | 'promote';
+  /** spec 052: the build kind. Absent ⇒ 'build' (the ①②③④ pipeline). 'promote' = the gated distill flow.
+   *  spec 082: 'consult' = the chat-first mode (born done, /ask-only, no phases/gates/artifacts). */
+  kind?: 'build' | 'promote' | 'consult';
   /** spec 052: promotion state (present only on a `kind:'promote'` task). */
   promote?: WirePromote;
+  /** spec 082 (rev): the persisted consult transcript — one {role,text} per message, in order. Only on a
+   *  GET /api/tasks/:id for a `kind:'consult'` task; the FE rebuilds the chat thread from it on reopen. */
+  chat?: { role: 'user' | 'assistant'; text: string }[];
   project: string | null;
   workflow: string | null;
   workflowFile: string;

@@ -103,3 +103,19 @@ export function runContextCrumb(task: RunCrumbTask, tree: WireTreeProject[]): Ru
   if (!group && !leaf) return null;
   return { group, leaf };
 }
+
+/** spec 084 S1.5 — the sidebar's active PROJECT for an open task. A promote/distill task lives in its
+ *  own "蒸留" section, so it must NOT highlight the SOURCE project it carries for provenance — return
+ *  null (mirrors a consult, whose project is already null). */
+export function activeSidebarProject(task: Pick<WireTask, 'kind' | 'project'>): string | null {
+  if (task.kind === 'promote') return null;
+  return task.project ?? null;
+}
+
+/** spec 084 S1.5 — the sidebar's active `project/workflow` key for an open task. A promote/distill task
+ *  must NOT highlight its SOURCE workflow in the Build tree (it carries the source's project/workflowSlug
+ *  for the header pill + provenance) — return null, so only its Distill-section row highlights. */
+export function activeSidebarWorkflow(task: Pick<WireTask, 'kind' | 'project' | 'workflowSlug'>): string | null {
+  if (task.kind === 'promote') return null;
+  return task.project && task.workflowSlug ? `${task.project}/${task.workflowSlug}` : null;
+}

@@ -2,7 +2,11 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    # Spec 081: `contrib/**` push-triggers CI because the contrib PR is opened by contrib-pr.yml
+    # with GITHUB_TOKEN, and token-created PRs never trigger `pull_request` workflows (GitHub's
+    # anti-recursion rule). Running on the contributor's own push attaches the checks to the PR
+    # via the head SHA — same coverage, no PAT.
+    branches: [main, 'contrib/**']
   pull_request:
 
 concurrency:

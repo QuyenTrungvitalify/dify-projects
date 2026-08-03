@@ -25,7 +25,7 @@ import { attachmentBlock } from './attachments.js';
 import { snapshotDiffBase, writeDiffArtifact } from './diff.js';
 import { lintClean, type LintCodes } from './linters.js';
 import { computeGate, type GateOutcome } from './gate.js';
-import { clearSession, isCancelled, setSession, turnHolderId } from './lock.js';
+import { buildHolderId, clearSession, isCancelled, setSession } from './lock.js';
 import { emit, errMsg, httpError, resolveLiveOps, resolveRunners, type OrchestratorCtx, type ConfirmPayload } from './orchestrator-shared.js';
 import { deriveSlugName, firstFreeSlug } from './slug.js';
 import { difySeedScaffoldAndPull, localEditSeed, scaffoldAtSpecGate, relocateRunArtifacts } from './scaffold.js';
@@ -521,10 +521,10 @@ async function runPhase(
   // NEVER spawn a turn for a build that no longer owns the TURN lock. The primary guard is the live
   // `isCancelled` flag: a /cancel during the awaits above (emit/readFile/gitDirtyPaths) force-kills any
   // child + marks cancelled on a SEPARATELY-loaded object, and the auto-advance path gates only on the
-  // stale in-memory status. `turnHolderId() !== task.taskId` is a defensive backstop (the turn lock is
-  // held for THIS build across its whole dispatched work, so it should always match) — if it somehow
-  // doesn't, the spawn's setSession() would no-op → an untracked, unkillable turn. Bail in either case.
-  if (isCancelled(task.taskId) || turnHolderId() !== task.taskId) {
+  // stale in-memory status. `buildHolderId() !== task.taskId` is a defensive backstop (the BUILD lane is
+  // held for THIS build across its whole dispatched work, so it should always match — 082) — if it
+  // somehow doesn't, the spawn's setSession() would no-op → an untracked, unkillable turn. Bail either way.
+  if (isCancelled(task.taskId) || buildHolderId() !== task.taskId) {
     task.status = 'cancelled';
     task.gate = undefined;
     await saveTask(projectsDir, task);

@@ -18,8 +18,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import {
   bumpRev,
+  createConsultTask,
   createPromoteTask,
   createTask,
+  deleteTask,
   isValidWorkflowFile,
   loadTask,
   normalizeConfirmMode,
@@ -31,7 +33,7 @@ import {
 import { computeGate } from '../lib/gate.js';
 import { difyTargets } from '../lib/dify-io.js';
 import { runLiveTest } from '../lib/live-test.js';
-import { promoteConfirm, promoteReply, resolvePastedPromoteSource, resolvePromoteSource, startPromote } from '../lib/promote.js';
+import { promoteConfirm, promoteReply, resolvePastedPromoteSource, resolvePromoteSource, startPromote, undoPromotion } from '../lib/promote.js';
 import { lintStandaloneYaml } from '../lib/base-import.js';
 import { resolveRunners } from '../lib/orchestrator-shared.js';
 import {
@@ -41,8 +43,8 @@ import {
   type ConfirmPayload,
   type OrchestratorCtx,
 } from '../lib/orchestrator.js';
-import { askWithin, askTestWithin } from '../lib/ask.js';
-import { acquireTurn, evictCancelled, isCancelled, liveKind, liveSession, markCancelled, releaseTurn, requestAskCancel, turnBusy, turnHolderId, unmarkCancelled } from '../lib/lock.js';
+import { askWithin, askTestWithin, consultWithin, readConsultChat } from '../lib/ask.js';
+import { acquireTurn, buildHolderId, buildTurnBusy, chatHolderId, chatTurnBusy, evictCancelled, isCancelled, liveKind, liveSession, markCancelled, releaseTurn, requestAskCancel, taskTurnRunning, unmarkCancelled, type TurnKind } from '../lib/lock.js';
 import { readArtifactContents } from '../lib/artifacts.js';
 import { MAX_ATTACHMENT_BYTES, saveAttachments, validateAttachments } from '../lib/attachments.js';
 
@@ -68,11 +70,13 @@ export interface TasksRoutesOptions {
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-/** The turn-collision 409 (a turn is running for some build; parked builds never trigger it). The
- *  `holder` lets the UI offer a one-tap "open it" jump to whichever build is running. */
-const turnBusyError = (): { error: string; holder: string | null } => ({
+/** The turn-collision 409 (a turn is running; parked builds never trigger it). The `holder` lets the
+ *  UI offer a one-tap "open it" jump to whichever task is running. 082: lane-aware — report the
+ *  blocking lane's holder first; the fallback covers a per-task-exclusivity reject (the task itself
+ *  holds the OTHER lane, so that holder is the blocker). Error string is WORDING-STABLE (i18n frames). */
+const turnBusyError = (kind: TurnKind = 'phase'): { error: string; holder: string | null } => ({
   error: 'a turn is already running — try again in a moment',
-  holder: turnHolderId(),
+  holder: kind === 'phase' ? (buildHolderId() ?? chatHolderId()) : (chatHolderId() ?? buildHolderId()),
 });
 
 const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) => {
@@ -166,7 +170,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
 
     // Fast path: a turn is already running → 409 without minting a task. A build PARKED at a gate does
     // NOT block this (turn-level lock) — that is the whole point of Lát 6.
-    if (turnBusy()) return reply.code(409).send(turnBusyError());
+    if (buildTurnBusy()) return reply.code(409).send(turnBusyError());
 
     const task = await createTask(projectsDir, {
       requirement,
@@ -225,6 +229,9 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
   //    NOT the ①②③④ FSM — startPromote/promoteConfirm/promoteReply drive it. Origin-checked (index.ts). ──
   app.post('/api/promote', async (req, reply) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
+    // spec 084: a DEV test distill (dry-run — never auto-finalizes). Honored ONLY under BUILDER_DEV, so a
+    // normal/prod run ignores a stray `test:true` and always behaves as a real promote.
+    const test = body.test === true && process.env.BUILDER_DEV === '1';
 
     // spec 070: TWO source doors. `origin:'paste'` (or a `yaml` payload) distills an EXTERNAL YAML that
     // exists in no project — validate the same 4-linter gate as base-import (G5: reject inline, no task),
@@ -244,7 +251,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       const src = resolvePastedPromoteSource(yaml);
       if (!src.ok) return reply.code(src.status).send({ error: src.error });
 
-      if (turnBusy()) return reply.code(409).send(turnBusyError());
+      if (buildTurnBusy()) return reply.code(409).send(turnBusyError());
       const label =
         typeof body.sourceLabel === 'string' && body.sourceLabel.trim() ? body.sourceLabel.trim()
         : typeof body.fileName === 'string' && body.fileName.trim() ? body.fileName.trim()
@@ -252,7 +259,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       const license = typeof body.license === 'string' && body.license.trim() ? body.license.trim() : 'unknown';
       const task = await createPromoteTask(projectsDir, {
         project: '(external)', workflow: src.slug, sourceFile: '', slug: src.slug,
-        external: { yaml, label, sha256: src.sha256, license },
+        external: { yaml, label, sha256: src.sha256, license }, test,
       });
       if (!acquireTurn(task.taskId)) {
         task.status = 'error';
@@ -269,8 +276,8 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     const src = resolvePromoteSource(projectsDir, project, workflow);
     if (!src.ok) return reply.code(src.status).send({ error: src.error });
 
-    if (turnBusy()) return reply.code(409).send(turnBusyError());
-    const task = await createPromoteTask(projectsDir, { project, workflow, sourceFile: src.sourceFile, slug: src.slug });
+    if (buildTurnBusy()) return reply.code(409).send(turnBusyError());
+    const task = await createPromoteTask(projectsDir, { project, workflow, sourceFile: src.sourceFile, slug: src.slug, test });
     if (!acquireTurn(task.taskId)) {
       task.status = 'error';
       task.error = 'rejected — another turn is running';
@@ -278,6 +285,48 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       return reply.code(409).send(turnBusyError());
     }
     dispatch(task.taskId, startPromote(task, ctx));
+    return reply.send(task);
+  });
+
+  // ── POST /api/consult — start a `kind:'consult'` chat task (spec 082): chat-first, no phases, no
+  //    gates, born terminal-askable. The FIRST message rides in as `text` (+ optional files, same
+  //    validateAttachments allowlist — .yml included); every later message is a plain POST /:id/ask.
+  //    Runs on the CHAT lane, so a running build never blocks starting or continuing a chat. ──
+  app.post('/api/consult', async (req, reply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const text = String(body.text ?? '').trim();
+    if (!text) return reply.code(400).send({ error: 'text is required' });
+    const attCheck = validateAttachments(body.files);
+    if (!attCheck.ok) return reply.code(400).send({ error: attCheck.error });
+
+    // Fast path: the chat lane is busy → 409 without minting a task (mirrors POST /api/tasks).
+    if (chatTurnBusy()) return reply.code(409).send(turnBusyError('ask'));
+
+    const task = await createConsultTask(projectsDir, { text, name: (body.name as string | null | undefined) ?? null });
+
+    // Persist files BEFORE acquiring the lane (a disk failure → 500 with NO lock held) — same ritual
+    // and reasons as POST /api/tasks.
+    if (attCheck.attachments.length) {
+      try {
+        task.attachments = await saveAttachments(projectsDir, task.taskId, attCheck.attachments, 0);
+        await saveTask(projectsDir, task);
+      } catch (e) {
+        task.status = 'error';
+        task.error = `file write failed: ${errMsg(e)}`;
+        await saveTask(projectsDir, task);
+        return reply.code(500).send({ error: `failed to save files: ${errMsg(e)}` });
+      }
+    }
+
+    // Race-safe acquire — the POST /api/tasks loser ritual (082 §4.3): mark the stray task, 409. The
+    // stray stays reachable in the consult list and SELF-HEALS on its first successful /ask message.
+    if (!acquireTurn(task.taskId, 'ask')) {
+      task.status = 'error';
+      task.error = 'rejected — another chat is running';
+      await saveTask(projectsDir, task);
+      return reply.code(409).send(turnBusyError('ask'));
+    }
+    dispatch(task.taskId, consultWithin(task, text, ctx));
     return reply.send(task);
   });
 
@@ -294,7 +343,10 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // toWireTask adds the computed `liveTargets` capability bit so a reconnect GET (the authoritative
     // re-fetch) carries it — the done-state "Run test with workflow" foot needs it on every snapshot.
     const artifactContents = await readArtifactContents(projectsDir, task);
-    return { ...toWireTask(task), artifactContents };
+    // Spec 082 (rev): a consult's persisted transcript rides the authoritative GET so a reopen restores
+    // the full conversation from the backend — independent of the client's localStorage.
+    const chat = task.kind === 'consult' ? await readConsultChat(projectsDir, id) : undefined;
+    return { ...toWireTask(task), artifactContents, ...(chat ? { chat } : {}) };
   });
 
   // ── POST /api/tasks/:id/confirm — advance one boundary (the gate) ──
@@ -345,6 +397,42 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     return reply.send(optimisticRunning(task));
   });
 
+  // ── POST /api/tasks/:id/undo-promote — spec 084 S2: gỡ 1-click an auto-approved pattern. Inverse of
+  //    finalizePromotion, KEPT SIMPLE (no git): unlink templates/patterns/<slug>.yml + rebuild INDEX/
+  //    provenance so the catalog never dangles. Idempotent — a missing file is a no-op, not an error. ──
+  app.post('/api/tasks/:id/undo-promote', async (req, reply) => {
+    const id = idOf(req);
+    let task;
+    try {
+      task = await loadTask(projectsDir, id);
+    } catch {
+      return reply.code(404).send({ error: `no such task: ${id}` });
+    }
+    if (task.kind !== 'promote') {
+      return reply.code(409).send({ error: 'not a promote task' });
+    }
+    const res = await undoPromotion(task, ctx);
+    return reply.send({ ok: true, removed: res.removed });
+  });
+
+  // ── DELETE /api/tasks/:id — spec 084 follow-up: permanently remove a task record (its .runs/<id> dir),
+  //    so the user can clear a sidebar list. Guarded: a task whose turn is RUNNING must be cancelled first
+  //    (deleting its dir mid-turn would break the live process) → 409. A missing task → 404. ──
+  app.delete('/api/tasks/:id', async (req, reply) => {
+    const id = idOf(req);
+    if (taskTurnRunning(id)) {
+      return reply.code(409).send({ error: 'this task has a turn running — cancel it before removing it' });
+    }
+    try {
+      await loadTask(projectsDir, id);
+    } catch {
+      return reply.code(404).send({ error: `no such task: ${id}` });
+    }
+    await deleteTask(projectsDir, id);
+    evictCancelled(id); // drop any stale in-memory cancelled-flag bookkeeping for this id
+    return reply.send({ ok: true });
+  });
+
   // ── PATCH /api/tasks/:id — live-patch a build's confirm_mode (spec 010 F2 Part A) ──
   // A PURE data write (no turn, no lock): persist `confirmMode` + relay `task:update`. The next
   // boundary — the next Continue (/confirm re-loads the task from disk) or the next auto-advance —
@@ -374,7 +462,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     if (task.status === 'done' || task.status === 'cancelled') {
       return reply.code(409).send({ error: `task is ${task.status} — confirm_mode is no longer changeable` });
     }
-    if (turnHolderId() === id) {
+    if (taskTurnRunning(id)) {
       return reply.code(409).send({
         error: 'this build has a turn running — change confirm-mode once it pauses at a gate',
       });
@@ -407,6 +495,12 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     } catch {
       return reply.code(404).send({ error: `no such task: ${id}` });
     }
+    // Spec 082: a consult has no phases to revise — /reply is never valid on it (and without this
+    // guard an ERROR-status consult would pass the status check below and fall into replyWithin's ④
+    // branch, running the report machinery on a task with no project). Promote-carve-out DNA.
+    if (task.kind === 'consult') {
+      return reply.code(409).send({ error: '/reply is not available for a consult chat — use /ask' });
+    }
     if (task.status !== 'awaiting_confirm' && task.status !== 'error') {
       return reply
         .code(409)
@@ -434,7 +528,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // Reject BEFORE any write when this task already has a turn running. (Normal /reply at a parked gate
     // has no turn running for this id, so turnHolderId()!==id and this passes; a DIFFERENT task's turn
     // writes to a different root, unaffected. acquireTurn below still handles the general collision 409.)
-    if (turnHolderId() === id) return reply.code(409).send(turnBusyError());
+    if (taskTurnRunning(id)) return reply.code(409).send(turnBusyError());
 
     // Save the reply-turn files APPENDED after any earlier ones (D6: never overwrite), BEFORE
     // acquireTurn (a disk failure → 500 with no lock held). `replyWithin` reads `task.attachments`
@@ -484,6 +578,14 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // Spec 052: a promote build has no conversational Ask surface (its gates are blocked/distill/review) —
     // reject rather than mis-route to askTestWithin (which seeds from ①②③④ build artifacts).
     if (task.kind === 'promote') return reply.code(409).send({ error: '/ask is not available for a promote build' });
+    // Spec 082 §4.2: a consult routes by KIND at ANY status — asking is always valid on a chat task
+    // (there are no gates for status to guard), and an error-status consult (the create-race loser /
+    // a failSafe) SELF-HEALS on its next message instead of dying behind the terminal-status check.
+    if (task.kind === 'consult') {
+      if (!acquireTurn(id, 'ask')) return reply.code(409).send(turnBusyError('ask'));
+      dispatch(id, consultWithin(task, text, ctx));
+      return reply.send({ ok: true });
+    }
     // Spec 034 §1: ONE endpoint, branch server-side on phase/status.
     //   - analyze/spec/implement + awaiting_confirm → askWithin        (033: resume sessionIds[phase])
     //   - test + awaiting_confirm (any of the four ④ flags)  ┐
@@ -502,7 +604,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // acquireTurn(id, 'ask') tags the holder so /cancel can scope its abort (D9); the lock is a single
     // GLOBAL slot, so at most one turn — phase OR Ask — runs anywhere at a time (§1). Both ask kinds are
     // tagged 'ask' so /cancel force-kills the child without markCancelled (scoped abort), same as 033.
-    if (!acquireTurn(id, 'ask')) return reply.code(409).send(turnBusyError());
+    if (!acquireTurn(id, 'ask')) return reply.code(409).send(turnBusyError('ask'));
 
     // No optimisticRunning(task)-style snapshot — status/gate are genuinely unchanged (FIX-B). The FE
     // sets its own `asking` signal true synchronously on issuing the POST, then relies on SSE.
@@ -569,7 +671,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // evict), so the flag we just marked would leak. If NO turn is in flight for this id, no orchestrator
     // will read the flag → evict it now. If a turn IS in flight (we force-killed it above), the
     // orchestrator still needs the flag through its chain; its dispatch `finally` evicts on terminal.
-    if (turnHolderId() !== id) evictCancelled(id);
+    if (buildHolderId() !== id) evictCancelled(id);
     return reply.send(await loadTask(projectsDir, id));
   });
 
@@ -595,7 +697,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // status='awaiting_confirm' + save, only for the Ask's own turn-end saveTask to clobber it back to
     // 'cancelled' on disk. Reject BEFORE any write when THIS task has a turn running (mirrors /reply's own
     // turnHolderId()===id guard, tasks.ts). The UI also disables Restore during a live Ask (busy||asking).
-    if (turnHolderId() === id) return reply.code(409).send(turnBusyError());
+    if (taskTurnRunning(id)) return reply.code(409).send(turnBusyError());
     unmarkCancelled(id); // clear the in-flight flag so the next /confirm or /reply can actually run a turn
     // Spec 028: fast-aware rewind. A fast build cancelled AT the merged Spec turn (phase='spec', slug
     // still null) has NO prior gate → target=null (reopen retryable; Retry re-runs the merged draft),
@@ -647,7 +749,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // A live Ask (askTestWithin over a done build) can hold the turn lock with an in-memory done snapshot —
     // reject a racing live-test BEFORE any write when THIS task already has a turn running (mirrors /reply,
     // /restore). acquireTurn below still handles the general cross-build collision 409 (with a holder).
-    if (turnHolderId() === id) return reply.code(409).send(turnBusyError());
+    if (taskTurnRunning(id)) return reply.code(409).send(turnBusyError());
     if (!acquireTurn(id)) return reply.code(409).send(turnBusyError());
     // Stamp the target (D5 — symmetric to the implement-gate test_live dispatch) so report.ts + the
     // /reply-re-runs-live path label a real self-host live test, then flip done→running and dispatch.

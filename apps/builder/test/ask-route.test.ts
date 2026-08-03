@@ -52,9 +52,10 @@ describe('POST /api/tasks/:id/ask — validation (spec 033 §1)', () => {
 
   test('spec 034: done / cancelled / ④-test now PASS /ask validation (reach the turn lock, not rejected)', async () => {
     // 033 rejected these at validation; 034 D3/D5 widens /ask to accept them (→ askTestWithin). Proven
-    // WITHOUT a real dispatch by pre-holding the single global turn slot elsewhere: a POST that PASSED
-    // validation then 409s on the LOCK (turnBusyError — carries a `holder`), which is distinguishable from
-    // a validation 409 (no `holder`). So no askTestWithin ever spawns here (stays fast/hermetic).
+    // WITHOUT a real dispatch by pre-holding the CHAT lane elsewhere (082: /ask contends only on the
+    // chat lane — a build-lane hold no longer blocks it): a POST that PASSED validation then 409s on
+    // the LOCK (turnBusyError — carries a `holder`), which is distinguishable from a validation 409
+    // (no `holder`). So no askTestWithin ever spawns here (stays fast/hermetic).
     const done = await createTask(dir, { requirement: 'r' });
     done.status = 'done';
     await saveTask(dir, done);
@@ -67,7 +68,7 @@ describe('POST /api/tasks/:id/ask — validation (spec 033 §1)', () => {
     await saveTask(dir, gate4);
 
     const app = await build(dir);
-    assert.ok(acquireTurn('other-task', 'phase')); // occupy the single global slot — no real dispatch runs
+    assert.ok(acquireTurn('other-task', 'ask')); // occupy the CHAT lane (082) — no real dispatch runs
     try {
       for (const task of [done, cancelled, gate4]) {
         const res = await app.inject({ method: 'POST', url: `/api/tasks/${task.taskId}/ask`, payload: { text: 'hi' } });
@@ -91,13 +92,13 @@ describe('POST /api/tasks/:id/ask — validation (spec 033 §1)', () => {
     await app.close();
   });
 
-  test('a turn already running elsewhere → 409 (the single global lock)', async () => {
+  test('a CHAT turn already running elsewhere → 409 (082: /ask contends on the chat lane only)', async () => {
     const task = await createTask(dir, { requirement: 'r' });
     task.status = 'awaiting_confirm';
     task.phase = 'spec';
     await saveTask(dir, task);
     const app = await build(dir);
-    assert.ok(acquireTurn('some-other-task', 'phase'));
+    assert.ok(acquireTurn('some-other-task', 'ask'));
     try {
       const res = await app.inject({ method: 'POST', url: `/api/tasks/${task.taskId}/ask`, payload: { text: 'hi' } });
       assert.equal(res.statusCode, 409);
@@ -110,7 +111,8 @@ describe('POST /api/tasks/:id/ask — validation (spec 033 §1)', () => {
 
 // FIX-M audit, 2nd site: /reply's pre-lock saveAttachments writes into apps/builder/.runs/<id>/uploads/
 // — a root a live Ask on the SAME task snapshots. A /reply racing a live Ask must be rejected BEFORE that
-// write (else the Ask's byte-compare deletes the reply's files + false-anomalies). Guard: turnHolderId()===id.
+// write (else the Ask's byte-compare deletes the reply's files + false-anomalies). Guard: taskTurnRunning(id)
+// (082: any-lane — the live Ask holds the CHAT lane, and the guard must still fire).
 describe('POST /api/tasks/:id/reply — turn-lock guard closes the FIX-M gap (spec 033)', () => {
   let dir: string;
   beforeEach(async () => {
@@ -142,7 +144,7 @@ describe('POST /api/tasks/:id/reply — turn-lock guard closes the FIX-M gap (sp
   });
 
   test("a turn on a DIFFERENT task does not trip THIS reply's same-id guard (it 409s on the lock instead, no early guard-reject)", async () => {
-    // Proves the guard is scoped to turnHolderId()===id, not "any turn": a different task's turn lets
+    // Proves the guard is scoped to buildHolderId()===id, not "any turn": a different task's turn lets
     // this reply PAST the guard; it then 409s on acquireTurn (the general collision), which is the
     // pre-existing behavior. Either way the response is 409 — but critically the guard didn't fire early,
     // and (since acquireTurn is checked AFTER saveAttachments in the no-files case here) no cross-root write occurred.
