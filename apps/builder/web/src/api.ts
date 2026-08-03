@@ -131,6 +131,10 @@ export const api = {
   /** POST /api/tasks/:id/reveal → open the OS file manager (Finder) at the task's workflow YAML. */
   reveal: (id: string): Promise<{ ok: boolean; path: string }> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/reveal`),
+  /** spec 062 follow-up: POST /api/tasks/:id/export-drive → upload the run dossier zip to the team Drive
+   *  (exports/). 409 (no drop configured) → the caller falls back to the plain download. */
+  exportToDrive: (id: string): Promise<{ ok: boolean; path?: string }> =>
+    request('POST', `/api/tasks/${encodeURIComponent(id)}/export-drive`),
   /** POST /api/projects → scaffold an empty project tier (spec 031). 409 (dup) surfaces as
    *  ApiError.status===409 with `existing` set; 400 name_charset/name_required is a plain message. */
   createProject: (name: string): Promise<{ project: string; name: string }> =>

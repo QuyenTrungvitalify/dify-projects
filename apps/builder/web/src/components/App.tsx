@@ -22,6 +22,7 @@ import { type ComposerAttachment, MAX_ATTACHMENTS, isAcceptedFile, fileToDataUrl
 import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed, NewTaskOpts } from '../types';
 import { newTaskCrumb, runContextCrumb, workflowOptions, activeSidebarProject, activeSidebarWorkflow, type NewTaskCrumb } from '../lib/crumb';
 import { canPromoteFromConversation } from '../lib/promote-visibility';
+import { api, ApiError } from '../api';
 
 let _attUid = 0;
 const attUid = (): string => 'att' + ++_attUid;
@@ -82,6 +83,7 @@ export function App() {
   const [importBaseOpen, setImportBaseOpen] = useState(false); // spec 051 D5
   const [artifactOpen, setArtifactOpen] = useState(false);
   const [artifactTab, setArtifactTab] = useState<ArtifactTab>('spec');
+  const [exportMenuOpen, setExportMenuOpen] = useState(false); // spec 062 follow-up: the Export dropdown
   const threadRef = useRef<HTMLDivElement>(null);
 
   // Live signals.
@@ -327,6 +329,25 @@ export function App() {
     if (ok) void store.cancel();
   }
 
+  // spec 062 follow-up: "Export to Drive" — upload the run dossier straight to the team's Drive (exports/).
+  // No team Drive configured → the backend 409s and we fall back to the plain local download, so the button
+  // always does SOMETHING useful. Success/fallback both surface a small info dialog.
+  async function onExportDrive(): Promise<void> {
+    const t = store.task.value;
+    if (!t) return;
+    try {
+      const res = await api.exportToDrive(t.taskId);
+      await store.askConfirm({ title: tr('exportDriveDoneTitle'), message: tf('exportDriveDoneMsg', { path: res.path ?? '' }), okLabel: tr('gotIt') });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        downloadBundle(t.taskId); // no team Drive → plain download
+        await store.askConfirm({ title: tr('exportNoDriveTitle'), message: tr('exportNoDriveMsg'), okLabel: tr('gotIt') });
+      } else {
+        store.startError.value = e instanceof ApiError ? e.message : String(e);
+      }
+    }
+  }
+
   const tabs = task ? availableTabs(task) : [];
   // spec 033 D7/FIX-J: the docked action bar is scoped to a live gate at phase∈{analyze,spec,implement}
   // — ④ Test gates render their actions INLINE exactly as today (D4), so the bar must NOT extend to ④.
@@ -437,6 +458,13 @@ export function App() {
               {view === 'conversation' && task && task.kind !== 'promote' && tabs.length > 0 && (
                 <button className="ghost-pill" onClick={() => downloadBundle(task.taskId)} title={tr('exportRunHint')}>
                   <I.download />{tr('exportRun')}
+                </button>
+              )}
+              {/* spec 062 follow-up: "Export to Drive" — upload the dossier straight to the team Drive
+                  (falls back to the local download when no team Drive is configured). */}
+              {view === 'conversation' && task && task.kind !== 'promote' && tabs.length > 0 && (
+                <button className="ghost-pill" onClick={() => void onExportDrive()} title={tr('exportDriveHint')}>
+                  <I.external />{tr('exportDrive')}
                 </button>
               )}
               {/* "Edit this workflow" — always-visible in the header while viewing a build whose workflow

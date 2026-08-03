@@ -22,6 +22,7 @@ import {
   contributionMeta,
   loadShareConfig,
   postContribution,
+  postExportBundle,
   pushContribution,
   shareableProvenance,
   sharePreflight,
@@ -485,6 +486,42 @@ describe('postContribution', () => {
     const big = await postContribution({ ...CFG, maxKb: 1 }, { slug: 'x', yaml: 'x'.repeat(2048), meta: {} }, spy);
     assert.match(big.error!, /larger than the share cap/);
     assert.equal(called, false, 'nothing was sent');
+  });
+});
+
+describe('postExportBundle (spec 062 follow-up — upload the run dossier zip to Drive)', () => {
+  const CFG = { url: 'https://x/exec', secret: 's', maxKb: 512 };
+  const reply = (status: number, text: string): FetchLike => async () =>
+    ({ ok: status >= 200 && status < 300, status, text: async () => text });
+  const zipB64 = Buffer.from('PK fake zip bytes').toString('base64');
+
+  test('success returns the Drive path; the POST carries {zip, secret, slug}, NOT yaml', async () => {
+    let sent: Record<string, unknown> = {};
+    const spy: FetchLike = async (_url, init) => {
+      sent = init?.body ? JSON.parse(init.body as string) : {};
+      return { ok: true, status: 200, text: async () => '{"ok":true,"path":"exports/2026-08/x--me--now.zip"}' };
+    };
+    const out = await postExportBundle(CFG, { slug: 'x', contributor: 'me', zipBase64: zipB64 }, spy);
+    assert.equal(out.ok, true);
+    assert.equal(out.path, 'exports/2026-08/x--me--now.zip');
+    assert.equal(sent.zip, zipB64);
+    assert.equal(sent.secret, 's');
+    assert.equal(sent.yaml, undefined, 'an export carries a zip, never yaml');
+  });
+
+  test('a >25MB bundle is stopped CLIENT-side (never sent)', async () => {
+    let called = false;
+    const spy: FetchLike = async () => { called = true; return { ok: true, status: 200, text: async () => '{"ok":true}' }; };
+    const huge = 'A'.repeat(34 * 1024 * 1024); // ~34MB base64 ≈ 25MB decoded → over the cap
+    const out = await postExportBundle(CFG, { slug: 'x', zipBase64: huge }, spy);
+    assert.match(out.error!, /larger than 25MB/);
+    assert.equal(called, false, 'oversized → nothing sent');
+  });
+
+  test('a Google error page (not JSON) is surfaced, pointing at ⚙ Settings', async () => {
+    const out = await postExportBundle(CFG, { slug: 'x', zipBase64: zipB64 }, reply(200, '<html><title>エラー'));
+    assert.match(out.error!, /not JSON/);
+    assert.match(out.error!, /Settings/);
   });
 });
 

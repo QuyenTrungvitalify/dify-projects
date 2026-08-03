@@ -283,6 +283,47 @@ export async function postContribution(
   }
 }
 
+/** spec 062 follow-up — POST a run's dossier ZIP (base64) to the team drop, written to `exports/` (NOT the
+ *  pattern-review `inbox/`). Mirrors {@link postContribution} — same URL/secret transport, User-Agent, and
+ *  redirect-follow — but carries a `zip` blob with a generous 25MB cap (a dossier is bounded by the run's
+ *  artifacts). Returns the Drive path on success. */
+export async function postExportBundle(
+  cfg: ShareConfig,
+  payload: { slug: string; contributor?: string; zipBase64: string },
+  fetchFn: FetchLike
+): Promise<{ ok: boolean; error?: string; path?: string }> {
+  const bytes = Math.ceil((payload.zipBase64.length * 3) / 4);
+  if (bytes > 25 * 1024 * 1024) {
+    return { ok: false, error: 'the export bundle is larger than 25MB — too big to upload to Drive.' };
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), DROP_TIMEOUT_MS);
+  try {
+    const id = contributorIdentity(payload.contributor);
+    const res = await fetchFn(cfg.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': 'dify-builder-share/1.0' },
+      body: JSON.stringify({ secret: cfg.secret ?? '', slug: payload.slug, contributor: id.contributor, zip: payload.zipBase64 }),
+      signal: ctrl.signal,
+    });
+    const text = await res.text();
+    if (!res.ok) return { ok: false, error: `the Drive inbox returned HTTP ${res.status}. Detail: ${text.slice(0, 200)}` };
+    try {
+      const o = JSON.parse(text) as { ok?: boolean; error?: string; path?: string };
+      if (o.ok === true) return { ok: true, path: o.path };
+      return { ok: false, error: `Drive rejected the export: ${o.error ?? 'no detail'}` };
+    } catch {
+      return { ok: false, error: `unexpected reply (not JSON — likely a Google error page). Check the drop URL in ⚙ Settings › Share. Got: ${text.slice(0, 120)}` };
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/abort/i.test(msg)) return { ok: false, error: 'the Drive inbox did not answer within 60s (offline?). Try again.' };
+    return { ok: false, error: `could not reach the Drive inbox (offline?). Detail: ${msg.slice(0, 200)}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ── the push itself (throwaway worktree — never the user's checkout) ────────────────────────────
 
 export interface ShareOutcome {

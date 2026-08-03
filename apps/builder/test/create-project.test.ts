@@ -191,3 +191,29 @@ describe('DELETE /api/projects/:project/workflows/:workflow (spec 084 follow-up 
     await app.close();
   });
 });
+
+describe('POST /api/tasks/:id/export-drive (spec 062 follow-up — upload dossier to Drive)', () => {
+  let dir: string;
+  async function build() {
+    const app = Fastify();
+    await app.register(uiRoutes, { projectsDir: dir, now: () => 0, runPython: async () => ({ code: 0, stdout: '', stderr: '' }) });
+    return app;
+  }
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'export-drive-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('no team Drive configured (no .dify-share.json / local override) → 409 so the FE downloads instead', async () => {
+    const app = await build();
+    const res = await app.inject({ method: 'POST', url: '/api/tasks/1700000000001/export-drive' });
+    assert.equal(res.statusCode, 409, res.body);
+    assert.match(res.json().error, /no team Drive/);
+    await app.close();
+  });
+
+  test('an invalid task id → 400 (never reaches the bundle)', async () => {
+    const app = await build();
+    const res = await app.inject({ method: 'POST', url: '/api/tasks/not-a-task/export-drive' });
+    assert.equal(res.statusCode, 400);
+    await app.close();
+  });
+});

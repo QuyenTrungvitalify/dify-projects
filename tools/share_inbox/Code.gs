@@ -32,6 +32,21 @@ function doPost(e) {
     if (!body || String(body.secret || '') !== String(props.getProperty('SECRET') || '__unset__')) {
       return json_({ ok: false, error: 'bad secret' });
     }
+    // spec 062 follow-up — an EXPORT bundle (base64 zip) lands in exports/YYYY-MM/ (SEPARATE from the
+    // pattern-review inbox/): a whole run dossier the admin collects, not a pattern to promote. No
+    // yaml/maxKb checks — the zip is bounded by the run's artifacts (the Builder caps at 25MB).
+    if (typeof body.zip === 'string' && body.zip) {
+      var exFolderId = props.getProperty('FOLDER_ID');
+      if (!exFolderId) return json_({ ok: false, error: 'receiver not configured (FOLDER_ID missing)' });
+      var exNow = new Date();
+      var exMonth = Utilities.formatDate(exNow, 'Asia/Tokyo', 'yyyy-MM');
+      var exStamp = Utilities.formatDate(exNow, 'Asia/Tokyo', 'yyyyMMdd-HHmmss');
+      var exBase = sanitize_(body.slug, 'export') + '--' + sanitize_(body.contributor, 'anon') + '--' + exStamp;
+      var exBlob = Utilities.newBlob(Utilities.base64Decode(body.zip), 'application/zip', exBase + '.zip');
+      var exDir = getOrCreate_(getOrCreate_(DriveApp.getFolderById(exFolderId), 'exports'), exMonth);
+      exDir.createFile(exBlob);
+      return json_({ ok: true, path: 'exports/' + exMonth + '/' + exBase + '.zip' });
+    }
     if (typeof body.yaml !== 'string' || !body.yaml.trim()) {
       return json_({ ok: false, error: 'yaml (string) is required' });
     }

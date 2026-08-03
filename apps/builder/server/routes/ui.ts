@@ -21,6 +21,9 @@ import { join } from 'node:path';
 import { deleteTask, loadTask } from '../state/task.js';
 import { buildTree, listActiveTasks, listConsultTasks, listProjectTaskIds, listPromoteTasks, listWorkflowTaskIds, specPathFor, workflowPathFor } from '../lib/artifacts.js';
 import { buildBundle } from '../lib/bundle.js';
+import { loadShareConfig, postExportBundle } from '../lib/share.js';
+import { localOverride } from '../lib/settings.js';
+import type { FetchLike } from '../lib/orchestrator-shared.js';
 import { revealInFileManager } from '../lib/reveal.js';
 import { listSeeds } from '../lib/dify-io.js';
 import { runPython as realRunPython } from '../lib/shell.js';
@@ -37,10 +40,14 @@ export interface UiRoutesOptions {
   /** spec 051 D2 seam: the optional import-probe. Tests inject a no-op/fake (hermetic — the real probe
    *  would hit Dify when the dev has creds in their env); production uses the real `probeImportedBase`. */
   importProbe?: BaseProbe;
+  /** spec 062 follow-up: the fetch used to POST an export bundle to the team Drive drop. Tests inject a
+   *  fake; production uses the global fetch. */
+  fetchFn?: FetchLike;
 }
 
 const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
   const { projectsDir, now } = opts;
+  const fetchFn: FetchLike = opts.fetchFn ?? (globalThis.fetch as unknown as FetchLike);
   const runPython = opts.runPython ?? realRunPython;
   const importProbe = opts.importProbe ?? probeImportedBase;
 
@@ -274,6 +281,33 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
       app.log.error({ err: String(e), taskId: req.params.id }, 'bundle assembly failed');
       return reply.code(500).send({ error: 'could not assemble the run bundle' });
     }
+  });
+
+  // ── POST /api/tasks/:id/export-drive — spec 062 follow-up: upload the run dossier zip STRAIGHT to the
+  //    team's Drive (exports/ folder), reusing the share drop (URL/secret). No drop configured → 409, so
+  //    the FE falls back to the plain download. ──
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/export-drive', async (req, reply) => {
+    if (!isTaskId(req.params.id)) return reply.code(400).send({ error: 'invalid task id' });
+    const cfg = await loadShareConfig(projectsDir);
+    if (!cfg) return reply.code(409).send({ error: 'no team Drive configured' }); // FE → download fallback
+    let task;
+    try {
+      task = await loadTask(projectsDir, req.params.id);
+    } catch {
+      return reply.code(404).send({ error: `no such task: ${req.params.id}` });
+    }
+    let zip: Buffer;
+    try {
+      zip = await buildBundle(projectsDir, task);
+    } catch (e) {
+      app.log.error({ err: String(e), taskId: req.params.id }, 'bundle assembly failed (export-drive)');
+      return reply.code(500).send({ error: 'could not assemble the run bundle' });
+    }
+    const slug = (task.workflowSlug || 'run').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60) || 'run';
+    const who = await localOverride(projectsDir, 'contributor');
+    const out = await postExportBundle(cfg, { slug, contributor: who, zipBase64: zip.toString('base64') }, fetchFn);
+    if (!out.ok) return reply.code(502).send({ error: out.error });
+    return reply.send({ ok: true, path: out.path });
   });
 
   // ── POST /api/tasks/:id/reveal — open the OS file manager at the task's workflow YAML ("Reveal in
