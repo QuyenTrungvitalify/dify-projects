@@ -84,6 +84,7 @@ export function App() {
   const [artifactOpen, setArtifactOpen] = useState(false);
   const [artifactTab, setArtifactTab] = useState<ArtifactTab>('spec');
   const [exportMenuOpen, setExportMenuOpen] = useState(false); // spec 062 follow-up: the Export dropdown
+  const [exportingDrive, setExportingDrive] = useState(false); // spec 062 follow-up: the Drive upload in-flight
   const threadRef = useRef<HTMLDivElement>(null);
 
   // Live signals.
@@ -334,10 +335,18 @@ export function App() {
   // always does SOMETHING useful. Success/fallback both surface a small info dialog.
   async function onExportDrive(): Promise<void> {
     const t = store.task.value;
-    if (!t) return;
+    if (!t || exportingDrive) return; // guard against a double-submit while the upload is in flight
+    setExportingDrive(true);
     try {
       const res = await api.exportToDrive(t.taskId);
-      await store.askConfirm({ title: tr('exportDriveDoneTitle'), message: tf('exportDriveDoneMsg', { path: res.path ?? '' }), okLabel: tr('gotIt') });
+      // `unconfirmed`: the upload reached Google but its redirect echo didn't return a JSON ack (a known
+      // Apps Script flakiness). The write almost certainly landed — tell the user to verify in exports/
+      // rather than claiming a path we never received.
+      if (res.unconfirmed) {
+        await store.askConfirm({ title: tr('exportDriveUnconfirmedTitle'), message: tr('exportDriveUnconfirmedMsg'), okLabel: tr('gotIt') });
+      } else {
+        await store.askConfirm({ title: tr('exportDriveDoneTitle'), message: tf('exportDriveDoneMsg', { path: res.path ?? '' }), okLabel: tr('gotIt') });
+      }
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         downloadBundle(t.taskId); // no team Drive → plain download
@@ -345,6 +354,8 @@ export function App() {
       } else {
         store.startError.value = e instanceof ApiError ? e.message : String(e);
       }
+    } finally {
+      setExportingDrive(false);
     }
   }
 
@@ -455,17 +466,31 @@ export function App() {
               {/* spec 062 S4: "Export" — download a zip that explains this run (dossier + artifacts +
                   per-phase transcripts + timeline + attachments). Shown once the run has any artifact
                   (running/done/error); a first-class user feature (NOT dev-gated). */}
+              {/* spec 062 (+follow-up): one "Export" pill → a dropdown with Download and Export-to-Drive
+                  (the Drive path falls back to the local download when no team Drive is configured). */}
               {view === 'conversation' && task && task.kind !== 'promote' && tabs.length > 0 && (
-                <button className="ghost-pill" onClick={() => downloadBundle(task.taskId)} title={tr('exportRunHint')}>
-                  <I.download />{tr('exportRun')}
-                </button>
-              )}
-              {/* spec 062 follow-up: "Export to Drive" — upload the dossier straight to the team Drive
-                  (falls back to the local download when no team Drive is configured). */}
-              {view === 'conversation' && task && task.kind !== 'promote' && tabs.length > 0 && (
-                <button className="ghost-pill" onClick={() => void onExportDrive()} title={tr('exportDriveHint')}>
-                  <I.external />{tr('exportDrive')}
-                </button>
+                <div className="export-menu-wrap">
+                  <button className="ghost-pill" disabled={exportingDrive}
+                    onClick={() => setExportMenuOpen((o) => !o)}
+                    title={exportingDrive ? tr('exportingDrive') : tr('exportRunHint')}>
+                    {exportingDrive ? <span className="spin" /> : <I.download />}
+                    {exportingDrive ? tr('exportingDrive') : tr('exportRun')}
+                    {!exportingDrive && <I.chevron className="export-caret" />}
+                  </button>
+                  {exportMenuOpen && !exportingDrive && (
+                    <>
+                      <div className="menu-scrim" onClick={() => setExportMenuOpen(false)} />
+                      <div className="export-menu" role="menu">
+                        <button role="menuitem" onClick={() => { setExportMenuOpen(false); downloadBundle(task.taskId); }}>
+                          <I.download />{tr('exportDownload')}
+                        </button>
+                        <button role="menuitem" onClick={() => { setExportMenuOpen(false); void onExportDrive(); }} title={tr('exportDriveHint')}>
+                          <I.external />{tr('exportDrive')}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
               {/* "Edit this workflow" — always-visible in the header while viewing a build whose workflow
                   is on disk (done/cancelled OR the ④ test gate), so editing doesn't require first clicking

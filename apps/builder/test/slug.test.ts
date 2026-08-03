@@ -33,6 +33,23 @@ describe('deriveSlugName', () => {
     assert.deepEqual(deriveSlugName(''), { slug: 'workflow', name: 'Workflow' });
     assert.equal(deriveSlugName('!!! ??? ...').slug, 'workflow');
   });
+
+  test('drops single-char fragments — Vietnamese "yêu cầu" no longer decays to "y_u_c_u"', () => {
+    // Diacritic-stripping leaves "y u c u"; single-char words are dropped → the safe generic slug.
+    assert.equal(deriveSlugName('yêu cầu tóm tắt').slug, 'workflow');
+    // but real multi-char Latin content still survives alongside dropped single chars
+    assert.equal(deriveSlugName('a summarizer b').slug, 'summarizer');
+  });
+
+  test('a long CJK requirement with a stray Latin fragment → generic slug (no "url" scavenging)', () => {
+    const jp =
+      'まだ、このチャットには要件としてまとめられる中身がありません。記事URLから要点を抽出するワークフローを作りたいか教えてください。方向性をもらえれば具体化します。';
+    assert.equal(deriveSlugName(jp).slug, 'workflow'); // NOT "url"
+  });
+
+  test('a SHORT CJK name with a real acronym keeps the acronym (under the CJK gate)', () => {
+    assert.equal(deriveSlugName('SEO対策').slug, 'seo');
+  });
 });
 
 describe('firstFreeSlug (F4 anti-clobber — spec 030 D3: PER-PROJECT)', () => {

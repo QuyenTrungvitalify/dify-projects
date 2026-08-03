@@ -133,7 +133,7 @@ export const api = {
     request('POST', `/api/tasks/${encodeURIComponent(id)}/reveal`),
   /** spec 062 follow-up: POST /api/tasks/:id/export-drive → upload the run dossier zip to the team Drive
    *  (exports/). 409 (no drop configured) → the caller falls back to the plain download. */
-  exportToDrive: (id: string): Promise<{ ok: boolean; path?: string }> =>
+  exportToDrive: (id: string): Promise<{ ok: boolean; path?: string; unconfirmed?: boolean }> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/export-drive`),
   /** POST /api/projects → scaffold an empty project tier (spec 031). 409 (dup) surfaces as
    *  ApiError.status===409 with `existing` set; 400 name_charset/name_required is a plain message. */

@@ -291,7 +291,7 @@ export async function postExportBundle(
   cfg: ShareConfig,
   payload: { slug: string; contributor?: string; zipBase64: string },
   fetchFn: FetchLike
-): Promise<{ ok: boolean; error?: string; path?: string }> {
+): Promise<{ ok: boolean; error?: string; path?: string; unconfirmed?: boolean }> {
   const bytes = Math.ceil((payload.zipBase64.length * 3) / 4);
   if (bytes > 25 * 1024 * 1024) {
     return { ok: false, error: 'the export bundle is larger than 25MB — too big to upload to Drive.' };
@@ -307,13 +307,22 @@ export async function postExportBundle(
       signal: ctrl.signal,
     });
     const text = await res.text();
-    if (!res.ok) return { ok: false, error: `the Drive inbox returned HTTP ${res.status}. Detail: ${text.slice(0, 200)}` };
+    // Apps Script's /exec 302-redirects to script.googleusercontent.com, which INTERMITTENTLY serves an
+    // HTML error/echo page (a 404, or a Google product page) to server clients even though doPost already
+    // decoded the zip and wrote it to Drive. We reached Google and the POST ran — the file almost certainly
+    // landed — so a non-2xx OR a non-JSON reply is reported as an UNCONFIRMED success (verify in exports/),
+    // NOT a hard failure. A hard error here would (a) alarm the user about a write that succeeded and (b)
+    // invite a retry → a DUPLICATE upload. Genuine failures stay hard: oversize (pre-flight above), a
+    // network throw (offline — never reached Google, retry is safe), and a readable JSON {ok:false} reject.
+    if (!res.ok) {
+      return { ok: true, unconfirmed: true, error: `Google returned HTTP ${res.status} instead of a JSON confirmation (the redirect echo is flaky).` };
+    }
     try {
       const o = JSON.parse(text) as { ok?: boolean; error?: string; path?: string };
       if (o.ok === true) return { ok: true, path: o.path };
       return { ok: false, error: `Drive rejected the export: ${o.error ?? 'no detail'}` };
     } catch {
-      return { ok: false, error: `unexpected reply (not JSON — likely a Google error page). Check the drop URL in ⚙ Settings › Share. Got: ${text.slice(0, 120)}` };
+      return { ok: true, unconfirmed: true, error: 'Google returned a non-JSON page instead of a confirmation (the redirect echo is flaky).' };
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

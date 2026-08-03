@@ -19,9 +19,20 @@ export function deriveSlugName(requirement: string): { slug: string; name: strin
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .split(/\s+/)
-    .filter(Boolean);
+    .filter(Boolean)
+    // Drop single-character fragments: they're never a meaningful slug token and are what a non-ASCII
+    // requirement decays into — e.g. Vietnamese "yêu cầu" strips its diacritics to "y u c u" (4 stray
+    // letters). Keeping them produced the "y_u_c_u" / "Y U C U" garbage slug (spec 084 follow-up).
+    .filter((w) => w.length > 1);
   const content = words.filter((w) => !stop.has(w));
   const picked = (content.length ? content : words).slice(0, 4);
+  // A CJK requirement whose ONLY surviving Latin is a short stray fragment is not a usable name: e.g. a
+  // long all-Japanese requirement that happens to contain "…記事URLから…" scavenges just "url". When the
+  // requirement is a large non-ASCII blob (≥20 CJK chars) and the Latin we picked is tiny (<6 chars),
+  // treat it as "no usable ASCII content" and fall back to GENERIC_SLUG — the DISPLAY name (requirementName)
+  // carries the real meaning. Short JP names with a real acronym (e.g. "SEO対策") stay under the CJK gate.
+  const cjk = (requirement.match(/[぀-ヿ㐀-鿿豈-﫿＀-￯]/g) ?? []).length;
+  if (cjk >= 20 && picked.join('').length < 6) return { slug: GENERIC_SLUG, name: titleCaseSlug(GENERIC_SLUG) };
   const slug = (picked.join('_') || GENERIC_SLUG).slice(0, 40).replace(/_+$/, '') || GENERIC_SLUG;
   return { slug, name: titleCaseSlug(slug) };
 }

@@ -518,10 +518,27 @@ describe('postExportBundle (spec 062 follow-up — upload the run dossier zip to
     assert.equal(called, false, 'oversized → nothing sent');
   });
 
-  test('a Google error page (not JSON) is surfaced, pointing at ⚙ Settings', async () => {
+  test('a non-JSON Google page → UNCONFIRMED success (the write likely landed; verify in exports/)', async () => {
+    // The /exec redirect echo often serves HTML to server clients even though doPost already wrote the
+    // file. We reached Google, so we report a soft success (unconfirmed) — never a hard failure that would
+    // alarm the user and invite a retry → duplicate upload.
     const out = await postExportBundle(CFG, { slug: 'x', zipBase64: zipB64 }, reply(200, '<html><title>エラー'));
-    assert.match(out.error!, /not JSON/);
-    assert.match(out.error!, /Settings/);
+    assert.equal(out.ok, true);
+    assert.equal(out.unconfirmed, true);
+    assert.equal(out.path, undefined, 'no path when the ack was unreadable');
+  });
+
+  test('a non-2xx redirect echo (e.g. HTTP 404) → UNCONFIRMED success, not a hard error', async () => {
+    const out = await postExportBundle(CFG, { slug: 'x', zipBase64: zipB64 }, reply(404, '<!DOCTYPE html>google'));
+    assert.equal(out.ok, true);
+    assert.equal(out.unconfirmed, true);
+  });
+
+  test('a readable JSON rejection (e.g. bad secret) STAYS a hard failure', async () => {
+    const out = await postExportBundle(CFG, { slug: 'x', zipBase64: zipB64 }, reply(200, '{"ok":false,"error":"bad secret"}'));
+    assert.equal(out.ok, false);
+    assert.match(out.error!, /bad secret/);
+    assert.notEqual(out.unconfirmed, true);
   });
 });
 

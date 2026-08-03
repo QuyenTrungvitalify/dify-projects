@@ -307,7 +307,9 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
     const who = await localOverride(projectsDir, 'contributor');
     const out = await postExportBundle(cfg, { slug, contributor: who, zipBase64: zip.toString('base64') }, fetchFn);
     if (!out.ok) return reply.code(502).send({ error: out.error });
-    return reply.send({ ok: true, path: out.path });
+    // `unconfirmed`: the write reached Google and almost certainly landed, but its redirect echo didn't
+    // return a JSON ack — the FE shows a "verify in exports/" notice instead of a plain success.
+    return reply.send({ ok: true, path: out.path, unconfirmed: out.unconfirmed ?? false });
   });
 
   // ── POST /api/tasks/:id/reveal — open the OS file manager at the task's workflow YAML ("Reveal in
