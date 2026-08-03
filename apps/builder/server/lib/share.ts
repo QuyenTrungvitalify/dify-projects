@@ -225,7 +225,11 @@ export function contributionMeta(p: PromoteState, contributor?: string): Record<
 
 // ── the drop transport itself (spec 083 — HTTP POST to the team's drop URL) ─────────────────────
 
-const DROP_TIMEOUT_MS = 30_000;
+// 60s (was 30s): a Google Apps Script /exec POST 302-redirects to script.googleusercontent.com and the
+// round-trip (cold start + Drive writes + the redirect hop) can run long — a too-short timeout aborts the
+// wait even though doPost already succeeded server-side (the file lands in Drive, but the app reports a
+// false timeout → the user retries → duplicate uploads). Give the redirect room.
+const DROP_TIMEOUT_MS = 60_000;
 
 /** POST the pattern to the drop URL. The receiver (tools/share_inbox/Code.gs, Google-hosted)
  *  answers `{ok:true}` / `{ok:false, error}`; Apps Script responds via a 302 redirect, so the
@@ -245,7 +249,11 @@ export async function postContribution(
     const id = contributorIdentity(contributor);
     const res = await fetchFn(cfg.url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // A User-Agent is REQUIRED in practice: Node's undici fetch sends none by default, and Google Apps
+      // Script's /exec → googleusercontent redirect can HANG (or serve an error page) for a UA-less client
+      // — the same request works from curl/browsers, which always send one. This is the fix for the "file
+      // landed in Drive but the app timed out" symptom (spec 083 follow-up).
+      headers: { 'Content-Type': 'application/json', 'User-Agent': 'dify-builder-share/1.0' },
       body: JSON.stringify({
         secret: cfg.secret ?? '',
         slug: payload.slug,
@@ -264,7 +272,7 @@ export async function postContribution(
       if (o.ok === true) return { ok: true };
       return { ok: false, error: `the share inbox rejected the upload: ${o.error ?? 'no detail'}` };
     } catch {
-      return { ok: false, error: `unexpected reply from the share inbox (not JSON) — check the drop URL in .dify-share.json. Got: ${text.slice(0, 120)}` };
+      return { ok: false, error: `unexpected reply from the share inbox (not JSON — likely a Google error page). Check the drop URL in ⚙ Settings › Share (the per-machine override wins over .dify-share.json), and that the Apps Script is deployed for public access. Got: ${text.slice(0, 120)}` };
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

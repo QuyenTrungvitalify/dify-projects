@@ -155,7 +155,7 @@ function projectDisplayName(manifestText: string | null, projectFolder: string):
 /** Spec 030 D6: the WORKFLOW display name = the Dify DSL `app.name` in the workflow's `main.yml`
  *  (else the first `*.yml` in workflows/), falling back to a title-cased folder name when absent
  *  or the YAML is broken. */
-async function workflowDisplayName(wfAbs: string, wfFolder: string): Promise<string> {
+async function workflowDisplayName(wfAbs: string, wfFolder: string, tasks: TreeTaskNode[] = []): Promise<string> {
   const wfDir = join(wfAbs, 'workflows');
   if (existsSync(wfDir)) {
     let files: string[];
@@ -172,7 +172,10 @@ async function workflowDisplayName(wfAbs: string, wfFolder: string): Promise<str
       if (name) return name;
     }
   }
-  return titleCaseSlug(wfFolder);
+  // spec 084 follow-up: PRE-implement (no main.yml app.name yet) → show the newest task's title (the
+  // requirement prefix, original language) instead of a mangled slug like "Y U C U". `tasks` is already
+  // sorted newest-first by the caller; fall to the folder slug only when there's no task at all.
+  return tasks[0]?.name ?? titleCaseSlug(wfFolder);
 }
 
 /** At the PROJECT level, these entries are NOT workflow folders (D1/D2 shared config + dotfiles). */
@@ -425,10 +428,11 @@ export async function buildTree(projectsDir: string, nowMs: number): Promise<Tre
         if (!existsSync(join(wfAbs, 'workflows'))) continue;
         const k = keyOf(projectFolder, wfFolder);
         claimedKeys.add(k);
+        const wfTasks = (tasksByKey.get(k) ?? []).sort(byTaskIdDesc);
         proj.workflows.push({
           id: wfFolder,
-          name: await workflowDisplayName(wfAbs, wfFolder),
-          tasks: (tasksByKey.get(k) ?? []).sort(byTaskIdDesc),
+          name: await workflowDisplayName(wfAbs, wfFolder, wfTasks),
+          tasks: wfTasks,
         });
       }
     }
@@ -444,7 +448,9 @@ export async function buildTree(projectsDir: string, nowMs: number): Promise<Tre
     const project = k.slice(0, slash);
     const workflow = k.slice(slash + 1);
     if (projects.has(project)) {
-      projects.get(project)!.workflows.push({ id: workflow, name: titleCaseSlug(workflow), tasks: tasks.sort(byTaskIdDesc) });
+      const sorted = tasks.sort(byTaskIdDesc);
+      // spec 084 follow-up: prefer the newest task's title (requirement prefix) over the mangled slug.
+      projects.get(project)!.workflows.push({ id: workflow, name: sorted[0]?.name ?? titleCaseSlug(workflow), tasks: sorted });
     } else {
       orphanDrafts.push(...tasks);
     }

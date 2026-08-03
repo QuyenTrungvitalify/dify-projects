@@ -963,7 +963,7 @@ export const GRADUATE_PROMPT =
 
 export async function graduate(): Promise<boolean> {
   _graduateArmed = true;
-  const ok = await ask(GRADUATE_PROMPT);
+  const ok = await ask(tr('graduatePromptText'));
   if (!ok) _graduateArmed = false; // the POST itself failed — nothing will stream
   return ok;
 }

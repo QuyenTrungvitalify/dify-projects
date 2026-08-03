@@ -1379,7 +1379,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .start-error svg { width: 14px; height: 14px; flex: none; }
 
 /* empty workflow/task hint row */
-.tree-empty { cursor: default; }
+.tree-empty { cursor: default; padding: 0 5px; }
 .conn-dot { display: inline-block; margin-right: 6px; }
 
 /* ── spec 059 dev strip (taskId + per-phase cost; only under ?dev=1) ─────────── */

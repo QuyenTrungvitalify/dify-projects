@@ -110,7 +110,7 @@ export function IntakeYamlModal({ onClose, onImported }: {
 }) {
   const [yaml, setYaml] = useState('');
   const [fileName, setFileName] = useState<string | null>(null);
-  const [action, setAction] = useState<'base' | 'distill'>('base');
+  const [action, setAction] = useState<'base' | 'distill'>('distill');
   // base-only fields
   const [name, setName] = useState('');
   const [project, setProject] = useState(''); // '' = _drafts default
@@ -225,8 +225,8 @@ export function IntakeYamlModal({ onClose, onImported }: {
           {/* spec 070: pick what to DO with this external YAML — the input above is shared (no re-paste). */}
           <div className="modal-label" style={{ marginTop: 14 }}>{tr('intakeActionLabel')}</div>
           <div className="artifact-tabs intake-actions" style={{ marginTop: 4 }}>
-            <button className={'atab' + (action === 'base' ? ' active' : '')} onClick={() => setAct('base')}>{tr('intakeActionBase')}</button>
             <button className={'atab' + (action === 'distill' ? ' active' : '')} onClick={() => setAct('distill')}>{tr('intakeActionDistill')}</button>
+            <button className={'atab' + (action === 'base' ? ' active' : '')} onClick={() => setAct('base')}>{tr('intakeActionBase')}</button>
           </div>
 
           {action === 'base' ? (

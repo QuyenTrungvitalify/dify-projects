@@ -9,6 +9,7 @@ import { mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deriveSlugName, firstFreeSlug } from '../server/lib/orchestrator.js';
+import { requirementName } from '../server/lib/scaffold.js';
 
 describe('deriveSlugName', () => {
   test('strips stopwords, joins ≤4 content words, snake_cases the name', () => {
@@ -66,5 +67,26 @@ describe('firstFreeSlug (F4 anti-clobber — spec 030 D3: PER-PROJECT)', () => {
     assert.notEqual(got, base);
     assert.ok(got.length <= 40, `len ${got.length}`);
     assert.ok(got.endsWith('_2'));
+  });
+});
+
+// spec 084 follow-up — the human DISPLAY name is the requirement prefix (original language), NOT the
+// ASCII slug title-cased (which mangles VN diacritics into "Y U C U" and blanks CJK).
+describe('requirementName (spec 084 follow-up — display name preserves the input language)', () => {
+  test('Vietnamese keeps its diacritics (not shattered into single letters like "Y U C U")', () => {
+    assert.equal(requirementName('yêu cầu tóm tắt văn bản'), 'yêu cầu tóm tắt văn bản');
+    // the ASCII slug of the SAME input is the mangled one → name ≠ slug (the whole point).
+    assert.notEqual(deriveSlugName('yêu cầu tóm tắt văn bản').name, requirementName('yêu cầu tóm tắt văn bản'));
+  });
+  test('Japanese is kept as-is (its ASCII slug blanks to the generic fallback)', () => {
+    assert.equal(requirementName('文章を要約する'), '文章を要約する');
+    assert.equal(deriveSlugName('文章を要約する').slug, 'workflow'); // slug meaningless → the name carries the meaning
+  });
+  test('collapses whitespace and truncates long input to 46 chars + ellipsis', () => {
+    const long = 'Build a  workflow   that summarizes a long article into three concise sentences';
+    const out = requirementName(long);
+    assert.ok(out.endsWith('…'));
+    assert.equal(out.length, 47); // 46 chars + the ellipsis
+    assert.ok(!/\s\s/.test(out), 'whitespace collapsed');
   });
 });

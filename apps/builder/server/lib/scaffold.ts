@@ -17,6 +17,14 @@ import { deriveSlugName, firstFreeSlug, titleCaseSlug } from './slug.js';
 import { scaffoldProjectTier, scaffoldWorkflowTier } from './project-create.js';
 import { DRAFTS_PROJECT, sanitizeSlug, saveTask, type Task } from '../state/task.js';
 
+/** spec 084 follow-up — a human DISPLAY name from the raw requirement: first line, whitespace-collapsed,
+ *  capped ~46 chars. Preserves the ORIGINAL language (VN/JP/CN); unlike the ASCII slug, which mangles
+ *  diacritics ("yêu cầu" → "y_u_c_u" → "Y U C U"). The folder slug stays ASCII (deriveSlugName). */
+export function requirementName(requirement: string): string {
+  const line = (requirement || '').trim().replace(/\s+/g, ' ');
+  return line.length > 46 ? line.slice(0, 46).trimEnd() + '…' : line;
+}
+
 /**
  * Spec 030: idempotently scaffold the two on-disk tiers for a build — the PROJECT tier
  * (`projects/<project>/`: manifest + envs, created once per project) and the WORKFLOW tier
@@ -211,7 +219,10 @@ export async function scaffoldAtSpecGate(
       log.info({ taskId: task.taskId, project: task.project, derived: base, used: free }, 'slug collision — auto-suffixed (per-project)');
     }
     task.workflowSlug = free;
-    if (!task.name) task.name = derived.name;
+    // spec 084 follow-up: the DISPLAY name is the requirement prefix (original language), NOT the ASCII
+    // slug title-cased — `deriveSlugName` mangles diacritics (VN "yêu cầu" → "y_u_c_u" → "Y U C U") and
+    // blanks CJK. The folder still uses `derived.slug` above; only the human name changes here.
+    if (!task.name) task.name = requirementName(task.requirement);
   }
   const project = task.project;
   const workflowSlug = task.workflowSlug;

@@ -376,15 +376,18 @@ export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, 
 
         {/* ② Chat */}
         <SectionHeader icon={<I.message />} label={tr('sectionChat')} addTitle={tr('newChat')} onAdd={onNewChat} />
+        {consults.length === 0 && <div className="tree-row tree-empty"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noChatsYet')}</span></div>}
         <CollapsibleList items={consults} render={(c) => <ConsultRow key={c.id} consult={c} activeTask={activeTask} onOpen={onOpen} />} />
 
         {/* ②.5 蒸留 (spec 084 S1.5) — the distill/promote task history. ALWAYS shown (even when empty) so
             its "+" = the external-YAML intake door is always reachable (it replaced the header paperclip). */}
         <SectionHeader icon={<I.spark />} label={tr('sectionDistill')} addTitle={tr('intakeYamlBtn')} onAdd={onAddYaml} />
+        {promotes.length === 0 && <div className="tree-row tree-empty"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noDistillsYet')}</span></div>}
         <CollapsibleList items={promotes} render={(p) => <PromoteRow key={p.id} promote={p} activeTask={activeTask} onOpen={onOpen} />} />
 
         {/* ③ Build — the loose builds (`_drafts`), flattened under this header. */}
         <SectionHeader icon={<I.sliders />} label={tr('sectionBuild')} addTitle={tr('newBuild')} onAdd={() => onNewTask()} />
+        {(!draftsProject || draftsProject.workflows.length === 0) && <div className="tree-row tree-empty"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noBuildsYet')}</span></div>}
         <CollapsibleList items={draftsProject?.workflows ?? []} render={(wf) => (
           <WorkflowRow key={wf.id} wf={wf} projectId="_drafts" activeTask={activeTask}
             active={activeWorkflow === `_drafts/${wf.id}`}
@@ -394,7 +397,7 @@ export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, 
 
         {/* ④ Project — the named project folders. */}
         <SectionHeader icon={<I.folder />} label={tr('sectionProjects')} addTitle={tr('newProject')} onAdd={onNewProject} />
-        {namedProjects.length === 0 && <div className="tree-row"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noProjectsYet')}</span></div>}
+        {namedProjects.length === 0 && <div className="tree-row tree-empty"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noProjectsYet')}</span></div>}
         <CollapsibleList items={namedProjects} render={(p) => (
           <ProjectRow key={p.id} project={p} activeTask={activeTask}
             activeProject={activeProject} activeWorkflow={activeWorkflow}
