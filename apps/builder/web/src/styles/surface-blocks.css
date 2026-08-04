@@ -480,10 +480,9 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
    min-width:0) so on a crowded header it becomes a horizontal scroll region instead of overflowing the
    viewport and clipping its last pill — while each pill inside stays at full intrinsic size (flex-shrink:0,
    nowrap below). The breadcrumb (.run-crumb) shrinks/ellipsizes first as it has less shrink resistance. */
-.chat-top-right { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 1px 2px 1px 0; }
-/* End spacer INSIDE the scroll content: overflow-x clips the last pill's right border/shadow when it sits
-   flush at the container edge (end padding is unreliable across engines for scrolled flex content). */
-.chat-top-right::after { content: ""; flex: 0 0 2px; }
+/* 1px right padding: just enough that overflow-x doesn't shave the last pill's right border — no
+   visible gap (the pill reads flush with the header edge). */
+.chat-top-right { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 1px 1px 1px 0; }
 .chat-top-right::-webkit-scrollbar { display: none; }
 .ghost-pill {
   display: flex; align-items: center; gap: 7px;
