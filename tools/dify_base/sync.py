@@ -84,6 +84,12 @@ except ImportError:
 
 BASE = Path(__file__).parent.parent.parent
 
+# Spec 087 S1: node types whose data body carries a ModelConfig ({provider,name,mode,…} — schema
+# 0.6.0 shares ONE $defs/ModelConfig across all three). inject-model patches and counts exactly this
+# set. MUST stay identical to MODEL_TYPES in the runnability probe embedded in
+# apps/builder/server/lib/runnability.ts — guarded by tests/test_sync.py::test_model_types_matches_runnability.
+MODEL_TYPES = {"llm", "parameter-extractor", "question-classifier"}
+
 
 # ---------------------------------------------------------------------------
 # Env loading
@@ -711,12 +717,17 @@ def cmd_inject_model(args) -> int:
     valid = {v for v in (args.valid_names or "").split(",") if v} or None
     patched: list[str] = []
     nodes = (((data or {}).get("workflow") or {}).get("graph") or {}).get("nodes") or []
-    # Spec 043: TOTAL llm-node count (patched or not). The caller gates on "does this workflow use an
-    # LLM at all" — a hard-coded/unfilled llm node still needs a workspace model even at node_count:0.
-    llm_nodes = [n for n in nodes if (n.get("data") or {}).get("type") == "llm"]
+    # Spec 043: TOTAL model-node count (patched or not). The caller gates on "does this workflow use an
+    # LLM at all" — a hard-coded/unfilled model node still needs a workspace model even at node_count:0.
+    # Spec 087 S1: the set is ALL node types whose body carries a ModelConfig (schema 0.6.0: llm,
+    # parameter-extractor and question-classifier share the same {provider,name,mode} block) — it MUST
+    # stay identical to MODEL_TYPES in the runnability probe (runnability.ts), guarded by
+    # tests/test_sync.py::test_model_types_matches_runnability. The wire key stays `llm_count` (closed
+    # JSON contract with deployWithModel — dify-io.ts falls back on it by name).
+    model_nodes = [n for n in nodes if (n.get("data") or {}).get("type") in MODEL_TYPES]
     for n in nodes:
         nd = n.get("data") or {}
-        if nd.get("type") != "llm":
+        if nd.get("type") not in MODEL_TYPES:
             continue
         model = nd.get("model")
         if not isinstance(model, dict):
@@ -762,7 +773,7 @@ def cmd_inject_model(args) -> int:
         t for t in types if t in ("start", "trigger-schedule", "trigger-webhook", "trigger-plugin")
     )
     print(json.dumps({
-        "node_count": len(patched), "llm_count": len(llm_nodes), "patched": patched,
+        "node_count": len(patched), "llm_count": len(model_nodes), "patched": patched,
         "out": str(out.relative_to(BASE)), "inputs": inputs_schema, "mode": mode,
         "entry_types": entry_types,
     }))

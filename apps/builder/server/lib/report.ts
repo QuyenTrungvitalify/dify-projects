@@ -308,7 +308,8 @@ export async function runReport(
       // Spec 066 S3: hand the classifier the fact that decides whether the model advisory may promise
       // auto-fill (043) — the workspace's enabled-model count. `enabledModelCount` returns undefined
       // when that number is not EVIDENCE (no harvest, or the models arm failed and wrote a `[]` that
-      // means nothing — 067 S6); undefined keeps the pre-066 wording rather than inventing a scare.
+      // means nothing — 067 S6); undefined gets the CONDITIONAL wording (087 S3) — the auto-fill
+      // promise is only made as far as it was verified, still without inventing a scare.
       const pf = await checkRunnability(projectsDir, wfRel, undefined, {
         workspaceModelCount: enabledModelCount(await loadWorkspaceFacts(projectsDir, task.taskId)),
       });

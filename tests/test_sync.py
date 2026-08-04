@@ -225,3 +225,43 @@ def test_inject_model_empty_model_llm_reports_one(tmp_path, monkeypatch, capsys)
     assert obj["llm_count"] == 1
     assert obj["node_count"] == 1
     assert obj["patched"] == ["llm1"]
+
+
+def test_inject_model_patches_parameter_extractor_and_question_classifier(tmp_path, monkeypatch, capsys):
+    # spec 087 S1: PE/QC carry the SAME ModelConfig as llm (schema 0.6.0) and were silently skipped
+    # by the llm-only filter — the direct "Model not exist" hole. All three now patch; code untouched.
+    yaml_src = _inject_yaml([
+        {"id": "start", "data": {"type": "start", "variables": []}},
+        {"id": "pe1", "data": {"type": "parameter-extractor", "model": {"name": ""}}},
+        {"id": "qc1", "data": {"type": "question-classifier", "model": {"name": ""}}},
+        {"id": "llm1", "data": {"type": "llm", "model": {"name": ""}}},
+        {"id": "code", "data": {"type": "code"}},
+    ])
+    obj = _run_inject(tmp_path, monkeypatch, capsys, yaml_src)
+    assert obj["llm_count"] == 3
+    assert obj["node_count"] == 3
+    assert obj["patched"] == ["pe1", "qc1", "llm1"]
+
+
+def test_inject_model_qc_only_workflow_counts_nonzero(tmp_path, monkeypatch, capsys):
+    # spec 087 S1 (feeds S2): a QC-only workflow used to report llm_count:0 and slip past the
+    # live-test 0-model gate (live-test.ts) — it must now count as needing a workspace model.
+    yaml_src = _inject_yaml([
+        {"id": "start", "data": {"type": "start", "variables": []}},
+        {"id": "qc1", "data": {"type": "question-classifier", "model": {"name": ""}}},
+    ])
+    obj = _run_inject(tmp_path, monkeypatch, capsys, yaml_src)
+    assert obj["llm_count"] == 1
+    assert obj["patched"] == ["qc1"]
+
+
+def test_model_types_matches_runnability():
+    # spec 087 S1 cross-check guard: "which node types need a model" has TWO copies (this module's
+    # MODEL_TYPES and the python probe embedded in runnability.ts) — the 087 bugs all fell out of
+    # them drifting apart. Extract the runnability literal and compare sets.
+    import re
+    ts = (ROOT / "apps" / "builder" / "server" / "lib" / "runnability.ts").read_text(encoding="utf-8")
+    m = re.search(r"MODEL_TYPES\s*=\s*\{([^}]*)\}", ts)
+    assert m, "MODEL_TYPES literal not found in runnability.ts — update this test's extraction"
+    ts_types = set(re.findall(r"'([^']+)'", m.group(1)))
+    assert ts_types == sync.MODEL_TYPES

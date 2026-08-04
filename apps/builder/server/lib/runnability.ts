@@ -38,10 +38,13 @@ export interface RunnabilityBlocker {
  *
  * Deliberately NOT keyed on `task.deploy`: a `deploy: 'none'` run can still be live-tested from the UI
  * (live-test.ts never consults the deploy mode), so "none ⇒ never auto-fills" would be a fresh lie in
- * the opposite direction. Omitting the field keeps the pre-066 wording, so existing callers are unchanged.
+ * the opposite direction. Spec 087 S3: `undefined` (models arm failed / not told — 067 S6) no longer
+ * gets the unconditional "nothing to set up" either — the promise stays but becomes conditional
+ * ("if your Dify has a model enabled — this could not be checked right now").
  */
 export interface RunnabilityContext {
-  /** enabled models harvested from the workspace; 0 ⇒ nothing to auto-inject. `undefined` ⇒ unknown. */
+  /** enabled models harvested from the workspace; 0 ⇒ nothing to auto-inject. `undefined` ⇒ unknown
+   *  (087 S3: conditional wording — promise auto-fill only as far as it was verified). */
   workspaceModelCount?: number;
 }
 
@@ -173,8 +176,13 @@ export function classifyRunnability(
 ): Preflight {
   const blockers: RunnabilityBlocker[] = [];
   // spec 066 S3: can the auto-fill (043) actually happen? Only if the workspace HAS a model to
-  // inject. `undefined` = not told → assume yes (pre-066 wording, byte-identical).
+  // inject. Spec 087 S3 revises the `undefined` stance: 066 kept the full reassurance when not told
+  // ("assume yes"), but an unverified "nothing to set up" is the same lie 066 fixed for `=== 0` —
+  // the models arm DOES fail in real runs (067 S6). `undefined` now keeps the auto-fill promise
+  // CONDITIONAL (same prefix, so prefix-matching consumers are unchanged) and says the check didn't
+  // happen — honest without inventing a scare.
   const noModelInWorkspace = ctx.workspaceModelCount === 0;
+  const modelConfirmed = (ctx.workspaceModelCount ?? 0) > 0;
   for (const m of facts.model_nodes) {
     if (m.empty) {
       blockers.push({
@@ -185,7 +193,9 @@ export function classifyRunnability(
         class: 'model_empty', nodeId: m.id, nodeType: m.type,
         detail: noModelInWorkspace
           ? 'an AI model — add one in Dify first (this workflow can\'t summarize or write without it)'
-          : 'the AI model (filled in automatically when you test — nothing to set up)',
+          : modelConfirmed
+            ? 'the AI model (filled in automatically when you test — nothing to set up)'
+            : 'the AI model (filled in automatically when you test, if your Dify has a model enabled — this could not be checked right now)',
       });
     }
   }

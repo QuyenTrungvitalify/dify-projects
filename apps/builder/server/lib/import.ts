@@ -7,10 +7,46 @@
  * Called only by `confirmAdvance` (orchestrator), so nothing is re-exported.
  */
 import { computeGate } from './gate.js';
-import { appUrlFrom, difyCreds, pushApp, reconcileAppIdByName } from './dify-io.js';
+import { appUrlFrom, difyCreds, pushApp, reconcileAppIdByName, resolveLlmModels, deployWithModel } from './dify-io.js';
 import { clearPushIntent, readPushIntent, writePushIntent } from './recovery.js';
 import { emit, resolveRunners, type OrchestratorCtx } from './orchestrator-shared.js';
 import type { Task } from '../state/task.js';
+
+/** Spec 087 S4 — deps seam for {@link resolveImportSource}: unit tests inject fakes; prod uses the
+ *  real dify-io fns (the live-test `ops` precedent, scoped to just these two). */
+export interface ImportInjectDeps {
+  resolveLlmModels: typeof resolveLlmModels;
+  deployWithModel: typeof deployWithModel;
+}
+
+/**
+ * Spec 087 S4 — best-effort model inject for the STATIC selfhost import ('Import to Dify' at the
+ * `awaiting_import` gate). The live-test path injects the workspace model into a temp copy (043);
+ * this path used to push main.yml as-is, so any model-carrying node reached the user's Dify with
+ * `provider: ''` and died "Model not exist" on the first Studio run. Mirror the inject: a successful
+ * patch → push the temp copy (pushApp `srcFileRel` → sync.py `--src-file`); ANY failure, 0-model, or
+ * nothing-to-patch → push the source unchanged (pre-087 behavior — the S3 advisory already tells the
+ * user what to check). Never throws; never touches main.yml (B5). The temp copy gets its OWN name
+ * (`import-deploy.yml`) so it can't be confused with the live-test's `deploy.yml` in the run dir.
+ */
+export async function resolveImportSource(
+  projectsDir: string,
+  task: Pick<Task, 'taskId' | 'project' | 'workflowSlug' | 'workflowFile'>,
+  deps: ImportInjectDeps = { resolveLlmModels, deployWithModel }
+): Promise<{ srcFileRel?: string; injectedModel?: string }> {
+  try {
+    const { enabled, pick } = await deps.resolveLlmModels(projectsDir);
+    if (!pick) return {}; // 0-model / models arm failed → source as-is
+    const srcRel = `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`;
+    const outRel = `apps/builder/.runs/${task.taskId}/import-deploy.yml`;
+    const dep = await deps.deployWithModel(projectsDir, srcRel, outRel, pick, enabled.map((m) => m.name));
+    // Prefer the copy only when a node was actually patched — an ok-but-0-patch copy adds nothing.
+    if (dep.ok && dep.outFile && dep.nodeCount > 0) return { srcFileRel: dep.outFile, injectedModel: pick.name };
+    return {};
+  } catch {
+    return {}; // best-effort: an inject hiccup must never block the import
+  }
+}
 
 /**
  * ④-import (selfhost, Task 6) — BACKEND: push the produced workflow to Dify as a NEW app, capture the
@@ -57,9 +93,15 @@ export async function runImportAndFinish(task: Task, ctx: OrchestratorCtx): Prom
       reconcileAmbiguous = rec.ambiguous;
     }
   } else {
+    // Spec 087 S4: local-only, side-effect-free → runs BEFORE the push-intent marker. On the
+    // reconcile branch above there is no push, so there is nothing to inject.
+    const inject = await resolveImportSource(projectsDir, task);
+    if (inject.srcFileRel) {
+      log.info({ taskId: task.taskId, model: inject.injectedModel }, 'import: pushing model-injected copy');
+    }
     // Fresh import: write the marker BEFORE the push (the guard keys off the PRE-push marker, §I).
     await writePushIntent(projectsDir, task.taskId, { project, workflowSlug, file: task.workflowFile, appName, appId: null });
-    const push = await pushApp(projectsDir, project, workflowSlug, task.workflowFile, appName);
+    const push = await pushApp(projectsDir, project, workflowSlug, task.workflowFile, appName, inject.srcFileRel);
     // --json-out is PRIMARY; on absence/crash, reconcile by slugified name (D6: exactly-one match, else
     // ambiguous — never a silent newest-pick that could attach the wrong app).
     if (push.appId) {

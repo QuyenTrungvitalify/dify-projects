@@ -250,22 +250,26 @@ export async function runLiveTest(
   }
 
   // 1. resolve the workspace model (enabled set + D4 pick). May be empty — do NOT bail yet (spec 043):
-  //    a model-agnostic workflow (0 llm nodes) needs no workspace model to run.
+  //    a model-agnostic workflow (0 model-carrying nodes) needs no workspace model to run.
   const { enabled, pick } = await live.resolveLlmModels(projectsDir);
   if (bail()) return;
 
   // 2. inject the model into a TEMP deploy.yml (main.yml on disk stays model-agnostic, B5) + read inputs.
-  //    With no model available, pass a placeholder — a workflow with 0 llm nodes patches nothing, so the
-  //    copy is valid & model-free. The placeholder is only ever written into an llm node when llmCount>0,
-  //    and step 3's gate rejects that deploy.yml BEFORE it is imported, so a bad copy never reaches Dify.
+  //    With no model available, pass a placeholder — a workflow with 0 model-carrying nodes patches
+  //    nothing, so the copy is valid & model-free. The placeholder is only ever written into a model
+  //    node when llmCount>0, and step 3's gate rejects that deploy.yml BEFORE it is imported, so a bad
+  //    copy never reaches Dify.
   const srcRel = `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`;
   const outRel = `apps/builder/.runs/${task.taskId}/deploy.yml`;
   const dep = await live.deployWithModel(projectsDir, srcRel, outRel, pick ?? { provider: '', name: '' }, enabled.map((m) => m.name));
   if (bail()) return;
   if (!dep.ok || !dep.outFile) return degradeStatic(`model inject failed: ${lastLine(dep.stderr) || 'unknown'}`, pick ? { model: pick } : {});
 
-  // 3. 0-model gate — CONDITIONAL (spec 043): only a workflow that CONTAINS an llm node needs a model.
-  //    llmCount === 0 (or a real pick) → proceed; a model-agnostic workflow runs model-free.
+  // 3. 0-model gate — CONDITIONAL (spec 043): only a workflow that CONTAINS a model-carrying node
+  //    needs a model. llmCount === 0 (or a real pick) → proceed; a model-agnostic workflow runs
+  //    model-free. Spec 087 S2: the count now covers all MODEL_TYPES (llm/parameter-extractor/
+  //    question-classifier — sync.py), so a PE/QC-only workflow no longer slips past this gate and
+  //    gets imported with an empty model ("Model not exist" at runtime).
   if (dep.llmCount > 0 && !pick) {
     return degradeStatic('no enabled LLM model in the workspace (0-model)', { modelAutofilled: dep.nodeCount });
   }

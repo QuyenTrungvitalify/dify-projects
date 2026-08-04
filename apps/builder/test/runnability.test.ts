@@ -102,8 +102,13 @@ describe('classifyRunnability (pure — AC 1/1b/1c semantics)', () => {
   // ── spec 066 S3: the model advisory may only PROMISE auto-fill when auto-fill can happen ────────
   test('S3: the model reassurance is only made when a model EXISTS to auto-fill', () => {
     const f = facts({ model_nodes: [{ id: 'n1', type: 'llm', empty: true }] });
-    // no ctx → the pre-066 wording, byte-identical (every existing caller unchanged)
-    assert.match(classifyRunnability(f, '').blockers[0].detail, /filled in automatically when you test/);
+    // spec 087 S3: no ctx / undefined count (models arm failed — 067 S6) → the promise stays but
+    // becomes CONDITIONAL: same prefix (prefix-matching consumers unchanged), no unconditional
+    // "nothing to set up" — that unverified reassurance was the same lie 066 fixed for `=== 0`.
+    const unknown = classifyRunnability(f, '').blockers[0].detail;
+    assert.match(unknown, /filled in automatically when you test/);
+    assert.ok(!unknown.includes('nothing to set up'), 'unverified count must not promise "nothing to set up"');
+    assert.match(unknown, /could not be checked/, 'the unknown branch says the check did not happen');
     // the REAL dossier's shape: workspace `models: []` → live-test.ts:269-270 takes the 0-model
     // degrade, so the llm node keeps provider:'' and the user MUST add a model. 064 told them
     // "nothing to set up" — the most reassuring line in the note, about the guaranteed failure.

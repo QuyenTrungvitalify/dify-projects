@@ -260,14 +260,17 @@ export function pulledFileFromStdout(stdout: string): string | null {
  * Push `projects/<project>/<workflowSlug>/workflows/<file>` to Dify as a NEW app (`--json-out`). The new
  * app id lives under `app_id` (verified Cloud response, spec 008:51); read it first, fall back to `id`,
  * else null (the caller reconciles via {@link reconcileAppIdByName}). `--file` is relative to the
- * workflow folder `projects/<project>/<workflowSlug>/`.
+ * workflow folder `projects/<project>/<workflowSlug>/`. Spec 087 S4: `srcFileRel` (repo-root-relative,
+ * sync.py `--src-file`) overrides `file` so the static import can push a model-injected TEMP copy
+ * (the live-test deploy.yml precedent) while main.yml on disk stays model-agnostic (B5).
  */
 export async function pushApp(
   projectsDir: string,
   project: string,
   workflowSlug: string,
   file: string,
-  appName: string
+  appName: string,
+  srcFileRel?: string
 ): Promise<{ ok: boolean; appId: string | null; stdout: string; stderr: string }> {
   const r = await runSyncPy(projectsDir, [
     'push',
@@ -275,8 +278,7 @@ export async function pushApp(
     project,
     '--workflow',
     workflowSlug,
-    '--file',
-    `workflows/${file}`,
+    ...(srcFileRel ? ['--src-file', srcFileRel] : ['--file', `workflows/${file}`]),
     // Pin the created app name so the crash-recovery reconcile (reconcileAppIdByName, AC #25) matches
     // the SAME string Dify stores it under. Without --name, Dify names the app from the YAML's
     // app.name (agent-chosen) and the slug-match silently fails. Dify still creates a NEW app each push.
@@ -810,8 +812,10 @@ export interface InputVar {
 export interface DeployResult {
   ok: boolean;
   nodeCount: number;
-  /** Spec 043: TOTAL llm nodes in the workflow (patched or not). `llmCount === 0` ⇒ model-agnostic ⇒
-   *  the live test needs no workspace model to run. Falls back to `nodeCount` for an older sync.py. */
+  /** Spec 043: TOTAL model-carrying nodes in the workflow (patched or not). `llmCount === 0` ⇒
+   *  model-agnostic ⇒ the live test needs no workspace model to run. Falls back to `nodeCount` for an
+   *  older sync.py. Spec 087 S1 widened the count to sync.py's MODEL_TYPES (llm + parameter-extractor
+   *  + question-classifier — one shared ModelConfig in schema 0.6.0); the wire key stays `llm_count`. */
   llmCount: number;
   patched: string[];
   outFile: string | null;

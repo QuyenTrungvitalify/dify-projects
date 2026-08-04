@@ -988,6 +988,12 @@ const NOTE_JA: [RegExp, string][] = [
     /the AI model \(filled in automatically when you test — nothing to set up\)/g,
     'AI モデル（テスト実行時に自動で設定されます — 何もする必要はありません）',
   ],
+  // spec 087 S3 — the CONDITIONAL variant (workspace model count unverifiable): the promise is kept
+  // but scoped, so the JA user reads the same honesty the EN note carries.
+  [
+    /the AI model \(filled in automatically when you test, if your Dify has a model enabled — this could not be checked right now\)/g,
+    'AI モデル（テスト実行時に自動で設定されます — ただし Dify でモデルが有効になっている場合です。今回は確認できませんでした）',
+  ],
   [
     /a plugin this workflow needs — install it in Dify Studio → Plugins if a run reports it missing/g,
     'このワークフローに必要なプラグイン — 実行時に不足と出たら Studio → Plugins でインストールしてください',
