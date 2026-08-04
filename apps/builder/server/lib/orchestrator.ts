@@ -18,7 +18,7 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { ClaudeSession } from './claude-session.js';
 import { confinementCheck, gitDirtyPaths, type PostTurnDetail } from './post-turn.js';
-import { type TurnResult } from './turn-runner.js';
+import { type TurnResult, isTimeoutNote } from './turn-runner.js';
 import { costFromResult } from './cost.js';
 import { PHASES, renderPrompt, languagePin, type PhaseDef } from './phases.js';
 import { attachmentBlock } from './attachments.js';
@@ -50,9 +50,11 @@ export type { OrchestratorCtx, OrchestratorRunners, ConfirmPayload } from './orc
 export { deriveSlugName, firstFreeSlug };
 export { localEditSeed };
 
-/** Per-turn wall-clock budget (spec §I default 10 min). Env-tunable (spec 048 D1, the
- *  BUILDER_LIVE_RUN_TIMEOUT_MS idiom): read ONCE at module load, so a change needs a restart. */
-export const TURN_TIMEOUT_MS = Number(process.env.BUILDER_TURN_TIMEOUT_MS) || 10 * 60 * 1000;
+/** Per-turn wall-clock budget. Spec 085: raised to 15 min — a real ~30-node build lands lint-clean
+ *  right at the old 10-min cap (run ng_quy_tr_nh_3: 600.7s on a valid file), so 10 min timed out
+ *  legitimate builds by a hair. Ships in code (not a local .env) so `git pull` + rebuild carries it to
+ *  every machine. Env-tunable (spec 048 D1): read ONCE at module load, so a change needs a restart. */
+export const TURN_TIMEOUT_MS = Number(process.env.BUILDER_TURN_TIMEOUT_MS) || 15 * 60 * 1000;
 
 interface PhaseVerify {
   outcome: GateOutcome;
@@ -485,6 +487,15 @@ async function runPhase(
     // recorder callback is try-wrapped so it can never affect the turn; the SSE broadcast fires FIRST
     // and unchanged (AC #6).
     const rec = new AttemptRecorder({ phase: phaseId, attempt, resume: !!resumeSessionId, prompt });
+    // Spec 085 S0: stamp the spawn moment on the timeline. Its delta from phase_start is the pre-turn
+    // overhead, and the delta to the phase's terminal event bounds the turn's wall-clock — the split
+    // that tells thrash-inside-the-turn apart from host-sleep/pre-turn time (run 1785770419076 had
+    // ~13 min of its "23-minute ③" that no code between those two points can spend).
+    await logEvent(runDir, {
+      kind: 'turn_spawned',
+      phase: phaseId,
+      detail: `attempt ${attempt}${resumeSessionId ? ' (resume)' : ''}`,
+    });
     const turn = await runTurn(
       session,
       prompt,
@@ -591,11 +602,14 @@ async function runPhase(
  * Spec 039 D5 — the ③ variant fold, extracted PURE so the hard/success/still_failing split is
  * directly unit-testable (post-turn-multi-lint.test.ts; `PostTurnResult.status` cannot express it).
  *
- * HARD error (→ status:error, Retry): a crash/timeout, no artifact, unparseable YAML (truncation),
- * a confinement breach (security — always reverted + error, AC #23), an unparseable/missing EXTRA
- * workflow file, or an extension TWIN of the declared file (039 D4 — two canonical-looking
- * artifacts is a correctness ambiguity even lint-clean). These are NOT the still-failing gate
- * (which assumes present, parseable, in-confinement files).
+ * HARD error (→ status:error, Retry): a crash, a spawn/exit failure, a wall-clock TIMEOUT that left NO
+ * usable artifact (missing/broken/out-of-confinement), unparseable YAML (truncation), a confinement breach
+ * (security — always reverted + error, AC #23), an unparseable/missing EXTRA workflow file, or an
+ * extension TWIN of the declared file (039 D4 — two canonical-looking artifacts is a correctness ambiguity
+ * even lint-clean). These are NOT the still-failing gate (which assumes present, parseable, in-confinement
+ * files). Spec 085: a TIMEOUT whose artifact is present/parseable/in-confinement is NO LONGER auto-hard —
+ * it falls through to the lint check and is salvaged to `success` when clean (the cap often fires at the
+ * tail of a big build's fix loop on an already-valid file).
  *
  * Success consumes the SHARED lintClean (013 D1) — the identical clean-test the ④ report's Import
  * precondition uses — for the declared artifact AND every extra (039 D5); anything else parks at
@@ -605,14 +619,23 @@ export function resolveImplementOutcome(
   d: PostTurnDetail,
   turnNote: string | undefined
 ): 'error' | 'success' | 'still_failing' {
+  // Spec 085 (salvage-on-timeout): the 600s cap fires at the TAIL of a big build's fix loop, discarding an
+  // artifact the independent post-turn verify would confirm CLEAN — only to force a full-cost rebuild (run
+  // ng_quy_tr_nh_3: 29 nodes, validate/refs/plugin-hashes all 0, killed at 600.7s → HARD error). So a
+  // TIMEOUT is not automatically hard: it hard-errors only if the artifact is missing/broken/out-of-
+  // confinement (nothing worth keeping). Any OTHER note (spawn/exit failure) is never salvageable.
+  const timedOut = isTimeoutNote(turnNote);
+  const otherNote = !!turnNote && !timedOut;
   const hardError =
-    !!turnNote || !d.artifactOk || !d.yamlOk || d.confinementBreaches.length > 0 ||
+    otherNote || !d.artifactOk || !d.yamlOk || d.confinementBreaches.length > 0 ||
     d.extraFiles.some((f) => !f.yamlOk || f.twin);
   if (hardError) return 'error';
   if (lintClean(d.lintCodes) && d.idsOk && d.extraFiles.every((f) => lintClean(f.lintCodes) && f.idsOk)) {
-    return 'success';
+    return 'success'; // a timeout that nonetheless left a lint-clean, in-confinement artifact is salvaged
   }
-  return 'still_failing';
+  // Not clean: a timeout cut the fix loop short → do NOT ship a dirty file (stays HARD error, as before).
+  // A no-note run that simply exhausted cap-5 parks at still_failing for the human (unchanged).
+  return timedOut ? 'error' : 'still_failing';
 }
 
 /** Post-turn verify → outcome. ③ resolves clean/still-failing/hard-error from the post-turn detail. */

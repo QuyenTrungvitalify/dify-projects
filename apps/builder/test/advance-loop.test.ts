@@ -493,11 +493,14 @@ describe('advance-loop integration (013 D3)', () => {
         },
         runPython: async () => ({ code: 0, stdout: '', stderr: '' }),
         runReport: async () => ({ ok: true, reasons: [], reportRel: 'r', lintClean: true }),
+        // The artifact is deliberately NOT lint-clean (lint_refs=1): this test isolates D4 (the resume
+        // timeout must not spend a SECOND turn), so it must NOT trip spec 085's salvage — a timeout that
+        // left a CLEAN file now parks at success, not error (that path is covered in post-turn-multi-lint).
         postTurnCheck: async () => ({
           ok: true,
           status: 'done',
           reasons: [],
-          detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 }, idsOk: true, confinementBreaches: [], extraFiles: [] },
+          detail: { artifactOk: true, yamlOk: true, lintCodes: { validate: 0, lint_refs: 1, lint_plugin_hashes: 0, lint_node_bodies: 0 }, idsOk: true, confinementBreaches: [], extraFiles: [] },
         }),
       },
     };
@@ -505,7 +508,7 @@ describe('advance-loop integration (013 D3)', () => {
     await withTurn(task.taskId, () => replyWithin(task, 'are you done yet?', ctx));
 
     assert.equal(turns, 1, 'a resume timeout parks at error — it must NOT spend a SECOND full turn (D4)');
-    assert.equal(task.status, 'error', 'the timed-out resume parks at error');
+    assert.equal(task.status, 'error', 'the timed-out resume (dirty artifact) parks at error');
   });
 
   test('a cancel landing mid-turn leaves status=cancelled with the gate cleared (no clobber)', async () => {

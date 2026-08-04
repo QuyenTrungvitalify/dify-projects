@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { postTurnCheck, gitDirtyPaths } from '../server/lib/post-turn.js';
 import { resolveImplementOutcome } from '../server/lib/orchestrator.js';
+import { timeoutNote } from '../server/lib/turn-runner.js';
 import { LINTERS } from '../server/lib/linters.js';
 import type { SessionLogger } from '../server/lib/claude-session.js';
 
@@ -277,5 +278,34 @@ describe('spec 039 — every turn-touched workflows/*.ya?ml is fully gated', () 
     assert.equal(f!.yamlOk, false);
     assert.equal(f!.lintCodes, null);
     assert.equal(resolveImplementOutcome(res.detail, undefined), 'error');
+  });
+});
+
+describe('spec 085 — salvage a timeout that left a clean artifact (do not rebuild from scratch)', () => {
+  const TIMEOUT = timeoutNote(600_000);
+
+  test('timeout + present/parseable/lint-clean artifact → success (the file is kept, not discarded)', async () => {
+    makeRepo();
+    const baseline = await gitDirtyPaths(dir);
+    const res = await runCheck('main.yml', baseline);
+    // Same detail with NO note is a success — so the timeout was the ONLY thing forcing a hard error.
+    assert.equal(resolveImplementOutcome(res.detail, undefined), 'success');
+    assert.equal(resolveImplementOutcome(res.detail, TIMEOUT), 'success', 'a clean artifact survives the 600s cap');
+  });
+
+  test('timeout + a NOT-clean artifact → still hard error (never ship a half-fixed file)', async () => {
+    makeRepo();
+    const baseline = await gitDirtyPaths(dir);
+    process.env.LINT_FAIL = `tools/dify_base/lint_refs.py:${WFDIR}/main.yml`; // declared file dirty
+    const res = await runCheck('main.yml', baseline);
+    assert.equal(resolveImplementOutcome(res.detail, undefined), 'still_failing', 'no note → cap-5 gate (unchanged)');
+    assert.equal(resolveImplementOutcome(res.detail, TIMEOUT), 'error', 'a timed-out dirty file is discarded');
+  });
+
+  test('a NON-timeout note (spawn/exit failure) is never salvaged, even when lint-clean', async () => {
+    makeRepo();
+    const baseline = await gitDirtyPaths(dir);
+    const res = await runCheck('main.yml', baseline);
+    assert.equal(resolveImplementOutcome(res.detail, 'child exited before any result'), 'error');
   });
 });

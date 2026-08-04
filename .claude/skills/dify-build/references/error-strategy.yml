@@ -1,0 +1,236 @@
+# REFERENCE — error_strategy: fail-branch, the minimal worked example (spec 085 S1c).
+#
+# WHAT THIS IS: the lint-clean shape for fail-soft error branches, the one thing no pattern in
+#   templates/patterns/ demonstrates. Phase ③ (implement.md step 4) points here BY PATH when SPEC.md
+#   asks for an error branch on `code` / `http-request` nodes. Copy the SHAPES, not the file.
+#
+# WHY IT LIVES HERE and not in templates/patterns/: gapReferences picks references greedily by
+#   "most gap covered → fewest nodes", so a 6-node didactic file placed there would hijack the
+#   `http-request`/`code` reference slot from richer real patterns. This file is reachable only by
+#   the explicit pointer in implement.md — exactly the "hand it, don't search" contract.
+#
+# THE FOUR SHAPES DEMONSTRATED (grammar: skills/mango-svip/references/edge_types.md,
+#   section "Error Handling Nodes"):
+#   1. `error_strategy: fail-branch` sits INSIDE `data:` of a code / http-request node.
+#   2. A node with fail-branch gets TWO outgoing edges; their `sourceHandle` values are
+#      `success-branch` and `fail-branch` (NOT `source`), and the edge id embeds the handle:
+#      `<source_id>-success-branch-<target_id>-target`.
+#   3. The failing node implicitly exposes `error_message` + `error_type` — downstream nodes read
+#      them like any output: `{{#<node_id>.error_message#}}` / value_selector [<node_id>, error_message].
+#   4. Several fail-branches may CONVERGE on one handler (both fail edges below target the same
+#      template-transform); at runtime only the branch that fired carries values, the other reads empty.
+#
+# IDS: the 13-digit ids below are PLACEHOLDERS in the real format. In a build, mint your own via
+#   `.venv/bin/python skills/mango-svip/scripts/generate_id.py <count>` — never copy ids from any
+#   file, this one included (implement.md step 3).
+#
+# Flow: start(page_url) → HTTP GET (fail-branch)
+#         ├─ success → code: strict parse (fail-branch)
+#         │             ├─ success → end (summary)
+#         │             └─ fail ────┐
+#         └─ fail ──────────────────┴→ template-transform: human-readable notice → end (error_notice)
+app:
+  description: 'Reference shape: fail-soft fetch → parse with error branches converging on one notice'
+  icon: 🛟
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: reference_error_strategy
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      enabled: false
+    opening_statement: ''
+    retriever_resource:
+      enabled: false
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+  graph:
+    edges:
+    # Plain edge out of start: sourceHandle stays `source`.
+    - id: 1754000000001-source-1754000000002-target
+      source: '1754000000001'
+      target: '1754000000002'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: http-request }
+      zIndex: 0
+    # SHAPE 2 — the two branch edges of the http-request node. The handle replaces `source` in both
+    # the `sourceHandle` field AND the edge id.
+    - id: 1754000000002-success-branch-1754000000003-target
+      source: '1754000000002'
+      target: '1754000000003'
+      sourceHandle: success-branch
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: http-request, targetType: code }
+      zIndex: 0
+    - id: 1754000000002-fail-branch-1754000000004-target
+      source: '1754000000002'
+      target: '1754000000004'
+      sourceHandle: fail-branch
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: http-request, targetType: template-transform }
+      zIndex: 0
+    # Same pair for the code node; its fail edge CONVERGES on the same handler (shape 4).
+    - id: 1754000000003-success-branch-1754000000005-target
+      source: '1754000000003'
+      target: '1754000000005'
+      sourceHandle: success-branch
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: end }
+      zIndex: 0
+    - id: 1754000000003-fail-branch-1754000000004-target
+      source: '1754000000003'
+      target: '1754000000004'
+      sourceHandle: fail-branch
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: code, targetType: template-transform }
+      zIndex: 0
+    - id: 1754000000004-source-1754000000006-target
+      source: '1754000000004'
+      target: '1754000000006'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: template-transform, targetType: end }
+      zIndex: 0
+    nodes:
+    - id: '1754000000001'
+      type: custom
+      data:
+        title: Input
+        type: start
+        variables:
+        - variable: page_url
+          label: Page URL
+          type: text-input
+          required: true
+          max_length: 2000
+          hint: ''
+          options: []
+          placeholder: 'https://…'
+      position: { x: 100, y: 200 }
+      positionAbsolute: { x: 100, y: 200 }
+      width: 242
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+    # SHAPE 1 — `error_strategy: fail-branch` inside data:. A 4xx/5xx/timeout no longer kills the
+    # run; it fires the fail-branch edge instead.
+    - id: '1754000000002'
+      type: custom
+      data:
+        title: fetch page
+        type: http-request
+        error_strategy: fail-branch
+        method: get
+        url: '{{#1754000000001.page_url#}}'
+        authorization: { type: no-auth }
+        headers: ''
+        params: ''
+        body: { type: none, data: [] }
+        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 10 }
+      position: { x: 400, y: 200 }
+      positionAbsolute: { x: 400, y: 200 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    # A fail-branch node MAY raise — that IS the branch condition. Keep the raise deliberate
+    # (here: empty body), not accidental.
+    - id: '1754000000003'
+      type: custom
+      data:
+        title: strict parse
+        type: code
+        error_strategy: fail-branch
+        code_language: python3
+        code: |
+          def main(raw: str) -> dict:
+              if not raw or not raw.strip():
+                  raise ValueError("empty response body")
+              return {"summary": raw.strip()[:200]}
+        outputs:
+          summary: { type: string, children: null }
+        variables:
+        - value_selector: ['1754000000002', body]
+          value_type: string
+          variable: raw
+      position: { x: 700, y: 120 }
+      positionAbsolute: { x: 700, y: 120 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    # SHAPE 3 — downstream reads of the implicit error outputs. Only the branch that actually
+    # fired carries values at runtime; the other pair renders empty (shape 4).
+    - id: '1754000000004'
+      type: custom
+      data:
+        title: error notice
+        type: template-transform
+        template: |-
+          {% if http_error_message %}Fetch failed [{{ http_error_type }}]: {{ http_error_message }}{% else %}Parse failed [{{ code_error_type }}]: {{ code_error_message }}{% endif %}
+        variables:
+        - variable: http_error_message
+          value_selector: ['1754000000002', error_message]
+        - variable: http_error_type
+          value_selector: ['1754000000002', error_type]
+        - variable: code_error_message
+          value_selector: ['1754000000003', error_message]
+        - variable: code_error_type
+          value_selector: ['1754000000003', error_type]
+      position: { x: 700, y: 320 }
+      positionAbsolute: { x: 700, y: 320 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    - id: '1754000000005'
+      type: custom
+      data:
+        title: Output
+        type: end
+        outputs:
+        - variable: summary
+          value_selector: ['1754000000003', summary]
+          value_type: string
+      position: { x: 1000, y: 120 }
+      positionAbsolute: { x: 1000, y: 120 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+    - id: '1754000000006'
+      type: custom
+      data:
+        title: Error output
+        type: end
+        outputs:
+        - variable: error_notice
+          value_selector: ['1754000000004', output]
+          value_type: string
+      position: { x: 1000, y: 320 }
+      positionAbsolute: { x: 1000, y: 320 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left

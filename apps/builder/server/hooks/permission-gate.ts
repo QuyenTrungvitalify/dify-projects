@@ -49,8 +49,10 @@ export interface DecisionResult {
 }
 
 // ─── Q2 — the Builder's FIXED allow-set (enumerated from the 4 phase .md) ────────────────────────
-// The ONLY `.venv/bin/python` scripts a turn ever runs. `sync.py` / `init_project.py` are
+// The `.venv/bin/python` scripts a turn may run with ANY args. `sync.py` / `init_project.py` are
 // BACKEND-owned (never a turn — the token never enters a turn), so they are deliberately ABSENT.
+// `marketplace.py` is also NOT here: it is allowed by a dedicated subcommand-gated branch below
+// (`resolve` only, spec 085 S1b) — adding it to this set would open all its subcommands.
 export const ALLOWED_PYTHON_SCRIPTS = new Set<string>([
   'tools/dify_base/find.py',
   'skills/mango-svip/scripts/generate_id.py',
@@ -202,6 +204,18 @@ export function analyzeBashCommand(rawCommand: string): DecisionResult {
     const script = tokens[1];
     if (!script || script.startsWith('-')) {
       return { decision: 'deny', reason: `python with a code flag (-c/-e/-m) or no script is denied — only the fixed phase scripts are allowed` };
+    }
+    // Spec 085 S1b — `marketplace.py resolve` is the plugin fallback implement.md itself orders
+    // (step 2 after tool-catalog.json), yet the enumeration missed it: run 1785770419076 burned 2 of
+    // its 8 denied calls on exactly that command. Allow ONLY the subcommand the guidance names
+    // (`resolve <org>/<name>[/<version>]` — read-only public-marketplace lookup, no token); the other
+    // read-only subcommands (`tools`, `catalog`) stay denied until a phase doc actually needs them.
+    if (script === 'tools/dify_base/marketplace.py') {
+      const sub = tokens[2];
+      if (sub !== 'resolve') {
+        return { decision: 'deny', reason: `marketplace.py subcommand not allowed: ${sub ?? '(none)'} (only resolve)` };
+      }
+      return { decision: 'allow', reason: 'marketplace.py resolve — read-only plugin lookup (spec 085 S1b)' };
     }
     if (!ALLOWED_PYTHON_SCRIPTS.has(script)) {
       return { decision: 'deny', reason: `python script not in the Builder allow-set: ${script}` };

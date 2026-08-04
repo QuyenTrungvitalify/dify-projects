@@ -17,7 +17,9 @@ You are producing a valid Dify workflow YAML that satisfies `SPEC.md`. Read
 > `.claude/skills/dify-build/` = **this skill** (SKILL.md, implement.md).
 > `skills/mango-svip/` = a **different**, read-only reference clone — it holds ONLY
 > `scripts/generate_id.py` + `references/`. It contains **no templates and no skill body**; never
-> search it for either. Patterns live at `templates/patterns/`; tools at `tools/dify_base/`.
+> search it for either. Its `references/*.md` ARE legitimate Reads — but only at the exact section
+> a step below names (never grep them, and never read one whole: parts predate trigger support).
+> Patterns live at `templates/patterns/`; tools at `tools/dify_base/`.
 
 ## Inputs
 - `{{PROJECT}}` / `{{WORKFLOW_SLUG}}` — the project folder + workflow subfolder (scaffolded by now):
@@ -104,14 +106,30 @@ You are producing a valid Dify workflow YAML that satisfies `SPEC.md`. Read
      (§4.1; on an if-else branch the case handle replaces `source`, e.g. `<id>-true-<id>-target`), and
      set the top-level `version` to the project's `dsl_version` (`0.6.0` today — read it from
      `projects/{{PROJECT}}/.dify-workspace.yaml`, never hardcode; §4.4).
+   - **Error branches (`error_strategy: fail-branch`) — do NOT search for the syntax (spec 085):**
+     when `SPEC.md` asks for fail-soft / an error branch on `code` or `http-request` nodes, the two
+     vetted sources are handed to you by path — **Read** them, in this order:
+     1. `.claude/skills/dify-build/references/error-strategy.yml` — a lint-clean worked example:
+        both node kinds carrying `error_strategy: fail-branch`, the `success-branch`/`fail-branch`
+        edge `sourceHandle`s, and a downstream node reading the implicit `error_message`/`error_type`
+        outputs. Copy its shapes.
+     2. The `Error Handling Nodes` section of `skills/mango-svip/references/edge_types.md` — the edge
+        grammar, if the example leaves a question. Read THAT section only, not the whole file.
+     `grep`-ing for `fail-branch`/`error_strategy` is sandbox-denied, and `find.py` has no such
+     feature — a real run burned 5 of its 8 denied calls (and its whole ③ budget) hunting exactly
+     this before the two pointers above existed.
    - **Plugins & datasets (spec 037 D7 Class B + spec 067):** if this prompt carries a `## Workspace
      facts` block listing the needed plugin dependency identifier or dataset ids, **COPY them verbatim**
      into `dependencies:` / `dataset_ids:` — it is authoritative for the versions actually installed.
      - **Plugins, no fact:** the hash is **public and version-keyed** — resolve it, in this order:
-       1. `templates/tool-catalog.json` — curated + version-pinned; copy `dependency_identifier`,
-          `provider_id`, `provider_type`, `provider_name`, `tool_name`, `tool_label` verbatim;
-       2. `.venv/bin/python tools/dify_base/marketplace.py resolve <org>/<name>[/<version>]` for
-          anything else (no login, no install, works for a plugin nobody has).
+       1. **Read** `templates/tool-catalog.json` — curated + version-pinned; copy
+          `dependency_identifier`, `provider_id`, `provider_type`, `provider_name`, `tool_name`,
+          `tool_label` verbatim. Use the **Read tool** on that exact path: the Grep tool errors in
+          this session and shell `grep` is sandbox-denied (a real run burned 2 calls learning this).
+       2. **Only if the plugin is not in the catalog**:
+          `.venv/bin/python tools/dify_base/marketplace.py resolve <org>/<name>[/<version>]`
+          (no login, no install, works for a plugin nobody has). The `resolve` subcommand is
+          sandbox-allowed as-is — run it bare, exactly as written (no pipe, no other subcommand).
        An empty facts block means the harvest found nothing — it is **NOT** evidence the plugin doesn't
        exist and is **never** a reason to drop a `tool` node or swap it for `http-request`. **Every tool
        node MUST have its `dependencies:` entry**: Dify only prompts to install when `dependencies:` is
@@ -151,11 +169,13 @@ You are producing a valid Dify workflow YAML that satisfies `SPEC.md`. Read
    > .venv/bin/python tools/dify_base/lint_node_bodies.py --dump-schema <node-type>
    > ```
    > One allowed call → the full `$defs.NodeData_<X>` def, the exact schema this linter gates you
-   > against, so what it lists is exactly what passes. Do NOT grep/Read the 7,700-line
-   > `schemas/dify-dsl-*.json` for it, do NOT read `lint_node_bodies.py`'s source to infer it, and do
-   > NOT write a throwaway probe script (the sandbox denies running one). A real run burned 44 turns
-   > and 13 hook-denied `grep`s reconstructing `trigger-webhook` all three wrong ways — while
-   > literally guessing this flag's name before it existed.
+   > against, so what it lists is exactly what passes. **Run it bare** — never append `| head`,
+   > `| grep`, a redirect, or `;`: one metacharacter makes the sandbox deny the WHOLE (otherwise
+   > allowed) command, and the output is returned to you in full anyway. Do NOT grep/Read the
+   > 7,700-line `schemas/dify-dsl-*.json` for it, do NOT read `lint_node_bodies.py`'s source to
+   > infer it, and do NOT write a throwaway probe script (the sandbox denies running one). A real
+   > run burned 44 turns and 13 hook-denied `grep`s reconstructing `trigger-webhook` all three
+   > wrong ways — while literally guessing this flag's name before it existed.
    ```
    .venv/bin/python tools/dify_base/validate_workflow.py projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}
    .venv/bin/python tools/dify_base/lint_refs.py            projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}

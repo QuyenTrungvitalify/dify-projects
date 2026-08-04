@@ -14,6 +14,9 @@ import { join } from 'node:path';
 /** The transition kinds that make up a build's story (S1b). */
 export type RunEventKind =
   | 'phase_start' // a phase turn began (detail: 'fresh' | 'resume' | 'retry')
+  | 'turn_spawned' // the claude child is about to spawn (detail: 'attempt N'; spec 085 S0 — its ts
+  //                  minus phase_start's is the pre-turn overhead, and the next event's ts minus its
+  //                  is the turn's wall-clock: the split that separates thrash from host-sleep/size)
   | 'gate_reached' // parked at a gate (detail: the gate flag / outcome)
   | 'gate_action' // a human/auto confirm advanced a boundary (detail: the action id)
   | 'request_changes' // a "Request changes" /reply — detail carries the USER'S change text

@@ -39,6 +39,19 @@ describe('analyzeBashCommand — allow the fixed phase command set', () => {
     assert.equal(analyzeBashCommand('/repo/.venv/bin/python tools/dify_base/lint_refs.py projects/x/workflows/main.yml').decision, 'allow');
   });
 
+  test('marketplace.py is allowed for `resolve` ONLY (spec 085 S1b — implement.md step-2 fallback)', () => {
+    assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/marketplace.py resolve omluc/google_sheets/0.0.2').decision, 'allow');
+    assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/marketplace.py resolve langgenius/slack').decision, 'allow');
+    // the other (read-only) subcommands stay denied until a phase doc actually needs them
+    assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/marketplace.py tools omluc/google_sheets').decision, 'deny');
+    assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/marketplace.py catalog a/b c/d').decision, 'deny');
+    assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/marketplace.py').decision, 'deny');
+    // still behind the structural gate — a pipe denies the whole command, resolve or not
+    assert.equal(analyzeBashCommand('.venv/bin/python tools/dify_base/marketplace.py resolve a/b | head').decision, 'deny');
+    // and NOT via the generic set (that would open every subcommand)
+    assert.equal(ALLOWED_PYTHON_SCRIPTS.has('tools/dify_base/marketplace.py'), false);
+  });
+
   test('read-only git status/diff + inspectors are allowed', () => {
     assert.equal(analyzeBashCommand('git status').decision, 'allow');
     assert.equal(analyzeBashCommand('git diff projects/wf_x/workflows/main.yml').decision, 'allow');

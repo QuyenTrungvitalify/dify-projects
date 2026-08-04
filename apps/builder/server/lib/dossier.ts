@@ -149,6 +149,7 @@ function flowLines(events: RunEvent[]): string[] {
     const d = e.detail ? oneLine(e.detail) : '';
     switch (e.kind) {
       case 'phase_start': out.push(`- ${p} ${lbl} started${d ? ` (${d})` : ''}`); break;
+      case 'turn_spawned': out.push(`- ${p} turn spawned${d ? ` (${d})` : ''}`); break;
       case 'gate_reached': out.push(`- ${p} gate reached${d ? `: ${d}` : ''}`); break;
       case 'gate_action': out.push(`- ${p} → ${d || 'confirm'}`); break;
       case 'request_changes': out.push(`- ${p} ⤺ request-changes${d ? `  "${d}"` : ''}`); break;

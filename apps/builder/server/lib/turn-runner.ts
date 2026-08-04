@@ -97,6 +97,14 @@ export function classifyTurnFailure(
  *   the `tool_use`/`tool_result` blocks. Try/catch-wrapped here so a throwing recorder can NEVER break
  *   the turn; the SSE `onText` path stays byte-identical (AC #6).
  */
+/** The note a wall-clock timeout stamps on its TurnResult. Exported alongside {@link isTimeoutNote} so a
+ *  consumer (resolveImplementOutcome, spec 085) can tell a TIMEOUT — a possibly-salvageable interruption
+ *  that may have left a valid artifact — apart from a hard spawn/exit failure, WITHOUT string-guessing that
+ *  could silently drift from the mint below. */
+export const timeoutNote = (ms: number): string =>
+  `phase timed out after ${Math.round(ms / 1000)}s — retry or simplify`;
+export const isTimeoutNote = (note: string | undefined): boolean => !!note && note.includes('timed out after');
+
 export async function runTurn(
   session: ClaudeSession,
   prompt: string,
@@ -125,7 +133,7 @@ export async function runTurn(
           sessionId: capturedSessionId,
           result: null,
           isError: true,
-          note: `phase timed out after ${Math.round(opts.timeoutMs! / 1000)}s — retry or simplify`,
+          note: timeoutNote(opts.timeoutMs!),
         });
         session.forceKill();
       }, opts.timeoutMs);
