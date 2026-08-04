@@ -317,7 +317,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 
 /* Left/right inset = 12px so every tree-row's hover box lines up with the New-task button
    (which sits at margin 12px) instead of protruding 4px past it. */
-.sb-scroll { flex: 1; overflow-y: auto; padding: 6px 12px 10px; min-height: 0; }
+.sb-scroll { flex: 1; overflow-y: auto; padding: 6px 10px 10px; min-height: 0; }
 
 /* tree rows */
 .tree-row {
@@ -339,12 +339,14 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .tree-project .tw-name { color: var(--tx-1); font-weight: 500; font-size: 13px; }
 .tree-project .tw-twist { color: var(--tx-faint); }
 
-/* level 2: workflow */
-.tree-workflow { padding: 6px 8px 6px 26px; }
+/* level 2: workflow — tighter left indent (was 26px) so the title gets more width; the twist chevron
+   still marks the nesting level. */
+.tree-workflow { padding: 6px 8px 6px 16px; }
 .tree-workflow .tw-name { color: var(--tx-2); font-size: 12.5px; font-family: var(--mono); letter-spacing: -0.01em; }
 
-/* level 3: task */
-.tree-task { padding: 6px 10px 6px 44px; }
+/* level 3: task — tighter left indent (was 44px) for more title width; still steps in from the
+   workflow above so the nesting reads. */
+.tree-task { padding: 6px 10px 6px 30px; }
 .tree-task .tw-name { color: var(--tx-muted); font-size: 12.5px; font-weight: 400; }
 .tree-task .tw-time { color: var(--tx-faint); font-size: 11px; margin-left: auto; padding-left: 8px; flex-shrink: 0; }
 .tree-task:hover .tw-name { color: var(--tx-2); }
@@ -356,7 +358,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .tree-task.active { background: var(--bg-elevated-2); }
 .tree-task.active .tw-name { color: var(--tx-strong); font-weight: 450; }
 .tree-task.active::before {
-  content: ""; position: absolute; left: 30px; top: 50%; transform: translateY(-50%);
+  content: ""; position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
   width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
 }
 
