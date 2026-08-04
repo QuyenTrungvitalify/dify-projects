@@ -12,6 +12,12 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": ["-c", "cd apps/builder && BUILDER_PORT=4181 npx tsx server/index.ts"],
       "port": 4181
+    },
+    {
+      "name": "builder-web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd apps/builder/web && npx vite --port 5199 --strictPort"],
+      "port": 5199
     }
   ]
 }

@@ -434,16 +434,6 @@ export function App() {
               </>
             ) : <span style={{ fontSize: 13, color: 'var(--tx-muted)' }}>{crumb.label}</span>}
             <div className="chat-top-right">
-              <button className="ghost-pill" onClick={toggleLang}
-                title={lang.value === 'ja' ? tr('switchToEnglish') : tr('switchToJapanese')}
-                aria-label={tr('changeLanguage')}>
-                <I.globe />{lang.value === 'ja' ? '日本語' : 'EN'}
-              </button>
-              <button className="ghost-pill" onClick={toggleTheme}
-                title={theme === 'light' ? tr('switchToDark') : tr('switchToLight')}
-                aria-label={theme === 'light' ? tr('switchToDark') : tr('switchToLight')}>
-                {theme === 'light' ? <I.sun /> : <I.moon />}
-              </button>
               {/* spec 082: a consult's live turn is an ask (busy never flips) — offer Stop during one,
                   and skip the "stop build?" modal there (aborting an answer is harmless + scoped: the
                   /cancel route's ask branch kills the child without touching status). */}
@@ -453,10 +443,6 @@ export function App() {
                   title={task?.kind === 'consult' ? tr('stopConsultAnswer') : tr('stopRunningBuild')}>
                   <span className="stop-sq" />{tr('stop')}
                 </button>
-              )}
-              {view === 'conversation' && (
-                <span className="conn-dot" title={connected ? tr('live') : tr('reconnecting')}
-                  style={{ width: 7, height: 7, borderRadius: 99, background: connected ? 'var(--ok)' : 'var(--tx-faint)' }} />
               )}
               {view === 'conversation' && tabs.length > 0 && !artifactOpen && (
                 <button className="ghost-pill" onClick={() => setArtifactOpen(true)}>
@@ -499,7 +485,7 @@ export function App() {
                 (task.status === 'done' || task.status === 'cancelled' ||
                   (task.status === 'awaiting_confirm' && task.phase === 'test')) && (
                 <button className="ghost-pill" onClick={() => newTask({ baseWorkflow: { project: task.project!, workflow: task.workflowSlug! } })} title={tr('editThisWorkflowHint')}>
-                  <I.message />{tr('editThisWorkflow')}
+                  <I.message />{tr('editWorkflowShort')}
                 </button>
               )}
               {/* spec 052 D1: "Promote to pattern" — always-visible when the view has a RESOLVED on-disk
@@ -528,6 +514,23 @@ export function App() {
                   <I.spark />{tr('promoteToPattern')}
                 </button>
               )}
+              {/* live/reconnecting indicator — a slim bar sitting just before the settings toggles. */}
+              {view === 'conversation' && (
+                <span className="conn-dot" title={connected ? tr('live') : tr('reconnecting')}
+                  style={{ width: 5, height: 15, borderRadius: 3, background: connected ? 'var(--ok)' : 'var(--tx-faint)' }} />
+              )}
+              {/* Language + light/dark are global SETTINGS, not run actions — parked at the far-right
+                  end of the header so the run's action pills (Artifact/Export/Edit/Promote) lead. */}
+              <button className="ghost-pill" onClick={toggleLang}
+                title={lang.value === 'ja' ? tr('switchToEnglish') : tr('switchToJapanese')}
+                aria-label={tr('changeLanguage')}>
+                <I.globe />{lang.value === 'ja' ? '日本語' : 'EN'}
+              </button>
+              <button className="ghost-pill" onClick={toggleTheme}
+                title={theme === 'light' ? tr('switchToDark') : tr('switchToLight')}
+                aria-label={theme === 'light' ? tr('switchToDark') : tr('switchToLight')}>
+                {theme === 'light' ? <I.sun /> : <I.moon />}
+              </button>
             </div>
           </div>
 

@@ -381,11 +381,14 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .tw-ic svg { width: 100%; height: 100%; }
 .tw-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
-/* Idle: the actions take NO layout space (display:none, not opacity:0) so the title (.tw-name) uses the
-   FULL row width and truncates as little as possible. On hover they appear and the title yields room —
-   i.e. the title is wider when idle, narrower (current look) while hovering. */
-.row-actions { display: none; gap: 1px; margin-left: auto; flex-shrink: 0; }
-.tree-row:hover .row-actions { display: flex; }
+/* Idle: the actions take NO horizontal space (width:0, not display:none) so the title (.tw-name) uses
+   the FULL row width and truncates as little as possible. On hover the width opens and the title yields
+   room. Crucially they STAY in layout at their 22px height in both states, so the row height never
+   changes between idle/hover — revealing the buttons no longer nudges the row taller (no vertical
+   jitter). display:none was the earlier fix but it dropped the 22px child from the row, so hover made
+   the row grow by (22px − text height). */
+.row-actions { display: flex; gap: 1px; margin-left: auto; flex-shrink: 0; width: 0; overflow: hidden; }
+.tree-row:hover .row-actions { width: auto; }
 .row-actions .icon-btn { width: 22px; height: 22px; }
 .row-actions .icon-btn svg { width: 13px; height: 13px; }
 
@@ -659,6 +662,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   border: 1px solid var(--border);
   border-radius: 16px 16px 5px 16px;
   padding: 11px 15px; color: var(--tx-1); font-size: 13.5px;
+  /* The user bubble renders raw text (not markdown), so keep the line breaks + spacing the user
+     pasted — default `white-space: normal` collapses newlines into a single run-on paragraph.
+     `overflow-wrap: anywhere` keeps a long pasted URL from overflowing the bubble. */
+  white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
 .msg-assistant { color: var(--tx-1); font-size: 13.5px; }
@@ -1390,7 +1397,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 
 /* empty workflow/task hint row */
 .tree-empty { cursor: default; padding: 0 5px; }
-.conn-dot { display: inline-block; margin-right: 6px; }
+.conn-dot { display: inline-block; margin-right: 6px; flex: none; }
 
 /* ── spec 059 dev strip (taskId + per-phase cost; only under ?dev=1) ─────────── */
 .dev-strip {
@@ -1579,7 +1586,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .bg-tray {
   position: fixed; right: 18px; bottom: 18px; z-index: 60;
   display: flex; flex-direction: column-reverse; gap: 10px;
-  width: 320px; max-width: calc(100vw - 36px);
+  width: 300px; max-width: calc(100vw - 36px);
   pointer-events: none; /* the gap is click-through; cards re-enable */
 }
 .bg-tray-card {
@@ -1589,6 +1596,15 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   border-radius: 12px; padding: 12px 14px;
   box-shadow: 0 8px 28px var(--bg-overlay);
   animation: gate-in 0.18s ease;
+}
+/* Running / queued: nothing to act on yet, so shrink to a one-line pill that hugs the corner instead
+   of blanketing the composer beneath it. align-self overrides the container's stretch (full cards keep
+   the 300px width for their action buttons). */
+.bg-tray-card--compact {
+  align-self: flex-end;
+  max-width: 100%;
+  padding: 8px 12px;
+  box-shadow: 0 4px 14px var(--bg-overlay);
 }
 .bg-tray-card.tone-ok   { border-left-color: var(--ok); }
 .bg-tray-card.tone-warn { border-left-color: var(--warn); }

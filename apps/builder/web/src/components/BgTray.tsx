@@ -149,8 +149,12 @@ export function BgTray(): JSX.Element | null {
       {items.map((b) => {
         const h = headline(b);
         const showSub = !!b.target && (b.status === 'awaiting_confirm' || b.status === 'done');
+        // While a distill is merely running/queued there is nothing to act on, so render a COMPACT
+        // one-line card (no sub, no [Details] row) that hugs the corner instead of blanketing the
+        // composer beneath it. The full card (with actions) returns the moment a decision is needed.
+        const compact = b.status === 'running' || b.status === 'queued';
         return (
-          <div key={b.key} className={'bg-tray-card tone-' + h.tone}>
+          <div key={b.key} className={'bg-tray-card tone-' + h.tone + (compact ? ' bg-tray-card--compact' : '')}>
             <button className="bg-tray-x" title={tr('trayClose')} aria-label={tr('trayClose')} onClick={() => void closeItem(b)}>
               <I.close />
             </button>
@@ -159,8 +163,8 @@ export function BgTray(): JSX.Element | null {
               <span className="bg-tray-title">{h.text}</span>
               {b.test && <span className="bg-tray-dev">{tr('trayTestBadge')}</span>}
             </div>
-            {showSub && <div className="bg-tray-sub">{b.target}</div>}
-            <ActionRow b={b} />
+            {!compact && showSub && <div className="bg-tray-sub">{b.target}</div>}
+            {!compact && <ActionRow b={b} />}
           </div>
         );
       })}

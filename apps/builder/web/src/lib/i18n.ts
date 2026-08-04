@@ -252,6 +252,8 @@ const EN: Dict = {
   cardLintClean: 'Structure is valid — importable as-is',
   // spec 035: the done/cancelled gate-foot "Edit this workflow" button.
   editThisWorkflow: 'Edit this workflow',
+  // Short label for the header pill (the tooltip `editThisWorkflowHint` still spells it out).
+  editWorkflowShort: 'Edit',
   editThisWorkflowHint: 'Start a new build that edits this workflow',
   // spec 036 D5: the done-state "Run test with workflow" foot action (autonomous builds + self-host creds).
   runTestWithWorkflow: 'Run test with workflow',
@@ -673,6 +675,7 @@ const JA: Dict = {
   cardLintClean: '構造は有効 — そのままインポート可能',
   // spec 035
   editThisWorkflow: 'このワークフローを編集',
+  editWorkflowShort: '編集',
   editThisWorkflowHint: 'このワークフローを編集する新しいビルドを開始',
   // spec 036 D5
   runTestWithWorkflow: 'ワークフローでテスト実行',

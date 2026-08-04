@@ -4,7 +4,9 @@
       "templates/patterns/*.yml",
       "templates/_base/**/workflows/*.yml",
       "projects/_drafts/*/workflows/*.yml",
-      "projects/_drafts/*/workflows/*.yaml"
+      "projects/_drafts/*/workflows/*.yaml",
+      "projects/new/*/workflows/*.yml",
+      "projects/new/*/workflows/*.yaml"
     ]
   },
   "yaml.validate": true,
