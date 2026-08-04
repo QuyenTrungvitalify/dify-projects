@@ -544,7 +544,7 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
           )}
           {canEditAgain && (
             <button className="btn ghost" disabled={busy} onClick={() => onEditAgain!(task.project!, task.workflowSlug!)}>
-              <I.message />{tr('editThisWorkflow')}
+              <I.edit />{tr('editThisWorkflow')}
             </button>
           )}
           {canRunTest && (

@@ -86,7 +86,7 @@ function TaskRow({ task, activeTask, onOpen, projectId, workflowSlug, onNewTask 
       {/* hover: edit this task's WORKFLOW — a NEW edit-existing build on it (same as the workflow-row "+").
           Surfaced here too so it's reachable from any task row (esp. in _drafts). */}
       <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-        <button className="icon-btn" title={tr('editThisWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: workflowSlug } })}><I.message /></button>
+        <button className="icon-btn" title={tr('editThisWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: workflowSlug } })}><I.edit /></button>
         <RemoveButton taskId={task.id} name={task.name} />
       </span>
     </div>
@@ -120,9 +120,9 @@ function WorkflowRow({ wf, projectId, activeTask, active, defaultOpen, onOpen, o
         <span className="tw-name">{wf.name}</span>
         <span className="row-actions" onClick={(e) => e.stopPropagation()}>
           {/* spec 030: workflow "+" = new task that EDITS this workflow → pre-select the COMPOUND
-              {project, workflow} key (the same workflow name can exist in multiple projects). Distinct
-              glyph (I.message, a "new build/chat on this workflow") vs the project "+" (I.plus). */}
-          <button className="icon-btn" title={tr('newTaskInWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: wf.id } })}><I.message /></button>
+              {project, workflow} key (the same workflow name can exist in multiple projects). Edit glyph
+              (I.edit, "edit this workflow") vs the project "+" (I.plus). */}
+          <button className="icon-btn" title={tr('newTaskInWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: wf.id } })}><I.edit /></button>
           {/* spec 084 follow-up — permanently delete this workflow (folder + its builds). The Build/`_drafts`
               rows are workflows, so this is the "delete a junk build" ×. */}
           <button className="icon-btn" title={tr('removeWorkflow')} aria-label={tr('removeWorkflow')}

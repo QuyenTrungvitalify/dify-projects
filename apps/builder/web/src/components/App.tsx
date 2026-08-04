@@ -503,7 +503,7 @@ export function App() {
                 (task.status === 'done' || task.status === 'cancelled' ||
                   (task.status === 'awaiting_confirm' && task.phase === 'test')) && (
                 <button className="ghost-pill" onClick={() => newTask({ baseWorkflow: { project: task.project!, workflow: task.workflowSlug! } })} title={tr('editThisWorkflowHint')}>
-                  <I.message />{tr('editWorkflowShort')}
+                  <I.edit />{tr('editWorkflowShort')}
                 </button>
               )}
               {/* spec 052 D1: "Promote to pattern" — always-visible when the view has a RESOLVED on-disk
