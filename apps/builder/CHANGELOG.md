@@ -12,6 +12,14 @@ pattern, a changed gate. Not for docs-only edits.
 ## Unreleased
 
 **Build quality**
+- Model auto-inject now covers ALL model-carrying node types (llm + parameter-extractor +
+  question-classifier — spec 087): the live-test 0-model gate catches PE/QC-only workflows, and
+  the static selfhost 'Import to Dify' best-effort injects the workspace model into a temp copy
+  before pushing (falls back to the exact pre-087 push on any hiccup). The model advisory no
+  longer promises "nothing to set up" when the workspace model count could not be verified — the
+  promise becomes conditional ("if your Dify has a model enabled — this could not be checked
+  right now", JA frame included). Validated live A/B: same QC workflow, injected copy runs,
+  empty-model copy imports clean but dies at run.
 - Phase 4 now reads back the acceptance criteria the build wrote for itself and folds the run
   timeline — `report.json` gains `criteria_check` (each criterion bucketed: `auto_fail` is a sound
   structural-impossibility verdict, `auto_pass` is withheld to pure lint/import claims, everything

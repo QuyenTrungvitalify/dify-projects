@@ -94,3 +94,25 @@ jq -r '.cost | to_entries[] | "\(.key): \(.value.model) \(.value.numTurns)t"' ap
 
 **Luật giữ cho đối chiếu có nghĩa**: dán prompt **nguyên văn** (dọn prompt = phá test) · ghi **model
 từng phase** · chỉ so **cùng model** · finding nào chưa đủ mẫu thì ghi rõ `n=1`, đừng fix vội.
+
+## Bằng chứng đo ngoài-campaign
+
+### 2026-08-05 · spec 087 — A/B live "Model not exist" (Dify local, provider OpenAI)
+
+Probe QC 4-node lint-clean (start → question-classifier model-RỖNG → 2 end), hai nhánh chỉ khác
+bước inject: **bản inject** → run `succeeded` (output đúng class, 767 token); **bản model-rỗng**
+→ import vẫn `completed` (import không kiểm model) nhưng run `failed` 0 token, lỗi hiện dạng
+stream-đứt chung chung chứ KHÔNG phải "Model not exist" (bề mặt lỗi của QC mờ hơn llm). Trước
+087, inject bỏ qua node QC nên nhánh "inject" cũng chết như nhánh đối chứng. Runbook tái hiện:
+
+```bash
+set -a && source apps/builder/.env && set +a
+.venv/bin/python tools/dify_base/sync.py models   # xác nhận workspace có model enabled
+.venv/bin/python tools/dify_base/sync.py inject-model --src <qc.yml> --out <out.yml> \
+  --provider "<provider>" --name "<model>"        # kỳ vọng: patched chứa id node QC
+.venv/bin/python tools/dify_base/sync.py push --project _drafts --src-file <out.yml> \
+  --name probe --yes --json-out                   # rồi publish → api-key → run → delete
+```
+
+Để ngỏ (087 Open Q3): PE/QC đang dùng **cùng pick** model với llm — chỉ xét pick riêng (rẻ hơn)
+nếu có bằng chứng chi phí từ campaign.

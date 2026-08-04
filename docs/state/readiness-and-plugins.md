@@ -133,11 +133,18 @@ nhận `''`.
 `value_selector: ['env', 'NAME']` bất kỳ đâu dưới đó. Env var rỗng **không ai dùng** → **không** phải
 blocker.
 
-`ctx.workspaceModelCount === 0` đổi `model_empty` từ trấn an sang yêu cầu; mọi giá trị khác (kể cả
-`undefined`) giữ trấn an. **Không** khoá theo `task.deploy`: build `deploy: 'none'` vẫn live-test được
+`ctx.workspaceModelCount` chia `model_empty` thành **ba nhánh** (spec 087 S3): `=== 0` → yêu cầu
+("add one in Dify first…"); `> 0` (đã xác nhận) → trấn an trọn ("filled in automatically when you
+test — nothing to set up"); **`undefined`** (arm models fail / không được truyền) → lời hứa **có
+điều kiện** — giữ nguyên prefix `the AI model (filled in automatically when you test` (consumer
+prefix-match không vỡ) nhưng nói rõ "if your Dify has a model enabled — this could not be checked
+right now". Nguyên tắc chịu lực: **advisory chỉ được hứa điều đã xác nhận trong chính run đó** —
+"nothing to set up" khi chưa kiểm tra được là đúng vết nói-dối 064 mà 066 mới fix một nửa.
+**Không** khoá theo `task.deploy`: build `deploy: 'none'` vẫn live-test được
 từ UI — `computeGate` **bỏ qua** tham số `deploy` (`gate.ts:110` nhận nó là `_deploy`), nút live khoá
-theo `targets.selfhost` (`gate.ts:149`) — và khi đó model **có** auto-fill. Nhánh degrade 0-model:
-`live-test.ts:269-270`.
+theo `targets.selfhost` (`gate.ts:149`) — và khi đó model **có** auto-fill; khoá theo deploy là nói
+dối theo chiều ngược lại (quyết định 066, tái khẳng định khi 087 định key theo deploy rồi bỏ).
+Nhánh degrade 0-model: `live-test.ts:269-270`.
 
 `.claude/skills/report/report_structure.py` **mirror** phân loại này (`runnable_blocker_classes`).
 `runnability.test.ts` so hai implementation trên fixture chung và **hard-fail khi lệch**.

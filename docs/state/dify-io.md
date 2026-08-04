@@ -126,8 +126,13 @@ phải bị che trong log — giải bằng cách tách hai đường, không b�
 ## 4. Model auto-inject
 
 **Xảy ra ở đâu:** `deployWithModel` → `sync.py inject-model`. **Local file I/O, không creds.**
-**Khi nào:** chỉ trên đường live test (`live-test.ts` bước 2), **không** trên đường import tĩnh
-(`import.ts` đẩy file trên đĩa **nguyên trạng**).
+**Khi nào:** trên đường live test (`live-test.ts` bước 2), **và** best-effort trên đường import
+tĩnh selfhost (`resolveImportSource` trong `import.ts` — spec 087): pick được model **và** vá được
+≥1 node thì push bản sao tạm `import-deploy.yml` (tên riêng, không đè `deploy.yml` của live-test)
+qua `pushApp srcFileRel` → `sync.py --src-file`; **mọi** nhánh khác (0-model, inject hỏng, throw,
+0-patch) rơi về push nguồn nguyên trạng — inject **không bao giờ** được phép chặn một import.
+Chạy TRƯỚC `writePushIntent` (local-only) nên idempotency/reconcile §6 không đổi; nhánh
+marker-exists không push nên không inject.
 
 Nó **không bao giờ** ghi đè nguồn. `inject-model` viết một **bản sao tạm**
 `apps/builder/.runs/<taskId>/deploy.yml`; `main.yml` trên đĩa ở lại **model-agnostic** (portable). Hai
@@ -138,13 +143,18 @@ guard trong `sync.py` cưỡng chế điều đó, và cả hai đã chạy th�
 --out thoát khỏi repo        → ❌ --out must stay within the repo
 ```
 
-Node được vá: node `llm` có `model.name` **rỗng**, **hoặc** có tên **không nằm trong** `--valid-names`
-(tập model đang enable). Nghĩa là một model hard-code nhưng đã bị gỡ khỏi workspace cũng bị thay — chứ
-không chết lúc runtime.
+Node được vá: node thuộc `MODEL_TYPES` = `llm` · `parameter-extractor` · `question-classifier`
+(spec 087 — cả ba mang chung một `$defs/ModelConfig` trong schema 0.6.0) có `model.name` **rỗng**,
+**hoặc** có tên **không nằm trong** `--valid-names` (tập model đang enable). Nghĩa là một model
+hard-code nhưng đã bị gỡ khỏi workspace cũng bị thay — chứ không chết lúc runtime. **"Node nào cần
+model" có MỘT định nghĩa** — `MODEL_TYPES` của `sync.py` và của probe runnability phải trùng nhau,
+cưỡng chế bằng `tests/test_sync.py::test_model_types_matches_runnability` (bộ ba từng lệch nhau và
+mọi triệu chứng "Model not exist" rơi ra từ khe đó).
 
-`inject-model` trả về trên một dòng JSON: `node_count` (số node **đã vá**), `llm_count` (**tổng** node
-`llm`, vá hay không), `patched[]`, `out`, `inputs[]` (schema biến của node `start`), `mode`,
-`entry_types[]`.
+`inject-model` trả về trên một dòng JSON: `node_count` (số node **đã vá**), `llm_count` (**tổng**
+node cần model — cả ba `MODEL_TYPES`, vá hay không; tên field giữ nguyên vì là wire-contract với
+`deployWithModel`, chỉ ngữ nghĩa được mở rộng), `patched[]`, `out`, `inputs[]` (schema biến của
+node `start`), `mode`, `entry_types[]`.
 
 **Nhánh degrade 0-model** (`live-test.ts:269-270`):
 
@@ -156,8 +166,9 @@ if (dep.llmCount > 0 && !pick) {
 
 Gate là **có điều kiện**, và điều kiện là `llmCount`, **không** phải `nodeCount`. Workflow
 model-agnostic (`llmCount === 0`) **chạy được không cần model nào** trong workspace → đi tiếp. Chỉ
-workflow **có** node `llm` mà workspace **không** có model enable nào mới degrade về `static-only` tại
-gate `infra_degraded`.
+workflow **có** node cần model (một trong ba `MODEL_TYPES`) mà workspace **không** có model enable
+nào mới degrade về `static-only` tại gate `infra_degraded` — trước spec 087 count chỉ đếm `llm`
+nên workflow chỉ-có-PE/QC lọt qua gate và được import với model rỗng thầm lặng.
 
 Thứ tự cũng chịu lực: bước 1 resolve model **không bail** khi rỗng; bước 2 truyền placeholder
 `{ provider: '', name: '' }` vào `inject-model`; bước 3 mới gate. Placeholder chỉ thật sự được ghi vào
@@ -165,9 +176,18 @@ node khi `llmCount > 0` — mà đúng trường hợp đó thì bước 3 chặ
 Nên một bản sao mang model rỗng **không bao giờ** được import.
 
 `pickLlmModel` là policy thuần, tất định: system-default **nếu nó thật sự đang enable** → rẻ nhất
-(`*-nano` trước, rồi `*-mini`) → cái đầu tiên trong tập enable → `null`. `parseModels` **loại** model
-có `status` khác `'active'` hoặc `deprecated: true`, nhưng **giữ** model không có field `status` — một
-model được liệt kê nhưng đã chết sẽ thành `Model not exist` lúc runtime, nên nó bị lọc ở đây.
+(`*-nano` trước, rồi `*-mini`) → cái đầu tiên trong tập enable → `null`. Cả ba `MODEL_TYPES` dùng
+**cùng một pick** (một nguồn, đơn giản — chỉ xét pick riêng cho PE/QC nếu có bằng chứng chi phí).
+`parseModels` **loại** model có `status` khác `'active'` hoặc `deprecated: true`, nhưng **giữ**
+model không có field `status` — một model được liệt kê nhưng đã chết sẽ thành `Model not exist`
+lúc runtime, nên nó bị lọc ở đây.
+
+**Bề mặt lỗi runtime KHÔNG đồng nhất giữa các node cần model**: node `llm` model-rỗng chết với
+`"Model not exist"` đọc-hiểu-được, nhưng node `question-classifier` model-rỗng chết dưới dạng
+stream đứt chung chung (`"Workflow stream ended without a terminal event"`, status `failed`,
+0 token) — mờ hơn hẳn, user tự debug gần như không lần ra model. Import thì **nhận sạch cả hai**
+(import không kiểm tra model). Đó là lý do inject phải phủ đủ ba type chứ không thể dựa vào
+thông báo lỗi lúc chạy.
 
 ## 5. Cái gì thật sự được tạo trên Dify
 
@@ -435,10 +455,11 @@ Ghi lại, **không sửa** (doc này không đụng code).
 | `apps/builder/test/redact.test.ts` | `redactSecrets`: token nguyên văn/ngắn/URL-encoded/base64 · `DIFY_CONSOLE_URL` + origin trần · `Bearer` · không creds → nguyên văn |
 | `apps/builder/test/dify-targets.test.ts` | `difyTargets`: cần **cả** url+token · `workspaceId` đi kèm · `cloud` **luôn** vắng |
 | `apps/builder/test/dify-inject-model.test.ts` | `deployWithModel` parse `entry_types`; vắng `entry_types` → `undefined` (degrade). Chạy qua shim `.venv/bin/python`, **không** Dify thật |
+| `apps/builder/test/import-inject.test.ts` | `resolveImportSource` (5 nhánh best-effort: inject thành công / pick null / 0-patch / ok:false / dep throw) · `pushApp` plumbing `srcFileRel` → `--src-file` (shim ghi argv) |
 | `apps/builder/test/live-test.test.ts` | FSM `runLiveTest`: passed / workflow_fail / 0-model (cả `llmCount>0` lẫn `=0`) / transport / need_input / upload / chat / judge / trigger-note · `resolveInput` · `extractJson` · `parseJudgeVerdict` · `cleanupTestApps` · auto-prune app cũ |
 | `apps/builder/test/import-probe.test.ts` | probe ④ (`orchestrator.ts` — file khác, [build-lifecycle.md](build-lifecycle.md) sở hữu): tên duy nhất · quét orphan khi FAILED · 202 `pending` → không sweep · không creds → không probe · note vào `report.json` |
 | `apps/builder/test/base-import.test.ts` | `importYamlAsBase`: ghi verbatim · slug JP · auto-suffix · linter fail → 400 và **không ghi gì** · traversal → 400 · probe advisory không chặn |
-| `tests/test_sync.py` | header (kể cả `X-WORKSPACE-ID` đường admin-key) · `_client_from_env` · shape `list_apps`/`export_app`/`import_app` · `_slugify` · `cmd_pull` ghi file · `cmd_inject_model` (`llm_count` 0 và 1) |
+| `tests/test_sync.py` | header (kể cả `X-WORKSPACE-ID` đường admin-key) · `_client_from_env` · shape `list_apps`/`export_app`/`import_app` · `_slugify` · `cmd_pull` ghi file · `cmd_inject_model` (count/patch đủ 3 `MODEL_TYPES`, kể cả QC-only) · cross-check `MODEL_TYPES` sync.py ↔ runnability.ts |
 
 ## 12. Những gì KHÔNG check tự động nào chứng minh được
 
