@@ -84,6 +84,20 @@ export function App() {
   const [artifactOpen, setArtifactOpen] = useState(false);
   const [artifactTab, setArtifactTab] = useState<ArtifactTab>('spec');
   const [exportMenuOpen, setExportMenuOpen] = useState(false); // spec 062 follow-up: the Export dropdown
+  const exportBtnRef = useRef<HTMLButtonElement>(null); // anchor for the fixed-positioned menu (see below)
+  const [exportMenuPos, setExportMenuPos] = useState<{ top: number; left: number } | null>(null);
+  // Open/close the Export menu. On OPEN, snapshot the button's viewport rect so the fixed-positioned menu
+  // (which must escape the header's overflow-x:auto clip) anchors right under the button. Anchored by the
+  // button's LEFT edge (no window.innerWidth dependency — that read was flaky) and measured at click time.
+  const toggleExportMenu = (): void => {
+    setExportMenuOpen((o) => {
+      if (!o) {
+        const r = exportBtnRef.current?.getBoundingClientRect();
+        if (r) setExportMenuPos({ top: r.bottom + 6, left: r.left });
+      }
+      return !o;
+    });
+  };
   const [exportingDrive, setExportingDrive] = useState(false); // spec 062 follow-up: the Drive upload in-flight
   const threadRef = useRef<HTMLDivElement>(null);
 
@@ -456,8 +470,8 @@ export function App() {
                   (the Drive path falls back to the local download when no team Drive is configured). */}
               {view === 'conversation' && task && task.kind !== 'promote' && tabs.length > 0 && (
                 <div className="export-menu-wrap">
-                  <button className="ghost-pill" disabled={exportingDrive}
-                    onClick={() => setExportMenuOpen((o) => !o)}
+                  <button ref={exportBtnRef} className="ghost-pill" disabled={exportingDrive}
+                    onClick={toggleExportMenu}
                     title={exportingDrive ? tr('exportingDrive') : tr('exportRunHint')}>
                     {exportingDrive ? <span className="spin" /> : <I.download />}
                     {exportingDrive ? tr('exportingDrive') : tr('exportRun')}
@@ -466,7 +480,11 @@ export function App() {
                   {exportMenuOpen && !exportingDrive && (
                     <>
                       <div className="menu-scrim" onClick={() => setExportMenuOpen(false)} />
-                      <div className="export-menu" role="menu">
+                      {/* position:fixed anchored to the button — the header pill row is an overflow-x:auto
+                          scroll container (which also clips overflow-y), so an absolutely-positioned menu
+                          would be clipped out of view. Fixed positioning escapes that ancestor clip. */}
+                      <div className="export-menu" role="menu"
+                        style={exportMenuPos ? { position: 'fixed', top: exportMenuPos.top, left: exportMenuPos.left, right: 'auto' } : undefined}>
                         <button role="menuitem" onClick={() => { setExportMenuOpen(false); downloadBundle(task.taskId); }}>
                           <I.download />{tr('exportDownload')}
                         </button>
