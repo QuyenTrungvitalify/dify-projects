@@ -465,7 +465,12 @@ export async function buildTree(projectsDir: string, nowMs: number): Promise<Tre
   }
 
   const result = [...projects.values()];
-  result.forEach((p) => p.workflows.sort((a, b) => a.name.localeCompare(b.name)));
+  // Workflows sort NEWEST-FIRST by their most-recent task (tasks are already byTaskIdDesc, so tasks[0] is
+  // the newest; its id is a ms timestamp). This matches the task list (newest-first) and the project list
+  // (newest-created-first) so the whole tree reads recency-consistently instead of workflows going
+  // alphabetical. Empty workflows fall to the bottom; name breaks ties.
+  const wfRecency = (w: TreeWorkflowNode): number => (w.tasks.length ? Number(w.tasks[0].id) : 0);
+  result.forEach((p) => p.workflows.sort((a, b) => wfRecency(b) - wfRecency(a) || a.name.localeCompare(b.name)));
   // `_drafts` leads the list so the active build is visible; the rest sort NEWEST-CREATED FIRST (folder
   // birthtime) so a just-created project surfaces at the top, not buried alphabetically. Name is the
   // tie-break (or for a synthetic project with no folder timestamp).
