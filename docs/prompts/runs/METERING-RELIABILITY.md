@@ -57,3 +57,9 @@ cáo P04/P11 đã ghi wall-clock làm điểm nhấn — vẫn đúng hướng, 
 2. So sánh chỉ giữa **các run cùng model**.
 3. Oracle thrash = **grep-denied count** + **tool-call count**, không phải turn/wall-clock.
 4. Nếu một run nhảy Opus[1m] → đánh dấu "không so turn được", coi là tín hiệu thrash mạnh.
+5. (spec 086) Số đo so-giữa-các-đợt phải là **hàm thuần của dữ liệu có cấu trúc đã persist**
+   (manifest / field JSON) — không LLM, không grep văn xuôi trong notes (tiền lệ 066 S5: khoá câu
+   chữ prose làm mọi run xanh AUTO-FAIL khi đổi wording), không phụ thuộc `.runs/` còn sống.
+   Thiếu dữ liệu → bucket `n/a`, không đoán. Cột "Pass (cơ học)" trong CAMPAIGNS là hiện thân:
+   `campaign.py summary`, tầng CẤU TRÚC — chênh với cột "Đạt chất lượng" (judge) là tín hiệu,
+   không phải mâu thuẫn.

@@ -126,3 +126,10 @@ set -a && source apps/builder/.env && set +a
 
 Để ngỏ (087 Open Q3): PE/QC đang dùng **cùng pick** model với llm — chỉ xét pick riêng (rẻ hơn)
 nếu có bằng chứng chi phí từ campaign.
+
+Để ngỏ (086, hoãn có chủ ý — mở spec mới khi đủ đau): **Resolve Rate** (chạy workflow thật với
+test-case input→expected, tầng trên của Pass cơ học) — cần model-inject ổn (087 đã ship ✓) nhưng
+chỉ phủ được ~50% corpus (6/12 prompt P01–P12 tự chứa; nửa còn lại dính Chatwork/WordPress/Slack/
+Google; trigger không có API enable) và cần vocabulary assertion mềm chống false-FAIL do
+non-determinism. **Multi-turn degradation probe** (đo Pass qua các vòng Ask/Consult — finding
+Chat2Workflow: mọi model tệ dần qua vòng refine) — chi phí turn thật cao, chưa chứng minh giá trị.

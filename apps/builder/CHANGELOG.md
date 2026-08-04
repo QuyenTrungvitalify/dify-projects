@@ -28,6 +28,11 @@ pattern, a changed gate. Not for docs-only edits.
   never read back — the build set its own yardstick and nothing graded against it.
 
 **Harness**
+- `campaign.py summary <dir>` (spec 086) — ONE mechanical Pass line per campaign (build done +
+  4 linters clean + no accept-override + probe not failed), computed purely from the recorded
+  manifest so it survives run-dir cleanup and is machine-comparable across campaigns; fail
+  categories map to the Chat2Workflow taxonomy (format/graph/semantic/import/build-error).
+  `report.json` gains a structured `probe` field (additive) so the aggregator never greps prose.
 - `campaign.py journey <taskId>` renders a run as the user's per-phase experience — wait time, the
   verbatim text the user read (digest / self-set criteria / notes), and the change at ③ — so a
   campaign report opens with the journey before any technical grading.
