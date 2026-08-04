@@ -804,7 +804,7 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, cr
         <button className={'empty-crumb' + (crumb.active ? ' clearable' : '')}
           onClick={crumb.active ? onClearCrumb : undefined}
           title={crumb.active ? tr('clearPreselection') : undefined}>
-          {crumb.icon === 'message' ? <I.message className="crumb-ic" /> : <I.folder className="crumb-ic" />}
+          {crumb.icon === 'edit' ? <I.edit className="crumb-ic" /> : <I.folder className="crumb-ic" />}
           <span>{crumb.label}</span>
         </button>
         )}

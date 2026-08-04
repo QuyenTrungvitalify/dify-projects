@@ -26,10 +26,10 @@ describe('029 · wfDisplayName', () => {
 });
 
 describe('029 · newTaskCrumb (EN)', () => {
-  it('workflow set → message icon, "Editing <name>", active (clickable-to-clear)', () => {
+  it('workflow set → edit (pencil) icon, "Editing <name>", active (clickable-to-clear)', () => {
     setLang('en');
     const c = newTaskCrumb('chatbot', null, tree);
-    expect(c.icon).toBe('message');
+    expect(c.icon).toBe('edit');
     expect(c.label).toBe('Editing Chatbot');
     expect(c.active).toBe(true);
   });
@@ -50,7 +50,7 @@ describe('029 · newTaskCrumb (EN)', () => {
   it('workflow wins over targetProject (AC5 precedence)', () => {
     setLang('en');
     const c = newTaskCrumb('summarizer', 'my_app', tree);
-    expect(c.icon).toBe('message');
+    expect(c.icon).toBe('edit');
     expect(c.label).toBe('Editing Summarizer');
   });
   it("empty-string workflow ('' or 'none') is treated as no pre-selection", () => {

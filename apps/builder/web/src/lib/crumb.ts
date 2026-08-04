@@ -9,7 +9,7 @@ import { t as tr, tf } from './i18n';
 import type { WireTreeProject, WireTask } from '../types';
 
 export interface NewTaskCrumb {
-  icon: 'message' | 'folder';
+  icon: 'edit' | 'folder';
   label: string;
   /** true ⇒ a pre-selection is active, so the crumb is clickable-to-clear (it IS the "×"). */
   active: boolean;
@@ -69,7 +69,7 @@ export function newTaskCrumb(
   tree: WireTreeProject[],
 ): NewTaskCrumb {
   if (workflow && workflow !== 'none')
-    return { icon: 'message', label: tf('editingWorkflow', { name: wfDisplayName(tree, workflow) }), active: true };
+    return { icon: 'edit', label: tf('editingWorkflow', { name: wfDisplayName(tree, workflow) }), active: true };
   if (targetProject)
     return { icon: 'folder', label: tf('newTaskInProjectName', { name: projectDisplayName(tree, targetProject) }), active: true };
   return { icon: 'folder', label: tr('newTask'), active: false };
