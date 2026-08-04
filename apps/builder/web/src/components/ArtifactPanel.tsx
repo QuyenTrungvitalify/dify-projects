@@ -308,7 +308,7 @@ function ReportTab({ report, onReveal }: { report: ReportShape | null; onReveal:
           {localizeNotes(report.notes).split('\n').filter(Boolean).map((line, i) => (
             <li key={i} className="report-note-item">
               <span className="note-bullet">·</span>
-              <span className="note-text secret-note">{line}</span>
+              <span className="note-text">{line}</span>
             </li>
           ))}
         </ul>
