@@ -535,7 +535,7 @@ export function App() {
               {/* live/reconnecting indicator — a slim bar sitting just before the settings toggles. */}
               {view === 'conversation' && (
                 <span className="conn-dot" title={connected ? tr('live') : tr('reconnecting')}
-                  style={{ width: 5, height: 15, borderRadius: 3, background: connected ? 'var(--ok)' : 'var(--tx-faint)' }} />
+                  style={{ width: 2, height: 20, borderRadius: 3, background: connected ? 'var(--ok)' : 'var(--tx-faint)' }} />
               )}
               {/* Language + light/dark are global SETTINGS, not run actions — parked at the far-right
                   end of the header so the run's action pills (Artifact/Export/Edit/Promote) lead. */}
