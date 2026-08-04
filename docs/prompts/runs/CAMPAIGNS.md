@@ -12,18 +12,26 @@ code đã sinh ra nó — xem [`apps/builder/CHANGELOG.md`](../../../apps/builde
 
 ## Bảng đối chiếu
 
-| Campaign | Version | Prompts | Đạt chất lượng | Không hoàn thành | Findings → Fixes |
-|---|---|---|---|---|---|
-| [2026-07-18](2026-07-18-SUMMARY.md) | **v0.1.0** | 12/12 | **11** | 2 (1 propensity ②, 1 đứt mạng) | 5 fix → **v0.2.0** · 5 để ngỏ |
-| [2026-07-20](2026-07-20-SUMMARY.md) quiz-gen · **đợt máy-sinh đầu tiên** (/campaign, 3 đề) | **v0.2.0** | 3/3 | 1 PASS · 2 PARTIAL | 0 | 4 finding mới (nặng nhất: **④ giả định 1-file/workflow** — file thứ 2 không lint, notes im lặng) · slug-rác n=3 thêm mẫu VI → đủ fix · advisory webhook mẫu sống 1/≥2 |
-| [2026-07-20](2026-07-20-R3-SUMMARY.md) ops-mix (đợt 3, 3 đề) | **v0.2.0** | 3/3 | 1 PASS · 2 PARTIAL | 0 | advisory **2/2 → gate notes_include ĐÃ khoá** · webhook thrash mẫu 2 sạch (denied≈1) · timezone-propensity GIỮ · mới: fail-open duyệt tiền (E) · node-soạn nuốt vi phạm (F) · mục 7 tái lần 3 · slug n=6 · notes-EN n=6 |
-| [2026-07-20 R4](2026-07-20-R4-SUMMARY.md) lifecycle (3 đề) | **v0.2.0** | 3/3 | 2 PASS · 1 PARTIAL | 0 | **edit-existing sạch** (7/7 node giữ, base thật); không bịa dataset; vision honesty; finding H/I/J; notes-EN **n=8**, slug **n=8** |
-| [2026-07-21 R5](2026-07-21-R5-SUMMARY.md) capabilities (3 đề, trục MỚI) | **v0.2.0** | 3/3 | 2 PASS · 1 PARTIAL | 0 | chatflow đúng-bài (query-rewrite); honesty voice/IVR (example.invalid); **H→propensity, I→không tất định** (n=2 cứu khỏi fix nhầm); **2 bug harness bắt+fix khi chạy thật** (409-abort, record trùng) |
-| [2026-07-21 R6](2026-07-21-R6-SUMMARY.md) tiebreak (3 đề) | **v0.2.0** | 3/3 | 2 PASS · 1 PARTIAL | 0 | **chốt I: mất dấu VI 2/4, locus = khâu sinh YAML** (SPEC có dấu, YAML không) → fix guidance · **A không tái hiện → hoãn** · đính chính: **nhiều trigger/1 workflow LÀ hợp lệ** (kiểm nguồn Dify) |
-| [2026-07-22 R7](2026-07-22-R7-SUMMARY.md) data-integrity (2 đề) · **lần đầu report 075** | **v0.2.0** | 2/2 | 2 PASS (tĩnh) | 0 | **verify S1+S2 → cả hai LẬT thành propensity, KHÔNG phải bug**: đề nhấn rõ → build append đúng (`A{n+1}`) + lọc dòng-thiếu-ngày tường minh · report mới (criteria_check+journey) chạy thật · nửa runtime plugin còn nợ live |
-| [2026-07-22 R8](2026-07-22-R8-SUMMARY.md) corpus-mix (4 đề · **đề tài từ workflow Dify thật**) | **v0.2.0** | 4/4 | 3 PASS · 1 PARTIAL | 0 | 4 trục MỚI đều đạt: render qua tool THẬT md_to_png (không giả ảnh) · đối chiếu 3-ngôn-ngữ không tự-sửa · fetch-URL+chống-đạo-văn honesty · **finding K→n=2** (max_tokens thiếu nhưng hại-thấp khi output ngắn) · report 075 chạy đủ toàn đợt |
-| [2026-07-22 R9](2026-07-22-R9-SUMMARY.md) corpus-wide (6 đề, đợt RỘNG nhất) | **v0.2.0** | 5/6 done | 2 PASS · 3 PARTIAL · 1 lỗi ② | 1 (G05 ② non-write) | **F1 (mạnh nhất): iteration ≤30 KHÔNG xử lý cho input dài → vỡ ÂM THẦM** (G04, đúng kịch bản user nhấn) · F2 json LLM-first không kiểm fidelity · F3 ② non-write tái hiện v0.2.0 (nudge không triệt) · G01 research honesty PASS · quota chạm build 5 (resume sau reset) · report 075 chạy đủ |
-| _(đợt sau)_ | | | | | |
+| Campaign | Version | Prompts | Pass (cơ học) | Đạt chất lượng | Không hoàn thành | Findings → Fixes |
+|---|---|---|---|---|---|---|
+| [2026-07-18](2026-07-18-SUMMARY.md) | **v0.1.0** | 12/12 | — | **11** | 2 (1 propensity ②, 1 đứt mạng) | 5 fix → **v0.2.0** · 5 để ngỏ |
+| [2026-07-20](2026-07-20-SUMMARY.md) quiz-gen · **đợt máy-sinh đầu tiên** (/campaign, 3 đề) | **v0.2.0** | 3/3 | 3/3 | 1 PASS · 2 PARTIAL | 0 | 4 finding mới (nặng nhất: **④ giả định 1-file/workflow** — file thứ 2 không lint, notes im lặng) · slug-rác n=3 thêm mẫu VI → đủ fix · advisory webhook mẫu sống 1/≥2 |
+| [2026-07-20](2026-07-20-R3-SUMMARY.md) ops-mix (đợt 3, 3 đề) | **v0.2.0** | 3/3 | 3/3 | 1 PASS · 2 PARTIAL | 0 | advisory **2/2 → gate notes_include ĐÃ khoá** · webhook thrash mẫu 2 sạch (denied≈1) · timezone-propensity GIỮ · mới: fail-open duyệt tiền (E) · node-soạn nuốt vi phạm (F) · mục 7 tái lần 3 · slug n=6 · notes-EN n=6 |
+| [2026-07-20 R4](2026-07-20-R4-SUMMARY.md) lifecycle (3 đề) | **v0.2.0** | 3/3 | 3/3 | 2 PASS · 1 PARTIAL | 0 | **edit-existing sạch** (7/7 node giữ, base thật); không bịa dataset; vision honesty; finding H/I/J; notes-EN **n=8**, slug **n=8** |
+| [2026-07-21 R5](2026-07-21-R5-SUMMARY.md) capabilities (3 đề, trục MỚI) | **v0.2.0** | 3/3 | 3/3 | 2 PASS · 1 PARTIAL | 0 | chatflow đúng-bài (query-rewrite); honesty voice/IVR (example.invalid); **H→propensity, I→không tất định** (n=2 cứu khỏi fix nhầm); **2 bug harness bắt+fix khi chạy thật** (409-abort, record trùng) |
+| [2026-07-21 R6](2026-07-21-R6-SUMMARY.md) tiebreak (3 đề) | **v0.2.0** | 3/3 | 3/3 | 2 PASS · 1 PARTIAL | 0 | **chốt I: mất dấu VI 2/4, locus = khâu sinh YAML** (SPEC có dấu, YAML không) → fix guidance · **A không tái hiện → hoãn** · đính chính: **nhiều trigger/1 workflow LÀ hợp lệ** (kiểm nguồn Dify) |
+| [2026-07-22 R7](2026-07-22-R7-SUMMARY.md) data-integrity (2 đề) · **lần đầu report 075** | **v0.2.0** | 2/2 | 2/2 | 2 PASS (tĩnh) | 0 | **verify S1+S2 → cả hai LẬT thành propensity, KHÔNG phải bug**: đề nhấn rõ → build append đúng (`A{n+1}`) + lọc dòng-thiếu-ngày tường minh · report mới (criteria_check+journey) chạy thật · nửa runtime plugin còn nợ live |
+| [2026-07-22 R8](2026-07-22-R8-SUMMARY.md) corpus-mix (4 đề · **đề tài từ workflow Dify thật**) | **v0.2.0** | 4/4 | 4/4 | 3 PASS · 1 PARTIAL | 0 | 4 trục MỚI đều đạt: render qua tool THẬT md_to_png (không giả ảnh) · đối chiếu 3-ngôn-ngữ không tự-sửa · fetch-URL+chống-đạo-văn honesty · **finding K→n=2** (max_tokens thiếu nhưng hại-thấp khi output ngắn) · report 075 chạy đủ toàn đợt |
+| [2026-07-22 R9](2026-07-22-R9-SUMMARY.md) corpus-wide (6 đề, đợt RỘNG nhất) | **v0.2.0** | 5/6 done | 5/6 (G05 build-error) | 2 PASS · 3 PARTIAL · 1 lỗi ② | 1 (G05 ② non-write) | **F1 (mạnh nhất): iteration ≤30 KHÔNG xử lý cho input dài → vỡ ÂM THẦM** (G04, đúng kịch bản user nhấn) · F2 json LLM-first không kiểm fidelity · F3 ② non-write tái hiện v0.2.0 (nudge không triệt) · G01 research honesty PASS · quota chạm build 5 (resume sau reset) · report 075 chạy đủ |
+| _(đợt sau)_ | | | | | | |
+
+**Pass (cơ học)** = attempt cuối của mỗi prompt đạt: build `done` + 4 linter sạch + không
+accept-override + probe không fail — sinh bằng `campaign.py summary <dir>` (spec 086), thuần đọc
+manifest, **tầng CẤU TRÚC**. Nó KHÔNG thay cột "Đạt chất lượng" (chấm nội dung bằng `/report`) —
+hai cột đo hai thứ khác nhau, và chênh giữa chúng chính là tín hiệu ("cấu trúc sạch nhưng nội dung
+PARTIAL" = việc của guidance, không phải linter). Kèm phân loại fail cơ học: `format` (schema) ·
+`graph` (ref/edge) · `semantic` (node body/plugin) · `import` (probe) · `build-error`. Cột của
+campaign trước 086 backfill bằng chính `summary` chạy hồi tố; `—` = campaign tay, không có manifest.
 
 ## Đợt 2026-07-18 · v0.1.0 — chi tiết
 
@@ -89,7 +97,9 @@ jq -c '.lint' apps/builder/.runs/<id>/report.json                               
 jq -r '.cost | to_entries[] | "\(.key): \(.value.model) \(.value.numTurns)t"' apps/builder/.runs/<id>/task.json
 
 # 3. mỗi run một báo cáo: docs/prompts/runs/<ngày>-P##-<taskId>.md
-# 4. một SUMMARY cho cả đợt + thêm MỘT DÒNG vào bảng đối chiếu ở trên
+# 4. Pass cơ học cho cột "Pass (cơ học)" — một dòng paste-thẳng (spec 086)
+.venv/bin/python apps/builder/scripts/campaign.py summary docs/prompts/gen/<id>
+# 5. một SUMMARY cho cả đợt + thêm MỘT DÒNG vào bảng đối chiếu ở trên
 ```
 
 **Luật giữ cho đối chiếu có nghĩa**: dán prompt **nguyên văn** (dọn prompt = phá test) · ghi **model

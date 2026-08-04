@@ -1,8 +1,14 @@
 # Spec 086 — Pass Rate chuẩn hóa: một con số cơ học per-campaign trong CAMPAIGNS
 
-**Status**: Draft v1 (2026-08-05). Nguồn: đánh giá landscape 2026-08-05 (benchmark Chat2Workflow
-arXiv 2604.19667 đo Dify/Coze bằng 2 metric lũy tiến Pass/Resolve; SOTA resolve ~60%) + review nội
-bộ: phần **Resolve Rate (live-run) HOÃN có chủ ý** — xem §10.
+**Status**: v2 (2026-08-05) — **SHIP XONG: S1+S2+S3 implemented + validated hồi tố trên cả 9
+campaign** (§6.1: không crash; corpus-wide ra đúng `Pass 5/6 (G05 build-error)` khớp SUMMARY R9;
+8 đợt còn lại Pass full — khớp "4 linter sạch" các SUMMARY đã ghi; probe toàn `n/a` vì manifest
+pre-086, đúng thiết kế không-đoán). Cột "Pass (cơ học)" đã vào bảng CAMPAIGNS + backfill; suite:
+server 785/0 (probe-status roundtrip mới), pytest campaign 35 pass (4 case summary mới).
+Quyết định lúc implement: Open Q1 → **attempt cuối** (khớp SUMMARY); Open Q2 → **FAIL + đếm riêng
+`accepted-override`**. v1 = draft từ đánh giá landscape 2026-08-05 (Chat2Workflow đo Dify/Coze
+bằng Pass/Resolve lũy tiến; SOTA resolve ~60%); phần **Resolve Rate (live-run) HOÃN có chủ ý** —
+xem §10.
 **Effort**: S1 ≈ XS (1 field additive + producer) · S2 ≈ S (1 subcommand Python thuần đọc manifest)
 · S3 ≈ XS (doc + SKILL.md wiring).
 **Đóng spec**: qua `/spec-close 086`.

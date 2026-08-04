@@ -114,7 +114,9 @@ rỗng ⇒ run từ backend trước-075 (nêu rõ, đừng lặng lẽ bỏ). T
 Rồi mới tới 3 tầng chấm ở trên, và sinh sổ sách (format hiện hành — xem file mẫu trong `docs/prompts/runs/`):
 - report từng run `docs/prompts/runs/<ngày>-G##-<taskId>.md` — **mở đầu bằng khối hành trình §0**, rồi
   bảng phase model/turn/denied, verdict 3 tầng, lỗi gặp, MANUAL còn nợ;
-- `<ngày>-SUMMARY.md` cho đợt + **một dòng** vào bảng CAMPAIGNS.md;
+- `<ngày>-SUMMARY.md` cho đợt + **một dòng** vào bảng CAMPAIGNS.md — cột **Pass (cơ học)** lấy
+  nguyên văn từ `campaign.py summary <dir>` (spec 086: thuần manifest, không LLM; đây là số so
+  được máy-với-máy giữa các đợt, KHÔNG thay tầng judge);
 - danh sách finding: mỗi cái mang nhãn số mẫu (`n=1` → "cần thêm mẫu"), loại (chất lượng / hạ tầng
   / propensity — lần lỗi đầu của đề retry-pass là propensity, tiền lệ P05), và bằng chứng
   (taskId + số đo);

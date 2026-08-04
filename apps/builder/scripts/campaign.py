@@ -11,6 +11,7 @@ the orchestrating session (and the background runner) never re-implement them ad
     next <dir>              JSON of the first pending prompt (exit 3 when none left)
     record <dir> <file> --task-id N   harvest one run's result into the manifest
     status <dir>            human summary table
+    summary <dir> [--json]  spec 086: ONE mechanical Pass line (4 linters + probe + override) for CAMPAIGNS.md
 
 Design constraints inherited from the v0.1.0 campaign lessons:
 - The runner must never compare turns (denied calls are the thrash oracle) — so `record` harvests
@@ -312,6 +313,10 @@ def cmd_record(cdir: Path, fname: str, task_id: str) -> int:
         report = json.loads(report_json.read_text(encoding="utf-8"))
         result["lint"] = report.get("lint")
         result["workflow_file"] = report.get("workflow_file")
+        # Spec 086 S1: the structured probe verdict + the human accept-override — the two report
+        # fields `summary` needs beyond lint. Absent on pre-086 report.json → stays None (n/a).
+        result["probe"] = report.get("probe")
+        result["accepted_lint_failure"] = report.get("accepted_lint_failure")
         # A build may write MORE yml files than the one ④ reports (observed: monthly_summary.yml
         # beside main.yml, never linted, never mentioned in notes). Surface every sibling so the
         # report stage cannot inherit ④'s single-file blindness.
@@ -435,6 +440,84 @@ def cmd_status(cdir: Path) -> int:
     return 0
 
 
+LINT_KEYS = ("validate", "lint_refs", "lint_plugin_hashes", "lint_node_bodies")
+
+# Spec 086 S2: linter key → fail category, the Chat2Workflow taxonomy approximation so campaign
+# numbers can be compared to published ones. Deliberately mechanical: `consistency` (workflow vs
+# user intent) is NOT mappable from linters — that stays /report's job, never counted here.
+FAIL_CATEGORY = {
+    "validate": "format",           # schema envelope
+    "lint_refs": "graph",           # dangling ref / edge / var
+    "lint_plugin_hashes": "semantic",
+    "lint_node_bodies": "semantic",
+}
+
+
+def _summarize_run(result: dict) -> dict:
+    """Spec 086 S2 — one run's mechanical verdict. PURE function of the recorded manifest result
+    (never reads .runs/ — survives run-dir cleanup). PASS ⇔ task done AND all 4 linters 0 AND not
+    a human accept-override AND the probe did not reject. probe ∈ {ok, skipped, unknown_version,
+    None} does NOT block: absence of the oracle is not failure; `unknown_version` is an env
+    mismatch, counted separately, never a Builder fail."""
+    cats: list[str] = []
+    if result.get("task_status") != "done":
+        cats.append("build-error")
+    lint = result.get("lint")
+    if result.get("task_status") == "done":
+        if not isinstance(lint, dict):
+            cats.append("build-error")  # done without lint codes = partial record — never guess PASS
+        else:
+            for k in LINT_KEYS:
+                if lint.get(k) != 0:
+                    cats.append(FAIL_CATEGORY[k])
+    if result.get("probe") == "failed":
+        cats.append("import")
+    accepted = bool(result.get("accepted_lint_failure"))
+    if accepted and "accepted-override" not in cats:
+        cats.append("accepted-override")  # counts as FAIL + surfaced separately (086 Open Q2 default)
+    # dedup, keep order
+    seen: set[str] = set()
+    cats = [c for c in cats if not (c in seen or seen.add(c))]
+    return {"passed": not cats, "categories": cats, "probe": result.get("probe", None)}
+
+
+def cmd_summary(cdir: Path, as_json: bool) -> int:
+    """Spec 086 S2 — aggregate the campaign's recorded runs into ONE mechanical Pass line.
+    Reads ONLY campaign.yml (durable); per-prompt verdict = the LAST recorded attempt (matches how
+    SUMMARY grades — 086 Open Q1 default). Never crashes on a partial manifest."""
+    data = load_manifest(cdir)
+    rows: list[dict] = []
+    for p in data.get("prompts", []):
+        results = p.get("results") or []
+        if not results:
+            rows.append({"file": p["file"], "passed": False, "categories": ["not-run"], "probe": None})
+            continue
+        rows.append({"file": p["file"], **_summarize_run(results[-1])})
+    total = len(rows)
+    passed = sum(1 for r in rows if r["passed"])
+    fails = [(r["file"], "+".join(r["categories"])) for r in rows if not r["passed"]]
+    probe_counts: dict[str, int] = {}
+    for r in rows:
+        key = r["probe"] if r["probe"] is not None else "n/a"
+        probe_counts[key] = probe_counts.get(key, 0) + 1
+    overrides = sum(1 for r in rows if "accepted-override" in r["categories"])
+    fail_part = f" · fail: {', '.join(f'{f}({c})' for f, c in fails)}" if fails else ""
+    probe_part = " · probe " + "/".join(f"{v} {k}" for k, v in sorted(probe_counts.items()))
+    line = f"Pass {passed}/{total}{fail_part}{probe_part} · accepted-override {overrides}"
+    if as_json:
+        print(json.dumps({"pass": passed, "total": total, "rows": rows, "line": line}, ensure_ascii=False))
+        return 0
+    for r in rows:
+        mark = "✅" if r["passed"] else "❌"
+        cats = "" if r["passed"] else f"  [{'+'.join(r['categories'])}]"
+        probe = f"  probe={r['probe']}" if r["probe"] else ""
+        print(f"  {mark} {r['file']}{cats}{probe}")
+    print(f"\n{line}")
+    print("(Pass = 4 linter sạch + không accept-override + probe không fail — tầng CẤU TRÚC, "
+          "không phải chất lượng nội dung)")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="campaign.py", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -447,6 +530,9 @@ def main(argv: list[str]) -> int:
     s.add_argument("--task-id", required=True)
     sj = sub.add_parser("journey")
     sj.add_argument("task_id")
+    ss = sub.add_parser("summary")
+    ss.add_argument("dir", type=Path)
+    ss.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     if a.cmd == "journey":
         return cmd_journey(a.task_id)
@@ -465,6 +551,8 @@ def main(argv: list[str]) -> int:
         return cmd_record(cdir, a.file, a.task_id)
     if a.cmd == "status":
         return cmd_status(cdir)
+    if a.cmd == "summary":
+        return cmd_summary(cdir, a.json)
     return 2
 
 

@@ -91,8 +91,8 @@ Ba tầng, độ tin giảm dần, tầng nào không phủ được thì **nói
    thấy mục "Bẫy đã biết" (để chấm như người thật đọc kết quả, không thiên vị).
 3. **MANUAL** — các mục máy không chấm được, liệt kê tường minh để bạn làm tay.
 
-Ra: report từng run (`runs/<ngày>-G##-<taskId>.md`) + SUMMARY đợt + một dòng CAMPAIGNS.md +
-danh sách finding. Đọc finding nhớ 3 luật:
+Ra: report từng run (`runs/<ngày>-G##-<taskId>.md`) + SUMMARY đợt + một dòng CAMPAIGNS.md (cột
+Pass cơ học lấy từ `campaign.py summary <dir>` — spec 086) + danh sách finding. Đọc finding nhớ 3 luật:
 
 - nhãn **n=1** = "cần thêm mẫu", không phải "đem đi fix ngay" (tiền lệ: 2/4 chẩn đoán đầu của đợt
   v0.1.0 sai vì vội kết luận từ 1 mẫu);

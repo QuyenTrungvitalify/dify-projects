@@ -512,3 +512,83 @@ def test_journey_edit_existing_shows_line_delta(tmp_path, monkeypatch, capsys):
     cp.cmd_journey("J2")
     j = json.loads(capsys.readouterr().out)
     assert j["phases"]["implement"]["change"] == "+1/-1 dòng"    # edit, not "workflow mới"
+
+
+# ---------------------------------------------------------------------------
+# summary — spec 086 S2: ONE mechanical Pass line, pure function of the manifest
+# ---------------------------------------------------------------------------
+
+CLEAN_LINT = {"validate": 0, "lint_refs": 0, "lint_plugin_hashes": 0, "lint_node_bodies": 0}
+
+
+def _mk_summary_campaign(tmp_path: Path, results_by_file: dict) -> Path:
+    cdir = tmp_path / "c"
+    cdir.mkdir(parents=True, exist_ok=True)
+    prompts = []
+    for fname, results in results_by_file.items():
+        (cdir / fname).write_text("x", encoding="utf-8")
+        prompts.append({"file": fname, "status": "done", "task_ids": ["t"], "results": results})
+    (cdir / "campaign.yml").write_text(yaml.safe_dump({
+        "id": "sum-test", "status": "approved", "builder_version": "0.0.0", "prompts": prompts,
+    }), encoding="utf-8")
+    return cdir
+
+
+def test_summary_all_pass(tmp_path, capsys):
+    cdir = _mk_summary_campaign(tmp_path, {
+        "G01.md": [{"task_status": "done", "lint": dict(CLEAN_LINT), "probe": "ok",
+                    "accepted_lint_failure": False}],
+    })
+    assert cp.cmd_summary(cdir, as_json=True) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["pass"] == 1 and out["total"] == 1
+    assert out["line"].startswith("Pass 1/1")
+
+
+def test_summary_fail_categories_map_to_taxonomy(tmp_path, capsys):
+    # validate→format, lint_refs→graph, node_bodies/plugin_hashes→semantic, probe failed→import,
+    # error run→build-error. Last-attempt rule: only results[-1] counts.
+    cdir = _mk_summary_campaign(tmp_path, {
+        "G01.md": [{"task_status": "done", "lint": {**CLEAN_LINT, "validate": 2}, "probe": None}],
+        "G02.md": [{"task_status": "done", "lint": {**CLEAN_LINT, "lint_refs": 1}, "probe": None}],
+        "G03.md": [{"task_status": "done", "lint": {**CLEAN_LINT, "lint_node_bodies": 1},
+                    "probe": "failed"}],
+        "G04.md": [{"task_status": "error", "error": "boom"}],
+        "G05.md": [{"task_status": "error"},  # first attempt failed…
+                   {"task_status": "done", "lint": dict(CLEAN_LINT), "probe": "ok"}],  # …retry passed
+    })
+    assert cp.cmd_summary(cdir, as_json=True) == 0
+    out = json.loads(capsys.readouterr().out)
+    by_file = {r["file"]: r for r in out["rows"]}
+    assert by_file["G01.md"]["categories"] == ["format"]
+    assert by_file["G02.md"]["categories"] == ["graph"]
+    assert by_file["G03.md"]["categories"] == ["semantic", "import"]
+    assert by_file["G04.md"]["categories"] == ["build-error"]
+    assert by_file["G05.md"]["passed"] is True          # last attempt wins (086 Open Q1)
+    assert out["pass"] == 1 and out["total"] == 5
+
+
+def test_summary_accept_override_counts_as_fail(tmp_path, capsys):
+    cdir = _mk_summary_campaign(tmp_path, {
+        "G01.md": [{"task_status": "done", "lint": {**CLEAN_LINT, "validate": 3}, "probe": None,
+                    "accepted_lint_failure": True}],
+    })
+    assert cp.cmd_summary(cdir, as_json=True) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["pass"] == 0
+    assert "accepted-override 1" in out["line"]
+
+
+def test_summary_never_crashes_on_partial_manifest(tmp_path, capsys):
+    # pre-086 manifest: no probe/accepted keys, a done run missing lint, and a never-run prompt.
+    cdir = _mk_summary_campaign(tmp_path, {
+        "G01.md": [{"task_status": "done", "lint": dict(CLEAN_LINT)}],   # no probe → n/a, still PASS
+        "G02.md": [{"task_status": "done"}],                             # done but no lint → build-error
+        "G03.md": [],                                                    # not run
+    })
+    assert cp.cmd_summary(cdir, as_json=True) == 0
+    out = json.loads(capsys.readouterr().out)
+    by_file = {r["file"]: r for r in out["rows"]}
+    assert by_file["G01.md"]["passed"] is True and by_file["G01.md"]["probe"] is None
+    assert by_file["G02.md"]["categories"] == ["build-error"]
+    assert by_file["G03.md"]["categories"] == ["not-run"]

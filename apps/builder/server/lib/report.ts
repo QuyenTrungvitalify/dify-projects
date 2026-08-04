@@ -124,6 +124,21 @@ export const probeVerdict = {
   skipped: (reason: string): string => `Could not check the import automatically (${reason})`,
 };
 
+/** Spec 086 S1 — the probe verdict as a STRUCTURED value, derived from the minted note by prefix.
+ *  Co-located with {@link probeVerdict} (the 085 `isTimeoutNote` discipline) so mint and match can
+ *  never be reworded apart. `null` = no probe ran (e.g. the deploy path skipped it). Consumed by
+ *  report.json (`probe`) so the campaign aggregator counts mechanically instead of grepping prose
+ *  (the retired-notes_include lesson, 066 S5). */
+export type ProbeStatus = 'ok' | 'failed' | 'unknown_version' | 'skipped';
+export function probeStatus(note: string | undefined | null): ProbeStatus | null {
+  if (!note) return null;
+  if (note.startsWith('Checked automatically: Dify accepts')) return 'ok';
+  if (note.startsWith('Dify rejected this workflow file')) return 'failed';
+  if (note.startsWith('Could not check the import automatically: Dify held it')) return 'unknown_version';
+  if (note.startsWith('Could not check the import automatically (')) return 'skipped';
+  return null; // an unrecognized note is NOT evidence of any verdict — never guess
+}
+
 /** Spec 066 S4(b) — where the file IS, and what to do with it, for the `deploy: 'none'` default.
  *  `cloudStudioNote` was the ONLY note naming `wfRel`, and it is gated to `cloud` — so the default
  *  path left the user holding a YAML they did not know existed. It also opens with "Cloud deploy:
@@ -444,6 +459,9 @@ export async function runReport(
     app_url: appUrl,
     duplicate_warning: duplicateWarning,
     accepted_lint_failure: accepted,
+    // Spec 086 S1 — ADDITIVE: the import-probe verdict as a structured value (see probeStatus).
+    // `null` = no probe ran. The campaign aggregator reads THIS, never the prose in `notes`.
+    probe: probeStatus(task.probeNote),
     // D2 (017): advisory only — recorded for the deploy step / UI; does NOT affect `lintClean`.
     unresolved_plugin_todo: unresolvedPluginTodo,
     // Spec 078 S2: dev-surface ONLY (devMode render) — deliberately a sibling of `notes`, never
