@@ -12,8 +12,9 @@ import { ls } from '../lib/dev';
 const REBUILT_KEY = 'builder:dev:rebuilt'; // timestamp stashed before the rebuild reload → toast after
 
 /** Poll /health for the restart blip: wait until it goes DOWN (connection refused / not ok) then comes
- *  back UP, so we reload onto the fresh server — not the dying old one. Bounded (~2min) then gives up. */
-async function waitForRestart(): Promise<boolean> {
+ *  back UP, so we reload onto the fresh server — not the dying old one. Bounded (~2min) then gives up.
+ *  Exported for UpdateButton (the user-facing update shares the same restart choreography). */
+export async function waitForRestart(): Promise<boolean> {
   const up = async (): Promise<boolean> => {
     try {
       return (await fetch('/health', { cache: 'no-store' })).ok;

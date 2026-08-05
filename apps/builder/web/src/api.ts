@@ -176,6 +176,10 @@ export const api = {
    *  the flag is off, ApiError(409) when a build turn is running; a failed BUILD returns `{ok:false,log}`. */
   devRebuild: (): Promise<{ ok: boolean; restarting?: boolean; phase?: string; log?: string; reason?: string }> =>
     request('POST', '/api/dev/rebuild', {}),
+  /** user-facing update & restart (git pull + install/build + restart) — mounted for every run,
+   *  409 {reason:'turn_running'|'update_running'} when blocked. */
+  update: (): Promise<{ ok: boolean; restarting?: boolean; step?: 'pull' | 'setup'; log?: string }> =>
+    request('POST', '/api/update', {}),
   /** spec 080 dev-only (BUILDER_DEV=1): the shelf dashboard feed — `catalog.py stats --json`
    *  passthrough. Throws ApiError(404) when the server runs without BUILDER_DEV. */
   devShelf: (): Promise<ShelfResponse> => request('GET', '/api/dev/shelf'),

@@ -13,6 +13,7 @@ import { askConfirm, removeTask, removeProject, removeWorkflow } from '../store'
 import { devMode } from '../lib/dev';
 import { sidebarPageSize, pageList } from '../lib/sidebar-prefs';
 import { RebuildButton } from './RebuildButton';
+import { UpdateButton } from './UpdateButton';
 import { ShelfButton } from './ShelfOverlay';
 import { SettingsButton } from './SettingsModal';
 import type { WireTreeProject, WireTreeWorkflow, WireTreeTask, NewTaskOpts } from '../types';
@@ -377,6 +378,8 @@ export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, 
       <div className="sb-head">
         <span className="sb-title">{tr('appName')}</span>
         <div className="sb-head-actions">
+          {/* user-facing update & restart (in-app update-and-run.command) — visible for EVERYONE. */}
+          <UpdateButton />
           {/* spec 059/080/083: dev-only rebuild + shelf dashboard + settings modal, reachable anywhere. */}
           {devMode && <RebuildButton />}
           {devMode && <ShelfButton />}

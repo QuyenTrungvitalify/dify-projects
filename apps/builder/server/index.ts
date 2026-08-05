@@ -140,6 +140,18 @@ await app.register(tasksRoutes, {
 // The UI read endpoints (Lát 4): GET /api/tree · GET /api/seeds · GET+PUT /api/tasks/:id/spec.
 await app.register(uiRoutes, { projectsDir: DIFY_PROJECTS_DIR, now: () => Date.now() });
 
+// User-facing update & restart: POST /api/update (git pull + setup-node.sh + spec-059 restarter) —
+// the in-app equivalent of scripts/update-and-run.command, mounted for EVERY run so bản-sạch users
+// update without a terminal. Guarded inside (turn running / update in flight → 409).
+{
+  const updateRoutes = (await import('./routes/update.js')).default;
+  await app.register(updateRoutes, {
+    repoDir: DIFY_PROJECTS_DIR,
+    builderDir: join(DIFY_PROJECTS_DIR, 'apps/builder'),
+    port: PORT,
+  });
+}
+
 // Spec 059 dev-only: POST /api/dev/rebuild (rebuild server+web + hot-restart from the dev panel).
 // Mounted ONLY under BUILDER_DEV=1 — a normal/prod run never exposes a build/restart endpoint. Dynamic
 // import so the module isn't even loaded otherwise. Registered before the static `/*` wildcard.
