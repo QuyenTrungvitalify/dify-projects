@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Badged variant (spec 088): favicon.svg + a green (ok) dot in the top-right corner —
+       swapped in by notify.ts while a hidden tab has a settled phase; swapped back on focus. -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#1a1917"/>
+  <text x="32" y="43" text-anchor="middle" font-family="-apple-system, 'Segoe UI', sans-serif"
+    font-size="30" font-weight="700" letter-spacing="-1" fill="#e7e2d8">DB</text>
+  <circle cx="51" cy="13" r="10" fill="#84b898" stroke="#1a1917" stroke-width="4"/>
+</svg>

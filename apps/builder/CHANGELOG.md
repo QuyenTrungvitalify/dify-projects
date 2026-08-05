@@ -27,6 +27,23 @@ pattern, a changed gate. Not for docs-only edits.
   Additive fields, backward compatible. Before this, the criteria were parsed to criteria.json and
   never read back — the build set its own yardstick and nothing graded against it.
 
+**UI**
+- Phase-completion notifications (spec 088) — while the tab is hidden, a settled phase badges the
+  tab (`✅ <what settled> — Dify Workflow Builder` + a green-dot favicon swap, cleared on focus)
+  and, when the header bell is enabled (browser permission asked on that click; a denied origin is
+  surfaced on the bell tooltip, not silent), fires a browser notification whose click focuses the
+  tab. Fires on running→gate/done/error and on an Ask answer settling; `cancelled` and
+  opening-an-already-gated-task (undefined→gate) are deliberately silent. Client-only — the SSE
+  stream already carries every transition (`web/src/lib/notify.ts`). While a build runs with the
+  permission still un-asked, a slide-down banner nudges once ("enable notifications?") — Enable
+  runs the same bell flow; ✕ or enabling retires it permanently (localStorage). While the bell is
+  OFF (and askable), a tiny chat-bubble callout hangs under it ("Ping when a phase is done") —
+  rendered fixed from a measured anchor because the pill row's overflow-x would clip it.
+- First own favicon + `/logo.svg`: a plain "DB" lettermark on the dark tile (simplified per
+  review — no graph motif, no tagline), palette lifted from surface-blocks.css. The alert favicon
+  adds a green (ok) dot. Gotcha: XML comments must not contain `--`, so CSS var names inside SVG
+  comments are written dash-less — a `--ok` in a comment made the favicon malformed XML.
+
 **Harness**
 - `campaign.py summary <dir>` (spec 086) — ONE mechanical Pass line per campaign (build done +
   4 linters clean + no accept-override + probe not failed), computed purely from the recorded

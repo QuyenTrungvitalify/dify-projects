@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <!-- Dify Builder logo (spec 088, simplified per review): a plain "DB" lettermark on the app's
+       dark canvas — no graph motif, no tagline. Type is Geist (the app's UI font); falls back to
+       system sans when rendered outside the app. Served at /logo.svg; not wired into the UI. -->
+  <rect x="0" y="0" width="96" height="96" rx="20" fill="#1a1917"/>
+  <text x="48" y="62" text-anchor="middle" font-family="Geist, -apple-system, 'Segoe UI', sans-serif"
+    font-size="40" font-weight="600" letter-spacing="-1" fill="#e7e2d8">DB</text>
+</svg>

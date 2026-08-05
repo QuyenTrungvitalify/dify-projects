@@ -17,6 +17,7 @@ import { devMode } from '../lib/dev';
 import { I } from './Icon';
 import { suggestions } from '../data';
 import { t as tr, tf, lang, toggleLang } from '../lib/i18n';
+import { notifyOn, notifyBlocked, toggleNotify, notifyNudge, dismissNudge } from '../lib/notify';
 import * as store from '../store';
 import { type ComposerAttachment, MAX_ATTACHMENTS, isAcceptedFile, fileToDataUrl, toWire } from '../lib/attachments';
 import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed, NewTaskOpts } from '../types';
@@ -100,6 +101,26 @@ export function App() {
   };
   const [exportingDrive, setExportingDrive] = useState(false); // spec 062 follow-up: the Drive upload in-flight
   const threadRef = useRef<HTMLDivElement>(null);
+
+  // spec 088: the bell's callout bubble. The pill row (.chat-top-right) scrolls horizontally, so an
+  // absolutely-positioned child would be clipped — measure the bell and render the tip FIXED instead.
+  const tipWrapRef = useRef<HTMLSpanElement>(null);
+  const [tipPos, setTipPos] = useState<{ top: number; right: number } | null>(null);
+  const tipVisible = !notifyOn.value && !notifyBlocked.value;
+  useEffect(() => {
+    if (!tipVisible) { setTipPos(null); return; }
+    const place = (): void => {
+      const r = tipWrapRef.current?.getBoundingClientRect();
+      if (r) setTipPos({ top: r.bottom + 7, right: window.innerWidth - r.right });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true); // capture: the pill row itself can scroll
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [tipVisible, lang.value]);
 
   // Live signals.
   const task = store.task.value;
@@ -412,6 +433,22 @@ export function App() {
   /* ---------- render ---------- */
   return (
     <div className={'app' + (sbCollapsed ? ' sb-collapsed' : '')}>
+      {/* spec 088: slide-down nudge — shown by maybeNudge() while a build runs and the browser
+          permission is still askable. Enable runs the same bell flow (permission prompt in-click);
+          a denial flips the text to the blocked explanation (the Enable button disappears). */}
+      {notifyNudge.value && (
+        <div className="notify-nudge" role="status">
+          <I.bell className="notify-nudge-ic" />
+          <span className="notify-nudge-text">
+            {notifyBlocked.value ? tr('notifyBlockedHint') : tr('notifyNudgeText')}
+          </span>
+          {!notifyBlocked.value && (
+            <button className="btn ok" onClick={() => void toggleNotify()}>{tr('notifyNudgeEnable')}</button>
+          )}
+          <button className="icon-btn" onClick={dismissNudge} title={tr('notifyNudgeDismiss')}
+            aria-label={tr('notifyNudgeDismiss')}><I.close /></button>
+        </div>
+      )}
       <Sidebar collapsed={sbCollapsed} activeTask={activeTaskId} activeProject={activeProject} activeWorkflow={activeWorkflow} tree={tree} active={active} consults={store.consults.value} promotes={store.promotes.value}
         onOpen={(id) => { setArtifactOpen(false); setMode('ask'); void store.openTask(id); }}
         onCancel={(id) => void store.cancelById(id)}
@@ -539,6 +576,21 @@ export function App() {
               )}
               {/* Language + light/dark are global SETTINGS, not run actions — parked at the far-right
                   end of the header so the run's action pills (Artifact/Export/Edit/Promote) lead. */}
+              {/* spec 088: phase-completion notification bell — enabling runs inside this click (the
+                  user gesture requestPermission wants). Denied → tooltip explains the browser block.
+                  While OFF (and still askable), a tiny always-on chat-bubble callout hangs under the
+                  bell so the feature is discoverable without hovering. */}
+              <span className="notify-tip-wrap" ref={tipWrapRef}>
+                <button className="ghost-pill" onClick={() => void toggleNotify()}
+                  title={notifyBlocked.value ? tr('notifyBlockedHint') : notifyOn.value ? tr('notifyDisableHint') : tr('notifyEnableHint')}
+                  aria-label={tr('notifyToggle')}>
+                  {notifyOn.value ? <I.bell /> : <I.bellOff />}
+                </button>
+                {tipVisible && tipPos && (
+                  <span className="notify-tip" aria-hidden="true"
+                    style={{ top: tipPos.top, right: tipPos.right }}>{tr('notifyTip')}</span>
+                )}
+              </span>
               <button className="ghost-pill" onClick={toggleLang}
                 title={lang.value === 'ja' ? tr('switchToEnglish') : tr('switchToJapanese')}
                 aria-label={tr('changeLanguage')}>

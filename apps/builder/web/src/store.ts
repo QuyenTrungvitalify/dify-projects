@@ -12,6 +12,7 @@ import { api, confirmModeWire, ApiError, type Attachment } from './api';
 import { serializeThread, parseThread, hydrateForReopen } from './lib/thread-persist';
 import { connectSSE, type AskAnomalyFile } from './sse-client';
 import { t as tr, tf } from './lib/i18n';
+import { notifyTransition, notifyAskDone, maybeNudge } from './lib/notify';
 import type {
   WireTask,
   WireArtifacts,
@@ -348,11 +349,19 @@ export function applyTask(t: WireTask): void {
   // spec 040 D4: on a real status transition (running→gate arrives via SSE with no user action; or
   // →done/cancelled), refresh the sidebar list so its hint isn't stale and a finished build leaves it.
   // Gated on the change so it fires a handful of times per build, not on every streaming rev.
-  if (prevStatus !== t.status) void loadActive();
+  if (prevStatus !== t.status) {
+    void loadActive();
+    // spec 088: badge the tab / fire a notification when a phase settles while the tab is hidden.
+    // Guards (run-ish prev only, no cancelled, hidden-only) live in notify.ts.
+    notifyTransition(prevStatus, t);
+  }
   const items = thread.value.slice();
   const last = items[items.length - 1];
 
   if (coarse(t.status) === 'run') {
+    // spec 088: a build is running — the moment notifications become valuable. Offer the
+    // enable-notifications nudge (all show/suppress conditions live in notify.ts; cheap + idempotent).
+    maybeNudge();
     // Phase is (re-)running. Reuse the trailing run item for this phase, else open a fresh one.
     if (last && last.kind === 'run' && last.phase === t.phase) {
       if (!last.running) items[items.length - 1] = { ...last, running: true };
@@ -565,6 +574,7 @@ export function describeAnomalyFiles(files: AskAnomalyFile[]): string {
 export function applyAskDone(d: { ok: boolean; anomaly?: { files: AskAnomalyFile[] }; seededFrom?: string[] }): void {
   flushPendingAsk(); // land any trailing buffered fragment before finalizing (mirrors applyTask's rule)
   asking.value = false;
+  notifyAskDone(task.value?.name ?? undefined); // spec 088: hidden-tab badge/notification (guards inside)
   const items = thread.value.slice();
   const idx = findOpenAskIdx(items);
   // spec 082 §4.4: an armed graduate captures the finished distill answer for the App's prefill.

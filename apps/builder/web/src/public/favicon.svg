@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Dify Builder favicon (spec 088, simplified per review): plain "DB" lettermark, matching
+       /logo.svg. Palette mirrors surface-blocks.css: tile bg-canvas, letters tx-strong. System
+       sans by design: external fonts don't load in favicon context. NOTE: XML comments must not
+       contain a double hyphen, so CSS var names here are written without their leading dashes. -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#1a1917"/>
+  <text x="32" y="43" text-anchor="middle" font-family="-apple-system, 'Segoe UI', sans-serif"
+    font-size="30" font-weight="700" letter-spacing="-1" fill="#e7e2d8">DB</text>
+</svg>
