@@ -9,6 +9,49 @@ pattern, a changed gate. Not for docs-only edits.
 
 ---
 
+## 0.4.0 — 2026-08-06
+
+Cut because three campaign-observable surfaces changed after the 0.3.0 cut: what the sandbox
+allows (091), what a failed tool-call records (091), and what a build can be started against (090)
+— numbers from the next campaign belong to this code, not 0.3.0's.
+
+**Build quality**
+- Phantom edit-target killed four ways (spec 090): POST /api/tasks now refuses a nonexistent
+  edit-existing target at the door (400 naming the right door — "Import base" when a YAML is
+  attached); the sidebar's synthetic draft rows (BOTH generators — the `(unsaved)` bucket and the
+  orphan-in-existing-project row) are display-only, no longer selectable as a base; ② verify adopts
+  a good SPEC.md misplaced into the run dir instead of dying `artifact missing` (the field bundle's
+  unrecoverable retry loop); and ② is handed the RESOLVED `{{SPEC_PATH}}` instead of a two-branch
+  rule that both observed agents mis-evaluated against the disk. Validated: deterministic repro
+  (fire `--workflow "(unsaved)"`) now 400s; a real edit build writes the canonical path first try.
+- ② stops hunting the error-branch syntax (spec 091 S4): spec.md now carries the same
+  `references/error-strategy.yml` pointer implement.md has had since 085 — the measured hunt
+  (11 denied calls, 54% of build cost in phase ②) dropped to zero on re-fire (49 calls → 6).
+
+**Attachments** (spec 089)
+- Office attachments extract at upload: `.docx`/`.xlsx`/`.pptx` are unpacked server-side (own zip
+  reader, 3 extractors) into a text sidecar the turn reads; empty extraction is a 400, not a silent
+  empty sidecar. `/ask` accepts files mid-conversation (previously only the first message could).
+
+**Sandbox** (spec 091 S2)
+- The gate decides on a QUOTE-NORMALIZED view of each Bash command (execution stays raw): the
+  documented `find.py --name "<keywords>"` intent pass (076 E2b) works for the first time in a real
+  build, while the invariant got STRONGER — a quote can no longer hide a metachar or split a secret
+  literal (`cat apps/builder/.e''nv` is now caught by the secret check itself, earlier than the old
+  blanket quote-ban). 16-case attack battery + K1/K2 calibration pinned in permission-gate.test.ts.
+
+**Harness / observability** (spec 091 S1+S3)
+- Every failed tool-call in a transcript now carries its REASON on an indented `↳` line under the ✗
+  (redacted, capped; the ✗-anchored line format both external parsers depend on is unchanged and
+  pinned by tests). `campaign.py classify_failed_calls` reads the minted reason instead of guessing
+  with a second heuristic (the old guess missed quote-denials entirely); pre-091 transcripts keep a
+  corrected legacy heuristic (quotes = denial, matching the gate that produced them).
+- Doc↔gate contract audit as a permanent test (`doc-gate-contract.test.ts`): every command the
+  phase docs instruct must pass the real `decide()`, every denial hint must name an allowed door,
+  suite predicate keys must be in e2e_check's vocabulary, the token table and artifact paths must
+  match the code — with K1–K5 calibration cases so the instrument itself is checked first. This is
+  the class of drift that cost specs 071→085→091.
+
 ## 0.3.0 — 2026-08-05
 
 The version campaigns after 2026-08-05 are measured against. Cut because the model advisory and
