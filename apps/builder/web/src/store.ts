@@ -1270,7 +1270,7 @@ export async function reply(text: string, label?: string, files?: Attachment[]):
  * synchronously (before the POST even resolves — D3/§1: the response carries no status/gate snapshot to
  * key off), then relies entirely on the `ask:answer`/`ask:done` SSE events (§2) to stream + finalize it.
  */
-export async function ask(text: string): Promise<boolean> {
+export async function ask(text: string, files?: Attachment[]): Promise<boolean> {
   const t = task.value;
   if (!t || !text.trim()) return false;
   // FIX-C/H defense-in-depth: never open a 2nd qa item while one is already in flight. The composer is
@@ -1285,7 +1285,7 @@ export async function ask(text: string): Promise<boolean> {
   thread.value = items;
   asking.value = true;
   try {
-    await api.ask(t.taskId, text.trim());
+    await api.ask(t.taskId, text.trim(), files);
     return true; // spec 040 D2
   } catch (e) {
     // The POST itself failed (400/409/500) — no turn was ever dispatched, so no ask:done will ever

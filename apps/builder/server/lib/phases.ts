@@ -26,6 +26,18 @@ export interface PhaseDef {
 const runArtifact = (task: Task, file: string): string =>
   `apps/builder/.runs/${task.taskId}/${file}`;
 
+/** Spec 090 S4 — the ② SPEC.md path, computed ONCE and used by BOTH `artifactRel` (what verify
+ *  stats) and `{{SPEC_PATH}}` (what the turn is told to write). One function, so the two can never
+ *  disagree. Before this, spec.md carried a two-branch conditional that survived token substitution
+ *  as the ambiguous sentence "if `<slug>` is empty" — and on a slug-set-but-folder-missing task
+ *  BOTH observed agents (sonnet-5 + haiku-4-5, run 1785901684698 + 1785916628346) resolved it by
+ *  looking at the DISK ("the folder is empty") and wrote to `.runs/`, so verify died on
+ *  `artifact missing`. The backend resolves the condition at render time; the agent gets a value. */
+const specArtifactRel = (task: Task): string => {
+  const dir = workflowDir(task);
+  return dir ? `${dir}/SPEC.md` : runArtifact(task, 'SPEC.md');
+};
+
 /** Spec 028: `trivial` on the fast path (the merged draft turn), else `standard`. */
 const depth = (task: Task): string => (task.fastMode ? 'trivial' : 'standard');
 
@@ -52,7 +64,8 @@ const patternPath = (task: Task): string => {
   return `templates/patterns/${p.endsWith('.yml') ? p : `${p}.yml`}`;
 };
 
-/** Full 11-token map (was mislabeled "8" — DEPTH/028, KNOWLEDGE/037 and PATTERN_PATH/065 joined later); unused tokens
+/** Full 13-token map (serially mislabeled — "8", then "11" while holding 12; recounted at 090 when
+ *  SPEC_PATH joined: DEPTH/028, KNOWLEDGE/037, PATTERN_PATH+REFERENCES/065, SPEC_PATH/090); unused tokens
  *  default to "" (DEPTH to 'standard') so the render leaves no `{{...}}` behind — the "every known
  *  token is always substituted" contract (SKILL.md token table). KNOWLEDGE stays '' HERE — phases.ts
  *  is pure/io-free; the orchestrator (which owns the render seam) overrides it for Implement from
@@ -70,6 +83,8 @@ const vars = (partial: Partial<Record<string, string>>): Record<string, string> 
   DEPLOY: '',
   DEPTH: 'standard',
   KNOWLEDGE: '',
+  // Spec 090 S4: the RESOLVED ② output path — the agent is handed a value, never a condition.
+  SPEC_PATH: '',
   PATTERN_PATH: '',
   // The vetted files covering what PATTERN_PATH lacks. Resolving them needs index.json, and phases.ts
   // is io-free by contract — so, exactly like KNOWLEDGE above, it stays '' here and the orchestrator
@@ -96,15 +111,14 @@ export const PHASES: PhaseDef[] = [
     // `draft.md`; otherwise (standard, OR a post-scaffold fast revise where the slug is set) `spec.md`.
     promptFile: (t) => (t.fastMode && !t.workflowSlug ? `${SKILL}/draft.md` : `${SKILL}/spec.md`),
     // pre-slug → .runs/<taskId>/SPEC.md; after scaffold → projects/<project>/<workflowSlug>/SPEC.md.
-    artifactRel: (t) => {
-      const dir = workflowDir(t);
-      return dir ? `${dir}/SPEC.md` : runArtifact(t, 'SPEC.md');
-    },
+    // Spec 090 S4: ONE resolver (specArtifactRel) feeds both this and {{SPEC_PATH}} below.
+    artifactRel: specArtifactRel,
     injectVars: (t) =>
       vars({
         TASK_ID: t.taskId,
         PROJECT: t.project ?? '', // empty until ② / scaffold resolves the project (D5: else `_drafts`)
         WORKFLOW_SLUG: t.workflowSlug ?? '', // empty until ② / scaffold proposes one
+        SPEC_PATH: specArtifactRel(t), // 090 S4: what verify will stat — handed as a VALUE
         REQUIREMENT: t.requirement,
         // Spec 028: the merged draft turn (fast, pre-scaffold) WRITES analyze.json — it must not be
         // pointed at a not-yet-existing file, so drop PRIOR_ARTIFACT there. A post-scaffold fast revise

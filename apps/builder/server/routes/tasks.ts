@@ -16,16 +16,20 @@
  * bind 127.0.0.1 only + Origin-check (index.ts).
  */
 import type { FastifyPluginAsync } from 'fastify';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   bumpRev,
   createConsultTask,
   createPromoteTask,
   createTask,
   deleteTask,
+  DRAFTS_PROJECT,
   isValidWorkflowFile,
   loadTask,
   normalizeConfirmMode,
   restoreTargetPhaseFor,
+  sanitizeSlug,
   saveTask,
   toWireTask,
   type Task,
@@ -161,6 +165,31 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     const wfRaw = (body.workflowFile as string | undefined)?.trim();
     if (wfRaw && !isValidWorkflowFile(wfRaw)) {
       return reply.code(400).send({ error: 'workflowFile must be a plain *.yml/*.yaml basename (no path separators or "..")' });
+    }
+
+    // Spec 090 S1 — an edit-existing TARGET must exist, or the build is refused AT THE DOOR. A
+    // nonexistent target used to sail through (localEditSeed only warned) and produced a build that
+    // deterministically died at ② (`artifact missing`, runs 1785901684698 + 1785916628346 — the
+    // sidebar's synthetic "(unsaved)" row was one entrance). Refusing BEFORE createTask matters
+    // twice over: no turn is burned, and no orphan task is minted — each phantom build's corpse
+    // itself joined the "(unsaved)" group, breeding more bait for the next click. `slug` is
+    // deliberately NOT guarded: it NAMES a new workflow (folder created later at the ② scaffold);
+    // `workflow` TARGETS an existing one. Same sanitize as createTask/localEditSeed, so the checked
+    // path is the path the build would use.
+    const wfTarget = (body.workflow as string | null | undefined)?.trim();
+    if (wfTarget && wfTarget !== 'none') {
+      const targetProject = sanitizeSlug(String(body.project ?? '').trim() || DRAFTS_PROJECT);
+      const targetSlug = sanitizeSlug(wfTarget);
+      if (!existsSync(join(projectsDir, 'projects', targetProject, targetSlug))) {
+        const hasYamlAttachment =
+          Array.isArray(body.files) &&
+          (body.files as { name?: string }[]).some((f) => /\.ya?ml$/i.test(String(f?.name ?? '')));
+        return reply.code(400).send({
+          error: hasYamlAttachment
+            ? `The selected workflow "${wfTarget}" does not exist. To edit the attached YAML file, use "Import base" first (it turns the file into a real workflow you can edit) — or unselect the workflow to build from scratch.`
+            : `The selected workflow "${wfTarget}" does not exist — it may have been removed. Unselect the workflow to build from scratch.`,
+        });
+      }
     }
 
     // Spec 012 / 025: validate any attached files (type/size/count → 400) BEFORE minting a task or
@@ -569,6 +598,12 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     const text = String(body.text ?? '').trim();
     if (!text) return reply.code(400).send({ error: 'text is required' });
 
+    // Spec 089: /ask carries files too. Without this, only the FIRST message of a chat could bring a
+    // document (POST /api/consult) and every later one could not — so a reference that came up mid-
+    // conversation had no way in. Validate before loading/locking, exactly as /reply does.
+    const attCheck = validateAttachments(body.files);
+    if (!attCheck.ok) return reply.code(400).send({ error: attCheck.error });
+
     let task;
     try {
       task = await loadTask(projectsDir, id);
@@ -581,24 +616,38 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // Spec 082 §4.2: a consult routes by KIND at ANY status — asking is always valid on a chat task
     // (there are no gates for status to guard), and an error-status consult (the create-race loser /
     // a failSafe) SELF-HEALS on its next message instead of dying behind the terminal-status check.
-    if (task.kind === 'consult') {
-      if (!acquireTurn(id, 'ask')) return reply.code(409).send(turnBusyError('ask'));
-      dispatch(id, consultWithin(task, text, ctx));
-      return reply.send({ ok: true });
-    }
+    const isConsultAsk = task.kind === 'consult';
     // Spec 034 §1: ONE endpoint, branch server-side on phase/status.
     //   - analyze/spec/implement + awaiting_confirm → askWithin        (033: resume sessionIds[phase])
     //   - test + awaiting_confirm (any of the four ④ flags)  ┐
     //   - done | cancelled (terminal, D3)                    ┘→ askTestWithin (034: fresh-seeded turn)
     // `error` matches none of these → 409 (033's own carve-out — no live parked gate to Ask against there).
     const isPhaseAsk =
+      !isConsultAsk &&
       task.status === 'awaiting_confirm' &&
       (task.phase === 'analyze' || task.phase === 'spec' || task.phase === 'implement');
-    const isTestGateAsk = task.status === 'awaiting_confirm' && task.phase === 'test';
-    const isTerminalAsk = task.status === 'done' || task.status === 'cancelled';
-    if (!isPhaseAsk && !isTestGateAsk && !isTerminalAsk) {
+    const isTestGateAsk = !isConsultAsk && task.status === 'awaiting_confirm' && task.phase === 'test';
+    const isTerminalAsk = !isConsultAsk && (task.status === 'done' || task.status === 'cancelled');
+    if (!isConsultAsk && !isPhaseAsk && !isTestGateAsk && !isTerminalAsk) {
       const where = task.status === 'awaiting_confirm' ? `phase '${task.phase}'` : `status '${task.status}'`;
       return reply.code(409).send({ error: `/ask is not available at ${where}` });
+    }
+
+    // Files land AFTER every rejection above (a refused ask must leave nothing on disk) and BEFORE the
+    // lock (a disk failure → 500 with no lock held) — the same ordering /reply uses, for the same reasons.
+    // The turn-running pre-check is the FIX-M rule restated: a live Ask on THIS task snapshots
+    // `.runs/<id>/uploads/` and byte-compares it, so a write landing mid-turn would read as `created` and
+    // be deleted — losing the user's file and raising a false anomaly. Reject before writing anything.
+    if (attCheck.attachments.length) {
+      if (taskTurnRunning(id)) return reply.code(409).send(turnBusyError('ask'));
+      try {
+        const start = task.attachments?.length ?? 0;
+        const rels = await saveAttachments(projectsDir, id, attCheck.attachments, start);
+        task.attachments = [...(task.attachments ?? []), ...rels];
+        await saveTask(projectsDir, task);
+      } catch (e) {
+        return reply.code(500).send({ error: `failed to save files: ${errMsg(e)}` });
+      }
     }
 
     // acquireTurn(id, 'ask') tags the holder so /cancel can scope its abort (D9); the lock is a single
@@ -608,7 +657,12 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
 
     // No optimisticRunning(task)-style snapshot — status/gate are genuinely unchanged (FIX-B). The FE
     // sets its own `asking` signal true synchronously on issuing the POST, then relies on SSE.
-    dispatch(id, isPhaseAsk ? askWithin(task, text, ctx) : askTestWithin(task, text, ctx));
+    // Every branch reads `task.attachments` off this same in-memory object, so files saved just above
+    // reach the turn's prompt through the block each one already injects.
+    dispatch(
+      id,
+      isConsultAsk ? consultWithin(task, text, ctx) : isPhaseAsk ? askWithin(task, text, ctx) : askTestWithin(task, text, ctx)
+    );
     return reply.send({ ok: true });
   });
 

@@ -89,9 +89,13 @@ export const api = {
       ...(files && files.length ? { files } : {}),
     }),
   /** spec 033: POST /api/tasks/:id/ask → conversational Q&A at a parked gate — no phase re-run, no
-   *  gate/status change. Responds `{ok:true}` immediately; the answer streams over SSE (ask:answer/done). */
-  ask: (id: string, text: string): Promise<{ ok: boolean }> =>
-    request('POST', `/api/tasks/${encodeURIComponent(id)}/ask`, { text }),
+   *  gate/status change. Responds `{ok:true}` immediately; the answer streams over SSE (ask:answer/done).
+   *  spec 089: carries optional files, so a chat can take a document on any message, not just its first. */
+  ask: (id: string, text: string, files?: Attachment[]): Promise<{ ok: boolean }> =>
+    request('POST', `/api/tasks/${encodeURIComponent(id)}/ask`, {
+      text,
+      ...(files && files.length ? { files } : {}),
+    }),
   /** spec 082: POST /api/consult → start a `kind:'consult'` chat task (chat lane; a running build never
    *  blocks it). `text` is the first message; every later message is a plain api.ask(id, text). */
   createConsult: (body: { text: string; files?: Attachment[] }): Promise<WireTask> =>

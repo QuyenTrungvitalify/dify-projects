@@ -70,12 +70,15 @@ async function confirmRemoveProject(project: WireTreeProject): Promise<void> {
   if (ok) void removeProject(project.id);
 }
 
-function TaskRow({ task, activeTask, onOpen, projectId, workflowSlug, onNewTask }: {
+function TaskRow({ task, activeTask, onOpen, projectId, workflowSlug, synthetic, onNewTask }: {
   task: WireTreeTask;
   activeTask: string | null;
   onOpen: (taskId: string) => void;
   projectId: string;
   workflowSlug: string;
+  /** Spec 090 S2: parent row is the synthetic `(unsaved)` group — its slug is NOT a real workflow,
+   *  so the edit-shortcut (which would arm that phantom as the base) is hidden. × stays. */
+  synthetic?: boolean;
   onNewTask: (opts?: NewTaskOpts) => void;
 }) {
   const active = task.id === activeTask;
@@ -86,7 +89,9 @@ function TaskRow({ task, activeTask, onOpen, projectId, workflowSlug, onNewTask 
       {/* hover: edit this task's WORKFLOW — a NEW edit-existing build on it (same as the workflow-row "+").
           Surfaced here too so it's reachable from any task row (esp. in _drafts). */}
       <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-        <button className="icon-btn" title={tr('editThisWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: workflowSlug } })}><I.edit /></button>
+        {!synthetic && (
+          <button className="icon-btn" title={tr('editThisWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: workflowSlug } })}><I.edit /></button>
+        )}
         <RemoveButton taskId={task.id} name={task.name} />
       </span>
     </div>
@@ -112,12 +117,22 @@ function WorkflowRow({ wf, projectId, activeTask, active, defaultOpen, onOpen, o
   }, [active]);
   // Clicking the row SELECTS this workflow: open a new task that edits it (menu-style), and expand it so
   // its tasks show. The twist chevron alone toggles collapse (stopPropagation below).
-  const select = (): void => { setOpen(true); onNewTask({ baseWorkflow: { project: projectId, workflow: wf.id } }); };
+  // Spec 090 S2: a `synthetic` row (the `(unsaved)` bucket) is a DISPLAY group, not a workflow —
+  // clicking it used to silently arm the composer with the phantom target `_drafts/(unsaved)`,
+  // whose build died deterministically at ② (`artifact missing`; the field bundle + repro
+  // 1785916628346). For it, click = expand only; the edit/delete actions are hidden (its tasks
+  // remain openable, and each still has its own × via TaskRow).
+  const select = (): void => {
+    setOpen(true);
+    if (!wf.synthetic) onNewTask({ baseWorkflow: { project: projectId, workflow: wf.id } });
+  };
   return (
     <div>
-      <div ref={rowRef} className={'tree-row tree-workflow' + (active ? ' active' : '')} onClick={select}>
+      <div ref={rowRef} className={'tree-row tree-workflow' + (active ? ' active' : '')} onClick={select}
+        title={wf.synthetic ? tr('unsavedGroupHint') : undefined}>
         <Twist open={open} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} />
         <span className="tw-name">{wf.name}</span>
+        {!wf.synthetic && (
         <span className="row-actions" onClick={(e) => e.stopPropagation()}>
           {/* spec 030: workflow "+" = new task that EDITS this workflow → pre-select the COMPOUND
               {project, workflow} key (the same workflow name can exist in multiple projects). Edit glyph
@@ -128,11 +143,12 @@ function WorkflowRow({ wf, projectId, activeTask, active, defaultOpen, onOpen, o
           <button className="icon-btn" title={tr('removeWorkflow')} aria-label={tr('removeWorkflow')}
             onClick={() => void confirmRemoveWorkflow(projectId, wf)}><I.close /></button>
         </span>
+        )}
       </div>
       {open && (
         <div className="tree-children">
           {wf.tasks.length === 0 && <div className="tree-row tree-empty"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noTasksYet')}</span></div>}
-          {wf.tasks.map((t) => <TaskRow key={t.id} task={t} activeTask={activeTask} onOpen={onOpen} projectId={projectId} workflowSlug={wf.id} onNewTask={onNewTask} />)}
+          {wf.tasks.map((t) => <TaskRow key={t.id} task={t} activeTask={activeTask} onOpen={onOpen} projectId={projectId} workflowSlug={wf.id} synthetic={wf.synthetic} onNewTask={onNewTask} />)}
         </div>
       )}
     </div>

@@ -202,6 +202,9 @@ export interface WireTreeWorkflow {
   id: string;
   name: string;
   tasks: WireTreeTask[];
+  /** Spec 090 S2: display-only grouping row (the `(unsaved)` bucket) — never an edit-existing base.
+   *  Optional: an older server omits it and every row stays selectable (pre-090 behavior). */
+  synthetic?: boolean;
 }
 export interface WireTreeProject {
   id: string;

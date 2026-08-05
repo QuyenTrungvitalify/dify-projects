@@ -85,14 +85,16 @@ Read, do not restate: [AGENTS.md](../../../AGENTS.md) **§3** (5-step build sequ
   Write as if the reader has never seen this repo or its tools.
 
 `{{TASK_ID}}` `{{PROJECT}}` `{{WORKFLOW_SLUG}}` `{{WORKFLOW_FILE}}` `{{SEED_PATH}}` `{{REQUIREMENT}}`
-`{{PRIOR_ARTIFACT}}` `{{DEPLOY}}` `{{DEPTH}}` `{{KNOWLEDGE}}` `{{PATTERN_PATH}}` `{{REFERENCES}}` —
-all 12 always substituted (`""` when unused).
+`{{PRIOR_ARTIFACT}}` `{{DEPLOY}}` `{{DEPTH}}` `{{KNOWLEDGE}}` `{{SPEC_PATH}}` `{{PATTERN_PATH}}`
+`{{REFERENCES}}` — all 13 always substituted (`""` when unused).
 
 - `{{PROJECT}}` / `{{WORKFLOW_SLUG}}` — the on-disk hierarchy is `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/`
   (spec 030). `{{WORKFLOW_SLUG}}` is empty until the Spec gate proposes one (new-workflow path);
   `{{PROJECT}}` defaults to `_drafts` for a loose from-scratch build (D5).
 - `{{WORKFLOW_FILE}}` = `main.yml` for a new workflow, else the selected existing `*.yml`.
 - `{{SEED_PATH}}` = a local YAML to analyze/edit (or empty for a from-scratch build).
+- `{{SPEC_PATH}}` (spec 090) — the RESOLVED path ② must write `SPEC.md` to (the exact path the
+  backend verifies). A value, never a condition: ② must not re-derive it from the slug or the disk.
 - `{{PRIOR_ARTIFACT}}` = the previous phase's file path (handed forward; **re-read it fresh**).
 - `{{DEPLOY}}` ∈ `none | selfhost | cloud` — mainly drives Phase ④ (backend).
 - `{{DEPTH}}` ∈ `standard | trivial` — spec 028 fast mode (trivial skips the `find.py` re-pick).

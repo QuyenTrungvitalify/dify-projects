@@ -2,9 +2,9 @@
 
 Một run để lại gì trên đĩa, bản export chứa gì, và vì sao không cái nào được phép làm hỏng một build.
 
-Phạm vi: `run-events.ts` · `run-transcript.ts` · `dossier.ts` · `bundle.ts` · `zip.ts` · `cost.ts` ·
+Phạm vi: `run-events.ts` · `run-transcript.ts` · `dossier.ts` · `bundle.ts` · `zip.ts` · `unzip.ts` · `cost.ts` ·
 `cost-cause.ts` · `build-info.ts` · `criteria.ts` · `diff.ts` · `reveal.ts` ·
-`server/lib/attachments.ts` · **một phần** `artifacts.ts` — chỉ nửa đọc-artifact
+`server/lib/attachments.ts` · `server/lib/office-text.ts` · **một phần** `artifacts.ts` — chỉ nửa đọc-artifact
 (`readArtifactContents` · `specPathFor` · `workflowPathFor`).
 
 > **Nửa còn lại của `artifacts.ts` chưa có chủ**: `buildTree` · `listActiveTasks` · `readNestedScalar`

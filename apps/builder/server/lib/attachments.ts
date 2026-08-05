@@ -13,10 +13,23 @@
  * well as images). The ONE wrinkle: for non-images the browser's `File.type` is unreliable (`.md`/`.csv`/
  * `.json` are often `''`), so non-images validate by the original filename's EXTENSION (an allowlist);
  * images keep the proven MIME key (D2).
+ *
+ * Spec 089 adds the Office formats, which `Read` cannot parse — they are zips of XML. Rather than change
+ * what the turn does, the SERVER extracts text at upload time and writes a `.md` SIDECAR beside the
+ * original; the sidecar's path is what gets injected. Two consequences worth stating up front, because
+ * both are easy to break:
+ *   - Extraction happens in {@link validateAttachments}, not at save time. It is pure (bytes → string),
+ *     and an unreadable document is a USER error that deserves the same readable 400 as a bad type — not
+ *     a 500 from the disk-write path.
+ *   - {@link saveAttachments} still returns exactly ONE path per input file (the sidecar REPLACES the
+ *     original in that list; the original stays on disk for comparison). The reply route derives its
+ *     append index from `task.attachments.length`, so returning two paths for one file would shift that
+ *     index and make a later turn's uploads overwrite an earlier turn's.
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { taskDir } from '../state/task.js';
+import { extractOfficeText, sidecarText, OFFICE_EXT, LEGACY_OFFICE_EXT } from './office-text.js';
 
 /** The wire shape sent by the web composer (base64 data-URL inside the JSON body). */
 export interface AttachmentInput {
@@ -31,15 +44,28 @@ export interface ParsedAttachment {
   mime: string;
   ext: string;
   bytes: Buffer;
+  /**
+   * Extracted text for an Office file — already carrying its provenance header, ready to write verbatim.
+   * Present only for {@link OFFICE_EXT}; its presence is what makes `saveAttachments` emit a sidecar.
+   */
+  sidecar?: string;
 }
 
 /** D1/D2: accepted image MIME types (images keep the MIME validation key — `File.type` is reliable here). */
 export const ACCEPTED_IMAGE_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
 /**
- * D1: accepted non-image EXTENSIONS — exactly the set `claude`'s `Read` can turn into useful tokens
- * (text family + PDF). Non-images validate by extension because their browser `File.type` is unreliable
- * (§Context). Lower-cased, no leading dot. SVG is deliberately excluded (Q4: script-carrying, not a
- * useful build reference); office binaries (docx/xlsx/pptx) are a Non-goal (`Read` can't parse them).
+ * D1: accepted non-image EXTENSIONS — what the build turn can turn into useful tokens, either directly
+ * (`Read` handles the text family + PDF) or via server-side extraction (the Office formats, spec 089).
+ * Non-images validate by extension because their browser `File.type` is unreliable (§Context).
+ * Lower-cased, no leading dot. SVG is deliberately excluded (Q4: script-carrying, not a useful build
+ * reference).
+ *
+ * `yml`/`yaml` are load-bearing beyond attachments: the consult and base-import flows accept a workflow
+ * YAML through this same gate and lint it. Only ever ADD to this set.
+ *
+ * MIRRORED in `web/src/lib/attachments.ts` for the composer's client-side guard and its `<input accept>`.
+ * The two copies are pinned equal by a behavioural parity test — they are one rule expressed twice, and
+ * a drift shows up as a file the picker offers and the server then rejects.
  */
 export const ACCEPTED_EXT = new Set([
   'pdf',
@@ -52,7 +78,18 @@ export const ACCEPTED_EXT = new Set([
   'yaml',
   'yml',
   'log',
+  'docx',
+  'xlsx',
+  'pptx',
 ]);
+
+/**
+ * Cap on the extracted text written into a sidecar. A spreadsheet well inside the 10 MB file cap can
+ * still flatten into far more text than a turn can afford to read, and the build turn's time budget is a
+ * scarce, previously-exhausted resource. Over the cap the text is cut and the header says so — a
+ * silently shortened document reads as a complete one.
+ */
+export const MAX_SIDECAR_CHARS = 200_000;
 /** D4: max attachments per turn (create OR reply). */
 export const MAX_ATTACHMENTS = 3;
 /** D4: per-file cap aligned to Dify's image limit (10 MB of decoded bytes). */
@@ -120,6 +157,16 @@ export function validateAttachments(raw: unknown): ValidateResult {
       ext = IMAGE_EXT[mime];
     } else {
       const e = extOf(name);
+      // Name the pre-2007 formats explicitly. They fail the allowlist anyway, but "unsupported file"
+      // on a .doc while .docx works is baffling unless the message says what to do about it.
+      if (LEGACY_OFFICE_EXT.has(e)) {
+        return {
+          ok: false,
+          error:
+            `'${name}' is a pre-2007 Office file — open it and "Save As" .docx / .xlsx / .pptx, ` +
+            `then attach it again`,
+        };
+      }
       if (!ACCEPTED_EXT.has(e)) {
         return {
           ok: false,
@@ -145,7 +192,30 @@ export function validateAttachments(raw: unknown): ValidateResult {
         error: `file ${i + 1} (${name}) is ${MB(bytes.length)} MB — over the ${MB(MAX_ATTACHMENT_BYTES)} MB limit`,
       };
     }
-    attachments.push({ name, mime, ext, bytes });
+    // Office formats are extracted HERE, while we are still on the 400 path: an unreadable document is
+    // the user's problem to fix, and they can only fix it if told which file and why.
+    let sidecar: string | undefined;
+    if (OFFICE_EXT.has(ext)) {
+      let text: string;
+      try {
+        text = extractOfficeText(ext, bytes);
+      } catch (e) {
+        const why = e instanceof Error ? e.message : String(e);
+        return { ok: false, error: `could not read '${name}' — ${why}` };
+      }
+      // An empty extraction is a REJECT, never an empty sidecar. A document that reaches the model
+      // saying nothing is worse than one that never arrived: the user believes they supplied it, and
+      // the model fills the silence with invention.
+      if (!text) {
+        return {
+          ok: false,
+          error: `'${name}' has no readable text (it may contain only images or empty sheets)`,
+        };
+      }
+      sidecar = sidecarText(ext, name, text, MAX_SIDECAR_CHARS);
+    }
+
+    attachments.push({ name, mime, ext, bytes, ...(sidecar ? { sidecar } : {}) });
   }
   return { ok: true, attachments };
 }
@@ -171,6 +241,11 @@ export function sanitizeName(name: string, ext: string): string {
  * Write each validated attachment to `.runs/<taskId>/uploads/<index>_<safeName>` and return the
  * repo-relative paths (the form the prompt block injects; `claude` runs with cwd = repo root).
  * `startIndex` continues the numbering for reply-turn files so they APPEND, never overwrite (D6).
+ *
+ * An Office file writes TWICE — the original plus its extracted `<name>.md` sidecar — but contributes
+ * exactly ONE path, the sidecar's: that is the readable one, and one-path-per-input keeps the returned
+ * length equal to the file count that `startIndex` is derived from (§header). The original is kept on
+ * disk so a suspected bad extraction can be checked against the source.
  */
 export async function saveAttachments(
   projectsDir: string,
@@ -185,7 +260,9 @@ export async function saveAttachments(
   for (let i = 0; i < attachments.length; i++) {
     const fname = `${startIndex + i}_${sanitizeName(attachments[i].name, attachments[i].ext)}`;
     await writeFile(join(dir, fname), attachments[i].bytes);
-    rels.push(`apps/builder/.runs/${taskId}/uploads/${fname}`);
+    const sidecar = attachments[i].sidecar;
+    if (sidecar) await writeFile(join(dir, `${fname}.md`), sidecar, 'utf8');
+    rels.push(`apps/builder/.runs/${taskId}/uploads/${fname}${sidecar ? '.md' : ''}`);
   }
   return rels;
 }

@@ -266,7 +266,7 @@ export function App() {
     // spec 034 D3: a terminal build's composer is Ask-only — no change-mode exists (nothing to resume or
     // re-run), attach is hidden (no files), and starting a new build moved to the sidebar "+".
     if (st === 'done' || st === 'cancelled') {
-      void store.ask(msg).then(onDone);
+      void store.ask(msg, atts).then(onDone);
       setMode('ask');
       return;
     }
@@ -719,21 +719,28 @@ export function App() {
                            live Ask streams (asking) — sending during either just 409s. */
                         disabled={busy || asking}
                         files={files}
-                        /* spec 033 F5 / 034 D5: Ask is answer-only and /ask takes no files, so hide the
-                           attach affordance while Ask is the active send path (at any askable gate incl. ④)
-                           — a file attached there would be silently dropped. It returns in change-mode
-                           (Request-changes /reply DOES carry files). */
+                        /* spec 033 F5 / 034 D5: hide attach while Ask is the active send path at a LIVE
+                           gate (incl. ④). The original reason — /ask dropped files — no longer holds (089
+                           gave it files, which is what the terminal/chat composer below uses); the reason
+                           that does is routing: at a gate, handing over new material IS a change request,
+                           and Request-changes (/reply) already carries files and re-runs the phase with
+                           them. Attaching in Ask mode would look identical but leave the artifact untouched.
+                           Switching to change-mode restores attach. */
                         onAddFiles={askableGate && mode === 'ask' ? undefined : (f) => void addFiles(f)}
                         onRemoveFile={removeFile}
                       />
                     </>
                   ) : (
                     // spec 034 D3: a terminal (done/cancelled) build's composer is Ask-only — the settings
-                    // row is DROPPED (Send no longer starts a new build) and attach is hidden (/ask takes no
-                    // files). Starting a new build lives at the sidebar "+". Just a question box.
+                    // row is DROPPED (Send no longer starts a new build). Starting a new build lives at the
+                    // sidebar "+". Just a question box — plus attach.
                     // spec 082: a consult lives in this branch too (born done) — its own placeholder.
+                    // spec 089: attach IS offered here. A chat's first message can bring a document (POST
+                    // /api/consult) and /ask now carries files too, so every later message can as well —
+                    // without it, a reference raised mid-conversation had no way into the chat at all.
                     <Composer value={draft} onChange={setDraft} onSend={() => send()}
                       placeholder={task?.kind === 'consult' ? tr('phConsultChat') : tr('phAskAboutBuild')} disabled={asking}
+                      files={files} onAddFiles={(f) => void addFiles(f)} onRemoveFile={removeFile}
                     />
                   )}
                 </div>

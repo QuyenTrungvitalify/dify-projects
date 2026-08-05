@@ -20,6 +20,7 @@ import Fastify from 'fastify';
 import tasksRoutes from '../server/routes/tasks.js';
 import { createTask, saveTask, loadTask } from '../server/state/task.js';
 import { acquireTurn, releaseTurn, setSession, liveKind } from '../server/lib/lock.js';
+import { zipStore } from '../server/lib/zip.js';
 
 async function build(dir: string) {
   const app = Fastify();
@@ -273,6 +274,106 @@ describe('POST /api/tasks/:id/restore — turn-lock guard (spec 034: never clobb
     } finally {
       releaseTurn('a-different-task');
     }
+    await app.close();
+  });
+});
+
+// Spec 089 — /ask carries files, so a chat can take a document on ANY message rather than only its
+// first (POST /api/consult). The ordering it must obey is /reply's, for /reply's reasons: reject first,
+// then write, then lock. These cases pin each step of that order; the "the turn actually reads them"
+// half is the attachmentBlock injection already covered in attachments.test.ts.
+describe('POST /api/tasks/:id/ask — attachments (spec 089)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'ask-files-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const uploads = (taskId: string): string => join(dir, `apps/builder/.runs/${taskId}/uploads`);
+  const docx = (text: string): string =>
+    zipStore([
+      {
+        name: 'word/document.xml',
+        data: Buffer.from(`<w:document><w:body><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:body></w:document>`, 'utf8'),
+      },
+    ]).toString('base64');
+
+  /** A build that has finished — /ask's terminal branch (034 D3), the one a chat composer talks to. */
+  async function terminal() {
+    const task = await createTask(dir, { requirement: 'r' });
+    task.status = 'done';
+    await saveTask(dir, task);
+    return task;
+  }
+
+  test('an unreadable Office file → 400 from validation, nothing written', async () => {
+    const task = await terminal();
+    const app = await build(dir);
+    const res = await app.inject({
+      method: 'POST', url: `/api/tasks/${task.taskId}/ask`,
+      payload: { text: 'what does this say?', files: [{ name: 'broken.docx', mime: '', dataUrl: 'data:x;base64,bm90IGEgemlw' }] },
+    });
+    assert.equal(res.statusCode, 400);
+    assert.match(res.json().error, /could not read 'broken\.docx'/);
+    assert.equal(existsSync(uploads(task.taskId)), false, 'a rejected ask must leave nothing on disk');
+    await app.close();
+  });
+
+  test('a status /ask refuses → 409 with the files NOT written (reject precedes the write)', async () => {
+    const task = await createTask(dir, { requirement: 'r' });
+    task.status = 'error'; // /ask never accepts error (033's carve-out)
+    await saveTask(dir, task);
+    const app = await build(dir);
+    const res = await app.inject({
+      method: 'POST', url: `/api/tasks/${task.taskId}/ask`,
+      payload: { text: 'hi', files: [{ name: 'a.txt', mime: 'text/plain', dataUrl: 'data:text/plain;base64,YQ==' }] },
+    });
+    assert.equal(res.statusCode, 409);
+    assert.equal(existsSync(uploads(task.taskId)), false);
+    await app.close();
+  });
+
+  test('an /ask while THIS task holds the lock → 409 before any write (the FIX-M rule, applied to /ask)', async () => {
+    const task = await terminal();
+    const app = await build(dir);
+    assert.ok(acquireTurn(task.taskId, 'ask')); // a live Ask on this task is snapshotting uploads/
+    try {
+      const res = await app.inject({
+        method: 'POST', url: `/api/tasks/${task.taskId}/ask`,
+        payload: { text: 'hi', files: [{ name: 'a.txt', mime: 'text/plain', dataUrl: 'data:text/plain;base64,YQ==' }] },
+      });
+      assert.equal(res.statusCode, 409);
+      assert.equal(existsSync(uploads(task.taskId)), false, 'never write into a root a live Ask is byte-comparing');
+    } finally {
+      releaseTurn(task.taskId);
+    }
+    await app.close();
+  });
+
+  test('a valid .docx APPENDS its sidecar to task.attachments, before the lock is taken', async () => {
+    const task = await terminal();
+    task.attachments = ['apps/builder/.runs/x/uploads/0_earlier.txt']; // one file already on the task
+    await saveTask(dir, task);
+    const app = await build(dir);
+    // Occupy the chat lane so the request 409s on the LOCK — proving the save happened first, and
+    // keeping the test hermetic (no real `claude` turn ever spawns).
+    assert.ok(acquireTurn('other-task', 'ask'));
+    try {
+      const res = await app.inject({
+        method: 'POST', url: `/api/tasks/${task.taskId}/ask`,
+        payload: { text: 'and this one?', files: [{ name: 'proposal.docx', mime: '', dataUrl: `data:x;base64,${docx('ニュース収集')}` }] },
+      });
+      assert.equal(res.statusCode, 409);
+      assert.ok('holder' in res.json(), 'the 409 is the lock, not validation — so the write already ran');
+    } finally {
+      releaseTurn('other-task');
+    }
+    const saved = await loadTask(dir, task.taskId);
+    assert.equal(saved.attachments?.length, 2, 'appended after the existing file, never overwriting it');
+    assert.ok(saved.attachments?.[1].endsWith('1_proposal.docx.md'), `expected the sidecar at index 1, got ${saved.attachments?.[1]}`);
+    assert.ok(existsSync(join(uploads(task.taskId), '1_proposal.docx')), 'the original is kept beside the sidecar');
     await app.close();
   });
 });

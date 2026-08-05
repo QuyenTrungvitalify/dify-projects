@@ -91,9 +91,16 @@ Write all **human-facing prose** in the **same language as the requirement** (`{
    language — so never add "replies in <language>" unless the user asked for that language.)
 
 ## Output (authoritative artifact)
-Write `SPEC.md`:
-- to `.runs/{{TASK_ID}}/SPEC.md` if `{{WORKFLOW_SLUG}}` is empty (pre-slug),
-- else to `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/SPEC.md`.
+Write `SPEC.md` to exactly this path (repo-root-relative; your cwd IS the repo root):
+
+    {{SPEC_PATH}}
+
+That is the one path the backend verifies — no other location counts, and the file is REQUIRED
+even if the target folder does not exist yet (create parent folders as needed; Write does this).
+Do not re-derive the path from `{{WORKFLOW_SLUG}}` or from what you see on disk — the backend has
+already resolved it. (Spec 090: the old two-branch rule here rendered as "if `<slug>` is empty",
+which two independent builds resolved by looking at the DISK — the folder didn't exist yet, so
+they wrote to `.runs/` and died on `artifact missing`.)
 
 **NEVER end this turn without writing the file.** Autonomous modes (`auto`/`spec_only`) auto-confirm
 this gate, so nobody will answer a question you ask here — a turn that stops to ask produces NO

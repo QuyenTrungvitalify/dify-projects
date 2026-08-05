@@ -14,7 +14,7 @@
  * artifact-exists/non-empty + confinement-with-revert. The scaffold (`init_project.py` + SPEC.md
  * move) is re-homed from Lát 2's raw advance to the ②→③ `/confirm` (AC #18).
  */
-import { readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { ClaudeSession } from './claude-session.js';
 import { confinementCheck, gitDirtyPaths, type PostTurnDetail } from './post-turn.js';
@@ -707,7 +707,32 @@ async function verifyPhase(
   try {
     size = (await stat(abs)).size;
   } catch {
-    reasons.push(`artifact missing: ${rel}`);
+    // Spec 090 S3 — adopt a misplaced ② SPEC.md before declaring it missing. On a slug-set task the
+    // canonical path is `projects/…/SPEC.md`, but a turn that misread the state as pre-slug wrote a
+    // GOOD file to `.runs/<taskId>/SPEC.md` and the build then died UNRECOVERABLY (retry re-read the
+    // same misplaced file and wrote nothing — runs 1785901684698 + 1785916628346). The file is this
+    // task's own artifact in its own run dir, so adopting = moving it to the path every downstream
+    // reader (③ PRIOR_ARTIFACT, /spec panel, bundle, criteria) derives from the SAME slug rule.
+    // Guards: spec phase only; canonical path is projects/… only (a pre-slug task's canonical path
+    // IS the run dir — structurally unreachable here); non-empty only (never adopt a stub).
+    // Precedent: scaffoldAtSpecGate moves this very file on the healthy path.
+    let salvaged = false;
+    if (phase.id === 'spec' && rel.startsWith('projects/')) {
+      const strayAbs = join(projectsDir, `apps/builder/.runs/${task.taskId}/SPEC.md`);
+      try {
+        const straySize = (await stat(strayAbs)).size;
+        if (straySize > 0) {
+          await mkdir(dirname(abs), { recursive: true });
+          await rename(strayAbs, abs);
+          size = straySize;
+          salvaged = true;
+          log.warn({ taskId: task.taskId, from: strayAbs, to: rel }, '② SPEC.md adopted from the run dir (spec 090 S3)');
+        }
+      } catch {
+        /* stray missing/unreadable → fall through to the normal missing-artifact reason */
+      }
+    }
+    if (!salvaged) reasons.push(`artifact missing: ${rel}`);
   }
   if (size === 0) reasons.push(`artifact empty: ${rel}`);
   if (phase.id === 'analyze' && size > 0) {

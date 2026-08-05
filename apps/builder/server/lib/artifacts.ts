@@ -108,6 +108,10 @@ export interface TreeWorkflowNode {
   id: string; // workflow folder name (spec 030)
   name: string;
   tasks: TreeTaskNode[];
+  /** Spec 090 S2 — a DISPLAY-ONLY grouping row (the `(unsaved)` bucket), not a real workflow: no
+   *  folder exists, so it must never be selectable as an edit-existing base. One field, additive —
+   *  absent (old server / real workflow) reads falsy and every consumer behaves as before. */
+  synthetic?: true;
 }
 export interface TreeProjectNode {
   id: string; // project folder name (spec 030)
@@ -461,7 +465,11 @@ export async function buildTree(projectsDir: string, nowMs: number): Promise<Tre
   const loose = [...drafts, ...orphanDrafts];
   if (loose.length) {
     const draftsRow = getProject(DRAFTS_PROJECT, 'Drafts');
-    draftsRow.workflows.push({ id: '(unsaved)', name: '(unsaved)', tasks: loose.sort(byTaskIdDesc) });
+    // Spec 090 S2: `synthetic` — this row groups pre-scaffold/orphan tasks for DISPLAY. Clicking it
+    // used to arm the composer with the phantom target `_drafts/(unsaved)` → a build that
+    // deterministically died at ② (runs 1785901684698 + 1785916628346); the flag lets the sidebar
+    // keep it expandable but never selectable-as-base.
+    draftsRow.workflows.push({ id: '(unsaved)', name: '(unsaved)', synthetic: true, tasks: loose.sort(byTaskIdDesc) });
   }
 
   const result = [...projects.values()];
