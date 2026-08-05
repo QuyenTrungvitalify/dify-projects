@@ -234,3 +234,29 @@
       grep_present: ["type: llm"]
   manual:
     - "Language sync: the digest + SPEC should be in Vietnamese (matches the prompt), not JA"
+
+- id: qc-branch-routing
+  # Spec 087 regression surface: a build whose model-carrying node is a QUESTION-CLASSIFIER (not llm).
+  # Pre-087 this class of workflow imported clean but died at runtime as a generic stream-death (an
+  # empty QC model does NOT even say "Model not exist" — dify-io.md §4), because inject/count/advisory
+  # all covered `llm` only. The inject/gate/advisory sides are unit-locked (test_sync cross-check,
+  # live-test.test.ts, runnability.test.ts); THIS entry locks the build side: a clearly-branching JA
+  # prompt still yields a lint-clean question-classifier workflow.
+  prompt: >-
+    問い合わせメールの本文を貼り付けたら、内容を「請求・支払い」「不具合・技術的な問題」「その他」の
+    3種類に自動で振り分けてください。種類ごとに転送先が違います（経理窓口 / サポート窓口 / 総合窓口）。
+    転送先の名前と、その転送先に合わせた文体の転送用の一言添え文を返してください。3種類で添え文の
+    形式・トーンは変えてください。
+  mode: auto
+  deploy: none
+  expect:
+    analyze:
+      features_include: [question-classifier]
+    workflow:
+      grep_present: ["type: question-classifier"]
+      grep_absent: ["type: trigger-schedule", "type: trigger-webhook"]
+    report:
+      notes_include: ["passed every automated check"]
+  manual:
+    - "Live-test (selfhost): the question-classifier node gets the workspace model injected and a JA sample input runs to succeeded (the 087 A/B runbook — CAMPAIGNS.md 'Bằng chứng đo ngoài-campaign')"
+    - "Runtime: three sample mails (billing / bug / other) route to the three 窓口 with distinct wording"

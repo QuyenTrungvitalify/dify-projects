@@ -44,6 +44,10 @@ Usage:
     --list-coverage
               print `<node type> <validated|warn-skip> <def name|reason>` for every known
               node type and exit 0; takes no files
+    --report-unknown-keys
+              ALSO warn (stderr, exit unchanged) on top-level body keys outside the def's
+              `properties` — the measured-first probe for typo'd field names; see
+              docs/linter-candidates.md for the FP measurement before any promotion
 
 Escape hatch (D3, P3): a COLUMN-0 full-line comment `# lint-bodies: allow <node_id>` suppresses
 all body findings for that node (stderr notes the suppression). Anchored at column 0 — stricter
@@ -228,8 +232,31 @@ def _validator_for(def_name: str, schema_path: str) -> Draft202012Validator:
     return Draft202012Validator(defs[def_name])
 
 
+# Unknown-key sweep (spec 038 P1 discipline, second application): pydantic's model_json_schema
+# emits every model field into `properties`, so a top-level body key OUTSIDE them is either a typo
+# (`queries` for `query`) or UI metadata the runtime ignores. The schema does NOT set
+# `additionalProperties: false` (flipping that would hard-gate an unmeasured surface), so today
+# these keys pass silently and a misnamed field surfaces only at Dify runtime. `--report-unknown-keys`
+# surfaces them as stderr WARNINGS (never findings, never exit≠0) so the FP rate can be MEASURED
+# over the indexed surface first; promotion to a finding — or per-def strictness — is a later,
+# report-backed decision (the 038-fp-report precedent). `type` is the dispatch envelope key
+# (27/29 defs don't carry it) — structurally exempt. The other three are FRONTEND metadata the
+# runtime models never declare, measured present across the whole indexed surface (2026-08-05
+# sweep, docs/linter-candidates.md): `selected` (canvas selection state, on nearly every corpus
+# node), `isInIteration` + `iteration_id` (iteration-child markers on any node inside an
+# iteration container).
+UNKNOWN_KEY_EXEMPT = {"type", "selected", "isInIteration", "iteration_id"}
+
+
+def _unknown_keys(body: dict, def_schema: dict) -> list[str]:
+    props = def_schema.get("properties")
+    if not isinstance(props, dict) or not props:
+        return []  # a def with no properties dump gives no basis to judge — never guess
+    return sorted(k for k in body if k not in props and k not in UNKNOWN_KEY_EXEMPT)
+
+
 def lint_file(
-    path: Path, schema_path: Path, demoted: dict[str, set[str]]
+    path: Path, schema_path: Path, demoted: dict[str, set[str]], report_unknown: bool = False
 ) -> tuple[int, list[str], list[str]]:
     """→ (exit_code, findings→stdout, warnings→stderr) for one file."""
     errors: list[str] = []
@@ -271,6 +298,13 @@ def lint_file(
 
         nid = str(node.get("id", "?"))
         prefix = f"{path}:{lines[nid]}" if nid in lines else f"{path}"
+        if report_unknown:
+            unknown = _unknown_keys(body, defs[def_name])
+            if unknown:
+                warnings.append(
+                    f"{path}: node '{nid}' ({ntype}): unknown top-level key(s) not in "
+                    f"{def_name}.properties: {', '.join(unknown)}"
+                )
         validator = _validator_for(def_name, str(schema_path))
         node_findings: list[str] = []
         for err in sorted(validator.iter_errors(body), key=lambda e: (e.json_path, e.message)):
@@ -305,12 +339,16 @@ def main(argv: list[str]) -> int:
     demoted: dict[str, set[str]] = {k: set(v) for k, v in DEMOTED_REQUIRED.items()}
     files: list[str] = []
     list_coverage = False
+    report_unknown = False
 
     i = 0
     while i < len(argv):
         arg = argv[i]
         if arg == "--list-coverage":
             list_coverage = True
+            i += 1
+        elif arg == "--report-unknown-keys":
+            report_unknown = True
             i += 1
         elif arg == "--dump-schema":
             if i + 1 >= len(argv):
@@ -367,7 +405,7 @@ def main(argv: list[str]) -> int:
             print(f"{path}: file not found", file=sys.stderr)
             overall = max(overall, 2)
             continue
-        code, errors, warnings = lint_file(path, schema_path, demoted)
+        code, errors, warnings = lint_file(path, schema_path, demoted, report_unknown)
         for w in warnings:
             print(f"warning: {w}", file=sys.stderr)
         for e in errors:

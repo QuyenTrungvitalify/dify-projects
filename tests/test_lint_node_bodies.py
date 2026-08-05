@@ -283,3 +283,49 @@ def test_dump_schema_requires_an_argument() -> None:
     result = run_tool("--dump-schema")
     assert result.returncode == 2
     assert "requires a node type" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# --report-unknown-keys — measured-first probe (2026-08-05, docs/linter-candidates.md)
+# ---------------------------------------------------------------------------
+
+def _unknown_key_fixture(tmp_path: Path) -> Path:
+    """A start→llm workflow whose llm body carries a typo'd key (`queries`) plus the three
+    frontend-metadata keys that MUST stay exempt (selected/isInIteration/iteration_id)."""
+    f = tmp_path / "unknown_key.yml"
+    f.write_text(
+        """
+workflow:
+  graph:
+    nodes:
+    - id: '1700000000002'
+      data:
+        type: llm
+        title: L
+        selected: false
+        isInIteration: false
+        iteration_id: 'x'
+        queries: oops
+        model: { provider: p, name: n, mode: chat }
+        prompt_template: []
+""",
+        encoding="utf-8",
+    )
+    return f
+
+
+def test_unknown_keys_off_by_default(tmp_path: Path) -> None:
+    """Without the flag the sweep is silent — gate behavior is byte-identical (unwired, 038 P1)."""
+    result = run_tool(str(_unknown_key_fixture(tmp_path)))
+    assert "unknown top-level" not in result.stderr
+
+
+def test_unknown_keys_flag_warns_but_never_gates(tmp_path: Path) -> None:
+    """With the flag: the typo'd key is a stderr WARNING naming the def; exempt frontend keys are
+    silent; exit code is unchanged by the warning."""
+    result = run_tool("--report-unknown-keys", str(_unknown_key_fixture(tmp_path)))
+    line = next(l for l in result.stderr.splitlines() if "unknown top-level" in l)
+    assert "queries" in line and "NodeData_LLMNodeData" in line
+    for exempt in ("selected", "isInIteration", "iteration_id"):
+        assert exempt not in line, f"exempt key {exempt} must not be reported"
+    assert "unknown top-level" not in result.stdout, "warnings never land in findings/stdout"
