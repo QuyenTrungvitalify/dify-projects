@@ -106,7 +106,9 @@ export function App() {
   // absolutely-positioned child would be clipped — measure the bell and render the tip FIXED instead.
   const tipWrapRef = useRef<HTMLSpanElement>(null);
   const [tipPos, setTipPos] = useState<{ top: number; right: number } | null>(null);
-  const tipVisible = !notifyOn.value && !notifyBlocked.value;
+  // Hidden while the artifact panel is open: the tip is position:fixed (to escape the pill row's
+  // overflow clip), so it would float OVER the slid-in panel even though its anchor bell is covered.
+  const tipVisible = !notifyOn.value && !notifyBlocked.value && !artifactOpen;
   useEffect(() => {
     if (!tipVisible) { setTipPos(null); return; }
     const place = (): void => {
