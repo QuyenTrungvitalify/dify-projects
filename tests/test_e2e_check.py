@@ -519,6 +519,26 @@ def test_denied_calls_per_phase_key(tmp_path):
     assert b["AUTO-FAIL"], "the <phase>_denied_max form targets that phase's transcript"
 
 
+def test_denied_calls_ignores_091_reason_lines(tmp_path):
+    """Parser-compat (spec 091 F8): the `↳` continuation line under a ✗ starts with whitespace, so
+    the `startswith("- ")` + `endswith("✗")` anchors skip it — counts match the pre-091 format."""
+    d = tmp_path / "transcripts"
+    d.mkdir(parents=True)
+    (d / "implement.md").write_text(
+        "\n".join([
+            "## phase", "### Tool calls",
+            "- Bash  grep -rn x .  ✗",
+            "    ↳ grep is not available to a Builder turn — use the Read tool instead",
+            "- Bash  ls nope  ✗",
+            "    ↳ ls: nope: No such file or directory",
+            "- Read  /repo/file.yml  ✓",
+            "### Result", "cost=$0",
+        ]),
+        encoding="utf-8",
+    )
+    assert ec._denied_calls(tmp_path, "implement") == 2
+
+
 # ── spec 078 S2 × e2e: promote_hint_present predicate ─────────────────────────
 
 def test_promote_hint_present_true_and_false(tmp_path):

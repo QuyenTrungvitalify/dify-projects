@@ -148,10 +148,14 @@ const WRITE_TOOLS = new Set<string>(['Write', 'Edit', 'MultiEdit', 'NotebookEdit
 // metacharacter (| & ; < > $ ` ( ) { } * ? ~ ! # \ newline …) is OUTSIDE this set → the command is
 // denied. This single gate forecloses chaining / redirect / subshell / expansion / globbing /
 // background-job smuggling without needing a full shell AST (and without the `shell-quote` dep).
-// QUOTES (' ") are DELIBERATELY EXCLUDED (spec 015 review C2): allowing them let
-// `cat apps/builder/.e''nv` carry no literal `.env` substring past the secret check while the shell
-// still collapsed the quotes and read the token. The phase commands never quote, so forbidding quotes
-// loses nothing and removes that whole split-the-literal bypass class.
+// QUOTES (' ") are still outside the set, but they never reach it: decide() STRIPS them from the Bash
+// decision view before any check runs (spec 091 S2). That replaces the old quote⇒deny rule (spec 015
+// review C2 — `cat apps/builder/.e''nv` carried no literal `.env` past the secret check) with a
+// STRONGER invariant: every check runs on the quote-collapsed string the shell actually sees, so the
+// same command becomes `cat apps/builder/.env` and the secret check catches it EARLIER — while the
+// legit quoted phase command (`find.py --name "kw kw"`, analyze.md E2b) is finally allowed. Stripping
+// can only EXPOSE tokens (spaces stay, tokens never merge), and anything a quote used to hide
+// (`;`/`|`/`$`…) is now visible to this charset. Execution stays raw; only decisions see the strip.
 const SIMPLE_COMMAND = /^[A-Za-z0-9 _./:=@,+-]+$/;
 
 // ─── command-analyzer (allowlist-first) ─────────────────────────────────────────────────────────
@@ -378,7 +382,9 @@ function resolvesOutsideRepo(rawPath: string, cwd?: string): boolean {
 
 /**
  * A Bash command touching anything outside the repo. Same tokenizer as {@link commandReferencesSecret}
- * (SIMPLE_COMMAND has already guaranteed no quotes/metachars, so a token IS what the shell sees).
+ * (decide() has already stripped quotes from the decision view — spec 091 S2 — so a token IS what the
+ * shell sees; a command that still smuggles structure via metachars is denied by SIMPLE_COMMAND right
+ * after this and never executes).
  *
  * Non-path tokens cost nothing: a flag like `-la` resolves to `<root>/-la` — inside — so only a token
  * that leaves the tree can trip this. That keeps the false-positive surface at essentially zero for the
@@ -399,8 +405,8 @@ function commandReachesOutsideRepo(command: string, cwd?: string): string | null
   return null;
 }
 
-/** Bash commands referencing a secret BY PATH (catches `cat apps/builder/.env`). Tokenizes — the
- *  SIMPLE_COMMAND gate guarantees no quotes/metachars, so a token IS what the shell sees — and reuses
+/** Bash commands referencing a secret BY PATH (catches `cat apps/builder/.env`). Tokenizes — decide()
+ *  strips quotes from the decision view first (spec 091 S2), so a token IS what the shell sees — and reuses
  *  pathIsSensitiveRead per token (incl. `--flag=<path>` values). This both broadens the secret set and
  *  FIXES the substring false-positive: a legit `config.env.yml` workflow file is NOT flagged, while
  *  `apps/builder/.env` / `~/.netrc` are. Note: NOT `.venv` — legit commands start with `.venv/bin/python`. */
@@ -490,14 +496,26 @@ export function decide(input: HookInput, taskId?: string, askMode?: boolean): De
   const toolName = input.tool_name ?? '';
   const toolInput = (input.tool_input ?? {}) as Record<string, unknown>;
 
+  // Spec 091 S2 — every Bash CHECK runs on a quote-NORMALIZED view of the command. The shell collapses
+  // quotes before anything executes (`.e''nv` IS `.env` to it), so a check reading the raw string is
+  // reading the wrong layer: the secret check missed `.e''nv` and only the blanket quote⇒deny caught
+  // it — which also killed the legit `find.py --name "kw kw"` (analyze.md E2b). Stripping quotes makes
+  // the tokenizers' "a token IS what the shell sees" assumption true BY CONSTRUCTION: it can only
+  // expose tokens (spaces stay — tokens never merge), and any metachar a quote used to hide is now
+  // visible to SIMPLE_COMMAND. The EXECUTED command stays raw (argparse needs its quotes).
+  const decisionInput =
+    toolName === 'Bash' && typeof toolInput.command === 'string'
+      ? { ...toolInput, command: toolInput.command.replace(/['"]/g, '') }
+      : toolInput;
+
   // 0. Forbidden paths — hard deny, first (cannot be overridden by the allow logic below). `input.cwd`
   //    (the turn's cwd = repo root) anchors the write-allowlist's relative/absolute path resolution.
-  const forbidden = checkForbiddenPath(toolName, toolInput, taskId, input.cwd);
+  const forbidden = checkForbiddenPath(toolName, decisionInput, taskId, input.cwd);
   if (forbidden) return { decision: 'deny', reason: forbidden };
 
   // 1. Bash — allowlist-first (default-deny tail).
   if (toolName === 'Bash') {
-    const command = typeof toolInput.command === 'string' ? toolInput.command : '';
+    const command = typeof decisionInput.command === 'string' ? decisionInput.command : '';
     return analyzeBashCommand(command);
   }
 

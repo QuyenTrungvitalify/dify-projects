@@ -58,6 +58,14 @@ Write all **human-facing prose** in the **same language as the requirement** (`{
    sat in the marketplace with 14k installs. The reason recorded in one build's own SPEC was
    「プラグインハッシュ依存が増えないため」 (to avoid adding a plugin-hash dependency). That is no longer
    a cost worth avoiding: the hash is free to resolve, and the tool spares the user the setup.
+
+   **Error branches (`error_strategy: fail-branch`) — do NOT search for the syntax (spec 085):** when
+   the requirement calls for fail-soft / an error branch on `code` or `http-request` nodes, **Read**
+   `.claude/skills/dify-build/references/error-strategy.yml` — a lint-clean worked example of both
+   node kinds with the `success-branch`/`fail-branch` edges — and spec that shape. `grep`-ing for
+   `fail-branch`/`error_strategy` is sandbox-denied, and `find.py` has no such feature: a real build
+   burned 11 denied calls in THIS phase hunting exactly this before the pointer existed here
+   (implement.md has carried it since 085 S1c; spec 091 F6 measured the gap).
 4. **Trigger-surface rule (spec 056).** Every **required** Start variable must be something the runtime
    operator physically has. Anything derivable in-flow is derived by nodes — or made `required: false`
    with a documented default: a requirement that names a file format gets a `type: file-list` (or `file`)

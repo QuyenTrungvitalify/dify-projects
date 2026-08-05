@@ -15,8 +15,8 @@ import type { ClaudeStreamEvent } from '../server/lib/claude-session.js';
 
 const asstToolUse = (id: string, name: string, input: unknown): ClaudeStreamEvent =>
   ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name, input }] } }) as ClaudeStreamEvent;
-const userToolResult = (id: string, isError: boolean): ClaudeStreamEvent =>
-  ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, is_error: isError }] } }) as ClaudeStreamEvent;
+const userToolResult = (id: string, isError: boolean, content?: unknown): ClaudeStreamEvent =>
+  ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, is_error: isError, content }] } }) as ClaudeStreamEvent;
 
 describe('AttemptRecorder.render (spec 062 S1)', () => {
   test('block carries header + prompt + output + tools + result', () => {
@@ -50,6 +50,47 @@ describe('AttemptRecorder.render (spec 062 S1)', () => {
     const md = rec.render({ cost: null, nowMs: 0 });
     assert.ok(!md.includes('sk-abc12345'), 'raw token must not appear');
     assert.match(md, /Bearer \*\*\*/);
+  });
+
+  // ─── spec 091 S1 — a ✗ carries its reason on an indented ↳ continuation line ───
+  test('an is_error tool_result with STRING content renders a ↳ reason line under the ✗', () => {
+    const rec = new AttemptRecorder({ phase: 'analyze', attempt: 1, resume: false, prompt: 'p' });
+    rec.onEvent(asstToolUse('t1', 'Bash', { command: '.venv/bin/python tools/dify_base/find.py --name kw' }));
+    rec.onEvent(userToolResult('t1', true, 'command contains a shell metacharacter (chaining/redirect…)\nsecond line dropped'));
+    const md = rec.render({ cost: null, nowMs: 0 });
+    // the call line itself is UNCHANGED (F8: external parsers anchor on the trailing ✗)
+    assert.match(md, /- Bash {2}\.venv\/bin\/python tools\/dify_base\/find\.py --name kw {2}✗\n {4}↳ command contains a shell metacharacter/);
+    assert.ok(!md.includes('second line dropped'), 'only the first line of the reason is kept');
+  });
+
+  test('an is_error tool_result with ARRAY content ({type:text,text}) renders the ↳ reason too', () => {
+    const rec = new AttemptRecorder({ phase: 'analyze', attempt: 1, resume: false, prompt: 'p' });
+    rec.onEvent(asstToolUse('t1', 'Read', { file_path: 'apps/builder/.env' }));
+    rec.onEvent(userToolResult('t1', true, [{ type: 'text', text: 'forbidden: read of a sensitive file (apps/builder/.env)' }]));
+    const md = rec.render({ cost: null, nowMs: 0 });
+    assert.match(md, / {4}↳ forbidden: read of a sensitive file/);
+  });
+
+  test('the ↳ reason is REDACTED and capped at 160 chars', () => {
+    const rec = new AttemptRecorder({ phase: 'analyze', attempt: 1, resume: false, prompt: 'p' });
+    rec.onEvent(asstToolUse('t1', 'Bash', { command: 'x' }));
+    rec.onEvent(userToolResult('t1', true, 'denied: Authorization: Bearer sk-abc12345 ' + 'y'.repeat(300)));
+    const md = rec.render({ cost: null, nowMs: 0 });
+    assert.ok(!md.includes('sk-abc12345'), 'token redacted in the reason line');
+    const reason = md.split('\n').find((l) => l.trimStart().startsWith('↳'))!;
+    assert.ok(reason.trim().length <= 4 + 160 + 1, 'reason capped (↳ + 160 chars + ellipsis)');
+    assert.match(reason, /…$/);
+  });
+
+  test('a SUCCESS tool_result never gets a ↳ line; an is_error with no content stays bare', () => {
+    const rec = new AttemptRecorder({ phase: 'analyze', attempt: 1, resume: false, prompt: 'p' });
+    rec.onEvent(asstToolUse('t1', 'Bash', { command: 'ls' }));
+    rec.onEvent(userToolResult('t1', false, 'file listing…'));
+    rec.onEvent(asstToolUse('t2', 'Bash', { command: 'ls nope' }));
+    rec.onEvent(userToolResult('t2', true)); // no content on the wire
+    const md = rec.render({ cost: null, nowMs: 0 });
+    assert.ok(!md.includes('↳'), 'no reason line without an error reason');
+    assert.match(md, /- Bash {2}ls nope {2}✗\n/);
   });
 
   test('assistant output is TAIL-capped (the end, where failures show, survives)', () => {
@@ -125,6 +166,17 @@ describe('AttemptRecorder.flush (spec 062 S1 / AC #2)', () => {
     const stats = parseToolStats(md);
     assert.equal(stats.total, 1);
     assert.deepEqual(stats.byTool, [{ name: 'Bash', count: 1 }]);
+  });
+
+  test('parseToolStats ignores ↳ reason lines — counts match the pre-091 format (parser-compat, F8)', () => {
+    const rec = new AttemptRecorder({ phase: 'implement', attempt: 1, resume: false, prompt: 'p' });
+    rec.onEvent(asstToolUse('t1', 'Bash', { command: 'grep -rn x' }));
+    rec.onEvent(userToolResult('t1', true, 'grep is not available to a Builder turn — use the Read tool instead'));
+    rec.onEvent(asstToolUse('t2', 'Read', { file_path: 'a.md' }));
+    rec.onEvent(userToolResult('t2', false));
+    const stats = parseToolStats(rec.render({ cost: null, nowMs: 0 }));
+    assert.equal(stats.total, 2, 'the ↳ line is not double-counted');
+    assert.equal(stats.fails, 1);
   });
 
   test('parseToolStats on a (none) section → zero', () => {

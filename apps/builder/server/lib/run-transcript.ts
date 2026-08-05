@@ -32,6 +32,7 @@ interface ToolCall {
   name: string;
   arg: string;
   ok?: boolean; // resolved from the matching tool_result.is_error; undefined = no result seen
+  err?: string; // first line of the tool_result error content (redacted, capped) — spec 091 S1
 }
 
 /**
@@ -81,7 +82,13 @@ export class AttemptRecorder {
       } else if (type === 'tool_result') {
         const id = block.tool_use_id;
         const call = typeof id === 'string' ? this.byId.get(id) : undefined;
-        if (call) call.ok = !block.is_error;
+        if (call) {
+          call.ok = !block.is_error;
+          // Spec 091 S1 — keep the WHY, not just the ✗. Every diagnosis before this had to guess the
+          // gate's decision back from a ~80-char command digest; the real reason was in `content` all
+          // along and was dropped here.
+          if (block.is_error) call.err = errDigest(block.content);
+        }
       }
     }
   }
@@ -130,8 +137,16 @@ export class AttemptRecorder {
       '```',
       '',
       '### Tool calls',
+      // The call line's format is LOAD-BEARING: two external parsers anchor on the trailing ✓/✗
+      // (e2e_check._denied_calls endswith("✗"), campaign._CALL_LINE `[✓✗]\s*$`), so the error reason
+      // goes on a CONTINUATION line — indented, so `startswith("- ")` in both skips it (spec 091 F8).
       this.tools.length
-        ? this.tools.map((t) => `- ${t.name}  ${t.arg}  ${t.ok === undefined ? '·' : t.ok ? '✓' : '✗'}`).join('\n')
+        ? this.tools
+            .map((t) => {
+              const line = `- ${t.name}  ${t.arg}  ${t.ok === undefined ? '·' : t.ok ? '✓' : '✗'}`;
+              return t.err ? `${line}\n    ↳ ${t.err}` : line;
+            })
+            .join('\n')
         : '- (none)',
       '',
       '### Result',
@@ -195,6 +210,27 @@ function argDigest(input: unknown): string {
   let s = typeof pick === 'string' ? pick : JSON.stringify(o);
   s = redactSecrets(s).replace(/\s+/g, ' ').trim();
   return s.length > 80 ? s.slice(0, 80) + '…' : s;
+}
+
+/** First non-empty line of a tool_result error `content` — the stream carries it as a plain string OR
+ *  as `[{type:'text',text}]` blocks; handle both. Redacted (the reason can quote a sensitive path or a
+ *  pasted token) and capped, so a runaway stack trace can't bloat the transcript. */
+const ERR_CAP = 160; // chars
+function errDigest(content: unknown): string {
+  let text = '';
+  if (typeof content === 'string') {
+    text = content;
+  } else if (Array.isArray(content)) {
+    for (const part of content) {
+      const t = (part as Record<string, unknown> | null)?.text;
+      if (typeof t === 'string' && t.trim()) {
+        text = t;
+        break;
+      }
+    }
+  }
+  const line = (redactSecrets(text).split('\n').find((l) => l.trim()) ?? '').trim();
+  return line.length > ERR_CAP ? line.slice(0, ERR_CAP) + '…' : line;
 }
 
 function resultLine(cost: PhaseCost | null, note?: string): string {

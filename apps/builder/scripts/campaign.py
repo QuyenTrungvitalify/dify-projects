@@ -223,33 +223,52 @@ def cmd_next(cdir: Path) -> int:
     return 3  # nothing pending — runner treats this as "campaign settled"
 
 
-# ── ✗ classification (S5-2) ─────────────────────────────────────────────────────────────────────
-# The transcript's "### Tool calls" section marks failures with ✗ but records no reason, so a raw
-# count conflates two very different things: a gate-DENIAL (search thrash — the spec-071 oracle's
-# target) and a command that RAN and failed (e.g. a linter reporting findings during the normal
-# self-correct loop). Run 1784522395970 proved the cost: 11✗ in ③ read as "thrash 11" when 4 of
-# them were legitimate lint iterations. Classification mirrors the permission-gate's own allowlist
-# (apps/builder/server/hooks/permission-gate.ts): a call the gate would ALLOW that still shows ✗
-# must have errored; a call the gate would DENY is a denial. Heuristic — transcript lines truncate
-# (~80 chars), so a metacharacter past the cut is invisible; treat the split as an estimate.
+# ── ✗ classification (S5-2, reason-based since spec 091 S3) ─────────────────────────────────────
+# The transcript marks failures with ✗; a raw count conflates a gate-DENIAL (search thrash — the
+# spec-071 oracle's target) with a command that RAN and failed (e.g. a linter reporting findings in
+# the normal self-correct loop). Since spec 091 S1 the recorder writes the tool_result's own first
+# error line on an indented `↳` continuation line under the ✗ — so classification READS the minted
+# reason instead of re-guessing the gate's decision with a second heuristic (two descriptions of one
+# concept drift exactly where it matters: the old guess missed quote-denials entirely, F5).
+#
+# TWO code paths, split by the PRESENCE of a `↳` line — never by date/version metadata:
+#   • reason-based (091+ transcripts): a reason matching the gate's own deny vocabulary ⇒ denied;
+#     anything else (linter findings, "No such file", …) ⇒ errored.
+#   • legacy heuristic (older transcripts, no `↳`): mirror the gate THAT PRODUCED THEM — the pre-091
+#     gate denied ANY quote, so `_METACHAR` includes ' and " (retroactively correct: quote ⇒ denied
+#     for every old run dir). Do NOT "clean up" this path while old run dirs are still read.
+# Legacy caveat stays: lines truncate (~80 chars), a metachar past the cut is invisible — estimate.
 
 _ALLOWED_PY = re.compile(
     r"^\.venv/bin/python3? tools/dify_base/"
     r"(find|validate_workflow|lint_refs|lint_plugin_hashes|lint_node_bodies)\.py\b"
 )
 _ALLOWED_SIMPLE = re.compile(r"^(ls|cat|head|tail|pwd|wc|echo|true|git (status|diff))\b")
-_METACHAR = re.compile(r"[|;&><`*$]")
+_METACHAR = re.compile(r"[|;&><`*$'\"]")
 _CALL_LINE = re.compile(r"^- (\w+) {2}(.*?) {2}[✓✗]\s*$")
+# The permission-gate's deny vocabulary (permission-gate.ts reasons, searched not anchored — the
+# harness may prefix the reason before it reaches tool_result.content).
+_REASON_DENIED = re.compile(
+    r"forbidden:|command contains a shell metacharacter|python script not in"
+    r"|python with a code flag|marketplace\.py subcommand not allowed"
+    r"|git subcommand not allowed|git flag not allowed|command not in the Builder allow-set"
+    r"|dangerous executable:|shell interpreter:|bare interpreter"
+    r"|is not available to a Builder turn|empty command|Ask mode —"
+)
 
 
 def classify_failed_calls(run_dir: Path, phase: str) -> dict | None:
-    """→ {'denied': n, 'errored': n} (estimate) for one phase's ✗ lines, or None without transcript."""
+    """→ {'denied': n, 'errored': n} for one phase's ✗ lines, or None without transcript.
+
+    Reason-based when the ✗ line carries a `↳` reason (spec 091 S1+); legacy heuristic otherwise.
+    """
     t = run_dir / "transcripts" / f"{phase}.md"
     if not t.exists():
         return None
     denied = errored = 0
     in_calls = False
-    for line in t.read_text(encoding="utf-8").splitlines():
+    lines = t.read_text(encoding="utf-8").splitlines()
+    for i, line in enumerate(lines):
         if line.startswith("### Tool calls"):
             in_calls = True
             continue
@@ -261,12 +280,20 @@ def classify_failed_calls(run_dir: Path, phase: str) -> dict | None:
         if not m:
             continue
         tool, cmd = m.group(1), m.group(2)
-        if tool != "Bash":
+        nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
+        if nxt.startswith("↳"):
+            # 091+ transcript: the recorder minted the real reason — read it, stop guessing.
+            # Applies to EVERY tool (a forbidden-path deny on Read/Grep is a denial too).
+            if _REASON_DENIED.search(nxt):
+                denied += 1
+            else:
+                errored += 1
+        elif tool != "Bash":
             # Grep-tool errors, Edit misses, … — tool-level failures, not gate denials. (A
             # forbidden-path deny on Read/Edit is possible but rare; accepted imprecision.)
             errored += 1
         elif _METACHAR.search(cmd):
-            denied += 1  # the gate rejects any shell metacharacter outright
+            denied += 1  # the pre-091 gate rejected any metachar AND any quote outright
         elif _ALLOWED_PY.match(cmd) or _ALLOWED_SIMPLE.match(cmd):
             errored += 1  # gate would allow → it ran and failed (self-correct loop, bad args, …)
         else:

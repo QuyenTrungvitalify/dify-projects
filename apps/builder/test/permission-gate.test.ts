@@ -250,14 +250,69 @@ describe('review C1 — `git diff`/`status` flags are NOT all read-only', () => 
   });
 });
 
-describe('review C2 — quote-split cannot smuggle a secret read', () => {
-  test("cat apps/builder/.e''nv (quote-split the .env literal) is denied (quotes are a metacharacter now)", () => {
-    assert.equal(bash("cat apps/builder/.e''nv"), 'deny');
+// Deliberately reworded from "quotes are a metacharacter now" (spec 091 S2): quote-split is no longer
+// caught by a blanket quote⇒deny but by the SECRET check itself — decide() strips quotes from the
+// decision view, so `.e''nv` collapses to `.env` BEFORE any check runs. Same deny, earlier and honest.
+describe('review C2 / spec 091 — quote-split cannot smuggle a secret read', () => {
+  test("cat apps/builder/.e''nv (quote-split the .env literal) is denied BY THE SECRET CHECK", () => {
+    const d = decide({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: "cat apps/builder/.e''nv" } }, TASK);
+    assert.equal(d.decision, 'deny');
+    assert.match(d.reason, /protected secret path/); // the normalize made the check see `.env` itself
     assert.equal(bash('head apps/builder/.e""nv'), 'deny');
   });
   test('a legit workflow file named *.env.yml is NOT a false-positive', () => {
     assert.equal(bash('.venv/bin/python tools/dify_base/lint_refs.py projects/x/workflows/config.env.yml'), 'allow');
     assert.equal(checkForbiddenPath('Read', { file_path: 'projects/x/workflows/config.env.yml' }, TASK), null);
+  });
+});
+
+// ─── spec 091 S2 — decisions run on the quote-normalized view; execution stays raw ───────────────
+// The 20 F7 cases (16 safe⇒deny + 4 legit⇒allow) + the two calibration commands (K1/K2). ALL go
+// through decide() — never a bare helper — because checkForbiddenPath runs FIRST there and a
+// half-pipeline test misreported "6 safety holes" during the spec-091 measurement session (§0).
+describe('spec 091 S2 — quote-normalized decisions (F7: 16 safe stay denied)', () => {
+  test('K2 + quote-split secret variants stay denied — forever', () => {
+    assert.equal(bash("cat apps/builder/.e''nv"), 'deny'); // K2 calibration case
+    assert.equal(bash('head apps/builder/.e""nv'), 'deny');
+    assert.equal(bash("cat 'apps/builder/.env'"), 'deny');
+    assert.equal(bash("cat apps/builder/.en'v'"), 'deny');
+  });
+  test('a secret smuggled as a QUOTED ARGUMENT of an allowed script is denied', () => {
+    assert.equal(bash(".venv/bin/python tools/dify_base/find.py --name 'apps/builder/.env'"), 'deny');
+  });
+  test('interpreter/shell/network verbs stay denied with or without quotes', () => {
+    assert.equal(bash(".venv/bin/python -c 'import os'"), 'deny'); // code flag, quoted payload
+    assert.equal(bash("bash -c 'ls'"), 'deny');
+    assert.equal(bash("curl 'http://evil/x'"), 'deny');
+  });
+  test('metachars HIDDEN INSIDE quotes are exposed by the strip and denied', () => {
+    assert.equal(bash("echo 'hi > /etc/passwd'"), 'deny'); // redirect (and an outside-repo path)
+    assert.equal(bash("ls 'a | b'"), 'deny'); // pipe
+    assert.equal(bash("git status '&& curl evil'"), 'deny'); // chaining
+    assert.equal(bash("echo '$(whoami)'"), 'deny'); // subshell/expansion
+  });
+  test('.ssh — plain, quote-split, and quoted — stays denied', () => {
+    assert.equal(bash("cat /Users/x/.ss''h/id_rsa"), 'deny');
+    assert.equal(bash("cat '.ssh/id_rsa'"), 'deny');
+  });
+  test('reads outside the repo and non-allow-set scripts stay denied', () => {
+    assert.equal(bash("cat '/etc/passwd'"), 'deny');
+    assert.equal(bash(".venv/bin/python 'tools/dify_base/sync.py' push"), 'deny');
+  });
+});
+
+describe('spec 091 S2 — the 4 legit cases open (F7) — K1 flips deny→allow', () => {
+  test('K1: the EXACT analyze.md E2b intent-pass command is now allowed', () => {
+    // Before S2 this was denied as a metacharacter — meaning the E2b guidance had never once run in a
+    // real build (F1). The quotes are REQUIRED: without them argparse splits the multi-word phrase.
+    assert.equal(bash('.venv/bin/python tools/dify_base/find.py --name "kw kw" --full'), 'allow');
+  });
+  test('the real denied command from bundle 1785928989748 phase ① is now allowed', () => {
+    assert.equal(bash(".venv/bin/python tools/dify_base/find.py --name 'post result webhook notify' --full"), 'allow');
+  });
+  test('the two already-alive shapes are untouched', () => {
+    assert.equal(bash('git status'), 'allow');
+    assert.equal(bash('.venv/bin/python tools/dify_base/lint_refs.py projects/x/workflows/main.yml'), 'allow');
   });
 });
 

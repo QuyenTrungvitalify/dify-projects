@@ -323,6 +323,64 @@ def test_classify_missing_transcript_is_none(tmp_path):
     assert cp.classify_failed_calls(tmp_path, "implement") is None
 
 
+# ── spec 091 S3: reason-based classification + the legacy quote fix ──────────────────────────────
+
+# The 5 ✗ lines of bundle 1785928989748 phase ① VERBATIM (old format, truncated, no ↳) — the
+# hand-checked answer is denied=4 (2 quote-denials + 2 grep) / errored=1 (`ls` ran and failed).
+# The pre-091 classifier said denied=2 because _METACHAR ignored quotes (F5).
+TRANSCRIPT_091_LEGACY = """## analyze
+
+### Tool calls
+- Bash  ls /Users/quyenbt/Desktop/MyProjects/dify-projects/apps/builder/.runs/1785928989…  ✗
+- Bash  .venv/bin/python tools/dify_base/find.py --name "post result to webhook url http…  ✗
+- Bash  .venv/bin/python tools/dify_base/find.py --name 'post result webhook notify' --f…  ✗
+- Bash  grep -n -A 40 "type: http-request" /Users/quyenbt/Desktop/MyProjects/dify-projec…  ✗
+- Bash  grep -n -B4 -A30 trigger-webhook /Users/quyenbt/Desktop/MyProjects/dify-projects…  ✗
+
+### Result
+done
+"""
+
+# A 091+ transcript: every ✗ carries a `↳` reason — classification reads it and NEVER guesses.
+# Note the find.py line: the legacy heuristic calls an allowed script "errored", but the recorded
+# reason says forbidden ⇒ denied — the reason must WIN.
+TRANSCRIPT_091_REASONS = """## implement
+
+### Tool calls
+- Bash  .venv/bin/python tools/dify_base/find.py --name secret-hunt  ✗
+    ↳ forbidden: command references a protected secret path (.env/.ssh/.aws/.gnupg)
+- Bash  grep -rn error_strategy templates  ✗
+    ↳ grep is not available to a Builder turn — use the Read tool on a known file
+- Bash  .venv/bin/python tools/dify_base/lint_refs.py projects/x/main.yml  ✗
+    ↳ projects/x/main.yml:12 dangling variable reference {{#llm.text#}}
+- Grep  docs  ✗
+    ↳ forbidden: Grep on a sensitive path (apps/builder/.env)
+- Bash  cat projects/x/notes.md  ✗
+    ↳ cat: projects/x/notes.md: No such file or directory
+- Bash  ls projects/x  ✓
+
+### Result
+done
+"""
+
+
+def test_classify_legacy_bundle_phase1_matches_hand_check(tmp_path):
+    run = tmp_path / "r"
+    (run / "transcripts").mkdir(parents=True)
+    (run / "transcripts" / "analyze.md").write_text(TRANSCRIPT_091_LEGACY, encoding="utf-8")
+    assert cp.classify_failed_calls(run, "analyze") == {"denied": 4, "errored": 1}
+
+
+def test_classify_reads_the_recorded_reason_over_any_heuristic(tmp_path):
+    run = tmp_path / "r"
+    (run / "transcripts").mkdir(parents=True)
+    (run / "transcripts" / "implement.md").write_text(TRANSCRIPT_091_REASONS, encoding="utf-8")
+    # denied: find.py (forbidden — reason beats the allowed-script heuristic) + grep (deny verb)
+    #         + Grep tool (forbidden — reason beats the non-Bash⇒errored heuristic)
+    # errored: lint_refs (linter findings) + cat (ran and failed)
+    assert cp.classify_failed_calls(run, "implement") == {"denied": 3, "errored": 2}
+
+
 # ── S5-5: runner error-path drill — retry, double-error STOP, resume (no real turns burned) ──────
 
 RUNNER = Path(__file__).parent.parent / "apps" / "builder" / "scripts" / "campaign-run.sh"
