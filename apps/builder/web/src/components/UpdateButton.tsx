@@ -21,15 +21,16 @@ export function UpdateButton({ collapsed = false }: { collapsed?: boolean }) {
   const [msg, setMsg] = useState('');
   const [ok, setOk] = useState(false);
 
-  // Always-on callout bubble under the button (the spec-088 bell-tip pattern) so the in-app update is
-  // discoverable without hovering. FIXED-positioned from the measured button rect — same reasoning as
-  // the bell: an absolutely-positioned child could be clipped by scrolling ancestors. Hidden while the
-  // sidebar is collapsed (the button itself is hidden), while updating, and while a toast msg shows.
+  // Hover-only callout bubble under the button (the spec-088 bell-tip look, but NOT always-on).
+  // The bubble stays in the DOM (position measured from the button rect — FIXED, same reasoning as
+  // the bell: an absolutely-positioned child could be clipped by scrolling ancestors) and CSS
+  // `.sb-rebuild:hover + .upd-tip` reveals it — pure :hover, no JS mouse events. Suppressed while
+  // the sidebar is collapsed (the button itself is hidden), while updating, and while a toast shows.
   const btnRef = useRef<HTMLButtonElement>(null);
   const [tipPos, setTipPos] = useState<{ top: number; left: number } | null>(null);
-  const tipVisible = !collapsed && !updating && !msg;
+  const tipMounted = !collapsed && !updating && !msg;
   useEffect(() => {
-    if (!tipVisible) { setTipPos(null); return; }
+    if (!tipMounted) { setTipPos(null); return; }
     const place = (): void => {
       const r = btnRef.current?.getBoundingClientRect();
       if (r && r.width > 0) setTipPos({ top: r.bottom + 7, left: r.left });
@@ -38,7 +39,7 @@ export function UpdateButton({ collapsed = false }: { collapsed?: boolean }) {
     place();
     window.addEventListener('resize', place);
     return () => window.removeEventListener('resize', place);
-  }, [tipVisible]);
+  }, [tipMounted]);
 
   // Post-reload "done" toast (stashed before the reload, surfaced on the fresh mount).
   useEffect(() => {
@@ -87,13 +88,12 @@ export function UpdateButton({ collapsed = false }: { collapsed?: boolean }) {
         className={'icon-btn sb-rebuild' + (updating ? ' spinning' : '')}
         onClick={() => void update()}
         disabled={updating}
-        title={tr('updateBtnHint')}
         aria-label={tr('updateBtnHint')}
       >
         <I.retry />
       </button>
-      {tipVisible && tipPos && (
-        <span className="notify-tip tip-left" aria-hidden="true"
+      {tipMounted && tipPos && (
+        <span className="notify-tip tip-left upd-tip" aria-hidden="true"
           style={{ top: tipPos.top, left: tipPos.left }}>{tr('updateTip')}</span>
       )}
       {msg && <div className={'sb-rebuild-msg' + (ok ? ' ok' : '')}>{msg}</div>}

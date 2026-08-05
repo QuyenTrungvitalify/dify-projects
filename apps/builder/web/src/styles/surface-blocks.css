@@ -1733,3 +1733,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* left-anchored variant (the sidebar update button): the tail points up at the top-LEFT corner. */
 .notify-tip.tip-left { border-top-right-radius: 9px; border-top-left-radius: 3px; }
 .notify-tip.tip-left::before { right: auto; left: 12px; }
+/* hover-only: the update bubble stays mounted (position pre-measured) but only shows while its
+   button is hovered — pure CSS :hover, the adjacent sibling is the bubble itself. */
+.upd-tip { display: none; }
+.sb-rebuild:hover + .upd-tip { display: inline-flex; }
