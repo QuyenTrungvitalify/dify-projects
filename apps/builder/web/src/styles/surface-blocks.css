@@ -1730,3 +1730,6 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   background: var(--bg-elevated);
   border-left: 1px solid var(--border-strong); border-top: 1px solid var(--border-strong);
 }
+/* left-anchored variant (the sidebar update button): the tail points up at the top-LEFT corner. */
+.notify-tip.tip-left { border-top-right-radius: 9px; border-top-left-radius: 3px; }
+.notify-tip.tip-left::before { right: auto; left: 12px; }

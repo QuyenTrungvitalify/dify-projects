@@ -379,7 +379,7 @@ export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, 
         <span className="sb-title">{tr('appName')}</span>
         <div className="sb-head-actions">
           {/* user-facing update & restart (in-app update-and-run.command) — visible for EVERYONE. */}
-          <UpdateButton />
+          <UpdateButton collapsed={collapsed} />
           {/* spec 059/080/083: dev-only rebuild + shelf dashboard + settings modal, reachable anywhere. */}
           {devMode && <RebuildButton />}
           {devMode && <ShelfButton />}

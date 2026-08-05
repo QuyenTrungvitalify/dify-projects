@@ -6,7 +6,7 @@
    RebuildButton — because its whole point is that bản-sạch users update without a terminal.
    Confirm-gated (it's a minutes-long op that restarts the app); success toast survives the reload
    via localStorage (the RebuildButton pattern). */
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { I } from './Icon';
 import { api, ApiError } from '../api';
 import { ls } from '../lib/dev';
@@ -16,10 +16,29 @@ import { waitForRestart } from './RebuildButton';
 
 const UPDATED_KEY = 'builder:updated'; // timestamp stashed before the restart reload → toast after
 
-export function UpdateButton() {
+export function UpdateButton({ collapsed = false }: { collapsed?: boolean }) {
   const [updating, setUpdating] = useState(false);
   const [msg, setMsg] = useState('');
   const [ok, setOk] = useState(false);
+
+  // Always-on callout bubble under the button (the spec-088 bell-tip pattern) so the in-app update is
+  // discoverable without hovering. FIXED-positioned from the measured button rect — same reasoning as
+  // the bell: an absolutely-positioned child could be clipped by scrolling ancestors. Hidden while the
+  // sidebar is collapsed (the button itself is hidden), while updating, and while a toast msg shows.
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [tipPos, setTipPos] = useState<{ top: number; left: number } | null>(null);
+  const tipVisible = !collapsed && !updating && !msg;
+  useEffect(() => {
+    if (!tipVisible) { setTipPos(null); return; }
+    const place = (): void => {
+      const r = btnRef.current?.getBoundingClientRect();
+      if (r && r.width > 0) setTipPos({ top: r.bottom + 7, left: r.left });
+      else setTipPos(null);
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [tipVisible]);
 
   // Post-reload "done" toast (stashed before the reload, surfaced on the fresh mount).
   useEffect(() => {
@@ -64,6 +83,7 @@ export function UpdateButton() {
   return (
     <>
       <button
+        ref={btnRef}
         className={'icon-btn sb-rebuild' + (updating ? ' spinning' : '')}
         onClick={() => void update()}
         disabled={updating}
@@ -72,6 +92,10 @@ export function UpdateButton() {
       >
         <I.retry />
       </button>
+      {tipVisible && tipPos && (
+        <span className="notify-tip tip-left" aria-hidden="true"
+          style={{ top: tipPos.top, left: tipPos.left }}>{tr('updateTip')}</span>
+      )}
       {msg && <div className={'sb-rebuild-msg' + (ok ? ' ok' : '')}>{msg}</div>}
     </>
   );
