@@ -70,7 +70,7 @@ export function UpdateButton() {
         title={tr('updateBtnHint')}
         aria-label={tr('updateBtnHint')}
       >
-        <I.download />
+        <I.retry />
       </button>
       {msg && <div className={'sb-rebuild-msg' + (ok ? ' ok' : '')}>{msg}</div>}
     </>
