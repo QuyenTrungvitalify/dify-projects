@@ -440,17 +440,20 @@ def cmd_status(cdir: Path) -> int:
     return 0
 
 
-LINT_KEYS = ("validate", "lint_refs", "lint_plugin_hashes", "lint_node_bodies")
-
 # Spec 086 S2: linter key → fail category, the Chat2Workflow taxonomy approximation so campaign
 # numbers can be compared to published ones. Deliberately mechanical: `consistency` (workflow vs
 # user intent) is NOT mappable from linters — that stays /report's job, never counted here.
+# This dict is the ONLY list of linter keys in this file (LINT_KEYS derives from it) so the two can
+# never drift into a KeyError; the set itself is cross-checked against the `LINTERS` contract in
+# apps/builder/server/lib/linters.ts by tests/test_campaign.py::test_lint_keys_match_linters_contract
+# — the 086 review found this file had quietly become the THIRD hand-written copy of that list.
 FAIL_CATEGORY = {
     "validate": "format",           # schema envelope
     "lint_refs": "graph",           # dangling ref / edge / var
     "lint_plugin_hashes": "semantic",
     "lint_node_bodies": "semantic",
 }
+LINT_KEYS = tuple(FAIL_CATEGORY)
 
 
 def _summarize_run(result: dict) -> dict:

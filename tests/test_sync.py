@@ -256,12 +256,83 @@ def test_inject_model_qc_only_workflow_counts_nonzero(tmp_path, monkeypatch, cap
 
 
 def test_model_types_matches_runnability():
-    # spec 087 S1 cross-check guard: "which node types need a model" has TWO copies (this module's
-    # MODEL_TYPES and the python probe embedded in runnability.ts) — the 087 bugs all fell out of
-    # them drifting apart. Extract the runnability literal and compare sets.
+    # spec 087 S1 cross-check guard: "which node types need a model" is hand-written in THREE
+    # places — this module's MODEL_TYPES, the python probe embedded in runnability.ts, and the
+    # /report skill's MODEL_NODE_TYPES. Every 087 bug fell out of two of them drifting apart, so
+    # all three are compared here (the review of 087 found the third copy uncovered).
     import re
+
+    def literal(path: Path, name: str) -> set[str]:
+        text = path.read_text(encoding="utf-8")
+        m = re.search(name + r"\s*=\s*\{([^}]*)\}", text)
+        assert m, f"{name} literal not found in {path.name} — update this test's extraction"
+        return set(re.findall(r"['\"]([^'\"]+)['\"]", m.group(1)))
+
+    runnability = literal(ROOT / "apps" / "builder" / "server" / "lib" / "runnability.ts", "MODEL_TYPES")
+    report_skill = literal(ROOT / ".claude" / "skills" / "report" / "report_structure.py", "MODEL_NODE_TYPES")
+    assert runnability == sync.MODEL_TYPES, "sync.py ↔ runnability.ts drifted"
+    assert report_skill == sync.MODEL_TYPES, "sync.py ↔ report_structure.py drifted"
+
+
+def test_inject_model_patches_provider_empty_with_a_valid_name(tmp_path, monkeypatch, capsys):
+    # spec 087 review: `{provider: '', name: <an ENABLED model>}` is "empty" to the runnability
+    # probe but used to slip past inject (which keyed on `name` only) — the advisory then said
+    # "model missing" while the pushed app still died at runtime. Both halves must agree.
+    yaml_src = _inject_yaml([
+        {"id": "start", "data": {"type": "start", "variables": []}},
+        {"id": "llm1", "data": {"type": "llm", "model": {"provider": "", "name": "gpt-5.6"}}},
+    ])
+    from types import SimpleNamespace
+    monkeypatch.setattr(sync, "BASE", tmp_path)
+    (tmp_path / "src.yml").write_text(yaml_src, encoding="utf-8")
+    args = SimpleNamespace(src="src.yml", out="out.yml", provider="openai", name="gpt-5.6",
+                           valid_names="gpt-5.6")  # the name IS enabled — only the provider is empty
+    assert sync.cmd_inject_model(args) == 0
+    obj = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert obj["patched"] == ["llm1"], "an empty provider must be patched even when the name is valid"
+
+
+def _runnability_probe_source() -> str:
+    """The python probe embedded in runnability.ts, unescaped back to real source. Extracting it
+    (instead of re-implementing the predicate here) is what makes the parity test below REAL: it
+    runs the very code the advisory runs."""
+    import re as _re
     ts = (ROOT / "apps" / "builder" / "server" / "lib" / "runnability.ts").read_text(encoding="utf-8")
-    m = re.search(r"MODEL_TYPES\s*=\s*\{([^}]*)\}", ts)
-    assert m, "MODEL_TYPES literal not found in runnability.ts — update this test's extraction"
-    ts_types = set(re.findall(r"'([^']+)'", m.group(1)))
-    assert ts_types == sync.MODEL_TYPES
+    m = _re.search(r"export const RUNNABILITY_PROBE = `(.*?)\n`;", ts, _re.DOTALL)
+    assert m, "RUNNABILITY_PROBE literal not found in runnability.ts — update this extraction"
+    return m.group(1).replace("\\\\", "\\").replace("\\`", "`")
+
+
+def test_inject_patches_exactly_what_the_probe_calls_empty(tmp_path, monkeypatch, capsys):
+    """spec 087 review — BEHAVIORAL parity, the guard the textual MODEL_TYPES check cannot give:
+    over all four provider/name combos, the set of nodes `inject-model` patches must equal the set
+    the runnability probe reports `empty`. Two definitions of one concept is exactly the drift 087
+    was opened for; this pins them to the same answer, not merely the same word list."""
+    import subprocess
+    nodes = [
+        {"id": "both_empty", "data": {"type": "llm", "model": {"provider": "", "name": ""}}},
+        {"id": "name_empty", "data": {"type": "question-classifier", "model": {"provider": "p", "name": ""}}},
+        {"id": "prov_empty", "data": {"type": "parameter-extractor", "model": {"provider": "", "name": "gpt-5.6"}}},
+        {"id": "both_set", "data": {"type": "llm", "model": {"provider": "p", "name": "gpt-5.6"}}},
+    ]
+    src = tmp_path / "src.yml"
+    src.write_text(_inject_yaml(nodes), encoding="utf-8")
+
+    probe = subprocess.run([sys.executable, "-c", _runnability_probe_source(), str(src)],
+                           capture_output=True, text=True)
+    assert probe.returncode == 0, probe.stderr
+    empty_ids = {n["id"] for n in json.loads(probe.stdout)["model_nodes"] if n["empty"]}
+
+    from types import SimpleNamespace
+    monkeypatch.setattr(sync, "BASE", tmp_path)
+    # valid_names=None ⇒ the ONLY reason to patch is emptiness, so the two sets are comparable.
+    args = SimpleNamespace(src="src.yml", out="out.yml", provider="openai", name="gpt-5.6",
+                           valid_names=None)
+    assert sync.cmd_inject_model(args) == 0
+    patched = set(json.loads(capsys.readouterr().out.strip().splitlines()[-1])["patched"])
+
+    assert patched == empty_ids, (
+        f"inject-model patched {sorted(patched)} but the runnability probe calls "
+        f"{sorted(empty_ids)} empty — the two definitions of 'empty model' have drifted"
+    )
+    assert "both_set" not in patched, "a fully-specified model must never be rewritten"

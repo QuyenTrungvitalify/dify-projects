@@ -734,8 +734,15 @@ def cmd_inject_model(args) -> int:
             model = {}
             nd["model"] = model
         cur = model.get("name") or ""
-        # patch an EMPTY name (the primary observed failure) OR one that isn't in the enabled set.
-        if (not cur) or (valid is not None and cur not in valid):
+        prov = model.get("provider") or ""
+        # patch an EMPTY model (the primary observed failure) OR a name that isn't in the enabled
+        # set. "Empty" MUST mean the same thing here as in the runnability probe — `(not provider)
+        # or (not name)` (runnability.ts RUNNABILITY_PROBE). Keying on `name` alone left
+        # `{provider: '', name: <enabled model>}` unpatched while the probe called it empty, so the
+        # advisory said "model missing" and the pushed app still died at runtime: the SAME
+        # two-definitions-of-one-concept drift spec 087 exists to remove, one level down.
+        # Locked by tests/test_sync.py::test_inject_patches_exactly_what_the_probe_calls_empty.
+        if (not cur) or (not prov) or (valid is not None and cur not in valid):
             model["provider"] = args.provider
             model["name"] = args.name
             patched.append(str(n.get("id", "?")))

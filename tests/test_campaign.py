@@ -592,3 +592,27 @@ def test_summary_never_crashes_on_partial_manifest(tmp_path, capsys):
     assert by_file["G01.md"]["passed"] is True and by_file["G01.md"]["probe"] is None
     assert by_file["G02.md"]["categories"] == ["build-error"]
     assert by_file["G03.md"]["categories"] == ["not-run"]
+
+
+def test_lint_keys_match_linters_contract():
+    """Spec 086 review — `linters.ts` calls itself the SINGLE source of truth for the linter set,
+    yet the list is hand-copied in `promote_gate.py` (flagged untested in
+    docs/state/templates-and-promotion.md §8) and, since 086, here. Compare all three so adding a
+    5th linter cannot silently skew Pass numbers (a key missing from an old manifest reads as
+    `!= 0` ⇒ a retroactive fail) or gate a promotion on a stale list."""
+    import re
+    root = Path(__file__).parent.parent
+    ts = (root / "apps" / "builder" / "server" / "lib" / "linters.ts").read_text(encoding="utf-8")
+    block = ts.split("export const LINTERS", 1)[1].split("];", 1)[0]
+    ts_keys = set(re.findall(r"key:\s*'([^']+)'", block))
+    ts_scripts = set(re.findall(r"name:\s*'([^']+)'", block))
+    assert ts_keys, "no linter keys parsed from linters.ts — update this extraction"
+
+    assert set(cp.LINT_KEYS) == ts_keys, "campaign.py LINT_KEYS ↔ linters.ts drifted"
+    assert set(cp.FAIL_CATEGORY) == ts_keys, "every linter key needs a fail category (else KeyError)"
+
+    gate = (root / "tools" / "dify_base" / "promote_gate.py").read_text(encoding="utf-8")
+    m = re.search(r"^LINTERS\s*=\s*\(([^)]*)\)", gate, re.M)
+    assert m, "LINTERS tuple not found in promote_gate.py — update this extraction"
+    assert set(re.findall(r"\"([^\"]+)\"", m.group(1))) == ts_scripts, \
+        "promote_gate.py LINTERS ↔ linters.ts drifted (the pre-086 second copy)"

@@ -229,29 +229,14 @@ describe('runLiveTest verdict → gate', () => {
     assert.match(task.liveTest?.reason ?? '', /0-model/);
   }));
 
-  // Spec 087 S2: sync.py now counts PE/QC nodes into llm_count (they carry the same ModelConfig as
-  // llm), so a question-classifier-only workflow — which used to report llmCount:0, slip past this
-  // gate and get imported with an empty model ("Model not exist" at runtime) — degrades like any
-  // model-carrying workflow. The count itself is locked by tests/test_sync.py; this locks the gate.
-  test('0-model + question-classifier-only workflow → degrades to static-only (spec 087 S2)', withCreds(async () => {
-    const { task, ctx } = await harness({
-      resolveLlmModels: async () => ({ enabled: [], pick: null }),
-      deployWithModel: async (_d, _s, outRel) => ({ ok: true, nodeCount: 0, llmCount: 1, patched: [], outFile: outRel, inputs: [], mode: 'workflow', stderr: '' }),
-    });
-    await runLiveTest(task, ctx);
-    assert.equal(task.gate?.flag, 'infra_degraded');
-    assert.equal(task.liveTest?.label, 'static-only');
-    assert.match(task.liveTest?.reason ?? '', /0-model/);
-  }));
-
-  test('model available + question-classifier-only workflow → QC node injected, live test runs (spec 087 S2)', withCreds(async () => {
-    const { task, ctx } = await harness({
-      deployWithModel: async (_d, _s, outRel) => ({ ok: true, nodeCount: 1, llmCount: 1, patched: ['qc1'], outFile: outRel, inputs: [], mode: 'workflow', stderr: '' }),
-    });
-    await runLiveTest(task, ctx);
-    assert.equal(task.gate?.flag, 'test_result', 'imports + runs — the QC node got the workspace model');
-    assert.equal(task.liveTest?.verdict, 'passed');
-  }));
+  // Spec 087 S2 widened what `llmCount` COUNTS (llm + parameter-extractor + question-classifier),
+  // but the count is minted in sync.py and `deployWithModel` is stubbed in every test here — so a
+  // TS test naming a node type would only be asserting its own stub. Two such tests were written
+  // and deleted for exactly that reason (they were byte-equal in inputs to the 043 pair above and
+  // stayed green with S1 reverted). The widening is locked where it is real:
+  //   tests/test_sync.py::test_model_types_matches_runnability  (which types carry a model)
+  //   tests/test_sync.py::test_inject_patches_exactly_what_the_probe_calls_empty  (which get patched)
+  // The 043 pair above still locks what THIS file owns: the gate keys off llmCount, not nodeCount.
 
   test('0-model + LLM-less workflow → RUNS the live test model-free (spec 043 acc#1)', withCreds(async () => {
     const { task, ctx } = await harness({

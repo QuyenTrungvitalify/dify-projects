@@ -250,9 +250,17 @@
   mode: auto
   deploy: none
   expect:
-    analyze:
-      features_include: [question-classifier]
+    # NO `analyze.features_include` here — deliberately. `analyze.json.features` is a list the
+    # MODEL writes at ①, not a structural fact about the build: the first run of this entry
+    # (1785892571267) produced a correct question-classifier workflow while ① declared
+    # `features: ['llm']`, so the predicate AUTO-FAILed a green build. That is the retired-
+    # `notes_include` failure mode of 066 S5 all over again. Assert the ARTIFACT, not the
+    # declaration.
     workflow:
+      # Propensity, not a structural law: a 3-way routing requirement CAN legitimately be built
+      # with if-else, and `ai-1-user-input.yml`'s header even argues against a classifier when one
+      # prompt suffices. Validated green on run 1785892571267 (n=1) — a future FAIL here means
+      # "the build changed its mind, go look", not automatically a defect.
       grep_present: ["type: question-classifier"]
       grep_absent: ["type: trigger-schedule", "type: trigger-webhook"]
     report:

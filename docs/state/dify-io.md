@@ -144,12 +144,20 @@ guard trong `sync.py` cưỡng chế điều đó, và cả hai đã chạy th�
 ```
 
 Node được vá: node thuộc `MODEL_TYPES` = `llm` · `parameter-extractor` · `question-classifier`
-(spec 087 — cả ba mang chung một `$defs/ModelConfig` trong schema 0.6.0) có `model.name` **rỗng**,
-**hoặc** có tên **không nằm trong** `--valid-names` (tập model đang enable). Nghĩa là một model
-hard-code nhưng đã bị gỡ khỏi workspace cũng bị thay — chứ không chết lúc runtime. **"Node nào cần
-model" có MỘT định nghĩa** — `MODEL_TYPES` của `sync.py` và của probe runnability phải trùng nhau,
-cưỡng chế bằng `tests/test_sync.py::test_model_types_matches_runnability` (bộ ba từng lệch nhau và
-mọi triệu chứng "Model not exist" rơi ra từ khe đó).
+(spec 087 — cả ba mang chung một `$defs/ModelConfig` trong schema 0.6.0) có model **rỗng** —
+nghĩa là `provider` rỗng **HOẶC** `name` rỗng, đúng vị từ mà probe runnability dùng — **hoặc** có
+tên **không nằm trong** `--valid-names` (tập model đang enable). Nghĩa là một model hard-code
+nhưng đã bị gỡ khỏi workspace cũng bị thay — chứ không chết lúc runtime.
+
+**Hai bất biến chống-lệch, cả hai đều có test cưỡng chế** (mọi triệu chứng "Model not exist" đều
+rơi ra từ chỗ hai bản mô tả cùng một khái niệm lệch nhau):
+- *Node nào cần model* — `MODEL_TYPES` viết tay ở **ba** nơi (`sync.py`, probe trong
+  `runnability.ts`, `MODEL_NODE_TYPES` của skill `/report`) → `test_model_types_matches_runnability`
+  so cả ba.
+- *Thế nào là model rỗng* — inject quyết định vá, probe quyết định cảnh báo; hai bên phải cho
+  **cùng một câu trả lời trên cùng một node** → `test_inject_patches_exactly_what_the_probe_calls_empty`
+  chạy thật probe rồi so tập node được vá với tập node bị gọi là rỗng (không so chuỗi, so hành vi).
+  Trước khi có nó, `{provider: '', name: <model đang enable>}` bị probe gọi là rỗng nhưng inject bỏ qua.
 
 `inject-model` trả về trên một dòng JSON: `node_count` (số node **đã vá**), `llm_count` (**tổng**
 node cần model — cả ba `MODEL_TYPES`, vá hay không; tên field giữ nguyên vì là wire-contract với
