@@ -38,4 +38,27 @@ describe('buildTree — synthetic `(unsaved)` row (spec 090 S2)', () => {
     assert.ok(real, 'the real workflow row exists');
     assert.equal(real![1].synthetic, undefined, 'real rows carry NO flag (pre-090 wire shape)');
   });
+
+  test('orphan task in an EXISTING project → its row is synthetic too (the second phantom generator)', async () => {
+    // Found reviewing 090 in the live UI: the first fix only marked the `(unsaved)` bucket. A task
+    // whose PROJECT exists but whose workflowSlug matches no folder got its own row here — carrying a
+    // friendly name (the requirement prefix) and the full edit/delete affordances — so clicking it
+    // armed a target the route now rejects: a select-then-refuse loop. This is the shape the field
+    // repro left behind (`_drafts/unsaved`, run 1785916628346).
+    await mkdir(join(dir, 'projects', '_drafts', 'real_wf', 'workflows'), { recursive: true });
+    await writeFile(join(dir, 'projects', '_drafts', 'real_wf', 'workflows', 'main.yml'), 'app: {}\n');
+    const orphan = await createTask(dir, { requirement: 'edit a ghost', workflow: 'ghost_wf', project: '_drafts' });
+    orphan.workflowSlug = 'ghost_wf'; // what localEditSeed would resolve (no folder exists for it)
+    const { saveTask } = await import('../server/state/task.js');
+    await saveTask(dir, orphan);
+
+    const tree = await buildTree(dir, Date.now());
+    const drafts = tree.find((p) => p.id === '_drafts');
+    assert.ok(drafts, '_drafts project row exists (it has a real folder on disk)');
+    const ghost = drafts!.workflows.find((w) => w.id === 'ghost_wf');
+    assert.ok(ghost, 'the orphan task still shows (visibility preserved)');
+    assert.equal(ghost!.synthetic, true, 'no folder on disk ⇒ synthetic ⇒ not selectable as a base');
+    const realWf = drafts!.workflows.find((w) => w.id === 'real_wf');
+    assert.equal(realWf?.synthetic, undefined, 'the sibling REAL workflow is unaffected');
+  });
 });

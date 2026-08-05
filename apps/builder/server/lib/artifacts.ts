@@ -454,7 +454,12 @@ export async function buildTree(projectsDir: string, nowMs: number): Promise<Tre
     if (projects.has(project)) {
       const sorted = tasks.sort(byTaskIdDesc);
       // spec 084 follow-up: prefer the newest task's title (requirement prefix) over the mangled slug.
-      projects.get(project)!.workflows.push({ id: workflow, name: sorted[0]?.name ?? titleCaseSlug(workflow), tasks: sorted });
+      // Spec 090 S2 (review): `synthetic` HERE TOO — this is the SECOND phantom-row generator and the
+      // sneakier one. By the loop's own definition these tasks match NO folder on disk, yet the row
+      // rendered with a friendly name + the full edit/delete affordances, so clicking it armed a
+      // target the route now rejects (400) — a select-then-refuse loop. (Its × was already dead:
+      // DELETE …/workflows/:workflow 404s on a missing folder — routes/ui.ts. Per-task × still works.)
+      projects.get(project)!.workflows.push({ id: workflow, name: sorted[0]?.name ?? titleCaseSlug(workflow), synthetic: true, tasks: sorted });
     } else {
       orphanDrafts.push(...tasks);
     }

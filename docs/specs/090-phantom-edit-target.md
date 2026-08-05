@@ -1,6 +1,14 @@
 # Spec 090 — Build ma từ target không tồn tại: chặn cửa vào, tự cứu ở ②, và hàng `(unsaved)` hết click-được
 
-**Status**: v3 (2026-08-06) — **S1–S4 IMPLEMENTED + validated live hai chiều** (§6.0b): phantom
+**Status**: v4 (2026-08-06) — **S1–S4 IMPLEMENTED + REVIEWED + validated live**. Review bắt **1 bug
+thật trong chính bản implement**: S2 v3 chỉ gắn `synthetic` cho **1 trong 2** nguồn sinh hàng ma —
+nhánh orphan-task-trong-project-đã-tồn-tại ([artifacts.ts:457](../../apps/builder/server/lib/artifacts.ts))
+đẻ hàng ma thứ hai, *nguy hiểm hơn* vì mang tên thân thiện (prefix requirement) + đủ nút edit/delete;
+phát hiện bằng cách click thật trên UI (chip vẫn arm `_drafts/unsaved` sau "fix"). Đã sửa + test.
+Verify live sau sửa: `/api/tree` trả `synthetic=true`, click hàng ma = **chỉ mở nhóm, không arm chip**
+(`chip: []`), task con vẫn mở được, không nút "Edit this workflow" nào cho task dưới nhóm đó.
+Các điểm review khác đều SẠCH (§8.1). Suite: server **837/0**, web **252/0**, typecheck + build sạch.
+v3 = S1–S4 implemented + validated live hai chiều (§6.0b): phantom
 fire → HTTP 400 tại cửa, không mint task; edit-existing thật (`workflow_llm_gi_ti`, each_step)
 → ①→② sống nguyên, agent Write THẲNG vào projects path nhờ `{{SPEC_PATH}}` (transcript: 0 vòng
 qua `.runs/`). Suite: server 836/0 (typecheck sạch; +12 test mới: 6 route-guard, 5 salvage,
@@ -238,6 +246,27 @@ Lệnh trên là smoke-repro trước/sau cho S1 (sau fix: HTTP 400) và S3 (n�
 - KHÔNG đụng: `artifactRel` (quy tắc đường giữ nguyên — S3 chỉ thêm bước cứu trước khi kết luận),
   `scaffoldAtSpecGate`, `relocateRunArtifacts`, promote flow, linter set.
 - Grep nghiệm thu khi đóng: `'(unsaved)'` chỉ còn ở artifacts.ts (+ synthetic flag) và test.
+
+## 8.1 Review sau implement (2026-08-06) — điểm đã soi và KẾT LUẬN SẠCH
+
+Ngoài bug S2 đã sửa (§Status), bốn điểm nghi ngờ nhất đều kiểm tận code, không phải suy đoán:
+
+- **S3 × confinement**: file được move nằm trong whitelist `projects/<project>/<slug>/` của
+  `confinementCheck` (task lúc đó CHẮC CHẮN có cả project lẫn slug — đó là điều kiện vào nhánh
+  salvage), nên không sinh breach. Thứ tự cũng đúng: salvage → `persistCriteria(abs)` → confinement,
+  nên criteria.json parse được từ chính file vừa nhận nuôi. File nguồn ở `.runs/` gitignored nên
+  không bao giờ xuất hiện trong `gitDirtyPaths`.
+- **Resume/reply không rò token thô**: nhánh có `replyText` gửi prompt ngắn (CHANGE_REQUEST, không
+  chứa body → không có `{{SPEC_PATH}}`); nhánh Retry-không-text dùng chính `freshPrompt` **đã render**.
+  Hệ quả phụ đáng giá: retry của ca gốc (không có text) từ nay nhận đúng đường → **vòng lặp chết bị
+  phá kể cả khi không có S3**.
+- **S1 sanitize ≡ prelude**: guard dùng đúng `sanitizeSlug` + cùng fallback `_drafts` như
+  `createTask`/`localEditSeed`, nên đường được kiểm CHÍNH LÀ đường build sẽ đi. `sanitizeSlug` có
+  fallback `|| 'workflow'` (không bao giờ rỗng) và nuốt sạch dấu chấm → không có traversal.
+- **S1 đọc `body.files` trước `validateAttachments`**: `Array.isArray` + `String(f?.name ?? '')` chịu
+  được files không-phải-mảng / phần tử null / name không-phải-chuỗi.
+- **Ẩn nút × của hàng synthetic không mất đường dọn**: `DELETE …/workflows/:workflow` vốn **404 khi
+  thư mục không tồn tại** (routes/ui.ts) — nút đó đã chết sẵn với hàng ma; × từng task vẫn chạy.
 
 ## 8. Rủi ro đã biết
 
