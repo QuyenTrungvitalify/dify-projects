@@ -9,13 +9,20 @@ pattern, a changed gate. Not for docs-only edits.
 
 ---
 
-## Unreleased
+## 0.3.0 — 2026-08-05
+
+The version campaigns after 2026-08-05 are measured against. Cut because the model advisory and
+the import path both changed behavior a campaign can observe — leaving it at 0.2.0 would have
+credited the new numbers to the code that produced the old ones.
 
 **Build quality**
 - Model auto-inject now covers ALL model-carrying node types (llm + parameter-extractor +
   question-classifier — spec 087): the live-test 0-model gate catches PE/QC-only workflows, and
   the static selfhost 'Import to Dify' best-effort injects the workspace model into a temp copy
-  before pushing (falls back to the exact pre-087 push on any hiccup). The model advisory no
+  before pushing (falls back to the exact pre-087 push on any hiccup). "Empty model" now means the
+  same thing to the injector as to the advisory — `provider` blank OR `name` blank — so a node
+  carrying an enabled model name under a blank provider is patched instead of being flagged by the
+  advisory and then dying at runtime anyway. The model advisory no
   longer promises "nothing to set up" when the workspace model count could not be verified — the
   promise becomes conditional ("if your Dify has a model enabled — this could not be checked
   right now", JA frame included). Validated live A/B: same QC workflow, injected copy runs,

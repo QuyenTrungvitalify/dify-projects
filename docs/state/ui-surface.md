@@ -4,7 +4,7 @@ User thấy gì, làm được gì ở mỗi trạng thái, và cái gì **chỉ
 
 Phạm vi: `web/src/store.ts` · `web/src/sse-client.ts` · và **toàn bộ** `web/src/lib/`: `i18n.ts` ·
 `gate-foot.ts` · `thread-persist.ts` · `crumb.ts` · `phase.ts` · `markdown.ts` · `diff-parser.ts` ·
-`slug.ts` · `attachments.ts` · `dev.ts` · `promote-visibility.ts`.
+`slug.ts` · `attachments.ts` · `dev.ts` · `promote-visibility.ts` · `notify.ts`.
 
 **Không** thuộc doc này, và vẫn **chưa có chủ**: `web/src/api.ts` (shape HTTP + `ApiError`),
 `web/src/types.ts` (`Wire*`), `web/src/components/**`, `main.tsx`, `data.ts`. Doc này trỏ vào chúng
