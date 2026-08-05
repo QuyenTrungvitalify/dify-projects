@@ -221,3 +221,18 @@ E2b đã đóng vòng: enrichment → BM25 → analyze tra intent → build tố
 retrieval chuyển thành lift chất lượng build; (2) nếu build vẫn hụt vì **thiếu mẫu 0.6.0 sạch** cho
 data-analysis → E4 (promote `chart_demo`/`matplotlib`/`json-repair`) rồi E3 (mở pool `gapReferences`).
 Không mở corpus thô (Q4) tới khi có số.
+
+### Đo lại điều kiện mở-lại (2026-08-05) — điều kiện KHÔNG kích hoạt, E3/E4 tiếp tục park ✅
+
+Chạy đúng "bước kế tiếp (1)": `/e2e` prompt JA json-repair (vùng mà ví dụ chuyên biệt CHỈ có trong
+corpus 0.1.x — đúng kịch bản "thiếu mẫu 0.6.0 sạch" nếu có). Run `1785891839496`:
+- `find_query` = `--has llm --has code ; --name repair --full` — **cả hai lượt E2b đều chạy**;
+  intent pass surface `corpus json-repair.yml` lên **top-1**.
+- Build: start → code → end, **4 linter 0/0/0, probe ok**; code node tự dựng **vượt** ví dụ corpus
+  (bóc code-fence + lời giải thích, sửa quote string-aware, cân bằng ngoặc string-aware, guard
+  None/rỗng, fail-có-理由 JA) — model đọc reference qua đường analyze rồi TÁI TẠO đúng shape,
+  không cần `gapReferences` bơm ở ③.
+⇒ Build **không hụt** vì thiếu mẫu 0.6.0 sạch; cộng với chuỗi bằng chứng cũ (markdown-translate
+sau E2b, CSV→chart echarts) → **quyết định 2026-07-27 đứng vững, nay có thêm số**: E3/E4 giữ park,
+chỉ mở lại nếu một campaign sau này cho thấy lớp build data-analysis hụt CÓ HỆ THỐNG (n≥2) mà
+nguyên nhân trỏ về thiếu reference ở ③.
