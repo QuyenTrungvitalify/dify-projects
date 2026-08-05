@@ -155,6 +155,12 @@ không network. Không có index thì in `❌ Index not found at <path>` kèm l�
 `feature_key()` chuẩn hoá tên feature: `--has http-request` → khoá `has_http_request`. Mọi filter
 AND với nhau; `--has` và `--no` cộng dồn được.
 
+Worked-example didactic (vd `error-strategy.yml`, spec 085) **cố ý nằm NGOÀI kệ** — ở
+`.claude/skills/dify-build/references/`, được phase-doc trỏ đích danh, KHÔNG vào
+`templates/patterns/`: bộ chọn gap-reference greedy ưu tiên "phủ nhiều nhất → ít node nhất" nên
+một file dạy-học 5–6 node sẽ chiếm slot của example thật giàu hơn cho cùng feature. Turn Read
+được (deny-read chỉ áp `~/.claude`) nhưng không sửa được (deny Write `.claude/**`).
+
 `--source` là **prefix-match theo namespace**: `--source corpus` khớp mọi `corpus:<name>`;
 `--source corpus:<name>` khớp đúng một; tag trần (`patterns`, `library`, `project`…) khớp chính xác.
 Điều kiện thật: `e['source'] == s or e['source'].startswith(s + ':')`.
@@ -349,6 +355,14 @@ entry; không đường dẫn corpus nào hard-code ở chỗ khác.
 `load_sources()` chuẩn hoá và điền default: `ref` → `main`, `dsl_glob` → `**/*.yml`, `sparse` → list
 (string đơn được bọc thành list), `indexed` → `True`.
 
+Hai mối nối advisory tại seam corpus-update (spec 079, zero cơ chế mới): `/corpus-update` sau một
+update thật chạy `enrich.py --check` + `check_provenance.py` và **đề nghị sửa ngay trong session**
+(human gật); cron `sync-corpus.yml` append 2 khối báo cáo vào body PR (`|| true` — không bao giờ
+fail). Verdict đã cân và LOẠI, đừng đề xuất lại: **chuông distill-hint** (đếm build tham chiếu
+corpus để nhắc chưng cất) — build thành công CHÍNH LÀ nguyên liệu chưng cất tốt hơn file gốc,
+nudge promote sẵn có phủ trọn; **auto-enrich trong cron** — CI không có LLM, enrichment cần mắt
+người; **bật `--strict` provenance ở CI** — đổi hợp đồng warn-only đang cố ý.
+
 `indexed: false` **chỉ** tác động lên `scan_targets()` — source đó vẫn clone, vẫn refresh, vẫn promote
 được, chỉ vắng mặt khỏi `INDEX.md`/`index.json`/`find.py`. Shim bash **bỏ qua** field này (nó luôn emit
 đúng 6 field), nên clone/fetch là vô điều kiện.
@@ -481,6 +495,13 @@ permissive-license bị chặn từ đầu (không có nút Share).
 
 Merge xong: mọi bản sạch nhận qua `git pull` thường (pattern + INDEX đều tracked trong sparse
 view 074); branch `contrib/*` dọn bằng GitHub "Automatically delete head branches".
+
+Verdict transport đã cân và LOẠI — đừng đề xuất lại (081/083): **repo community riêng làm corpus
+source** (contributor bản-sạch đã có nguyên promote FSM sanitize+gate+provenance; sản phẩm xứng
+tầng `patterns`, không phải tầng intake của repo phụ phải nuôi); **Drive API/OAuth trên máy user**
+(đã kiểm chứng: mọi upload Drive API đều đòi OAuth — "anyone-link upload" không tồn tại);
+**Google Form** (file-upload đòi sign-in; dạng text chết vì cap 50k ký tự/cell); **service-account
+key phân phát trong repo** (secret sprawl); **folder-sync từng máy** (friction per-máy).
 
 **Transport v2 (spec 083) — drop-URL là đường chính, branch+PR ở trên lùi làm fallback.**
 Branch+PR đòi push-right + git identity + GitHub account — không phục vụ được user không-dev.

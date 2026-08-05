@@ -27,6 +27,7 @@ closure teardown. Năm event:
 | `task:update` | `WireTask` đầy đủ | `applyTask` |
 | `phase:output` | `{phase, text}` | `applyOutput` (gộp theo rAF) |
 | `ask:answer` | `{text}` | `applyAskAnswer` (gộp theo rAF) |
+| `ask:card` | YAML report card (spec 082 S3 — kiểm tra máy trên file YAML user đưa vào chat: lint + preflight fold vào seed, không LLM) | render card trong thread |
 | `ask:done` | `{ok, anomaly?, seededFrom?}` | `applyAskDone` |
 
 Header comment của `sse-client.ts` ghi *"three events: init · task:update · phase:output"*. Code nghe
@@ -74,6 +75,20 @@ client rồi ghi `init` trong **cùng một lượt đồng bộ** (không `awai
 ## 3. Store giữ gì
 
 `store.ts` mirror **một** snapshot có thẩm quyền và dựng phần còn lại tại chỗ.
+
+Consult (spec 082) phía FE: sidebar có section **Chat** riêng (GET /api/consults — consult không
+vào /api/tree lẫn /api/active); chip **Mode** trên composer nhớ lựa chọn qua localStorage
+(`builder.composerMode`, default consult); hai bẫy store đã sửa có comment tại chỗ trong
+`store.ts` (`applyTask` early-return cho consult — task born-done đi nhánh gate sẽ đẻ card ma;
+guard finalize trong `onInit` gate trên `reconnected` — không thì câu trả lời stream đầu bị vứt).
+
+Cây sidebar (GET /api/tree — server dựng, nửa `artifacts.ts` này chưa có doc chủ, ghi tạm ở đây vì
+UI là consumer duy nhất): hàng workflow mang `synthetic: true` là **hàng gom hiển thị, không phải
+workflow** — cả bucket `(unsaved)` lẫn hàng orphan-task-trong-project-có-thật (CẢ HAI nguồn, spec
+090: nguồn thứ hai nguy hiểm hơn vì mang tên thân thiện + đủ nút edit). Sidebar đối xử: click chỉ
+expand (không arm làm base — trước đây một cú click-để-xem đầu độc chip composer thành target ma),
+ẩn nút edit/delete của hàng lẫn nút edit trên task con; task con vẫn mở xem được. Field optional —
+server cũ không gửi thì mọi hàng hành xử như trước.
 
 | signal | nguồn | sống qua reload? |
 |---|---|---|

@@ -127,6 +127,47 @@ set -a && source apps/builder/.env && set +a
 Để ngỏ (087 Open Q3): PE/QC đang dùng **cùng pick** model với llm — chỉ xét pick riêng (rẻ hơn)
 nếu có bằng chứng chi phí từ campaign.
 
+### 2026-08-05/06 · spec 090+091 — build-ma & sandbox-denial (A/B cùng prompt, cùng model haiku)
+
+**090 repro một lệnh** (giờ là smoke trước/sau — sau fix phải 400):
+`e2e-run.sh fire "<đề>" --project _drafts --workflow "(unsaved)" --mode auto` — trước fix: chết ②
+`artifact missing` + Retry-lặp; 2/2 model (sonnet-5, haiku) cùng chết → tất định theo input.
+**091 trước/sau** (bundle `1785928989748` → `1785936519385`): ② 49 call/12✗ → **6 call/0✗** (hết
+săn error_strategy); `find.py --name "..."` (E2b) lần đầu ✓; 9/9 ✗ còn lại đều mang dòng `↳ lý do`;
+①③ denied/errored phân loại bằng lý do thật thay vì đoán. Con số cũ "≥47% denial do nháy" là CẬN
+DƯỚI (68% dòng transcript cũ bị cắt cụt) — từ 0.4.0 đo thẳng bằng phân bố `↳`.
+
+Để ngỏ (085): ngưỡng node-count định tuyến S3 tách-turn (chỉ khi SIZE tái xuất sau 900s);
+`{{SCHEMA_REFS}}` backend-inject (mặc định KHÔNG); nguồn gap wall-clock ngoài-turn nếu tái hiện
+mà không phải host-sleep → mở điều tra riêng.
+
+Để ngỏ (090): fallback warn của `localEditSeed` giữ nguyên — nâng thành error chỉ khi campaign còn
+thấy build ma lọt qua guard cửa; cửa chính danh "sửa file yml đính kèm" (auto-import-base) → spec
+riêng nếu share-inbox/campaign cho thấy tần suất đáng.
+
+Để ngỏ (082 — hai làn + consult): S2b model pin làn chat (`BUILDER_CHAT_MODEL`) chưa làm;
+race hiếm ask:answer chunk-đầu-rớt nếu CLI trả lời trước khi EventSource mở (cold-start vài giây
+nên chưa quan sát thấy — chỉ xử nếu xuất hiện thật).
+
+Để ngỏ (079 — corpus-update seam): 1 lần `workflow_dispatch` sync-corpus xác nhận 2 khối advisory
+render đúng trong body PR + 1 lần `/corpus-update` thật đi qua bước 4–5; khi nguồn `indexed:false`
+lật sang true → enrich theo đợt ≤15 file/lần; orphan upstream-xoá → default giữ template + đổi
+provenance `source=original`, chỉ retire khi user muốn.
+
+Để ngỏ (081+083 — share pattern): nghiệm thu end-to-end cần Google + máy thứ hai thật (admin
+deploy Apps Script theo DEPLOY.md + 2 curl smoke → điền url/secret vào `.dify-share.json` → một
+máy user share thật → `/shelf-inbox` vet + land; nhánh git/PR fallback cũng chưa chạy end-to-end).
+Secret xoay khi nghi lộ (không đặt lịch); `processed/` Drive để nguyên tới khi thấy số thật;
+reminder nhịp tuần cho admin chỉ thêm nếu quên thật 2 tuần liên tiếp.
+
+Để ngỏ (089 — office attachments): e2e §6 của spec chưa chạy (upload docx/xlsx/pptx thật qua UI →
+① đọc sidecar; tiện thể xác nhận sidecar vào export-zip); xlsx nhiều sheet → một hay nhiều sidecar
+(v1: MỘT — xét lại nếu model lẫn sheet); date-serial → ISO (v1: KHÔNG — bật nếu ① đọc sai ngày).
+
+Để ngỏ (091): ghi lý do ✗ vào `events.jsonl` (máy đọc không qua parse transcript — đụng
+`RunEventKind` union + dossier switch, làm khi có nhu cầu thật); nguồn gốc `_ALLOWED_PY` của
+classify legacy (đường này teo dần theo hồ sơ cũ — có thể không đáng đầu tư).
+
 Để ngỏ (086, hoãn có chủ ý — mở spec mới khi đủ đau): **Resolve Rate** (chạy workflow thật với
 test-case input→expected, tầng trên của Pass cơ học) — cần model-inject ổn (087 đã ship ✓) nhưng
 chỉ phủ được ~50% corpus (6/12 prompt P01–P12 tự chứa; nửa còn lại dính Chatwork/WordPress/Slack/

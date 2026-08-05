@@ -113,11 +113,12 @@ chỉ thấy một prefix — đó là chủ ý, không phải lỗi. `detail` b
 rồi cắt còn `2000` ký tự, nên một paste khổng lồ ở "Request changes" không làm vỡ format một-dòng-một-event.
 `readEvents` **bỏ qua dòng cuối rách** (crash giữa lúc append) và giữ nguyên các event trước đó.
 
-`RunEventKind` khai **7** loại. **6** loại thật sự được phát ra, tất cả từ `orchestrator.ts`:
+`RunEventKind` khai **8** loại. **7** loại thật sự được phát ra, tất cả từ `orchestrator.ts`:
 
 | kind | phát ở | detail |
 |---|---|---|
 | `phase_start` | `:400` | `'fresh'` \| `'resume'` \| `'reply'` |
+| `turn_spawned` | ngay trước `runTurn` trong `spawnOnce` | `'attempt N'` — tách **turn-active** khỏi **phase-window** (spec 085 S0: phase-window phồng vì host ngủ giữa turn không còn bị đọc nhầm thành "nhiều lượt 600s"; timer force-kill là monotonic, đứng khi máy ngủ) |
 | `gate_reached` | `:304`, `:848` | cờ gate, hoặc `'done'` |
 | `gate_action` | `:133` | action id |
 | `request_changes` | `:231` | **văn bản user gõ** |
@@ -149,6 +150,14 @@ Hai cap **cắt ngược chiều nhau**, và đó là chủ ý:
 `parseToolStats` đọc **ngược** chính format mà `render` phát ra, và chỉ quét bên trong section
 `### Tool calls` — nên một dòng `- ` nằm trong fence của prompt/output không bị đếm nhầm. Parser và
 renderer cố tình đặt cùng file để không trôi khỏi nhau.
+
+Mỗi tool-call ✗ mang **lý do thật** trên dòng nối tiếp thụt lề `↳ …` (spec 091 S1 — dòng đầu của
+`tool_result.content`, qua `redactSecrets`, cap 160 ký tự). Format dòng-call là **chịu lực**: hai
+parser ngoài (`e2e_check._denied_calls`, `campaign._CALL_LINE`) anchor dấu ✓/✗ ở CUỐI dòng, nên lý
+do không bao giờ được nối sau dấu ✗ — dòng `↳` bắt đầu bằng khoảng trắng để `startswith("- ")` của
+cả hai bỏ qua. `classify_failed_calls` từ đó phân loại denied/errored bằng lý do đã mint thay vì
+đoán lại bằng heuristic (transcript cũ không có `↳` giữ heuristic legacy, đã sửa nháy-là-deny cho
+đúng gate sinh ra chúng).
 
 Hai callback nóng đều không thể làm hỏng turn: `onText` được orchestrator bọc `try/catch`
 (`orchestrator.ts:501-505`), `onEvent` được **turn-runner** bọc (`turn-runner.ts:137-143`) — hai chỗ khác
@@ -185,8 +194,18 @@ nó là bề mặt 400 test được.
 
 Luật nhận **khác nhau theo loại**, và đây là chỗ dễ "sửa cho hợp lý" rồi hỏng: **ảnh khoá theo MIME**,
 **không-ảnh khoá theo đuôi file**. Lý do nằm ở trình duyệt — `File.type` của `.md`/`.csv`/`.json` thường là
-`''`, nên MIME không dùng được cho nhóm đó. `ACCEPTED_EXT` cố tình **không** có `svg` (mang script được) và
-không có docx/xlsx/pptx (`Read` không parse được).
+`''`, nên MIME không dùng được cho nhóm đó. `ACCEPTED_EXT` cố tình **không** có `svg` (mang script được).
+
+**Office (`docx`/`xlsx`/`pptx`) nhận theo đường riêng** (spec 089): `Read` không parse được zip-XML,
+nên SERVER trích text **ngay lúc upload** (`unzip.ts` reader tự viết + 3 extractor trong
+`office-text.ts`) và ghi một **sidecar `.md`** cạnh bản gốc — prompt trỏ path sidecar, bản gốc vẫn
+được lưu (và vào export vì `bundle.ts` quét cả thư mục `uploads/`). Trích ra RỖNG là **400 tại
+upload** chứ không ghi sidecar rỗng — file hỏng phải lộ lúc user còn ở đó, không phải giữa turn.
+Cap `MAX_SIDECAR_CHARS`/`MAX_INFLATED` chặn zip-bomb/bloat. `/ask` cũng mang được file (không chỉ
+tin nhắn đầu của chat). Guard parity client↔server nạp module web bằng **dynamic import**
+(specifier tính-lúc-chạy — hai tsconfig không dung nạp import tĩnh của nhau; đã chứng minh guard
+biết đỏ khi lệch); một lệch CÓ TÊN: client cho file Office cũ (`.doc`/`.xls`) đi qua để server 400
+với message rõ — guard client không có bề mặt báo lỗi, im lặng vứt file là tệ hơn.
 
 `sanitizeName` bỏ mọi thành phần đường dẫn, hạ chữ thường, chỉ giữ `[a-z0-9._-]`, bỏ `._-` ở đầu (không
 dotfile, không `..`), rồi ép đúng đuôi. Tên client **không bao giờ** được tin làm path; route còn thêm

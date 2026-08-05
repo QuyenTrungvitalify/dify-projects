@@ -124,11 +124,13 @@ của gate trỏ tool thay thế), `python -c` bị chặn ở verb. Câu hỏi 
 đường được-phép có chủ đích, mỗi đường trả lời một loại câu hỏi: `find.py` (workflow nào có feature
 X), `lint_node_bodies.py --dump-schema <node-type>` (hợp đồng field của một node — một lệnh, thay cho
 việc tự trích từ file schema 7.700 dòng), pattern trên kệ (ví dụ sống), tool `Read` (file đã biết
-tên). Nới allow-set là **quyết định an ninh, không phải tối ưu tiện dụng**: `marketplace.py` bị từ
-chối *chính vì* nó chạm network — một lệnh có network trong tay turn là kênh exfil qua query param —
-dù script nằm ngay trong repo. (Mismatch đang sống: `.claude/skills/dify-build/spec.md` và
-`implement.md` vẫn chỉ dẫn gọi `marketplace.py`; gate từ chối lệnh đó. Hợp đồng thật của một turn là
-catalog offline `templates/tool-catalog.json`.)
+tên). Nới allow-set là **quyết định an ninh, không phải tối ưu tiện dụng**: network trong tay turn
+là kênh exfil qua query param, nên `marketplace.py` chỉ được allow **đúng subcommand `resolve`**
+(spec 085 S1b — sửa bug enumeration: phase-doc chỉ dẫn lệnh này từ trước mà gate từ chối; các
+subcommand khác vẫn deny, và nó KHÔNG nằm trong `ALLOWED_PYTHON_SCRIPTS` — thêm vào set là mở mọi
+subcommand). Đường chính vẫn là catalog offline `templates/tool-catalog.json`; resolve chỉ là
+fallback khi plugin ngoài catalog. Lớp mismatch doc-chỉ-dẫn-mà-gate-cấm từ nay có máy gác:
+`doc-gate-contract.test.ts` chạy mọi lệnh trong phase-doc qua chính `decide()` mỗi commit.
 
 Thứ tự quyết định trong `decide()`:
 
@@ -157,7 +159,7 @@ khác với payload parse được nhưng không phải object, cái đó deny);
 
 | # | Cửa | Luật |
 |---|---|---|
-| 1 | **Ký tự** | `SIMPLE_COMMAND = /^[A-Za-z0-9 _./:=@,+-]+$/`. Bất kỳ metachar nào (`\| & ; < > $ \` ( ) { } * ? ~ ! # \`, newline) ⇒ deny. Chặn nguyên lớp chaining/redirect/subshell/expansion/glob/background **không cần AST shell**. **Nháy `'` `"` bị loại khỏi tập cho phép** — vì `cat apps/builder/.e''nv` không mang chuỗi con `.env` qua được bước kiểm secret, mà shell vẫn gộp nháy lại và đọc token |
+| 1 | **Ký tự** | `SIMPLE_COMMAND = /^[A-Za-z0-9 _./:=@,+-]+$/`. Bất kỳ metachar nào (`\| & ; < > $ \` ( ) { } * ? ~ ! # \`, newline) ⇒ deny. Chặn nguyên lớp chaining/redirect/subshell/expansion/glob/background **không cần AST shell**. Nháy `'` `"` vẫn ngoài tập nhưng **không bao giờ chạm tới đây**: `decide()` STRIP nháy khỏi decision-view TRƯỚC mọi phép kiểm (spec 091 — thay luật cấm-nháy cũ bằng bất biến MẠNH HƠN: mọi check chạy trên chuỗi shell thật sự thấy, nên `cat apps/builder/.e''nv` thành `.env` và bị secret-check bắt SỚM HƠN, metachar giấu trong nháy lộ ra; còn lệnh hợp lệ có nháy — `find.py --name "kw kw"`, chỉ dẫn của analyze.md — chạy được). Lệnh THI HÀNH giữ nguyên raw; message từ chối trích bản đã-strip (lệch chấp nhận, ghi tại 091) |
 | 2 | **Python** | Chỉ `.venv/bin/python` (relative, hoặc absolute kết thúc bằng nó). `python`/`python3` trần ⇒ deny. Có `-c`/`-e`/`-m` hoặc không có script ⇒ deny. Script phải thuộc `ALLOWED_PYTHON_SCRIPTS` |
 | 3 | **Verb nguy hiểm** | `rm` `sudo` `chmod` `curl` `wget` `cp` `mv` `find` `sed` `awk` `nc` `xargs` `eval` … ⇒ deny. Shell (`bash` `sh` `zsh`…) ⇒ deny. Interpreter trần (`node` `perl` `ruby`…) ⇒ deny |
 | 4 | **git** | Chỉ `status` / `diff`, **và** mọi flag phải thuộc `SAFE_GIT_FLAGS`. `git diff` **không** read-only tự thân: `--output=<f>` **ghi** file bất kỳ, `--no-index <a> <b>` **đọc** file bất kỳ |
@@ -206,9 +208,9 @@ Ghi được **chỉ**:
 repo, không phải turn — thì **mọi** `.runs/<id>/**` ghi được: guard sibling chỉ có nghĩa khi biết
 "mình" là ai.)
 
-**Bash cũng bị soi:** `commandReferencesSecret()` tách token lệnh (cửa 1 đã bảo đảm không có
-nháy/metachar ⇒ token chính là thứ shell thấy) và chạy `pathIsSensitiveRead()` trên từng token, kể
-cả phần sau `--flag=<path>`.
+**Bash cũng bị soi:** `commandReferencesSecret()` tách token lệnh (`decide()` đã strip nháy khỏi
+decision-view — 091 — nên token chính là thứ shell thấy; metachar còn sót sẽ bị cửa charset chặn
+ngay sau đó) và chạy `pathIsSensitiveRead()` trên từng token, kể cả phần sau `--flag=<path>`.
 
 **Đọc cũng bị khoanh vào repo — `resolvesOutsideRepo()`.** Danh sách sensitive ở trên là deny-list;
 đây là nửa allow-list của chiều đọc (chiều ghi vốn đã repo-scoped): path của `Read`, search root của

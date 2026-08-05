@@ -51,3 +51,22 @@ git show <sha-xoá>^:docs/specs/<file>.md
 - Comment trong code sinh ra từ spec phải **tự đủ nghĩa**: số spec chỉ là hậu tố xuất xứ `(spec NNN)`,
   không bao giờ là lời giải thích; **không** viết mã lát cắt (`S3`, `D5`, `r4`) vào code vĩnh viễn —
   spec sẽ bị xoá, mã lát cắt chết ngay lúc gõ.
+
+### Kỷ luật bằng chứng (từ spec 091 — sau chuỗi 071→085 đi lạc vì chẩn đoán không kiểm)
+
+- **Mọi claim trong mục sự-cố/chẩn-đoán mang một nhãn**: `[REPRO]` = có lệnh tái hiện tất định,
+  chạy lại được ngay; `[ĐO]` = số đếm nêu rõ nguồn + cỡ mẫu; `[CẬN DƯỚI]` = số bị nghẽn bởi chính
+  instrument (chỉ được dùng làm "ít nhất"); `[GIẢ THUYẾT]` = chưa kiểm — **không slice nào được
+  xây trên nó**.
+- **Chẩn đoán gốc phải có repro tất định hoặc n≥2 run độc lập** — một bundle/một run chỉ đủ cho
+  giả thuyết. (090 v1 đổ cho thrash; repro 5-denial-vẫn-chết bác bỏ ngay và đổi cả hướng fix.)
+- **Mọi instrument dùng để đo/validate phải HIỆU CHUẨN trước khi tin**: tái hiện được ≥1 ca
+  đã-biết-đáp-án dương VÀ bỏ qua ≥1 ca đã-biết-là-nhiễu. Instrument tự viết trong lúc điều tra
+  càng phải hiệu chuẩn (091: script audit chưa hiệu chuẩn cho 4 báo động giả và sót đúng lỗi thật).
+- **Phép thử đi qua entry-point thật**, không qua hàm con (091: thí nghiệm qua `analyzeBashCommand`
+  thay vì `decide()` suýt bác bỏ một fix đúng — `checkForbiddenPath` chạy trước nó).
+- **Gate/predicate/suite-entry mới: bắn thử trên artifact thật TRƯỚC khi commit**, và predicate đo
+  ARTIFACT chứ không đo lời-tự-khai của model (một entry từng AUTO-FAIL build xanh vì assert
+  `analyze.features` — danh sách model tự viết).
+- **Test mới phải chứng minh đỏ-khi-revert-fix** (tạm revert, chạy, khôi phục) — không thì là test
+  trang trí: hai test từng xanh kể cả khi fix bị gỡ vì chúng assert chính stub của mình.

@@ -28,6 +28,14 @@ allows (091), what a failed tool-call records (091), and what a build can be sta
   `references/error-strategy.yml` pointer implement.md has had since 085 — the measured hunt
   (11 denied calls, 54% of build cost in phase ②) dropped to zero on re-fire (49 calls → 6).
 
+**Build cost** (spec 085 — landed 2026-08-04, unlisted at the 0.3.0 cut)
+- ③ turn timeout default 10→15 min IN CODE (not .env — gitignored files don't travel with git pull);
+  a timeout that leaves a lint-clean, id-clean artifact is SALVAGED to success instead of thrown
+  away; `turn_spawned` event separates turn-active from the phase window (host-sleep inflation);
+  `marketplace.py resolve` (only) allowed — the phase docs had instructed it while the gate denied
+  it; `references/error-strategy.yml` worked example + implement.md pointers ended the fail-branch
+  hunt (8/8 denied calls in the field run).
+
 **Attachments** (spec 089)
 - Office attachments extract at upload: `.docx`/`.xlsx`/`.pptx` are unpacked server-side (own zip
   reader, 3 extractors) into a text sidecar the turn reads; empty extraction is a 400, not a silent

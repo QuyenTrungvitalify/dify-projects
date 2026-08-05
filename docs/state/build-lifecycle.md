@@ -226,8 +226,23 @@ sequenceDiagram
   `acquireTurn` bị đánh dấu `rejected — another turn is running` + 409. `mintTaskId` đơn điệu để
   hai POST cùng mili-giây không bao giờ chung id (id chung sẽ cho kẻ thua acquire đúng slot kẻ
   thắng đang giữ).
-- Holder mang `kind: 'phase' | 'ask'` để `/cancel` scope được abort của một Ask (§6); Ask cũng
-  chiếm **cùng** slot này — tối đa một turn *bất kể loại* toàn hệ thống.
+- Lock có **HAI LÀN độc lập** (spec 082): làn **build** (phase/reply/promote — 1 slot) chạy song
+  song với làn **chat** (ask/consult — 1 slot). **Song song chỉ giữa các TASK, không bao giờ trong
+  một task** — per-task exclusivity giữ nguyên để mọi lập luận an toàn sẵn có (baseline
+  confinement per-turn, snapshot của Ask, clobber-guard PATCH/PUT-spec) đứng yên. API cũ
+  `turnBusy()`/`turnHolderId()` bị **XOÁ** thay bằng tên theo làn (`buildTurnBusy`/`chatTurnBusy`/
+  `buildHolderId`/`chatHolderId`) — compiler bắt mọi call-site chọn làn tường minh, không chỗ nào
+  "quên" mà compile qua được. Làn chat **cấm ghi theo cấu trúc** chứ không theo lời hứa: mọi turn
+  chat là `askMode` → `BUILDER_ASK_MODE=1` → gate deny Write-class. Holder mang `kind` để
+  `/cancel` scope đúng abort (§6).
+- **Consult** (`kind:'consult'`) — chat tự do chưa cần build: kind mới theo tiền lệ promote
+  (routes **delegate theo kind trước khi** chạm confirmAdvance; FSM ①②③④ không đổi). Task consult
+  **born-done terminal** (không status/phase mới); nhận message ở **MỌI** status — một consult lỡ
+  `error` (thua race tạo) tự-lành ở message kế tiếp; "graduate" thành build đi qua **composer
+  prefill**, không đổi kind tại chỗ (mọi invariant tạo build — slug/scaffold/validate attachment —
+  đi đúng một cửa). Cố-tình-KHÔNG (đừng đề xuất lại): build∥build (quota/review bandwidth),
+  chat∥chat (một người một bàn phím), hàng đợi thay 409, refactor-share `consultWithin` với
+  `askWithin`/`askTestWithin` (duplicate-not-share: đường đã ship giữ byte-behavior).
 - Guard cùng-task trước mọi ghi: `PATCH /:id` (đổi `confirm_mode` giữa turn sẽ bị `emit` của turn
   ghi đè — từ chối với
   `this build has a turn running — change confirm-mode once it pauses at a gate`), `/reply`
@@ -290,15 +305,35 @@ error** — Retry là `/reply` (re-acquire lock).
 - `/reply` với text rỗng hợp lệ **chỉ khi** `status==='error'` (nút Retry một-click); tại gate
   `awaiting_confirm` text rỗng → 400.
 - ③: `resolveImplementOutcome` (thuần, export để test thẳng) tách ba biến thể: **hard error**
-  (turn chết/timeout, artifact thiếu, YAML không parse, breach confinement, file phụ hỏng hoặc
+  (turn chết, artifact thiếu, YAML không parse, breach confinement, file phụ hỏng hoặc
   twin đuôi mở rộng) → `error`; **`success`** = `lintClean` + id chuẩn cho artifact chính **và mọi
   file phụ**; còn lại → `still_failing` (agent đã tự sửa hết vòng trong turn của nó — backend
-  **không bao giờ** re-spawn turn để sửa tiếp, re-spawn sẽ áp đôi edit).
+  **không bao giờ** re-spawn turn để sửa tiếp, re-spawn sẽ áp đôi edit). **Ngoại lệ salvage
+  (085 S4)**: một TIMEOUT để lại artifact present+parse+confinement+lint-clean+id-chuẩn →
+  `success` thay vì vứt trắng (note khác timeout không bao giờ salvage; predicate `isTimeoutNote`
+  co-locate với chỗ mint note ở turn-runner để match/mint không lệch nhau).
+- ②: verify **nhận nuôi** một `SPEC.md` tốt bị ghi lạc vào run-dir trước khi kết luận
+  `artifact missing` (090 S3 — chỉ khi slug ĐÃ set, tức đường chuẩn là `projects/…`; file non-empty;
+  from-scratch có run-dir LÀ đường chuẩn nên không chạm). Salvage không nới chuẩn nội dung —
+  thiếu thật vẫn error y nguyên. Cùng gốc: ② được TRAO đường ghi đã giải xong qua token
+  `{{SPEC_PATH}}` (= chính `artifactRel` — một resolver nuôi cả hai phía), thay cho điều kiện
+  2-nhánh mà agent phải tự diễn dịch — nguyên tắc: **backend giải điều kiện, agent nhận giá trị**.
+- Cửa tạo build: `POST /api/tasks` **từ chối tại chỗ (400)** một target edit-existing không tồn tại
+  trên đĩa, message chỉ đúng cửa (có `.yml` đính kèm → Import base) — trước 090 target ma đi lọt
+  tới ② rồi chết `artifact missing` với Retry-lặp-vô-hạn, và mỗi xác build ma lại thành task mồ côi
+  làm mồi cho cú click sai tiếp theo (vòng tự-khuếch-đại — vì thế chặn TRƯỚC khi mint task).
+  Nguyên tắc: **một target hoặc TỒN TẠI hoặc bị TỪ CHỐI ở cửa — không đi tiếp ở trạng thái
+  nửa-thật** (slug set nhưng thư mục không có); `slug` không bị guard vì nó là ĐẶT-TÊN, không phải
+  target.
 - **Fallback resume hỏng**: `/reply` resume mà child chết **không có** event `result` **và không
   có** note → chạy lại **một lần** như turn fresh seeded bằng path artifact. Timeout **không**
   thuộc diện này — retry một timeout là âm thầm đốt thêm nguyên một `TURN_TIMEOUT_MS` nữa.
 - `TURN_TIMEOUT_MS` đọc env `BUILDER_TURN_TIMEOUT_MS` **một lần lúc load module** — đổi giá trị
-  cần restart backend.
+  cần restart backend. Default là **15 phút TRONG CODE** (085 S2 — cố ý không để `.env`: file đó
+  gitignored nên không đi theo `git pull`; để ở code thì update-and-run mang giá trị tới mọi máy).
+  Turn distill (`promote.ts`) giữ 10 phút riêng. Timer force-kill là **monotonic-active**: máy ngủ
+  giữa turn thì phase-window phồng nhưng turn-active không — đọc `turn_spawned` trong events để
+  tách (run-artifacts §4).
 - `/reply` tại ④: nếu `awaiting_confirm` và có `sessionIds.implement` → là **revision**: resume
   turn Implement (sửa workflow theo feedback) rồi re-park gate ③ — áp cho **mọi** gate ④, tĩnh lẫn
   live; tín hiệu là `status`, không phải `testMode`. Nếu `status==='error'`: đường live resume
