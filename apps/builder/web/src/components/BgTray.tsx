@@ -154,7 +154,14 @@ export function BgTray(): JSX.Element | null {
         // composer beneath it. The full card (with actions) returns the moment a decision is needed.
         const compact = b.status === 'running' || b.status === 'queued';
         return (
-          <div key={b.key} className={'bg-tray-card tone-' + h.tone + (compact ? ' bg-tray-card--compact' : '')}>
+          <div key={b.key} className={'bg-tray-card tone-' + h.tone + (compact ? ' bg-tray-card--compact' : '') + (b.taskId ? ' has-open' : '')}>
+            {/* header-level [Details] icon (left of the ×): opens the distill task foreground — the same
+                store.openBg as the ActionRow [Details], but reachable on the COMPACT running card too. */}
+            {b.taskId && (
+              <button className="bg-tray-open" title={tr('trayDetails')} aria-label={tr('trayDetails')} onClick={() => void store.openBg(b.key)}>
+                <I.report />
+              </button>
+            )}
             <button className="bg-tray-x" title={tr('trayClose')} aria-label={tr('trayClose')} onClick={() => void closeItem(b)}>
               <I.close />
             </button>
