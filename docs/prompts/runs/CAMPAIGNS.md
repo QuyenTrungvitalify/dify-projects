@@ -107,6 +107,31 @@ từng phase** · chỉ so **cùng model** · finding nào chưa đủ mẫu th�
 
 ## Bằng chứng đo ngoài-campaign
 
+### 2026-07-26/27 · spec 076 — A/B retrieval của track E (offline, 15 query data-analysis)
+
+Cùng `find.py`, ba arm, đo recall@5: **baseline** (không enrichment, `--name` substring) **2/15** →
+**+enrichment** vẫn substring **4/15** → **+BM25 token-ranking 14/15**. Phát hiện then chốt: text
+enrichment đã đúng từ arm 2, nhưng substring không tiêu hoá được nó (`data analysis` ≠ tag
+`data-analysis`, `chain of thought` ≠ `chain-of-thought`, `repair json` ≠ "Repairs … JSON") — BM25
+tokenized đóng đúng gap đó. Đây là lý do BM25 được ưu tiên ngay, trước E3/E4.
+
+A/B end-to-end ngay sau đó lại lộ chuyện khác: **4/4 build thật dùng `--has`, 0 dùng `--name`** — vì
+không phase-doc nào nhắc tới cờ đó (bài học đã vào AGENTS §9). Sau khi `analyze.md` dạy lượt intent
+(E2b), đo lại **2026-08-05** xác nhận đường đó sống: `--name repair` trả đúng top-1 và build vượt
+được ví dụ corpus. Đó cũng là căn cứ giữ E3/E4 ở trạng thái park.
+
+### 2026-07-27 · spec 078 — khảo sát độ sâu "giếng" nguồn ngoài
+
+Bốn repo Dify-workflow khảo trên GitHub: **một** qua cổng license permissive
+(`svcvit/Awesome-Dify-Workflow`, MIT, 46 DSL — và đã vendor sẵn từ trước); **hai** no-license (một
+trong đó chứa file trùng **nguyên văn** với corpus đang có); **một** rỗng. Cùng đợt, 6 build E2E đạt
+trọn tiêu chí với `{{REFERENCES}}` **rỗng 5/6** — Builder không đói example ngoài. Hai số đó là căn
+cứ pivot khỏi hunter-bot UI sang self-harvest, và là baseline để so mọi lần `/scout` về sau.
+
+Hunt #1 (2026-07-28, ghi trong `collected.json` mục `hunts`): 2 ứng viên tier-A mới, 2 rejected.
+Ghi chú vận hành đắt: `gh search code` trả **rỗng cho mọi query** trong env này, nên mũi săn
+code-marker coi như không dùng được — thực tế chỉ còn repo-search + re-check nguồn đã thấy.
+
 ### 2026-08-05 · spec 087 — A/B live "Model not exist" (Dify local, provider OpenAI)
 
 Probe QC 4-node lint-clean (start → question-classifier model-RỖNG → 2 end), hai nhánh chỉ khác
@@ -148,6 +173,51 @@ riêng nếu share-inbox/campaign cho thấy tần suất đáng.
 Để ngỏ (082 — hai làn + consult): S2b model pin làn chat (`BUILDER_CHAT_MODEL`) chưa làm;
 race hiếm ask:answer chunk-đầu-rớt nếu CLI trả lời trước khi EventSource mở (cold-start vài giây
 nên chưa quan sát thấy — chỉ xử nếu xuất hiện thật).
+
+Để ngỏ (084 — distill tray): secret-scan nhẹ **trước** auto-finalize chưa làm (câu hỏi "có grep
+token/api-key trong B2′ rồi rớt về `review` khi nghi ngờ không" chưa chốt) — đây là mảnh đóng đúng
+rủi ro tệ nhất của auto-approve, vì B2′ lint **không** bắt secret-leak. Panel B (overlay gắn build
+nguồn) park, chỉ mở lại nếu dùng tray thật vẫn thấy vướng. Chưa có test render nào cho `BgTray` —
+`components/**` vốn không có test nào. Và **chưa đo** con số biện minh cho cả spec: số click từ
+trigger → lên kệ, kỳ vọng giảm từ ~5 xuống 1–2; cần đếm qua vài lần promote thật.
+
+Để ngỏ (076 — track E): **E3** (mở pool `gapReferences` của ③ sang tầng `library`, emit path theo
+source thay vì hardcode `templates/patterns/`, thêm MMR để đa dạng, xét lại `max` reference hiện là
+2) và **E4** (`/template-promote` chart_demo/json-repair vào `library/`) đang **park có điều kiện**.
+E4 là prerequisite cứng của E3 — library hiện gần như rỗng nên E3 không có vật liệu để bơm. Cân nhắc
+**BỎ matplotlib** khỏi E4: E2E cho thấy model cố ý tránh nó vì bẫy sandbox và chọn echarts, promote
+nó lên làm "seed sạch" có thể phản tác dụng. Chỉ mở lại khi campaign cho thấy lớp build data-analysis
+hụt **có hệ thống** (n≥2) mà nguyên nhân truy về thiếu reference ở ③ — lần đo 2026-08-05 KHÔNG kích
+hoạt điều kiện đó. Ba câu còn ngỏ: cơ chế tái sinh enrichment khi corpus đổi; `max` bao nhiêu sau khi
+mở pool; corpus thô có được vào pool không.
+
+Để ngỏ (077 — corpus sync): updater tag/SHA-aware **hoãn có chủ ý** — lockfile đã đủ cho
+"tái-lập-mà-vẫn-auto-update" vì `ref` ở lại là branch; chỉ làm khi thêm một nguồn phát hành theo tag,
+tới lúc đó `update_corpus.sh` còn warn+skip với ref không-phải-branch. Nhánh bash bước pin trong
+`setup.sh` **chưa có guard nào** (5 ca spec liệt kê — pin đúng sha, fetch fail → warn+tip, xoá lock →
+tip, `--skip-clones` bỏ pin, clone vẫn `--depth=1` — đều chưa test; `test_sources_lock.py` dừng ở
+tầng Python). Nghiệm thu cron chưa chạy: gộp vào lượt `workflow_dispatch` của để-ngỏ 079 bên dưới —
+lượt đó phải xác nhận thêm PR sinh khi upstream đổi và no-op khi không.
+
+Để ngỏ (080 — shelf dashboard): v1 cố ý dừng ở số tổng — drill-down (click feature/tier → list file)
+để v2; đếm conversion nudge→promote cần một event-log promote-khởi-từ-nudge mà **chưa có chỗ ghi**,
+nên hiện chỉ nhìn timeline promotes động/đứng; auto-refresh sau promote/corpus-update chưa làm (v1
+nút ↻ tay); `tags.top` đã có sẵn trong JSON nhưng UI mới hiện `unique`; `complexity_per_tier` đã tính
+mà UI chỉ render tổng, còn `enrichment.per_tier` thì **chưa tính**. Phép quan sát flywheel: mở màn
+hình sau ~2 tuần — timeline promotes vẫn đứng ⇒ nudge 078 chưa chuyển hoá (nối để-ngỏ 078).
+
+Để ngỏ (078 — self-harvest & scout): sau ~2 tuần dùng thật, đếm nudge-rate vs accept-rate — rate cao
+mà accept ~0 ⇒ guard sai, siết ngưỡng `node_count ≥ 4` và/hoặc luật "near-dup không nudge"; hai open
+question (ngưỡng ≥4 node có đủ không, có bật lại nudge cho build seed-edit không) **chỉ** được chỉnh
+theo số này chứ không theo cảm giác. `/scout` mới chạy **1/3** hunt-log — cần đủ 3 lần mới có median
+ứng-viên-mới để quyết hunter-UI bằng số. `catalog.py doctor` chưa có baseline trên data thật; chạy
+lại sau khi clone svcvit-zh để xác nhận file EN-fork bị bắt `dup-of` bằng sha256.
+
+Để ngỏ (075 — nguồn data quick-win): TTL cache cho harvest **hoãn có chủ ý** — harvest-mỗi-Implement
+là freshness cố ý (thêm model xong `/reply` ngay thì phải thấy nó), lợi ích chồng lấn với trần
+timeout mỗi nhánh, và N giây là đoán mò; chỉ mở lại nếu đo thật thấy vòng `/reply` tốn mạng đáng kể,
+khi đó N = 10–15s chứ **không** 120s. `sources_admin.py doctor` chưa vào CI — `.pre-commit-config.yaml`
+lẫn `.github/workflows/` đều chưa gọi nó, hiện chỉ là lệnh tay.
 
 Để ngỏ (079 — corpus-update seam): 1 lần `workflow_dispatch` sync-corpus xác nhận 2 khối advisory
 render đúng trong body PR + 1 lần `/corpus-update` thật đi qua bước 4–5; khi nguồn `indexed:false`

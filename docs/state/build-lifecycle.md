@@ -144,9 +144,14 @@ call site 3 tham số (gate error, `/restore`) tiếp tục compile. Thứ **tha
 lúc gate**, không theo tuyên bố deploy lúc start (§4). Orchestrator probe tại `gateAfterPhase`;
 chỉ nhánh `implement` đọc `targets`, các phase khác nhận vô hại.
 
-`computePromoteGate` (cùng file, cũng thuần) phục vụ build `kind:'promote'`: bốn state
-`blocked` / `distill_failed` / `review` / `reviewCollision` → các gate flag
-`promote_blocked` / `promote_distill_failed` / `promote_review`, action id
+`computePromoteGate` (cùng file, cũng thuần) phục vụ build `kind:'promote'`: **tám** state — bốn của
+đường distill `blocked` / `distill_failed` / `review` / `reviewCollision`, và bốn của đường share
+`share_offer` / `share_review` / `share_retry` / `share_blocked` → các gate flag
+`promote_blocked` / `promote_distill_failed` / `promote_review` / `promote_share_offer` /
+`promote_share_review`. `share_blocked` (preflight bắt secret thật) **cố ý dùng lại flag
+`promote_share_review`** để hợp đồng wire không đổi — tray đọc `share.findings` để render nút chặn,
+không phải một flag mới — và nó chỉ phát đúng **một** action `share_skip`: không có "push anyway".
+Action id của đường distill:
 `approve` (`Approve & promote`) · `approve_overwrite` (`Overwrite existing`) ·
 `approve_rename` (`Save as a new pattern`) · `changes` · `discard`. Build promote **không bao giờ
 vào FSM ①②③④**: `routes/tasks.ts` rẽ theo `task.kind === 'promote'` sang `lib/promote.ts`

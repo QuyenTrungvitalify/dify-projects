@@ -28,6 +28,11 @@ Phạm vi: `templates/patterns/` · `templates/library/` · `templates/_base/` �
 > **dev-only** `report.promote_hint`/`task.promoteHint` (DevPanel render dưới `devMode`) — không
 > bao giờ vào `notes` (userview có regression lock trong `e2e_check.py`). Nudge chỉ *trỏ* nút
 > Promote sẵn có, không thêm đường ghi kệ.
+> Đã cân và LOẠI, đừng đề xuất lại: **hunter-bot UI** (nút dev + backend vet + bảng duyệt) — chỉ mở
+> lại khi có **≥3 hunt-log thật** với median ứng-viên-mới-đáng-nạp **≥3/lần**; **bulk ingestion**
+> hàng trăm file — nhiễu cho ranking và cho tầng reference của ③, chất lượng hơn số lượng;
+> **cron hoá `/scout`** — săn là hành vi chủ động của người, còn nguồn đã vendor thì
+> `sync-corpus.yml` đã canh.
 
 > **Shelf dashboard (spec 080).** `catalog.py stats --json` = MỘT JSON toàn cảnh kệ (tier/feature/
 > complexity/tags từ index.json · diversity/hunts từ collected.json — chỉ entry trên-kệ · enrichment
@@ -37,6 +42,11 @@ Phạm vi: `templates/patterns/` · `templates/library/` · `templates/_base/` �
 > (`shelf-stats.ts` passthrough, mount sau `BUILDER_DEV=1`) → overlay `ShelfOverlay` (nút 📊 cạnh
 > RebuildButton, `devMode`); derivation thuần cho render ở `web/src/lib/shelf.ts`. Số đo xem bằng
 > cách MỞ màn hình/chạy CLI — không chép vào doc.
+> Hai ràng buộc cứng của bề mặt này: **mọi con số compose ở python** (`catalog.py stats`) —
+> `shelf-stats.ts` và FE **không được** tự đọc `index.json`/`collected.json`/`sources.yml` để tính
+> cho tiện, nếu không registry có **parser thứ ba** và đúng cái bẫy flat-schema ở §6 tái diễn ở tầng
+> khác; và **không chart lib, không SSE** cho màn dev — bar/tile bằng CSS thuần, một màn hình quản kệ
+> không đáng một dependency.
 
 Nằm cạnh nhưng **không** thuộc doc này — chỉ trỏ sang:
 
@@ -109,7 +119,8 @@ Cả ba tầng `patterns` / `library` / `probes` đi qua **4 linter + JSON Schem
 
 Vì `index.json` gitignored, **clone tươi không có index**: `find.py` chết cho tới khi `build_index.py`
 chạy. `scripts/setup.sh` chạy nó lúc bootstrap; `scripts/update_corpus.sh` chạy lại sau mỗi lần
-refresh corpus.
+refresh corpus. Index **không** rebuild theo mỗi build — nó chỉ dựng lại ở hai mốc đó, nên tốc độ
+build không phụ thuộc kích thước index.
 
 **Scan target** (`scan_targets()`): 7 static root cứng trong `STATIC_SCAN`, cộng một root cho **mỗi**
 source `indexed: true` trong registry (§6), tag `corpus:<name>`. Static root quét `rglob("*.yml")`
@@ -165,16 +176,31 @@ một file dạy-học 5–6 node sẽ chiếm slot của example thật giàu h
 `--source corpus:<name>` khớp đúng một; tag trần (`patterns`, `library`, `project`…) khớp chính xác.
 Điều kiện thật: `e['source'] == s or e['source'].startswith(s + ':')`.
 
-**Thứ tự trả về không phải thứ tự ưu tiên.** Sort key là
-`(COMPLEXITY_ORDER[complexity], source, file)` — `source` so sánh **theo alphabet**, không theo tầng.
-Alphabet đặt `corpus:*` < `example` < `library` < `patterns` < `project` < `skill-assets` < `starter`,
-nên với cùng độ phức tạp, **corpus luôn hiện trước `patterns`**. Chạy `find.py --has llm` cho thấy
-đúng vậy: nguyên khối `corpus:awesome-dify-workflow-en` đứng trên `library` và `patterns`.
+**Thứ tự trả về — precedence là LUẬT TRONG CODE.** Khi kết quả không được rank theo `--name`, sort key
+là `(COMPLEXITY_ORDER[complexity], source_rank(source), file)`. `source_rank` ánh xạ mỗi tầng thành
+một hạng (`patterns` → `library` → `project` → `example`/`starter` → `corpus:*` → `skill-assets`,
+tag lạ xếp cuối), **không** so chuỗi `source`. Đây là chỗ từng sai: tie-break cũ so alphabet nên
+`corpus:*` nổi lên trên `patterns` (c < p) — đúng cái đảo ngược mà prose cảnh báo. Thứ tự ưu tiên
+`patterns > library > project > corpus:* > skill-assets` vì thế sống nhất quán ở hai dạng: prose cho
+người đọc (`write_markdown()` in đầu `INDEX.md`, và `AGENTS.md` §3) và `source_rank` thực thi nó.
 
-Thứ tự ưu tiên `patterns > library > project > corpus:* > skill-assets` là **luật văn xuôi cho người
-đọc**, sống ở hai chỗ: prose do `write_markdown()` in ra đầu `INDEX.md`, và `AGENTS.md` §3. **Không
-dòng code nào thực thi nó.** Ai đọc kết quả `find.py` từ trên xuống mà không biết luật này sẽ lấy mẫu
-corpus trước mẫu curated.
+**`--name` rank theo BM25**, không còn substring thuần: tokenize text enriched (`summary_en` + tags +
+name + description), hyphen→space nên `data analysis` khớp tag `data-analysis`; IDF tính trên **toàn
+index** để từ phổ biến (`llm`, `workflow`) không áp đảo. Có entry ăn điểm → **relevance dẫn**,
+precedence chỉ phá hoà. Không entry nào ăn điểm → rơi về **substring fallback** đúng hành vi cũ, nên
+`--name` không bao giờ trả ít hit hơn trước khi có ranking.
+
+Phase ① tra kệ **hai lượt** và ghi cả hai lệnh vào `find_query`: lượt *feature* (`--has …`) và lượt
+*intent* (`--name "<từ khoá tiếng Anh>" --full`). Hit của lượt intent được đóng khung là **reference
+— adapt, don't clone**, không phải mẫu để chép.
+
+**Richer ≠ safe.** Corpus là DSL 0.1.x thô: nó chỉ được dùng làm *tham khảo để adapt*, không bao giờ
+là "mẫu vetted để chép". Mọi lần mở rộng pool reference sang một tầng mới phải mang theo phân biệt
+đó — đừng ngầm coi tầng mới sạch như `patterns`.
+
+**Đã cân và LOẠI, đừng đề xuất lại**: embeddings / dense retrieval / reranker cho tầng chọn mẫu này.
+Ở quy mô vài chục entry, BM25 zero-dep đã đủ; chỉ xét lại khi index vượt **vài trăm** entry có mô tả
+tiếng Anh sạch **và** query thực tế nghiêng hẳn về paraphrase.
 
 **Tên feature không tồn tại trong index bị báo tường minh, phân biệt với kết quả rỗng thật.**
 `--has tools` (thay vì `tool`) tạo khoá `has_tools` — không entry nào mang nó → in
@@ -197,8 +223,9 @@ mô tả phía bên kia đường rẽ: `lib/promote.ts`.
 Vì sao tách: hai pipeline trả lời hai câu khác nhau. FSM hỏi *"workflow này có đúng ý user không"* và
 kết ở một file trong `projects/`. Promote hỏi *"thứ này có an toàn để **dạy lại** cho mọi build sau
 không"* và kết ở một file trong `templates/`. Cái sau là chỗ một lỗi trở thành **lây lan** — pattern
-hỏng nằm trên kệ sẽ dạy cái hỏng cho mọi build seed từ nó. Nên nó có gate riêng, verdict riêng, và một
-lần Approve của người là **đường ghi duy nhất** vào kệ.
+hỏng nằm trên kệ sẽ dạy cái hỏng cho mọi build seed từ nó. Nên nó có gate riêng, verdict riêng, và
+**`finalizePromotion` là đường ghi duy nhất** vào kệ — auto-approve (dưới) chỉ *gọi sớm hơn* đúng hàm
+đó, không bao giờ mở một đường ghi thứ hai.
 
 ```
 POST /api/promote
@@ -209,7 +236,9 @@ POST /api/promote
               apps/builder/.runs/<taskId>/promote/<slug>.yml
           → B2′: promote_gate.py check <source> --distilled <staged> --json
               ├─ không sạch → gate `promote_distill_failed`
-              └─ sạch       → ghi rule vào linter-candidate → gate `promote_review`
+              └─ sạch       → ghi rule vào linter-candidate → KIỂM VA SLUG ngay cuối turn:
+                    ├─ slug CHƯA tồn tại → finalizePromotion  (auto, KHÔNG park review)
+                    └─ slug ĐÃ tồn tại   → gate `reviewCollision`
   → promoteConfirm      Approve  → finalizePromotion  ← ĐƯỜNG GHI DUY NHẤT vào templates/
   → promoteReply        "Request changes" ở review/distill_failed → chạy lại turn, có note lái
 ```
@@ -269,10 +298,25 @@ phải so khớp dòng.
 
 ### Va slug
 
-`promoteConfirm('approve')` kiểm `templates/patterns/<slug>.yml` đã tồn tại chưa. Có → **không ghi
-gì**, re-park ở state `reviewCollision` để người chọn ghi đè hay đặt tên mới (bốn state gate + nhãn nút
-→ [build-lifecycle.md](build-lifecycle.md)). **Không bao giờ clobber im lặng.**
+Kiểm va slug chạy ở **cuối turn distill** — không còn ở `promoteConfirm('approve')` như trước — vì
+slug deterministic theo tên folder workflow nên biết trước. Chưa tồn tại → auto-finalize thẳng. Đã
+tồn tại → **không ghi gì**, park ở state `reviewCollision` để người chọn ghi đè hay đặt tên mới (danh
+sách state gate + nhãn nút → [build-lifecycle.md](build-lifecycle.md)). **Không bao giờ clobber im
+lặng**: auto CHỈ áp cho pattern MỚI, còn update một pattern đã vetted thì luôn phải qua mắt người.
 `firstFreePatternSlug()` thử `<slug>-2`, `-3`, … tới 1000, rồi fallback `<slug>-<Date.now()>`.
+
+**Lưới bắt buộc của auto-approve.** Bỏ gate `review` cho pattern mới là bỏ khâu soi *genericity*
+trước khi ghi (B2′ chỉ đảm bảo lint/schema, **không** bắt được secret sót). Vì file lên kệ là live
+ngay và sẽ dạy mọi build sau, auto-approve chỉ hợp lệ khi đi kèm **hai** thứ, cả hai là bất biến:
+report nổi 1-click ngay trên tray, và **[Undo] 1-click**. Một trạng thái "✓ Done" trơn — không report,
+không đường lùi — là **vi phạm**, không phải rút gọn.
+
+**Undo** là nghịch đảo **trọn gói** của `finalizePromotion`: `unlink` file trên kệ **và** rebuild
+INDEX/provenance bằng đúng `runPython` mà finalize dùng — chỉ xoá file thôi sẽ để catalog trỏ vào
+pattern không còn. File đã mất (đã gỡ, hoặc bị promote khác đè) → **no-op, báo "đã gỡ"**, không lỗi.
+Undo **không đụng git**: bản sạch chạy trên máy nhiều user không có git, nên nó luôn chỉ thao tác
+working-tree. Nút biến mất sau khi đã Share — gỡ được bản local không có nghĩa rút được bản đã đẩy
+lên team.
 
 `finalizePromotion()` làm đúng chuỗi: stamp header → `writeFile` target → `unlink` staged
 (best-effort) → `build_index.py` → `check_provenance.py`. `build_index.py` fail là **non-fatal**: chỉ
@@ -355,13 +399,36 @@ entry; không đường dẫn corpus nào hard-code ở chỗ khác.
 `load_sources()` chuẩn hoá và điền default: `ref` → `main`, `dsl_glob` → `**/*.yml`, `sparse` → list
 (string đơn được bọc thành list), `indexed` → `True`.
 
+**Lockfile tái lập.** `corpus/sources.lock` (JSON, **tracked** cạnh `sources.yml`) khoá mỗi source vào
+một commit cụ thể: `{name, resolved_sha, ref, updated}`. Ghi qua **đúng một cửa Python**
+(`sources_admin.py lock-write`, gọi từ `update_corpus.sh` bằng `$PY` sau mỗi `reset --hard`) — không
+hand-roll JSON trong bash, cùng kỉ luật với luật cấm `yaml.safe_dump` ở dưới. Đọc ở **bước riêng chạy
+SAU venv** của `setup.sh` chứ không trong vòng clone: clone xảy ra trước khi venv tồn tại, chỗ đó
+chưa có Python để parse JSON.
+
+`ref` và lock **tách nhau có chủ đích**: `ref` ở lại là branch (để clone `--branch` và để
+freshness-check đọc `refs/heads/`), còn lock mang SHA và được `fetch --depth=1 origin <sha>` riêng —
+vì `git clone --branch <sha>` fail với SHA thuần, và một clone `--depth=1` không có sẵn commit cũ để
+checkout. Vắng lock, lock hỏng, hoặc SHA không fetch được (upstream force-push/GC, hoặc offline) →
+**warn rồi ở lại tip của `ref`**: advisory, không bao giờ chặn. `--latest` và `--skip-clones` bỏ qua
+bước pin. `sources_admin.py add` **không** ghi lock — xem dưới.
+
+**Cron sync.** `.github/workflows/sync-corpus.yml` chạy hằng tuần (mirror `refresh-schema.yml`) và khi
+bấm tay: `update_corpus.sh --all` → re-pin lock → rebuild INDEX → **mở PR nếu có diff, không bao giờ
+auto-merge**; lượt chạy tự bỏ qua khi đã có một PR sync đang mở. Lý do không auto-merge là ràng buộc
+thật: đổi corpus thì đổi số file trong `INDEX.md`, mà headline `~N template` của README lại **chép
+tay** và `test_docs_drift` ghim đúng số — phải có mắt người sửa cả hai trong cùng PR.
+
 Hai mối nối advisory tại seam corpus-update (spec 079, zero cơ chế mới): `/corpus-update` sau một
 update thật chạy `enrich.py --check` + `check_provenance.py` và **đề nghị sửa ngay trong session**
 (human gật); cron `sync-corpus.yml` append 2 khối báo cáo vào body PR (`|| true` — không bao giờ
 fail). Verdict đã cân và LOẠI, đừng đề xuất lại: **chuông distill-hint** (đếm build tham chiếu
 corpus để nhắc chưng cất) — build thành công CHÍNH LÀ nguyên liệu chưng cất tốt hơn file gốc,
 nudge promote sẵn có phủ trọn; **auto-enrich trong cron** — CI không có LLM, enrichment cần mắt
-người; **bật `--strict` provenance ở CI** — đổi hợp đồng warn-only đang cố ý.
+người; **bật `--strict` provenance ở CI** — đổi hợp đồng warn-only đang cố ý; **field per-source
+`language`/`domain`/`priority` + `find.py --domain`** — lõi của nó đã có (BM25 đã tra `tags` và lọc
+theo tag, precedence đã là sort-key thật chứ không còn là prose), phần còn lại không đáng một track
+ở quy mô một nguồn; chỉ mở lại nếu nhiều nguồn đa ngữ làm `INDEX.md` nhiễu thật.
 
 `indexed: false` **chỉ** tác động lên `scan_targets()` — source đó vẫn clone, vẫn refresh, vẫn promote
 được, chỉ vắng mặt khỏi `INDEX.md`/`index.json`/`find.py`. Shim bash **bỏ qua** field này (nó luôn emit
@@ -378,7 +445,13 @@ hỏng bootstrap. Một schema, hai parser (`sources.py` cho Python, `sources.sh
 `CC0-1.0` · `CC-BY-4.0`. Lý do allowlist: template promoted là **tác phẩm phái sinh** (đã dịch + migrate
 DSL), nên copyleft/non-commercial không redistribute được.
 
-**`validate()` giờ CÓ trên đường chạy (spec 075 S3).** `load_sources()` vẫn **không** gọi nó (parse
+Allowlist đó chia nguồn ngoài làm hai hạng. Qua được = **tier A**: thu thập, vendor, promote nguyên
+văn đều hợp lệ. Không qua — no-license hoặc copyleft — là **tier B: rewrite-only**. Đường duy nhất
+để dùng tier B là chưng cất *ý tưởng* rồi re-author qua Builder; ý tưởng không có bản quyền, file
+thì có. Commit bytes của tier B là **redistribute thật**, vì repo này được người khác clone về chạy —
+không có ngoại lệ kiểu "để đó tham khảo nội bộ thôi".
+
+**`validate()` giờ CÓ trên đường chạy.** `load_sources()` vẫn **không** gọi nó (parse
 thuần), nhưng `build_index.py main()` — sau khi venv tồn tại — nay tách `validate` làm hai: license
 non-permissive → **block** (exit ≠ 0, không ghi index); thiếu field bắt buộc → **warn**, build vẫn chạy.
 `check_provenance.py` vẫn không gọi. Bootstrap của `setup.sh` (trước venv) **không đổi** — gate nằm ở
@@ -386,11 +459,13 @@ bước build_index sau venv, nên một license copyleft thêm vào registry gi
 chỉ đỏ test. Hai generator `license_problems` / `missing_field_problems` là split đó; `validate()` compose
 cả hai (giữ nguyên cho CLI `sources.py` + parity test).
 
-**`sources_admin.py` = cửa "add/doctor" an toàn (spec 075 S5).** `add` validate **trước khi ghi** (license
+**`sources_admin.py` = cửa "add/doctor" an toàn.** `add` validate **trước khi ghi** (license
 + field + an-toàn-flat-schema), từ chối nếu có vấn đề, rồi **append text phẳng thủ công** — KHÔNG
 `yaml.safe_dump` (reflow sẽ phá awk shim, đúng hazard §schema-phẳng ở trên) — và chỉ **in** lệnh
-clone+index, không tự `git clone` (permission). `add` ghi `ref: main`, **không** pin SHA (để track C —
-pin SHA sẽ vô hiệu freshness-check của `update_corpus.sh`). `doctor` chỉ **đọc**: license lệch / thiếu
+clone+index, không tự `git clone` (permission). `add` ghi `ref: main` và **không** pin SHA: nó cố ý
+clone-free/pure-local (không chạm mạng), còn việc khoá commit là của lockfile do lần clone/update
+đầu tiên ghi — mà pin SHA thẳng vào `ref` thì lại vô hiệu freshness-check của `update_corpus.sh`
+(nó chỉ resolve `refs/heads/`). `doctor` chỉ **đọc**: license lệch / thiếu
 field = lỗi (exit 1); ref pinned-SHA + clone thiếu = cảnh báo (exit 0). `build_index.py` cũng nay **nêu
 TÊN** mọi YAML parse-fail thay vì đếm ẩn danh (S4); YAML hợp lệ nhưng không-phải-workflow vẫn bỏ im lặng.
 
@@ -407,25 +482,34 @@ TÊN** mọi YAML parse-fail thay vì đếm ẩn danh (S4); YAML hợp lệ nh�
 | `apps/builder/test/promote.test.ts` | toàn luồng với `runPython`/`runTurn` giả: blocked → không spawn turn; staging chỉ trong run dir; re-gate đỏ → `promote_distill_failed`; Approve là đường ghi duy nhất; stamp `spec=052` + rebuild INDEX; va slug → overwrite/rename, không clobber; reply ở gate blocked là no-op. **Cửa external**: source staged ở run-dir root (**không** dưới `promote/`); turn ghi-shorthand → `relocateRunArtifacts` chạy thật, không `ENOTEMPTY`; Approve external stamp `source=external`+`license` khai, **không** `source=original/MIT` |
 | `apps/builder/test/promote-external-route.test.ts` | route `POST /api/promote` cửa paste: YAML fail linter → `400` inline **không** mint task; paste rỗng → `400` (không nhầm cửa local "project required"); payload không `yaml`/`origin` vẫn về cửa local |
 | `.pre-commit-config.yaml` (CI: `pre-commit run --all-files`) | 4 linter + JSON Schema + guard version DSL trên `templates/(patterns\|probes\|library)/*.yml` — guard thật của `library` và `probes` |
+| `tests/test_find_ranking.py` · `tests/test_find_unknown_feature.py` | `source_rank` khớp luật precedence; `patterns` trước `corpus` ở cùng độ phức tạp; `--name` chạm `summary_en`/`tags`; query nhiều từ khớp tag có gạch nối; relevance dẫn, hoà thì precedence phá; index chưa enrich vẫn tra `description` thô; feature lạ báo lỗi tường minh, khác kết quả rỗng thật |
+| `tests/test_enrich.py` | schema enrichment; merge vào index; degrade khi thiếu; phát hiện `orig_sha256` lệch |
+| `tests/test_sources_lock.py` | round-trip lock; idempotent theo `(sha, ref)`; serialize tất định; lock hỏng/sai shape → degrade rỗng (không ném); CLI `lock-write`/`lock-read`; `add` **không** ghi lock; lockfile thật trong repo đúng shape. **Ranh giới**: chỉ tầng Python — nhánh bash bước pin trong `setup.sh` không test nào gác |
+| `tests/test_catalog.py` | fingerprint ổn định qua rename/dịch; `seed` idempotent; ba verdict của `check`; `record`/`hunt-log`; `doctor` bắt cặp trùng thật. Nhóm `stats`: promote stamp ở **`patterns/`** phải hiện trong `promotes`; `seed_coverage.stale` khi index có file chưa seed; entry `rejected` **không** vào diversity; thiếu `index.json` → `ok:false` (không tự build); dup tầng curated lộ ở doctor |
+| `apps/builder/test/shelf-stats.test.ts` · `apps/builder/web/src/lib/shelf.test.ts` | passthrough `GET /api/dev/shelf` + nhánh `{ok:false, reason, tail}`; derivation render (ngưỡng feature "nghèo", tiến độ cổng hunt) |
+| `apps/builder/test/promote-hint.test.ts` | gating nudge ④: from-scratch anchor (`workflow===null && seedPath===null`), seed-edit và edit-local đều **vắng**, shape <4 node vắng, verdict near-dup vắng, tối đa 1 nudge/task |
 | `.github/workflows/ci.yml` | `setup.sh` rebuild index trước pytest; `check_provenance.py` **không** `--strict` |
 
 ## 8. Những gì KHÔNG check tự động nào chứng minh được
 
 Đây là ranh giới của mọi kết luận "xanh" ở tầng này.
 
-- **`find.py` không có một test nào.** Không file test nào import nó; mọi tham chiếu trong
-  `apps/builder/test/*.ts` chỉ là chuỗi trong prompt/allowlist. Sort order, prefix-match `--source`,
-  AND semantics, `rc=1` khi thiếu index — hôm nay tôi xác minh bằng tay; **không gì giữ chúng đúng**.
-- **Không gì gác việc thứ tự ưu tiên khớp với hành vi.** `patterns > library > project > corpus:*` là
-  prose ở `INDEX.md` + `AGENTS.md`; `find.py` sort corpus lên trước. Không test nào so hai thứ — vì
-  không có code nào thực thi luật để mà so.
+- **`find.py` chỉ được gác MỘT PHẦN.** `tests/test_find_ranking.py` +
+  `tests/test_find_unknown_feature.py` phủ precedence (`source_rank` khớp luật văn xuôi; `patterns`
+  đứng trước `corpus` ở cùng độ phức tạp), ranking `--name` (chạm `summary_en` và `tags`; query nhiều
+  từ khớp tag có gạch nối; relevance dẫn; hoà thì precedence phá; index chưa enrich vẫn tra được
+  `description` thô) và lỗi feature-không-tồn-tại (phân biệt với kết quả rỗng thật). **Chưa gác**:
+  prefix-match `--source`, AND semantics khi cộng nhiều `--has`/`--no`, `rc=1` khi thiếu index, và
+  hình dạng output `--json`/`--full`.
 - **Chỉ **số file** của `INDEX.md` được gác, không phải nội dung.** `test_docs_drift.py` kiểm dải + so
   với headline README. Sửa `app.description` của một pattern → dòng trong `INDEX.md` đã commit thành
   cũ, số không đổi, **không test nào đỏ**. Và CI `setup.sh` rebuild index **trước** pytest, nên bản
   `INDEX.md` đã commit không bao giờ được đem so với đĩa.
-- **Số đó là hàm của một upstream không pin.** Registry để `ref: main`; CI clone corpus. Một commit
-  upstream thêm/bớt workflow sẽ đổi con số CI tính ra, và headline chép tay trong `README.md` phải sửa
-  theo. Không gì phát hiện trước.
+- **Số đó vẫn có thể trôi dù đã có lock.** CI chạy `setup.sh --skip-venv` nên bước pin CÓ chạy và
+  bình thường số file do lock quyết định. Nhưng lock không phải bảo đảm: SHA không fetch được thì
+  bước pin degrade về tip của `ref` (đúng thiết kế), và một lượt cron sync ghi lock mới cũng đổi số.
+  Cả hai trường hợp, headline `~N template` chép tay trong `README.md` phải sửa theo — không gì phát
+  hiện trước ngoài chính `test_docs_drift` đỏ sau đó.
 - **`promote_gate.py` giữ bản sao thứ hai của danh sách 4 linter.** `LINTERS` ở `promote_gate.py:41` là
   tuple tên script viết tay; `linters.ts` tự nhận là *"The ONLY place this list is written"*. Không test
   nào so hai bên. Thêm linter thứ 5 vào `linters.ts` → gate ③ có nó, promote gate **im lặng vẫn chạy
@@ -477,9 +561,18 @@ git thật). Hub tự mở PR
 (`.github/workflows/contrib-pr.yml` — title/body lấy nguyên văn từ commit; body do Builder soạn:
 verdict gate, kết quả share-scan, near-dup, checklist). CI chạy trên chính cú push
 (`ci.yml` push-trigger `contrib/**` — PR mở bằng `GITHUB_TOKEN` không kích `pull_request`).
-Phía gửi có 2 lớp chắn trước khi byte rời máy: preflight (`promote_gate.py share-scan` +
-`catalog.py check --shelf`) và cái gật của chính contributor; provenance `external` không
+Phía gửi: **Share = Push**. Cú bấm [Share to team] **chính là** cái gật của người — không có gate xác
+nhận thứ hai sau nó. Bấm xong chạy preflight (`promote_gate.py share-scan` + `catalog.py check
+--shelf`) rồi rẽ hai đường: `findings` rỗng → **đẩy thẳng**; `findings` khác rỗng → **CHẶN CỨNG**,
+không push, báo lộ secret. Đây là **cầu chì**, không phải gate ma sát — nên **không có nút
+"push anyway"**: secret một khi lên Drive/PR là đã lộ, không rút lại được. Ngược lại, near-dup (`dup`)
+**chỉ advisory** và **không bao giờ chặn** — admin lọc ở `/shelf-inbox`. Provenance `external` không
 permissive-license bị chặn từ đầu (không có nút Share).
+
+Đã cân và LOẠI, đừng đề xuất lại: **auto-approve khi CÓ collision**; **nút push-anyway khi preflight
+bắt secret**; **chặn share vì near-dup**; **Undo dính git** (git-commit detection / `git revert` /
+"cửa sổ pre-commit"); **dropdown Local-hay-Team ngay lúc nhấn nút** — nút share chỉ surface sau khi
+đã finalize.
 
 **Checklist review một PR `contrib/*`** (trùng với checklist in sẵn trong body PR):
 
@@ -493,8 +586,8 @@ permissive-license bị chặn từ đầu (không có nút Share).
 - [ ] `INDEX.md` conflict với contribution song song → regenerate (`build_index.py`) rồi commit,
       đừng merge tay.
 
-Merge xong: mọi bản sạch nhận qua `git pull` thường (pattern + INDEX đều tracked trong sparse
-view 074); branch `contrib/*` dọn bằng GitHub "Automatically delete head branches".
+Merge xong: mọi bản sạch nhận qua `git pull` thường (`templates/patterns/*.yml` + `INDEX.md` đều
+tracked); branch `contrib/*` dọn bằng GitHub "Automatically delete head branches".
 
 Verdict transport đã cân và LOẠI — đừng đề xuất lại (081/083): **repo community riêng làm corpus
 source** (contributor bản-sạch đã có nguyên promote FSM sanitize+gate+provenance; sản phẩm xứng

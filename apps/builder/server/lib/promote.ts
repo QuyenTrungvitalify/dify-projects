@@ -10,10 +10,14 @@
  *                    — the 018 write-allowlist already permits the run dir; it CANNOT touch templates/).
  *                     → B2′ re-gate (`check <src> --distilled <staged>`, D4)
  *                        ├─ not clean → `promote_distill_failed` gate (Request-changes re-runs; Discard)
- *                        └─ clean     → record mechanical candidate rules (D4/B3) → `promote_review` gate
- *   promoteConfirm → the human 1-click Approve (D5) — the ONLY write to templates/patterns/. Finalize
- *                    (D6, BACKEND, outside any turn): stamp x-provenance → move staged → build_index +
- *                    check_provenance. A slug collision is surfaced (overwrite/rename), never silent.
+ *                        └─ clean     → record mechanical candidate rules (D4/B3) → collision check:
+ *                                       free slug → finalize straight away (no `review` gate);
+ *                                       taken slug → `reviewCollision`
+ *   promoteConfirm → the human 1-click Approve. `finalizePromotion` — not this function — is the ONLY
+ *                    write to templates/patterns/; the auto path above calls the SAME finalize earlier
+ *                    rather than opening a second write path. Finalize (BACKEND, outside any turn):
+ *                    stamp x-provenance → move staged → build_index + check_provenance. A slug
+ *                    collision is surfaced (overwrite/rename), never silent.
  *   promoteReply   → "Request changes" at either gate → re-run the distill turn, note-steered.
  *
  * The phase FSM (orchestrator.ts) is UNTOUCHED (AC7): routes/tasks.ts delegates to these on

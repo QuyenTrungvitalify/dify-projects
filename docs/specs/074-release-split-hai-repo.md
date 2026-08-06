@@ -1,10 +1,19 @@
 # Spec 074 — Bản "sạch" cho user: MỘT repo, sparse-checkout tự áp
 
-**Status**: Draft v3 (2026-07-20/21 — v2 pivot từ mô hình 2-repo khi user gỡ ràng buộc "giấu";
+**Status**: **PENDING — chưa làm, không nằm trong hàng đợi hiện tại** (đánh dấu 2026-08-06).
+Thiết kế đã chốt ở Draft v3 và không có gì phải quyết thêm; **0/3 slice có code** (`scripts/sparse-view.txt`
+và `scripts/lib/sparse.sh` chưa tồn tại). Khi nào làm thì vào thẳng §5, không cần thiết kế lại.
+Draft v3 (2026-07-20/21 — v2 pivot từ mô hình 2-repo khi user gỡ ràng buộc "giấu";
 v3 sửa theo review đối kháng 12-agent: 1 blocker + 3 major được xác nhận, xem §4b. Draft v1/v2
 chưa từng commit.)
 **Effort**: S1 = S–M · S2 = S · S3 = S–M — tổng ≈ M
-**Đóng spec**: qua `/spec-close` (docs/specs/README.md) như mọi spec.
+**Đóng spec**: KHÔNG đóng được lúc này — `/spec-close` chỉ chạy khi S1–S3 đã ship, hoặc khi user
+quyết bỏ hẳn (lúc đó là spec chết non: một dòng `AGENTS.md §9` giải thích vì sao chết rồi xoá).
+Hai bài học ĐÃ được chuyển đi trước (B1 stdin-rỗng, M3 inode) — xem `AGENTS.md §9` mục 2026-07-21;
+phần còn lại của spec vẫn là nhà duy nhất của nó.
+
+> ⚠️ Số đo trong §1 (~429 file tracked, ~215 đồ dev) là ảnh chụp 2026-07-20 và **đã trôi** —
+> đếm lại bằng `git ls-files | wc -l` trước khi dùng làm căn cứ.
 
 ---
 

@@ -45,7 +45,8 @@ def feature_key(name):
 
 
 # ── Spec 076 E2: zero-dep BM25 relevance for `--name` ────────────────────────────────────────────
-# The A/B (docs/specs/076 §9) showed enrichment TEXT was right but substring `--name` couldn't cash it
+# The A/B (docs/prompts/runs/CAMPAIGNS.md, "Bằng chứng đo ngoài-campaign" 2026-07-26/27) showed
+# enrichment TEXT was right but substring `--name` couldn't cash it
 # in: "data analysis" ≠ tag "data-analysis", "chain of thought" ≠ "chain-of-thought", "repair json" ≠
 # "Repairs … JSON". Tokenizing (hyphens→spaces, lowercase) + BM25 over the enriched text fixes exactly
 # that, still pure-stdlib. IDF is computed over the WHOLE index so common words (llm/workflow) don't

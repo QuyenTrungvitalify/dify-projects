@@ -70,7 +70,8 @@ const ERROR_GATE: Gate = { actions: [REPLY('retry', 'Retry phase')] };
  * `computeGate`. The action ids are matched string-wise in `promoteConfirm`/`promoteReply`:
  *   - `blocked`        → the B1 eligibility gate failed. Terminal-ish: only Discard (fix the source, re-promote).
  *   - `distill_failed` → the distilled output failed the B2′ re-lint. Request-changes re-runs the turn; Discard.
- *   - `review`         → a clean distill. Approve is the ONLY write to templates/patterns/; Request-changes
+ *   - `review`         → a clean distill whose slug was already taken, or a distill awaiting the human
+ *                        eye. `finalizePromotion` is the ONLY write to templates/patterns/; Request-changes
  *                        re-runs the distill note-steered; Discard sweeps (nothing written). On a slug
  *                        collision at Approve, `reviewCollision` swaps in Overwrite / Save-as-new + Discard.
  *

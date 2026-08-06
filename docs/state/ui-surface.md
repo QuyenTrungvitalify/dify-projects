@@ -2,9 +2,12 @@
 
 User thấy gì, làm được gì ở mỗi trạng thái, và cái gì **chỉ** tồn tại trong browser.
 
-Phạm vi: `web/src/store.ts` · `web/src/sse-client.ts` · và **toàn bộ** `web/src/lib/`: `i18n.ts` ·
-`gate-foot.ts` · `thread-persist.ts` · `crumb.ts` · `phase.ts` · `markdown.ts` · `diff-parser.ts` ·
-`slug.ts` · `attachments.ts` · `dev.ts` · `promote-visibility.ts` · `notify.ts`.
+Phạm vi: `web/src/store.ts` · `web/src/sse-client.ts` · và `web/src/lib/` **trừ hai file khai ở nơi
+khác**: `i18n.ts` · `gate-foot.ts` · `thread-persist.ts` · `crumb.ts` · `phase.ts` · `markdown.ts` ·
+`diff-parser.ts` · `slug.ts` · `attachments.ts` · `dev.ts` · `promote-visibility.ts` · `notify.ts`.
+Hai file **không** thuộc doc này: `shelf.ts` (derivation của màn kệ —
+[templates-and-promotion.md](templates-and-promotion.md)) và `sidebar-prefs.ts` (pref client, còn
+vô chủ — xem [README.md](README.md) §Bề mặt chưa có doc sở hữu).
 
 **Không** thuộc doc này, và vẫn **chưa có chủ**: `web/src/api.ts` (shape HTTP + `ApiError`),
 `web/src/types.ts` (`Wire*`), `web/src/components/**`, `main.tsx`, `data.ts`. Doc này trỏ vào chúng
@@ -82,6 +85,27 @@ vào /api/tree lẫn /api/active); chip **Mode** trên composer nhớ lựa ch�
 `store.ts` (`applyTask` early-return cho consult — task born-done đi nhánh gate sẽ đẻ card ma;
 guard finalize trong `onInit` gate trên `reconnected` — không thì câu trả lời stream đầu bị vứt).
 
+Distill chạy **nền** (spec 084) phía FE: bấm Distill — cả từ một workflow project lẫn từ YAML dán
+ngoài, **cùng một seam** — không còn chiếm foreground; task được đưa vào state `bgDistills` và user ở
+nguyên màn hình. Theo dõi bằng **poll** `GET /api/tasks/<id>` (~2s, dừng khi terminal), **không** mở
+stream SSE thứ hai: SSE ở đây là single-stream (một `teardown` global, §1), một stream thứ hai sẽ đụng
+chùm reconnect và `ask:done` của consult. Tray góc phải là **tương tác**, không chỉ hiển thị: mỗi gate
+không-auto-được (collision, distill-fail, share) render đúng nút của nó và bấm ngay tại chỗ qua bản
+`confirm`/`reply` **nhận `taskId`** — POST thẳng `/api/tasks/:id/…`, KHÔNG `optimisticAdvance` vào
+`task.value`, poll nhặt gate kế tiếp về. Mở màn hình task giờ chỉ để **đọc report**. `[Close]` trên
+một item terminal chỉ gỡ khỏi tray (không đụng file kệ); trên item **chưa** terminal thì hỏi xác nhận
+rồi `POST /api/tasks/:id/cancel` — không bao giờ để một task đang chờ biến mất im lặng.
+
+Làn ghi là **single-slot**: bấm Distill trong lúc một turn-ghi khác đang chạy sẽ nhận **409**. Nền
+KHÔNG được ra lỗi đỏ — item chuyển trạng thái `queued` ("Đang chờ") và FE **tự dispatch lại** khi làn
+rảnh, nên nhiều distill tự serialize thay vì chạy song song.
+
+Sidebar có section **蒸留** riêng cho promote task (`GET /api/promotes`, mirror section Chat của
+consult) — promote **không** còn nằm trong `/api/tree`. Phân vai là bất biến: **tray = phiên/active**
+(Approve/Undo/Clear nhanh), **section = lịch sử tất cả** (newest-first, click mở lại). Một task hiện
+ở **cả hai chỗ là CỐ Ý**, không phải trùng lặp lỗi. Mở lại một promote task replay cả distill-log,
+nên "what I genericized" đọc lại được sau khi đã đóng tray.
+
 Cây sidebar (GET /api/tree — server dựng, nửa `artifacts.ts` này chưa có doc chủ, ghi tạm ở đây vì
 UI là consumer duy nhất): hàng workflow mang `synthetic: true` là **hàng gom hiển thị, không phải
 workflow** — cả bucket `(unsaved)` lẫn hàng orphan-task-trong-project-có-thật (CẢ HAI nguồn, spec
@@ -94,7 +118,8 @@ server cũ không gửi thì mọi hàng hành xử như trước.
 |---|---|---|
 | `task` | `WireTask` từ SSE / GET | không (fetch lại) |
 | `thread` | **chỉ client** — dựng từ transition SSE | có, qua localStorage (§4) |
-| `tree` · `seeds` · `active` | GET, best-effort (lỗi → im lặng) | không |
+| `tree` · `seeds` · `active` · `promotes` | GET, best-effort (lỗi → im lặng) | không |
+| `bgDistills` | poll `GET /api/tasks/<id>` | **một nửa** — item **non-terminal** dựng lại được sau reload (parked review/collision/share vẫn tới được); item **terminal thì KHÔNG**, nên `[Undo]` là "hối hận tức thì" trong phiên, không phải thùng rác vĩnh viễn |
 | `settings` | **chỉ client, chỉ RAM** | **không** |
 | `connected` · `startError` · `busyHolder` · `asking` · `confirmState` | phù du | không |
 

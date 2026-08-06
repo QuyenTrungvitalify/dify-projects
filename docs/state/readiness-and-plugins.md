@@ -108,6 +108,16 @@ Trước **mỗi** lần spawn Implement, backend harvest vào `apps/builder/.ru
 Ba call độc lập; chỉ bỏ ghi file khi **cả ba** fail. `sources.<arm>.ok` ghi kết quả từng nhánh: khi
 `ok:false`, mảng `[]` bên cạnh **không mang thông tin gì**.
 
+Mỗi nhánh spawn kèm **trần thời gian** (mặc định nằm trong `dify-io.ts`, chỉnh bằng env
+`DIFY_HARVEST_TIMEOUT_MS`; giá trị không parse được thì về mặc định). Ba nhánh chạy song song nên
+wall-clock của cả lần harvest xấp xỉ **một** trần, không phải tổng ba. Nhánh bị kill vì quá hạn
+degrade **y hệt mọi lỗi khác** — `[]` kèm `sources.<arm>.ok:false` — nên luật "chỉ bỏ ghi file khi cả
+ba fail" không đổi, và "thiếu cred/Dify → rỗng, không chặn" vẫn là bất biến chứ không thành lỗi cứng.
+
+Trần đó là đánh đổi **tốc độ ↔ đầy đủ**, không phải tinh chỉnh vô hại: hạ quá thấp thì
+`{{KNOWLEDGE}}` mất model/tool đang thật sự có trong workspace mà **không ai được báo** — build vẫn
+chạy bình thường, chỉ "không thấy" tài nguyên.
+
 `enabledModelCount(facts)` là **reader duy nhất** của số model: trả `undefined` (không biết) khi `facts`
 null hoặc `sources.models.ok === false`; trả số thật nếu ngược lại.
 
@@ -266,7 +276,7 @@ call bị từ chối mới đo đúng. Predicate này đánh giá **trước** 
 | `apps/builder/test/runnability.test.ts` | phân loại; parity python↔TS trên `test/fixtures/runnability/*.yml` |
 | `apps/builder/test/report-tool-note.test.ts` | `toolLabels` kể cả khi export sort key; `joinNotes` |
 | `apps/builder/test/report-plugin-todo.test.ts` | advisory TODO; tool checklist sống sót khi hash đã resolve |
-| `apps/builder/test/workspace-facts.test.ts` | harvest, provenance từng nhánh, `enabledModelCount`, `knowledgeBlock` |
+| `apps/builder/test/workspace-facts.test.ts` | harvest, provenance từng nhánh, `enabledModelCount`, `knowledgeBlock`; trần thời gian mỗi nhánh — mặc định, override qua env, và env rác rơi về mặc định |
 | `apps/builder/web/src/lib/notes-i18n.test.ts` | các chuỗi **được liệt kê trong chính test** có frame JA — **không** duyệt mọi chuỗi code phát ra |
 | `tests/test_e2e_check.py` | cơ chế của `evaluate_comprehension` (bucket, word-boundary, regex leak) — **không** phủ việc chuỗi thật có trúng token hay không |
 | `tests/test_lint_plugin_hashes.py` | gate format + coverage; shape catalog; tham số của pattern |

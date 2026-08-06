@@ -31,7 +31,7 @@ rebuild per-build.
 |---|---|---|---|
 | Engine/turn | 🟢 | — | transcript cap 64K/48K (`run-transcript.ts:20`), stderr ring (`claude-session.ts:192`), linter song song |
 | Index lifecycle | 🟢 | full-rebuild nhưng **không** chạy trong build (`build_index.py:295`) | không per-build |
-| **Harvest `{{KNOWLEDGE}}`** | 🟢 (spec 075 S1) | ~~không Node-timeout → treo ~60s~~ → **đã thêm Node-timeout 15s/arm** (`dify-io.ts` harvestWorkspaceFacts, env `DIFY_HARVEST_TIMEOUT_MS`); vẫn block mỗi Implement + mỗi `/reply` **cố ý** (freshness), TTL-cache HOÃN (§4 S2) | 3 arm `Promise.all` + per-arm timeout |
+| **Harvest `{{KNOWLEDGE}}`** | 🟢 (spec 075 S1) | ~~không Node-timeout → treo ~60s~~ → **đã thêm Node-timeout 15s/arm** (`dify-io.ts` harvestWorkspaceFacts, env `DIFY_HARVEST_TIMEOUT_MS`); vẫn block mỗi Implement + mỗi `/reply` **cố ý** (freshness), TTL-cache HOÃN (lý do + điều kiện mở lại: mục để-ngỏ 075 trong [CAMPAIGNS.md](prompts/runs/CAMPAIGNS.md)) | 3 arm `Promise.all` + per-arm timeout |
 | Retrieval | 🟡 | đọc lại 50KB index ~2×/Implement, no memo (`analysis.ts:28-37,131`) — **negligible** | find.py 1 parse/lần |
 | Nạp nguồn | 🟢 (spec 075 S3/S4/S5) | ~~`validate()` ngoài runtime; parse im lặng; không helper~~ → **`validate()` vào `build_index.py` (license block / field warn)**, **YAML hỏng được nêu tên**, **`sources_admin.py add/doctor`** (ghi phẳng thủ công) | single-entry-add, flat-schema |
 | **Đồng bộ (sync)** | 🔴 | sync **thủ công-hoàn-toàn** (schema có cron `refresh-schema.yml:5`, corpus **không**); `ref:main` **không pin → không tái lập**, không lockfile | `update_corpus.sh` đa-nguồn + `--check`/`--all`/`<name>` + idempotent |

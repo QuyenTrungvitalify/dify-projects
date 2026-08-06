@@ -5,7 +5,7 @@
 Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 
 - Reference skills + corpus + node-type schema để build YAML workflow nhanh
-- CLI search ~47 template theo feature/complexity/plugin
+- CLI search ~46 template theo feature/complexity/plugin
 - Cấu trúc folder 2 tầng cho từng dự án (`projects/<project>/<workflow>/`, spec 030)
 - GitOps sync (pull/push/diff giữa Dify workspace ↔ git)
 - pytest harness + pre-commit hooks
