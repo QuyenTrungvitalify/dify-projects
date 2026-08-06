@@ -157,12 +157,14 @@ export function BgTray(): JSX.Element | null {
           <div key={b.key} className={'bg-tray-card tone-' + h.tone + (compact ? ' bg-tray-card--compact' : '') + (b.taskId ? ' has-open' : '')}>
             {/* header-level [Details] icon (left of the ×): opens the distill task foreground — the same
                 store.openBg as the ActionRow [Details], but reachable on the COMPACT running card too. */}
+            {/* data-tip drives the CSS hover bubble (clearer than a delayed native title, which is
+                dropped so the two tooltips don't double up). */}
             {b.taskId && (
-              <button className="bg-tray-open" title={tr('trayDetails')} aria-label={tr('trayDetails')} onClick={() => void store.openBg(b.key)}>
+              <button className="bg-tray-open" data-tip={tr('trayDetailsTip')} aria-label={tr('trayDetails')} onClick={() => void store.openBg(b.key)}>
                 <I.report />
               </button>
             )}
-            <button className="bg-tray-x" title={tr('trayClose')} aria-label={tr('trayClose')} onClick={() => void closeItem(b)}>
+            <button className="bg-tray-x" data-tip={tr('trayCloseTip')} aria-label={tr('trayClose')} onClick={() => void closeItem(b)}>
               <I.close />
             </button>
             <div className="bg-tray-head">

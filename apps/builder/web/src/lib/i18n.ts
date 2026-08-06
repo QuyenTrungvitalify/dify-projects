@@ -310,6 +310,9 @@ const EN: Dict = {
   trayPush: 'Push to team',
   trayDiscard: 'Discard',
   trayClose: 'Close',
+  // hover bubbles on the tray header icons (clearer than the bare labels)
+  trayDetailsTip: 'Open this task',
+  trayCloseTip: 'Dismiss (cancels if running)',
   trayCloseRunningTitle: 'Stop this distill?',
   trayCloseRunningMsg: 'The distill for “{slug}” has not finished — closing it will cancel it.',
   trayCloseRunningOk: 'Stop distill',
@@ -755,6 +758,8 @@ const JA: Dict = {
   trayPush: 'チームへ送信',
   trayDiscard: '破棄',
   trayClose: '閉じる',
+  trayDetailsTip: 'このタスクを開く',
+  trayCloseTip: '閉じる（実行中の場合は中止）',
   trayCloseRunningTitle: 'この蒸留を中止しますか？',
   trayCloseRunningMsg: '「{slug}」の蒸留はまだ完了していません — 閉じると中止されます。',
   trayCloseRunningOk: '蒸留を中止',

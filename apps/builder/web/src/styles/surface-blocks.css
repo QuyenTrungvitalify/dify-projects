@@ -1637,6 +1637,18 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .bg-tray-open svg { width: 14px; height: 14px; }
 /* with both header icons present the title needs to clear ~48px of controls, not 20px */
 .bg-tray-card.has-open .bg-tray-head { padding-right: 46px; }
+/* hover bubble on the tray header icons — instant, styled like the bell callout (.notify-tip), fed by
+   data-tip. Right-aligned under the icon so it stays inside the viewport (the tray hugs the right edge). */
+.bg-tray-open::after, .bg-tray-x::after {
+  content: attr(data-tip);
+  position: absolute; top: calc(100% + 7px); right: 0; z-index: 25;
+  padding: 4px 9px; border-radius: 9px; border-top-right-radius: 3px;
+  background: var(--bg-elevated); border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-pop);
+  font-size: 11px; line-height: 1.4; color: var(--tx-2); white-space: nowrap;
+  pointer-events: none; display: none;
+}
+.bg-tray-open:hover::after, .bg-tray-x:hover::after { display: block; }
 .bg-tray-head {
   display: flex; align-items: center; gap: 8px;
   padding-right: 20px; font-size: 13px; color: var(--tx-1);
