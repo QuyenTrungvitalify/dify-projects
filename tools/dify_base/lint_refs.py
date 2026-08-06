@@ -334,12 +334,24 @@ def lint_file(yaml_path: Path) -> tuple[int, list[str], list[str]]:
     node_map, warnings = build_node_map(nodes)
     errors: list[str] = []
 
-    # 1. Inline {{#X.Y#}} refs — scan whole text (covers multi-line scalars).
+    # 1. Inline {{#X.Y#}} refs. The scan is over the RAW TEXT (per-line) so the finding can cite the
+    #    exact line AND so a ref inside a multi-line block scalar is still seen. But raw text also
+    #    contains YAML COMMENTS, and a comment that mentions a ref-shape (e.g. a `# GOTCHA:` line
+    #    explaining `{{#code.tsv#}}`) is NOT a ref — Dify strips comments on import, so it can never
+    #    resolve to anything. The fix is to trust the PARSER for "what is actually a ref": `_iter_refs`
+    #    walks the loaded document (comments already gone) and yields every ref Dify would really see —
+    #    including refs inside code strings (Q3.3 lenient, fixture code_with_string_ref) since those ARE
+    #    string values. We keep the raw scan for the line number but only ACT on a ref the parser also
+    #    saw. A distill turn writing a ref-shape into an explanatory comment used to fail the promote
+    #    gate on a perfectly valid workflow.
+    real_refs = {(sid, fld) for sid, fld in _iter_refs(data)}
     for line_no, line in enumerate(text.splitlines(), 1):
         for match in REF_PATTERN.finditer(line):
             node_id, field = match.group(1), match.group(2)
             if node_id in SPECIAL_NS:
                 continue
+            if (node_id, field) not in real_refs:
+                continue  # only in a comment — the parser did not see it as a value
             ref_str = f"{{{{#{node_id}.{field}#}}}}"
             outputs = node_map.get(node_id, "MISSING")
             if outputs == "MISSING":

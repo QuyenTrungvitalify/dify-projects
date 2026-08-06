@@ -1,0 +1,23 @@
+# A valid workflow whose EXPLANATORY COMMENTS mention ref-shapes that are NOT refs.
+# This is exactly what a distill turn produces: a GOTCHA comment teaching the shape, e.g.
+# interpolating {{#code.tsv#}} into a JSON body breaks it. `code` is a generic name in the prose,
+# not a node id — Dify strips comments on import, so it can never resolve. lint_refs must NOT flag
+# it (regression: it used to, failing the promote gate on a valid pattern). The one REAL ref
+# ({{#C.msg#}}, inside the llm prompt string) is still checked and is valid → exit 0.
+app:
+  name: comment-ref-shape
+workflow:
+  graph:
+    nodes:
+      - id: 'S'
+        data: {type: start, variables: []}
+      - id: 'C'
+        # {{#nowhere.field#}} in THIS comment must be ignored too (bad id, would fail if scanned).
+        data:
+          type: code
+          outputs: {msg: {type: string}}
+      - id: 'L'
+        data: {type: llm, prompt: "{{#C.msg#}}"}
+    edges:
+      - {source: 'S', target: 'C'}
+      - {source: 'C', target: 'L'}

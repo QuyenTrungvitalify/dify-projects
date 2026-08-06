@@ -18,7 +18,8 @@ EXPECTED: dict[str, int] = {
     "bad_field_name.yml": 1,
     "bad_value_selector.yml": 1,
     "mixed_errors.yml": 1,
-    "code_with_string_ref.yml": 1,  # Q3.3 lenient: treat literal as a ref
+    "code_with_string_ref.yml": 1,  # Q3.3 lenient: treat literal IN A STRING VALUE as a ref
+    "comment_ref_shape.yml": 0,  # ref-shape in a YAML COMMENT is NOT a ref (distill GOTCHA prose)
     "reach_trigger_valid.yml": 0,  # spec 057: trigger entry anchors reachability — clean chain
     "reach_trigger_fwd.yml": 1,  # spec 057: forward ref under a trigger entry now HARD-fails
 }
