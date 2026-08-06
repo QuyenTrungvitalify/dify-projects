@@ -15,6 +15,9 @@
 #   2. A node with fail-branch gets TWO outgoing edges; their `sourceHandle` values are
 #      `success-branch` and `fail-branch` (NOT `source`), and the edge id embeds the handle:
 #      `<source_id>-success-branch-<target_id>-target`.
+#      BOTH edges must reach a terminal node. A fail-branch that dead-ends returns the operator
+#      nothing on failure — not even the work already completed before the failing step — which
+#      defeats the whole point of choosing fail-branch over letting the run die.
 #   3. The failing node implicitly exposes `error_message` + `error_type` — downstream nodes read
 #      them like any output: `{{#<node_id>.error_message#}}` / value_selector [<node_id>, error_message].
 #   4. Several fail-branches may CONVERGE on one handler (both fail edges below target the same

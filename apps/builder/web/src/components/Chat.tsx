@@ -239,7 +239,6 @@ function promoteGateView(t: WireTask): GateView {
   if (note) summary.unshift(note);
   if (p?.target) summary.push(tf('promoteTargetLine', { target: p.target }));
   summary.push(tf('promoteProbeLine', { probe: p?.verdict?.probe ?? 'skipped' }));
-  if (p?.rules && p.rules.length) summary.push(tf('promoteRulesLine', { n: String(p.rules.length) }));
   return { tone: 'deploy', badge: tr('promoteReviewBadge'), title: tr('promoteReviewTitle'), meta: '',
     summary, showYamlLink: true };
 }

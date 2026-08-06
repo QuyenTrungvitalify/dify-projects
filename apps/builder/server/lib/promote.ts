@@ -10,7 +10,7 @@
  *                    — the 018 write-allowlist already permits the run dir; it CANNOT touch templates/).
  *                     → B2′ re-gate (`check <src> --distilled <staged>`, D4)
  *                        ├─ not clean → `promote_distill_failed` gate (Request-changes re-runs; Discard)
- *                        └─ clean     → record mechanical candidate rules (D4/B3) → collision check:
+ *                        └─ clean     → collision check:
  *                                       free slug → finalize straight away (no `review` gate);
  *                                       taken slug → `reviewCollision`
  *   promoteConfirm → the human 1-click Approve. `finalizePromotion` — not this function — is the ONLY
@@ -36,7 +36,6 @@ import { relocateRunArtifacts } from './scaffold.js';
 import { buildHolderId, clearSession, isCancelled, setSession } from './lock.js';
 import {
   emit,
-  errMsg,
   resolveRunners,
   type OrchestratorCtx,
   type ConfirmPayload,
@@ -60,7 +59,6 @@ const TURN_TIMEOUT_MS = Number(process.env.BUILDER_TURN_TIMEOUT_MS) || 10 * 60 *
 export function stagedRel(task: Task): string {
   return `apps/builder/.runs/${task.taskId}/promote/${task.promote!.slug}.yml`;
 }
-const notesRel = (task: Task): string => `apps/builder/.runs/${task.taskId}/promote/notes.json`;
 const targetRel = (slug: string): string => `templates/patterns/${slug}.yml`;
 
 /** Parse `promote_gate.py check --json` stdout → verdict. The command prints ONLY the pretty JSON dump
@@ -157,7 +155,6 @@ export async function runDistillTurn(task: Task, ctx: OrchestratorCtx, noteText?
     TASK_ID: task.taskId,
     SOURCE_PATH: p.sourceFile,
     STAGED_PATH: staged,
-    NOTES_PATH: notesRel(task),
     SLUG: p.slug,
     KNOWN_GOOD_DIFY: p.verdict?.knownGoodDify ?? '',
   });
@@ -230,10 +227,6 @@ export async function runDistillTurn(task: Task, ctx: OrchestratorCtx, noteText?
     return;
   }
 
-  // B3 (D4) — route each MECHANICAL gotcha the turn surfaced into the linter-candidate channel (deduped
-  // by promote_gate.py itself). DESIGN gotchas stay in the pattern's `# GOTCHA:` header (not automated).
-  p.rules = await recordCandidateRules(task, ctx);
-
   task.promote!.target = targetRel(p.slug);
   task.promote!.note = undefined;
   // spec 084 (DEV): a `test` distill NEVER auto-finalizes — always park the review gate so repeated dev
@@ -263,31 +256,6 @@ async function parkDistillFailed(task: Task, ctx: OrchestratorCtx, reasons: stri
   task.gate = computePromoteGate('distill_failed');
   task.promote!.note = reasons.filter(Boolean).join(' | ') || 'the distilled output failed the re-lint';
   await emit(task, ctx);
-}
-
-/** Read the turn's `promote/notes.json` (optional) and record each mechanical rule via `promote_gate.py
- *  candidate`. Best-effort — a missing/malformed notes file just records nothing. */
-async function recordCandidateRules(task: Task, ctx: OrchestratorCtx): Promise<string[]> {
-  const { runPython } = resolveRunners(ctx);
-  let notes: { mechanicalRules?: { rule?: unknown; citation?: unknown }[] } | null = null;
-  try {
-    notes = JSON.parse(await readFile(join(ctx.projectsDir, notesRel(task)), 'utf8'));
-  } catch {
-    return [];
-  }
-  const recorded: string[] = [];
-  for (const m of notes?.mechanicalRules ?? []) {
-    const rule = typeof m.rule === 'string' ? m.rule.trim() : '';
-    const citation = typeof m.citation === 'string' ? m.citation.trim() : '';
-    if (!rule || !citation) continue;
-    try {
-      await runPython(ctx.projectsDir, [GATE_PY, 'candidate', '--rule', rule, '--citation', citation]);
-      recorded.push(rule);
-    } catch (e) {
-      ctx.log.warn({ taskId: task.taskId, err: errMsg(e) }, 'promote candidate record failed (non-fatal)');
-    }
-  }
-  return recorded;
 }
 
 // ───────────────────────────── gate actions (delegated on kind==='promote') ─────────────────────────────

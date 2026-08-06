@@ -118,23 +118,6 @@ def test_gate_real_linters_pass_on_fixture_and_pattern():
     assert verdict["eligible"], verdict["reasons"]
 
 
-# ── D2a candidate channel ────────────────────────────────────────────────────────────────────────
-
-def test_candidate_dedup_on_rule_statement(tmp_path):
-    """AC 2: the note is produced with its citation; the same rule twice merges (match key)."""
-    log = tmp_path / "linter-candidates.md"
-    rule = "environment_variables entries must use 'name:' — Dify import 400s 'missing name'"
-    assert pg.add_candidate(rule, "api/factories/variable_factory.py", log_path=log) is True
-    assert pg.add_candidate(rule, "api/factories/variable_factory.py", log_path=log) is False
-    body = log.read_text()
-    assert body.count(rule) == 1 and "variable_factory.py" in body
-
-
-def test_seeded_candidates_log_carries_the_049_witness():
-    body = (BASE / "docs" / "linter-candidates.md").read_text()
-    assert "missing name" in body and "variable_factory.py" in body
-
-
 # ── AC 1/3: the distilled pattern is generic + self-documenting ──────────────────────────────────
 
 def test_pattern_is_domain_generic_and_self_documenting():

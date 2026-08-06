@@ -143,7 +143,6 @@ export interface PromoteState {
   /** the B1 (pre-turn) then B2′ (post-turn re-gate) verdict, whichever ran last. */
   verdict?: PromoteVerdict;
   /** mechanical linter-rule candidates the distill surfaced + recorded via `promote_gate.py candidate`. */
-  rules?: string[];
   /** a one-line human-facing note (a blocked reason summary, a slug collision, an index-rebuild warning). */
   note?: string;
   /** spec 070 — source ORIGIN. Absent ⇒ 'local' (a project workflow → source=original, back-compat). 'external'

@@ -186,7 +186,7 @@ Mỗi template:
 
 Documentation team-specific. Hiện có:
 - `GUIDE.md` (file này) — operations guide
-- `architecture.md`, `plugin-capabilities.md`, `runtime-supplement.md`, `linter-candidates.md`
+- `architecture.md`, `plugin-capabilities.md`, `runtime-supplement.md`
 - `project-overview-vi.md` / `project-overview-ja.md` — tổng quan cho người mới / bản thuyết trình JA
 - `state/` — bộ doc **hiện trạng hệ thống** (build-lifecycle, turn-and-sandbox, dify-io, …)
 - `specs/` — chỉ spec **đang mở** (mới từ 071; specs 001–067 đã hoàn thành và retire —

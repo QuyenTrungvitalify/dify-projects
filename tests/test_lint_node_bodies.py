@@ -286,7 +286,8 @@ def test_dump_schema_requires_an_argument() -> None:
 
 
 # ---------------------------------------------------------------------------
-# --report-unknown-keys — measured-first probe (2026-08-05, docs/linter-candidates.md)
+# --report-unknown-keys — measured-first probe (2026-08-05; the measurement that gates its
+# promotion lives next to UNKNOWN_KEY_EXEMPT in lint_node_bodies.py)
 # ---------------------------------------------------------------------------
 
 def _unknown_key_fixture(tmp_path: Path) -> Path:

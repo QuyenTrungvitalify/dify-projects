@@ -200,8 +200,9 @@ không loại cả `docs/`.
 ## 7. Open questions
 
 1. Vét thêm cho tối giản? Trong view còn vài file dev lặt vặt: `.pre-commit-config.yaml`,
-   `requirements.in`, `scripts/check_*.sh`, `scripts/regen_vscode_settings.py`,
-   `docs/linter-candidates.md`. Thêm ~5 dòng `!` là ẩn được — mặc định spec: KHÔNG, giữ pattern
+   `requirements.in`, `scripts/check_*.sh`, `scripts/regen_vscode_settings.py`
+   (`docs/linter-candidates.md` từng nằm trong danh sách này — đã xoá 2026-08-06).
+   Thêm ~5 dòng `!` là ẩn được — mặc định spec: KHÔNG, giữ pattern
    list ngắn dễ hiểu; vài file lẻ không gây rối bằng 215 file.
 2. (Viết lại theo §4b M2.) User có diff local ở file NẰM TRONG vùng bị ẩn: `sparse-checkout set`
    KHÔNG refuse — nó áp một phần (gỡ file sạch, giữ file dirty kèm warning), rc=0. Với user thường

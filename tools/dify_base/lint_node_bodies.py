@@ -46,8 +46,8 @@ Usage:
               node type and exit 0; takes no files
     --report-unknown-keys
               ALSO warn (stderr, exit unchanged) on top-level body keys outside the def's
-              `properties` — the measured-first probe for typo'd field names; see
-              docs/linter-candidates.md for the FP measurement before any promotion
+              `properties` — the measured-first probe for typo'd field names. See
+              UNKNOWN_KEY_EXEMPT below for the measurement that gates its promotion.
 
 Escape hatch (D3, P3): a COLUMN-0 full-line comment `# lint-bodies: allow <node_id>` suppresses
 all body findings for that node (stderr notes the suppression). Anchored at column 0 — stricter
@@ -242,9 +242,20 @@ def _validator_for(def_name: str, schema_path: str) -> Draft202012Validator:
 # report-backed decision (the 038-fp-report precedent). `type` is the dispatch envelope key
 # (27/29 defs don't carry it) — structurally exempt. The other three are FRONTEND metadata the
 # runtime models never declare, measured present across the whole indexed surface (2026-08-05
-# sweep, docs/linter-candidates.md): `selected` (canvas selection state, on nearly every corpus
-# node), `isInIteration` + `iteration_id` (iteration-child markers on any node inside an
-# iteration container).
+# sweep): `selected` (canvas selection state, on nearly every corpus node), `isInIteration` +
+# `iteration_id` (iteration-child markers on any node inside an iteration container).
+#
+# THE MEASUREMENT that gates promoting this probe to a real finding (2026-08-05, whole indexed
+# surface: patterns + library + corpus): **0 real typos**. After exempting the three frontend keys
+# above, everything left is a closed set of two kinds, NEITHER of which is a mistake:
+#   (a) `variables` on llm/answer/parameter-extractor — legacy DSL 0.1.x, only ever seen in corpus;
+#   (b) REAL runtime fields missing from the schema dump — `output_type`/`height`/`width`/
+#       `startNodeType`/`iterator_input_type` (IterationNodeData), `is_array_file`
+#       (DocumentExtractor), `instructions`/`topics` (QuestionClassifier), `item_var_type`/
+#       `var_type` (ListOperator), `isIterationStart`.
+# Promotion to a finding stays BLOCKED until gen_schema dumps those fields: exempting real runtime
+# fields per-def would be lying about the schema. Keep the flag opt-in and re-measure after every
+# schema regeneration.
 UNKNOWN_KEY_EXEMPT = {"type", "selected", "isInIteration", "iteration_id"}
 
 

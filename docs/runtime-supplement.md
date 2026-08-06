@@ -103,6 +103,29 @@ declares **no `outputs:`** — a downstream node reads its `files` (and `text`) 
   The probe is read-only (no network, no filesystem) and safe to re-run.
   Paste the output into your project's `spec_todo/` or equivalent.
 
+### `http-request` node with a JSON body — the correct `data` shape
+
+A `body.type: json` carries **exactly ONE** `data` entry, whose `key` is the empty string and whose
+`value` is the complete JSON document as a string:
+
+```yaml
+body:
+  type: json
+  data:
+  - key: ''
+    type: text
+    value: '{{#<code_node_id>.payload#}}'
+```
+
+Per-field `data` entries (one entry per JSON key) belong to `form-data` / `x-www-form-urlencoded`
+bodies only; writing them under `type: json` does not error at import — the receiver just sees a
+malformed or empty payload at run time.
+
+Corollary for any body built from generated text: a report containing newlines or TABs must be
+serialized in a code node with `json.dumps` first and the resulting **string** sent as the whole
+body. Interpolating raw multi-line text into a hand-written JSON body breaks the body. Field-proven
+on a lint-clean import.
+
 ## §2-supplement — Iteration ≤30: clamp the batch COUNT (not a fixed batch size); and max_tokens for long generation
 
 Refines constraints.md §2 (the ≤30-items hard cap; >30 fails at run time with **no clear error**). Two

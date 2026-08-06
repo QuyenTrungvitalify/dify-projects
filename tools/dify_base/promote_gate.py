@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Promotion quality gate (spec 050 D3) + linter-candidate channel (D2a).
+"""Promotion quality gate (spec 050 D3).
 
 Promotion is the moment a mistake becomes CONTAGIOUS — a broken build promoted to
 templates/patterns|library/ teaches the break to every future build. This gate decides
@@ -17,10 +17,6 @@ templates/patterns|library/ teaches the break to every future build. This gate d
      an empty model means the LLM step was never wired, so "proven" is false (D3.3 r2).
      The distilled output deliberately resets to the ''+TODO template convention — not re-gated.
 
-D2a — `candidate` subcommand: append a mechanical-rule note to docs/linter-candidates.md,
-deduped on the exact rule statement (the D2b match-key discipline), so two promotions that
-surface the same lesson merge instead of duplicating.
-
 Spec 081 — `share-scan` subcommand: an ADVISORY leak scan run only when a pattern is about to
 LEAVE the machine (the Builder's share turn). It is deliberately not a lint_refs rule: URLs and
 tokens in a local build are legitimate — they only become a leak at publish time, so a lint rule
@@ -28,7 +24,6 @@ would nag every normal build. Always exits 0; the contributor decides at the con
 
 Usage:
   python3 tools/dify_base/promote_gate.py check <source.yml> [--distilled <out.yml>] [--json] [--skip-probe]
-  python3 tools/dify_base/promote_gate.py candidate --rule "<statement>" --citation "<vendor/dify-src path>"
   python3 tools/dify_base/promote_gate.py share-scan <pattern.yml> [--json]
 """
 from __future__ import annotations
@@ -46,16 +41,7 @@ import yaml
 BASE = Path(__file__).parent.parent.parent
 PYTHON = BASE / ".venv" / "bin" / "python"
 LINTERS = ("validate_workflow.py", "lint_refs.py", "lint_plugin_hashes.py", "lint_node_bodies.py")
-CANDIDATES_MD = BASE / "docs" / "linter-candidates.md"
 DIFY_TAG = BASE / ".dify-tag"
-
-CANDIDATES_HEADER = """# Linter-rule candidates (spec 050 D2a)
-
-Mechanical, checkable rules surfaced by promotions/incidents, waiting to be folded into an
-EXISTING linter (013/049 discipline — never a new script). One bullet per rule; dedup key is
-the exact rule statement. When a rule ships, move its bullet to the shipping spec's log.
-"""
-
 
 def run_cmd(args: list[str], cwd: Path = BASE) -> tuple[int, str, str]:
     """Default subprocess runner — tests inject a fake with the same signature."""
@@ -227,39 +213,18 @@ def share_scan(path: Path) -> dict:
     return {"file": str(path), "findings": findings, "clean": not findings}
 
 
-def add_candidate(rule: str, citation: str, log_path: Path = CANDIDATES_MD) -> bool:
-    """D2a — append a linter-rule candidate, deduped on the exact rule statement. True = added."""
-    rule = rule.strip()
-    if not log_path.exists():
-        log_path.write_text(CANDIDATES_HEADER + "\n", encoding="utf-8")
-    body = log_path.read_text(encoding="utf-8")
-    if rule in body:
-        return False  # the match-key dedup (D2b note): same lesson twice → one bullet
-    with log_path.open("a", encoding="utf-8") as f:
-        f.write(f"- {rule} — cite: `{citation}`\n")
-    return True
-
-
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Promotion quality gate + linter-candidate channel (spec 050)")
+    ap = argparse.ArgumentParser(description="Promotion quality gate (spec 050)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     chk = sub.add_parser("check", help="D3 eligibility gate on a proven-build candidate")
     chk.add_argument("source")
     chk.add_argument("--distilled", help="the distilled output pattern (re-linted, D3.1 r3)")
     chk.add_argument("--json", action="store_true")
     chk.add_argument("--skip-probe", action="store_true")
-    cand = sub.add_parser("candidate", help="D2a linter-rule candidate note (deduped)")
-    cand.add_argument("--rule", required=True)
-    cand.add_argument("--citation", required=True)
     scan = sub.add_parser("share-scan", help="spec 081 advisory leak scan before a pattern is shared")
     scan.add_argument("file")
     scan.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
-
-    if args.cmd == "candidate":
-        added = add_candidate(args.rule, args.citation)
-        print("added" if added else "deduped (rule statement already recorded)")
-        return 0
 
     if args.cmd == "share-scan":
         result = share_scan(Path(args.file))

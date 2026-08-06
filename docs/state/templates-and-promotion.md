@@ -289,12 +289,19 @@ cred).
 để lại app. `probe_source()` gọi `sync.py list`, tìm dòng chứa token cuối của probe name
 (`[promote-gate] <stem>`), rồi `delete --app-id`.
 
-### Kênh linter-candidate
+### Bài học của một lượt chưng cất đi đâu
 
-`recordCandidateRules()` đọc `promote/notes.json` của turn (best-effort — thiếu/hỏng thì không ghi gì)
-và với mỗi `{rule, citation}` gọi `promote_gate.py candidate`, ghi một bullet vào
-`docs/linter-candidates.md`. Dedup là `if rule in body` — **substring test trên toàn bộ file**, không
-phải so khớp dòng.
+**Vào khối `# GOTCHA:` ở đầu chính pattern đó, và không đi đâu khác.** Turn distill có **đúng một
+output**: file pattern staged. Không có notes-file, không có backlog, không có kênh phụ. Lý do chọn
+header pattern làm nơi giao: pattern nằm trên kệ, `find.py` tra ra nó, phase ① đọc nó — người đọc
+được đảm bảo, khác hẳn một file chờ ai đó nhớ ra mà mở.
+
+Từng có một kênh thứ hai (`promote_gate.py candidate` → `docs/linter-candidates.md`) xếp riêng các
+"luật linter có thể enforce". Nó **đã bị gỡ**: sau một tháng chạy, không một luật nào từng được gộp
+vào linter, gần nửa số bullet mô tả luật mà linter đã bắt từ trước đó nhiều tháng, và mọi bài học
+thật đều đã có mặt — diễn đạt tốt hơn — trong header pattern. Một luật thật sự thuộc về linter là
+một thay đổi có chủ đích trong `tools/dify_base/*.py` kèm test, do người quyết, không phải một dòng
+do build turn phụ lục vào.
 
 ### Va slug
 

@@ -55,7 +55,6 @@ describe('promote flow (spec 052)', () => {
     if (args.includes('check')) {
       return { code: 0, stdout: args.includes('--distilled') ? reGate : b1, stderr: '' };
     }
-    if (args.includes('candidate')) return { code: 0, stdout: 'added', stderr: '' };
     if (args.some((a) => a.includes('build_index.py'))) return { code: indexCode, stdout: '', stderr: indexCode ? 'boom' : '' };
     if (args.some((a) => a.includes('check_provenance.py'))) return { code: 0, stdout: 'current', stderr: '' };
     return { code: 0, stdout: '', stderr: '' };
@@ -189,15 +188,16 @@ describe('promote flow (spec 052)', () => {
     assert.ok(!existsSync(join(dir, 'templates/patterns')));
   });
 
-  test('AC4 — a mechanical gotcha in notes.json is routed to promote_gate.py candidate', async () => {
+  test('AC4 — a legacy notes.json is inert: no rule is routed anywhere', async () => {
+    // The distill turn now has exactly ONE output: the staged pattern. Gotchas reach builders through
+    // that file's own `# GOTCHA:` header — the linter-candidate queue was retired, and so was the
+    // notes.json side channel that fed it. A leftover notes.json from an older run (or an older skill
+    // body) must be inert: ignored, written nowhere, and never fatal to the distill.
     notes = { mechanicalRules: [{ rule: 'env vars use name: not variable:', citation: 'vendor/dify-src/x' }], designGotchas: ['idempotency'] };
     const id = await startEligible();
     const t = await loadTask(dir, id);
-    assert.equal(t.status, 'done'); // spec 084: candidate rules recorded, then auto-finalized
-    assert.deepEqual(t.promote!.rules, ['env vars use name: not variable:']);
-    const cand = calls.find((a) => a.includes('candidate'));
-    assert.ok(cand);
-    assert.ok(cand!.includes('--rule') && cand!.includes('env vars use name: not variable:'));
+    assert.equal(t.status, 'done'); // still auto-finalizes
+    assert.ok(!calls.some((a) => a.includes('candidate')), 'no promote_gate.py candidate call');
   });
 
   // ── AC5/AC6 / spec 084: auto-finalize stamps provenance + INDEX; a collision is never auto-clobbered ──

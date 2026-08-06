@@ -62,7 +62,6 @@ export interface WirePromote {
   staged?: string;
   target?: string;
   verdict?: { eligible: boolean; reasons: string[]; probe: string; probeDetail?: string; knownGoodDify?: string | null };
-  rules?: string[];
   note?: string;
   /** spec 081: present only while/after the share turn ran (absent = never offered or skipped). */
   share?: WirePromoteShare;
