@@ -1592,8 +1592,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
    in-flight distill. Theme-aware via the same CSS vars as the cards.
    ============================================================ */
 .bg-tray {
-  position: fixed; right: 18px; bottom: 18px; z-index: 60;
-  display: flex; flex-direction: column-reverse; gap: 10px;
+  /* top-right, just under the 52px header (13+26+13 chat-top) — was bottom-right; newest card first
+     (column, not column-reverse) so cards stack DOWNWARD from the header. */
+  position: fixed; right: 18px; top: 62px; z-index: 60;
+  display: flex; flex-direction: column; gap: 10px;
   width: 300px; max-width: calc(100vw - 36px);
   pointer-events: none; /* the gap is click-through; cards re-enable */
 }
