@@ -1620,21 +1620,16 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .bg-tray-card.tone-ok   { border-left-color: var(--ok); }
 .bg-tray-card.tone-warn { border-left-color: var(--warn); }
 .bg-tray-card.tone-run  { border-left-color: var(--accent); }
-.bg-tray-x {
-  position: absolute; top: 8px; right: 8px;
+/* the header controls ([Details] + ×) share ONE flex row pinned to the card corner, so they stay
+   aligned on every card width (two independently-absolute buttons drifted on the full card). */
+.bg-tray-btns { position: absolute; top: 8px; right: 8px; display: flex; align-items: center; gap: 2px; }
+.bg-tray-x, .bg-tray-open {
+  position: relative; /* anchors the ::after hover bubble */
   display: flex; padding: 3px; border: none; border-radius: 6px;
   background: transparent; color: var(--tx-faint); cursor: pointer;
 }
-.bg-tray-x:hover { background: var(--bg-elevated-2); color: var(--tx-1); }
-.bg-tray-x svg { width: 14px; height: 14px; }
-/* header-level [Details] icon, sitting LEFT of the × (same ghost style) — opens the task foreground. */
-.bg-tray-open {
-  position: absolute; top: 8px; right: 32px;
-  display: flex; padding: 3px; border: none; border-radius: 6px;
-  background: transparent; color: var(--tx-faint); cursor: pointer;
-}
-.bg-tray-open:hover { background: var(--bg-elevated-2); color: var(--tx-1); }
-.bg-tray-open svg { width: 14px; height: 14px; }
+.bg-tray-x:hover, .bg-tray-open:hover { background: var(--bg-elevated-2); color: var(--tx-1); }
+.bg-tray-x svg, .bg-tray-open svg { width: 14px; height: 14px; }
 /* with both header icons present the title needs to clear ~48px of controls, not 20px */
 .bg-tray-card.has-open .bg-tray-head { padding-right: 46px; }
 /* hover bubble on the tray header icons — instant, styled like the bell callout (.notify-tip), fed by
