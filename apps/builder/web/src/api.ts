@@ -178,7 +178,7 @@ export const api = {
     request('POST', '/api/dev/rebuild', {}),
   /** user-facing update & restart (git pull + install/build + restart) — mounted for every run,
    *  409 {reason:'turn_running'|'update_running'} when blocked. */
-  update: (): Promise<{ ok: boolean; restarting?: boolean; step?: 'pull' | 'setup'; log?: string }> =>
+  update: (): Promise<{ ok: boolean; restarting?: boolean; step?: 'checkout' | 'pull' | 'setup'; log?: string }> =>
     request('POST', '/api/update', {}),
   /** spec 080 dev-only (BUILDER_DEV=1): the shelf dashboard feed — `catalog.py stats --json`
    *  passthrough. Throws ApiError(404) when the server runs without BUILDER_DEV. */

@@ -2,9 +2,11 @@
  * POST /api/update — the user-facing update & restart (in-app update-and-run.command).
  *
  * Route-level via Fastify `inject` with the runStep/schedule/busy seams faked (no real git/npm/kill):
- * asserts the step order + cwd contract (git pull --ff-only at the repo root, then setup-node.sh),
- * that a failed step reports {ok:false, step, log} WITHOUT scheduling the restart, that a clean run
- * schedules the restart with (builderDir, port), and both 409 guards (turn running / update in flight).
+ * asserts the step order + cwd contract (branch probe → [checkout main] → git pull --ff-only origin
+ * main at the repo root → setup-node.sh), that HEAD already on main SKIPS the checkout, that a
+ * failing checkout stops with step:'checkout' + git's reason and never pulls, that a failed step
+ * reports {ok:false, step, log} WITHOUT scheduling the restart, that a clean run schedules the
+ * restart with (builderDir, port), and both 409 guards.
  */
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,12 +20,14 @@ const BUILDER = '/repo/apps/builder';
 describe('POST /api/update', () => {
   let calls: Array<{ cmd: string; args: string[]; cwd: string }>;
   let scheduled: Array<{ builderDir: string; port: number }>;
-  let failAt: 'pull' | 'setup' | null;
+  let failAt: 'checkout' | 'pull' | 'setup' | null;
   let busyFlag: boolean;
+  let head: string; // what `git rev-parse --abbrev-ref HEAD` prints
 
   const fakeRun: RunStep = async (cmd, args, cwd) => {
     calls.push({ cmd, args, cwd });
-    const step = cmd === 'git' ? 'pull' : 'setup';
+    if (args[0] === 'rev-parse') return { ok: true, out: `${head}\n` };
+    const step = args[0] === 'checkout' ? 'checkout' : cmd === 'git' ? 'pull' : 'setup';
     return failAt === step ? { ok: false, out: `${step} exploded\nlast line` } : { ok: true, out: 'fine' };
   };
 
@@ -45,19 +49,58 @@ describe('POST /api/update', () => {
     scheduled = [];
     failAt = null;
     busyFlag = false;
+    head = 'main';
   });
 
-  test('clean run → pull then setup (right cwd/args) → schedules the restart → {ok, restarting}', async () => {
+  test('already on main → NO checkout, straight to pull then setup → schedules the restart', async () => {
     const app = await build();
     const res = await app.inject({ method: 'POST', url: '/api/update' });
     assert.equal(res.statusCode, 200, res.body);
     assert.deepEqual(res.json(), { ok: true, restarting: true });
     assert.deepEqual(calls.map((c) => [c.cmd, ...c.args]), [
-      ['git', 'pull', '--ff-only'],
+      ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+      ['git', 'pull', '--ff-only', 'origin', 'main'],
       ['bash', 'scripts/setup-node.sh'],
     ]);
-    assert.ok(calls.every((c) => c.cwd === REPO), 'both steps run at the repo root');
+    assert.ok(calls.every((c) => c.cwd === REPO), 'every step runs at the repo root');
     assert.deepEqual(scheduled, [{ builderDir: BUILDER, port: 4123 }]);
+    await app.close();
+  });
+
+  test('on another branch → checkout main first, then the normal update', async () => {
+    head = 'feature/x';
+    const app = await build();
+    const res = await app.inject({ method: 'POST', url: '/api/update' });
+    assert.deepEqual(res.json(), { ok: true, restarting: true });
+    assert.deepEqual(calls.map((c) => [c.cmd, ...c.args]), [
+      ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+      ['git', 'checkout', 'main'],
+      ['git', 'pull', '--ff-only', 'origin', 'main'],
+      ['bash', 'scripts/setup-node.sh'],
+    ]);
+    await app.close();
+  });
+
+  test('checkout main fails (local edits) → step:checkout + git reason, NO pull, NO restart', async () => {
+    head = 'feature/x';
+    failAt = 'checkout';
+    const app = await build();
+    const res = await app.inject({ method: 'POST', url: '/api/update' });
+    assert.equal(res.statusCode, 200);
+    const body = res.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.step, 'checkout');
+    assert.match(body.log, /checkout exploded/);
+    assert.equal(calls.length, 2, 'stops at the checkout — the pull never runs');
+    assert.equal(scheduled.length, 0);
+    await app.close();
+  });
+
+  test('local edits while already on main → update proceeds (git alone decides)', async () => {
+    const app = await build();
+    const res = await app.inject({ method: 'POST', url: '/api/update' });
+    assert.deepEqual(res.json(), { ok: true, restarting: true });
+    assert.ok(!calls.some((c) => c.args[0] === 'checkout'), 'no checkout, no dirty preflight');
     await app.close();
   });
 
@@ -70,7 +113,7 @@ describe('POST /api/update', () => {
     assert.equal(body.ok, false);
     assert.equal(body.step, 'pull');
     assert.match(body.log, /last line/);
-    assert.equal(calls.length, 1, 'stops at the first failure — setup never runs');
+    assert.equal(calls.length, 2, 'stops at the first failure — setup never runs');
     assert.equal(scheduled.length, 0, 'a failed pull never restarts the server');
     await app.close();
   });

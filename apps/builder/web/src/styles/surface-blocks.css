@@ -279,6 +279,9 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
   font-size: 11px; line-height: 1.35;
   color: var(--tx-muted);
+  /* the update errors append git's own multi-line tail — keep the breaks, cap the height */
+  white-space: pre-line;
+  max-height: 40vh; overflow-y: auto;
 }
 .sb-rebuild-msg.ok { color: var(--ok); border-color: var(--accent-line); }
 

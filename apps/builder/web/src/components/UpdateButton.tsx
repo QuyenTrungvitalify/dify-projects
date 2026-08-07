@@ -65,7 +65,14 @@ export function UpdateButton({ collapsed = false }: { collapsed?: boolean }) {
       const r = await api.update();
       if (!r.ok) {
         setUpdating(false);
-        const lastLine = (r.log ?? '').split('\n').filter(Boolean).slice(-1)[0] ?? '';
+        const lines = (r.log ?? '').split('\n').filter(Boolean);
+        if (r.step === 'checkout') {
+          // git already names the offending files ("Your local changes… would be overwritten") — keep
+          // the whole tail, it's the only clue the user (or the admin they call) gets.
+          setMsg(`${tr('updateCheckoutFailed')}${lines.length ? `\n${lines.join('\n')}` : ''}`);
+          return;
+        }
+        const lastLine = lines.slice(-1)[0] ?? '';
         setMsg(`${r.step === 'pull' ? tr('updatePullFailed') : tr('updateBuildFailed')}${lastLine ? ` — ${lastLine}` : ''}`);
         return;
       }
