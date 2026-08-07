@@ -161,6 +161,14 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
   const uploadIdx = (start: number, n: number): number[] | undefined =>
     n ? Array.from({ length: n }, (_, i) => start + i) : undefined;
 
+  /** The same files as `{name, mime, idx}` — what a CONSULT records on its transcript line, since a
+   *  consult reopens from `chat.jsonl` (authoritative) rather than the browser's persisted thread. */
+  const chatFiles = (
+    saved: { name: string; mime: string }[],
+    idx?: number[]
+  ): { name: string; mime: string; idx: number }[] | undefined =>
+    idx && idx.length ? saved.map((a, i) => ({ name: a.name, mime: a.mime, idx: idx[i] })) : undefined;
+
   // ── POST /api/tasks — acquire the turn (409 only if one is RUNNING), create the task, run Phase ① ──
   app.post('/api/tasks', async (req, reply) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -362,8 +370,9 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       await saveTask(projectsDir, task);
       return reply.code(409).send(turnBusyError('ask'));
     }
-    dispatch(task.taskId, consultWithin(task, text, ctx));
-    return reply.send({ ...task, uploads: uploadIdx(0, attCheck.attachments.length) });
+    const uploads = uploadIdx(0, attCheck.attachments.length);
+    dispatch(task.taskId, consultWithin(task, text, ctx, chatFiles(attCheck.attachments, uploads)));
+    return reply.send({ ...task, uploads });
   });
 
   // ── GET /api/tasks/:id — authoritative state (phase/status/gate) + artifact contents (Endpoints) ──
@@ -672,7 +681,11 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // reach the turn's prompt through the block each one already injects.
     dispatch(
       id,
-      isConsultAsk ? consultWithin(task, text, ctx) : isPhaseAsk ? askWithin(task, text, ctx) : askTestWithin(task, text, ctx)
+      isConsultAsk
+        ? consultWithin(task, text, ctx, chatFiles(attCheck.attachments, uploads))
+        : isPhaseAsk
+          ? askWithin(task, text, ctx)
+          : askTestWithin(task, text, ctx)
     );
     return reply.send({ ok: true, uploads });
   });

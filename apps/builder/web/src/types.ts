@@ -108,7 +108,13 @@ export interface WireTask {
   promote?: WirePromote;
   /** spec 082 (rev): the persisted consult transcript — one {role,text} per message, in order. Only on a
    *  GET /api/tasks/:id for a `kind:'consult'` task; the FE rebuilds the chat thread from it on reopen. */
-  chat?: { role: 'user' | 'assistant'; text: string }[];
+  chat?: {
+    role: 'user' | 'assistant';
+    text: string;
+    /** spec: files the user's message carried — `idx` addresses `GET /api/tasks/:id/uploads/:idx`, so a
+     *  reopened chat can still show them (the browser's copy of the bytes is long gone). */
+    files?: { name: string; mime: string; idx: number }[];
+  }[];
   project: string | null;
   workflow: string | null;
   workflowFile: string;

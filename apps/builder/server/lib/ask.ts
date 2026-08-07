@@ -526,10 +526,23 @@ export interface ConsultChatLine {
   role: 'user' | 'assistant';
   text: string;
   at?: number;
+  /** The files this message carried, as the FE needs to show them back: `idx` addresses the saved copy
+   *  at `GET /api/tasks/:id/uploads/:idx`. Recorded HERE because a consult reopens from this transcript
+   *  (it is authoritative — cleared cache / another machine), so without it the reopened chat forgets
+   *  every attachment. User lines only. */
+  files?: { name: string; mime: string; idx: number }[];
 }
-async function appendChat(projectsDir: string, taskId: string, role: 'user' | 'assistant', text: string, at: number): Promise<void> {
+async function appendChat(
+  projectsDir: string,
+  taskId: string,
+  role: 'user' | 'assistant',
+  text: string,
+  at: number,
+  files?: ConsultChatLine['files']
+): Promise<void> {
   try {
-    await appendFile(join(taskDir(projectsDir, taskId), 'chat.jsonl'), JSON.stringify({ role, text, at }) + '\n', 'utf8');
+    const line: ConsultChatLine = { role, text, at, ...(files && files.length ? { files } : {}) };
+    await appendFile(join(taskDir(projectsDir, taskId), 'chat.jsonl'), JSON.stringify(line) + '\n', 'utf8');
   } catch {
     /* transcript is best-effort — never let it affect the turn */
   }
@@ -559,7 +572,14 @@ export async function readConsultChat(projectsDir: string, taskId: string): Prom
  * Containment is layer 1 ONLY (askMode → the hook denies every write): like askTestWithin, there is
  * no in-progress artifact to protect (D4). Never touches gate/phase; mirrors the never-throw guard.
  */
-export async function consultWithin(task: Task, text: string, ctx: OrchestratorCtx): Promise<void> {
+export async function consultWithin(
+  task: Task,
+  text: string,
+  ctx: OrchestratorCtx,
+  /** Files this message carried (name/mime + the index the route saved them at) — recorded on the
+   *  user's transcript line so a reopened chat still shows them. */
+  files?: ConsultChatLine['files']
+): Promise<void> {
   const { projectsDir, settingsPath, log } = ctx;
   try {
     // Mirror askWithin's review-#2 guard: a /cancel that landed before setSession (no live child yet —
@@ -620,7 +640,7 @@ export async function consultWithin(task: Task, text: string, ctx: OrchestratorC
     // assistant line lands with whatever the turn produced — the real answer, or the canned error
     // below — so the reopened chat matches exactly what streamed. `at`/`at+1` orders the pair.
     const at = Date.now();
-    await appendChat(projectsDir, task.taskId, 'user', text, at);
+    await appendChat(projectsDir, task.taskId, 'user', text, at, files);
 
     // Choice 3 (self-heal): only ever flips error→done — a healthy consult (born 'done') is untouched.
     if (!turn.isError && task.status === 'error') {

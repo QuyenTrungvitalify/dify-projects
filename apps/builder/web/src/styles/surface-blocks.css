@@ -683,8 +683,11 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   display: block; width: 92px; height: 92px; object-fit: cover;
   border-radius: 9px; border: 1px solid var(--border); background: var(--bg-elevated-2);
 }
-.msg-atts a { display: block; line-height: 0; }
+/* `display:block` (not line-height:0 — that collapsed the file-chip's label to nothing); the image is
+   itself a block, so no inline-gap remains to kill. */
+.msg-atts a { display: block; text-decoration: none; color: inherit; }
 .msg-atts a:hover .msg-att-img { border-color: var(--accent); }
+.msg-atts a:hover .img-chip { border-color: var(--accent); }
 .msg-atts .img-chip { max-width: 190px; }
 
 .msg-assistant { color: var(--tx-1); font-size: 13.5px; }

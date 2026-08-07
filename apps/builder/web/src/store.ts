@@ -1546,10 +1546,12 @@ export async function revealWorkflow(taskId: string): Promise<void> {
 /** spec 082 (rev) — rebuild a consult chat thread from the backend transcript (`t.chat`): each user
  *  line → a user bubble, each assistant line → a finalized qa answer. This is AUTHORITATIVE for a
  *  consult (survives a cleared cache / another browser), replacing the localStorage restore for chats. */
-function consultThreadFromChat(chat: { role: 'user' | 'assistant'; text: string }[]): LiveThreadItem[] {
+function consultThreadFromChat(chat: NonNullable<WireTask['chat']>): LiveThreadItem[] {
   return chat.map((m) =>
     m.role === 'user'
-      ? { id: uid(), kind: 'user' as const, text: m.text }
+      ? // the transcript carries each user message's files (name/mime/idx) — without them a reopened
+        // chat would forget every attachment, since this restore WINS over the persisted thread
+        { id: uid(), kind: 'user' as const, text: m.text, atts: m.files?.length ? m.files.map((f) => ({ ...f })) : undefined }
       : { id: uid(), kind: 'qa' as const, question: '', answer: m.text, done: true }
   );
 }
