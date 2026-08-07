@@ -154,6 +154,13 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
 
   const idOf = (req: { params: unknown }): string => (req.params as { id: string }).id;
 
+  /** Indices in `task.attachments` of the files THIS request just saved. Returned as `uploads` on the
+   *  four file-accepting POSTs so the FE can address each one as `GET /api/tasks/:id/uploads/:idx` and
+   *  show it back in the chat history. Uploads only ever append (spec 025 D6), so an index is stable
+   *  for the life of the task. Omitted (undefined) when the request carried no files. */
+  const uploadIdx = (start: number, n: number): number[] | undefined =>
+    n ? Array.from({ length: n }, (_, i) => start + i) : undefined;
+
   // ── POST /api/tasks — acquire the turn (409 only if one is RUNNING), create the task, run Phase ① ──
   app.post('/api/tasks', async (req, reply) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -249,7 +256,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
 
     // Dispatch phase ① in the background; the dispatch `finally` releases the turn when ① parks/ends.
     dispatch(task.taskId, startTask(task, ctx));
-    return reply.send(task);
+    return reply.send({ ...task, uploads: uploadIdx(0, attCheck.attachments.length) });
   });
 
   // ── POST /api/promote — start a `kind:'promote'` build (spec 052 D1): distill a PROVEN build into a
@@ -356,7 +363,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       return reply.code(409).send(turnBusyError('ask'));
     }
     dispatch(task.taskId, consultWithin(task, text, ctx));
-    return reply.send(task);
+    return reply.send({ ...task, uploads: uploadIdx(0, attCheck.attachments.length) });
   });
 
   // ── GET /api/tasks/:id — authoritative state (phase/status/gate) + artifact contents (Endpoints) ──
@@ -562,11 +569,13 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // Save the reply-turn files APPENDED after any earlier ones (D6: never overwrite), BEFORE
     // acquireTurn (a disk failure → 500 with no lock held). `replyWithin` reads `task.attachments`
     // from this in-memory object, so the just-saved paths reach the resumed turn's prompt.
+    let uploads: number[] | undefined;
     if (attCheck.attachments.length) {
       try {
         const start = task.attachments?.length ?? 0;
         const rels = await saveAttachments(projectsDir, id, attCheck.attachments, start);
         task.attachments = [...(task.attachments ?? []), ...rels];
+        uploads = uploadIdx(start, rels.length);
         await saveTask(projectsDir, task);
       } catch (e) {
         return reply.code(500).send({ error: `failed to save files: ${errMsg(e)}` });
@@ -584,10 +593,10 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // ①②③④ replyWithin path.
     if (task.kind === 'promote') {
       dispatch(id, promoteReply(task, text, ctx));
-      return reply.send(optimisticRunning(task));
+      return reply.send({ ...optimisticRunning(task), uploads });
     }
     dispatch(id, replyWithin(task, text, ctx));
-    return reply.send(optimisticRunning(task));
+    return reply.send({ ...optimisticRunning(task), uploads });
   });
 
   // ── POST /api/tasks/:id/ask — conversational Q&A at a parked gate (spec 033): resume, answer-only,
@@ -638,12 +647,14 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // The turn-running pre-check is the FIX-M rule restated: a live Ask on THIS task snapshots
     // `.runs/<id>/uploads/` and byte-compares it, so a write landing mid-turn would read as `created` and
     // be deleted — losing the user's file and raising a false anomaly. Reject before writing anything.
+    let uploads: number[] | undefined;
     if (attCheck.attachments.length) {
       if (taskTurnRunning(id)) return reply.code(409).send(turnBusyError('ask'));
       try {
         const start = task.attachments?.length ?? 0;
         const rels = await saveAttachments(projectsDir, id, attCheck.attachments, start);
         task.attachments = [...(task.attachments ?? []), ...rels];
+        uploads = uploadIdx(start, rels.length);
         await saveTask(projectsDir, task);
       } catch (e) {
         return reply.code(500).send({ error: `failed to save files: ${errMsg(e)}` });
@@ -663,7 +674,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       id,
       isConsultAsk ? consultWithin(task, text, ctx) : isPhaseAsk ? askWithin(task, text, ctx) : askTestWithin(task, text, ctx)
     );
-    return reply.send({ ok: true });
+    return reply.send({ ok: true, uploads });
   });
 
   // ── POST /api/tasks/:id/cancel — kill the live turn if one is running, else just flip the parked gate ──

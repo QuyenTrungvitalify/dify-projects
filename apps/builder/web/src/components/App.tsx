@@ -8,7 +8,7 @@
    ============================================================ */
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { Sidebar } from './Sidebar';
-import { PhaseTrack, Disclosure, GateCard, GateActions, QaAnswer, Composer } from './Chat';
+import { PhaseTrack, Disclosure, GateCard, GateActions, QaAnswer, Composer, MsgAttachments } from './Chat';
 import { ArtifactPanel } from './ArtifactPanel';
 import { CreateProjectModal, IntakeYamlModal, ConfirmModal } from './Modal';
 import { BgTray } from './BgTray';
@@ -280,7 +280,9 @@ export function App() {
     } else if (mode === 'change') {
       void store.reply(msg, changeLabel, atts).then(onDone); // Request-changes — re-run the phase, revise the artifact
     } else {
-      void store.ask(msg).then(onDone); // default at analyze/spec/implement AND ④ (034 D5)
+      // default at analyze/spec/implement AND ④ (034 D5) — with files, now that attach is live in Ask
+      // mode at a gate too (they'd otherwise be dropped on send, the worst kind of silent loss).
+      void store.ask(msg, atts).then(onDone);
     }
     // FIX-I: reset mode after EVERY send that could have armed change-mode — including the error-Retry path.
     setMode('ask');
@@ -401,8 +403,8 @@ export function App() {
   // — ④ Test gates render their actions INLINE exactly as today (D4), so the bar must NOT extend to ④.
   const dockedGate = !!task && task.status === 'awaiting_confirm' &&
     (task.phase === 'analyze' || task.phase === 'spec' || task.phase === 'implement');
-  // spec 034 D5: the ask|change mode-chip machinery (the mode chip, the attach-hide guard, the Ask-aware
-  // placeholder) DOES extend to ④ — Ask works at all four ④ gates now. This is a DIFFERENT predicate from
+  // spec 034 D5: the ask|change mode-chip machinery (the mode chip, the Ask-aware placeholder — the
+  // attach-hide guard is gone, attach is live in both modes) DOES extend to ④ — Ask works at all four ④ gates now. This is a DIFFERENT predicate from
   // `dockedGate` (which drives the docked action BAR, deliberately NOT wanted at ④): decoupling them lets
   // the chip render at ④ while ④'s gate actions stay inline.
   // spec 052: a promote task is pinned to phase='test' for inline gate rendering but has NO Ask surface —
@@ -625,7 +627,15 @@ export function App() {
                 <div className="thread-inner">
                   {thread.map((item) => {
                     if (item.kind === 'user')
-                      return <div key={item.id} className="msg msg-user"><div className="bubble-user">{item.text}</div></div>;
+                      return <div key={item.id} className="msg msg-user">
+                        <div className="bubble-user">
+                          {item.text}
+                          {/* the files this message carried — the history used to drop them on send */}
+                          {item.atts && item.atts.length > 0 && (
+                            <MsgAttachments atts={item.atts} taskId={task?.taskId} />
+                          )}
+                        </div>
+                      </div>;
                     if (item.kind === 'run')
                       return <div key={item.id} className="msg msg-assistant">
                         <Disclosure phaseKey={item.phase} running={item.running} output={item.output} stopped={item.stopped} promote={task?.kind === 'promote'} />
@@ -705,7 +715,9 @@ export function App() {
                         <div className="mode-row">
                           <span className="mode-chip on">{tr('modeChange')}</span>
                           <button type="button" className="mode-back"
-                            onClick={() => { setMode('ask'); setFiles([]); }} title={tr('modeBackToAsk')}>
+                            /* keep staged files: Ask carries them too now, so dropping them on the way
+                               back would delete work the user just did (they used to be change-only). */
+                            onClick={() => setMode('ask')} title={tr('modeBackToAsk')}>
                             {tr('modeBackToAsk')}
                           </button>
                         </div>
@@ -721,14 +733,15 @@ export function App() {
                            live Ask streams (asking) — sending during either just 409s. */
                         disabled={busy || asking}
                         files={files}
-                        /* spec 033 F5 / 034 D5: hide attach while Ask is the active send path at a LIVE
-                           gate (incl. ④). The original reason — /ask dropped files — no longer holds (089
-                           gave it files, which is what the terminal/chat composer below uses); the reason
-                           that does is routing: at a gate, handing over new material IS a change request,
-                           and Request-changes (/reply) already carries files and re-runs the phase with
-                           them. Attaching in Ask mode would look identical but leave the artifact untouched.
-                           Switching to change-mode restores attach. */
-                        onAddFiles={askableGate && mode === 'ask' ? undefined : (f) => void addFiles(f)}
+                        /* Attach is live in BOTH modes, exactly like the chat composer below. It used to be
+                           hidden in Ask mode (spec 033 F5 / 034 D5) on the argument that handing over
+                           material at a gate IS a change request — but that costs more than it teaches:
+                           paste/drop silently did nothing at the very moment a user wants to show a
+                           screenshot of what looks wrong, and the workaround (switch to change-mode, which
+                           re-runs the phase) is the wrong action for a question. /ask carries files
+                           end-to-end since spec 089; a question with a screenshot answers as a question and
+                           leaves the artifact untouched, which is what the Ask placeholder already says. */
+                        onAddFiles={(f) => void addFiles(f)}
                         onRemoveFile={removeFile}
                       />
                     </>

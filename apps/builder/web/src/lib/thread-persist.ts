@@ -33,11 +33,19 @@ export function capRunOutput(output: string): string {
   return `[… ${output.length - RUN_OUTPUT_CAP} chars truncated …]\n` + output.slice(-RUN_OUTPUT_CAP);
 }
 
-/** Serialize the thread to a SLIM JSON string (decision #1): run output CAPPED, gate artifactContents dropped. */
+/** Serialize the thread to a SLIM JSON string (decision #1): run output CAPPED, gate artifactContents
+ *  dropped, and a user bubble's attachments reduced to `{name, mime, idx}` — the base64 `dataUrl` is
+ *  STRIPPED (a single pasted screenshot is megabytes; the whole quota is ~5MB) and an attachment with no
+ *  server-side index is dropped entirely, since nothing could render it after a reload. `idx` addresses
+ *  the saved copy at `GET /api/tasks/:id/uploads/:idx`, which is how history survives. */
 export function serializeThread(items: LiveThreadItem[]): string {
   const slim = items.map((it) => {
     if (it.kind === 'run') return { ...it, output: capRunOutput(it.output) };
     if (it.kind === 'gate') return { ...it, snapshot: { ...it.snapshot, artifactContents: undefined } };
+    if (it.kind === 'user' && it.atts) {
+      const atts = it.atts.filter((a) => a.idx !== undefined).map(({ name, mime, idx }) => ({ name, mime, idx }));
+      return { ...it, atts: atts.length ? atts : undefined };
+    }
     return it;
   });
   return JSON.stringify(slim);

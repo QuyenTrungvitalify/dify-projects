@@ -87,3 +87,37 @@ describe('hydrateForReopen — decision #2 (reconcile: drop unresolved gates, fi
     expect(revived.map((i) => i.kind)).toEqual(['user', 'qa']); // conversation kept, unresolved gate gone
   });
 });
+
+describe('serializeThread — user attachments (history keeps the files, not the bytes)', () => {
+  it('strips the base64 dataUrl but KEEPS name/mime/idx (the reload-survivable form)', () => {
+    const items: LiveThreadItem[] = [
+      {
+        id: 'u',
+        kind: 'user',
+        text: 'look at this',
+        atts: [{ name: 'shot.png', mime: 'image/png', dataUrl: 'data:image/png;base64,' + 'A'.repeat(50_000), idx: 0 }],
+      },
+    ];
+    const json = serializeThread(items);
+    expect(json).not.toContain('base64'); // the megabyte payload never reaches localStorage
+    expect(json.length).toBeLessThan(500);
+    const parsed = JSON.parse(json) as any[];
+    expect(parsed[0].atts).toEqual([{ name: 'shot.png', mime: 'image/png', idx: 0 }]);
+  });
+
+  it('drops an attachment with no server index — nothing could render it after a reload', () => {
+    const items: LiveThreadItem[] = [
+      { id: 'u', kind: 'user', text: 'x', atts: [{ name: 'a.png', mime: 'image/png', dataUrl: 'data:image/png;base64,AA' }] },
+    ];
+    const parsed = JSON.parse(serializeThread(items)) as any[];
+    expect(parsed[0].atts).toBeUndefined();
+  });
+
+  it('round-trips through parse so a reopened build still shows the files', () => {
+    const items: LiveThreadItem[] = [
+      { id: 'u', kind: 'user', text: 'see attached', atts: [{ name: 'spec.pdf', mime: 'application/pdf', idx: 2 }] },
+    ];
+    const revived = parseThread(serializeThread(items))! as (LiveThreadItem & { kind: 'user' })[];
+    expect(revived[0].atts).toEqual([{ name: 'spec.pdf', mime: 'application/pdf', idx: 2 }]);
+  });
+});

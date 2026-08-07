@@ -17,8 +17,8 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { existsSync } from 'node:fs';
 import { rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { deleteTask, loadTask } from '../state/task.js';
+import { join, resolve, sep } from 'node:path';
+import { deleteTask, loadTask, taskDir } from '../state/task.js';
 import { buildTree, listActiveTasks, listConsultTasks, listProjectTaskIds, listPromoteTasks, listWorkflowTaskIds, specPathFor, workflowPathFor } from '../lib/artifacts.js';
 import { buildBundle } from '../lib/bundle.js';
 import { loadShareConfig, postExportBundle } from '../lib/share.js';
@@ -55,6 +55,15 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
   // loadTask → join(.runs, id, …): a crafted id like `../../..` would otherwise path-traverse off
   // the runs dir (spec §J confinement; the dev-endpoint slug guard does the same in index.ts).
   const isTaskId = (id: string): boolean => /^\d{13,}$/.test(id);
+
+  /** Content-Type for a served upload. Images get their real type (the browser must render them in the
+   *  history bubble); everything else is served as a download-safe octet-stream — we are handing back
+   *  user-supplied bytes, so no text/html sniffing surface. */
+  const uploadMime = (name: string): string => {
+    const ext = /\.([a-z0-9]+)$/i.exec(name)?.[1].toLowerCase() ?? '';
+    const img: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+    return img[ext] ?? 'application/octet-stream';
+  };
 
   // ── GET /api/tree — 3-level sidebar tree: a direct 2-level walk of projects/<project>/<workflow>/ (spec 030) ──
   app.get('/api/tree', async () => {
@@ -215,6 +224,50 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
       return { content };
     } catch {
       return { content: '' }; // pre-Spec phase → no SPEC.md yet; panel shows empty
+    }
+  });
+
+  // ── GET /api/tasks/:id/uploads/:idx — serve one file the user attached to THIS task, so the chat
+  //    history can show it back (an <img> thumbnail for an image, a download link otherwise). Read-only,
+  //    no gate/turn, hence here beside the other GETs.
+  //
+  //    The index addresses `task.attachments[idx]` — our OWN recorded list, not a caller-supplied path —
+  //    and the resolved file must still sit inside this task's `uploads/` dir, so a crafted id/index
+  //    can't read anything else. Files are immutable once written (uploads never overwrite — the index
+  //    keeps climbing, spec 025 D6), so the response is safely cacheable forever.
+  //
+  //    WHY a route at all: the composer holds base64 data-URLs, and stuffing those into the persisted
+  //    thread would blow the ~5MB localStorage quota with a single screenshot. Serving from disk is what
+  //    keeps a reopened build's history showing the files it was given. ──
+  app.get<{ Params: { id: string; idx: string } }>('/api/tasks/:id/uploads/:idx', async (req, reply) => {
+    if (!isTaskId(req.params.id)) return reply.code(400).send({ error: 'invalid task id' });
+    const idx = Number(req.params.idx);
+    if (!Number.isInteger(idx) || idx < 0) return reply.code(400).send({ error: 'invalid upload index' });
+    let task;
+    try {
+      task = await loadTask(projectsDir, req.params.id);
+    } catch {
+      return reply.code(404).send({ error: `no such task: ${req.params.id}` });
+    }
+    const rel = task.attachments?.[idx];
+    if (!rel) return reply.code(404).send({ error: 'no such upload' });
+    const abs = resolve(projectsDir, rel);
+    const dir = join(taskDir(projectsDir, task.taskId), 'uploads');
+    if (!abs.startsWith(dir + sep)) {
+      app.log.warn({ taskId: task.taskId, rel }, 'upload path escapes the task uploads dir — refusing');
+      return reply.code(404).send({ error: 'no such upload' });
+    }
+    const { readFile } = await import('node:fs/promises');
+    try {
+      const bytes = await readFile(abs);
+      const name = abs.slice(dir.length + 1);
+      return reply
+        .header('Content-Type', uploadMime(name))
+        .header('Content-Disposition', `inline; filename="${name.replace(/[^A-Za-z0-9._-]+/g, '-')}"`)
+        .header('Cache-Control', 'private, max-age=31536000, immutable')
+        .send(bytes);
+    } catch {
+      return reply.code(404).send({ error: 'no such upload' });
     }
   });
 

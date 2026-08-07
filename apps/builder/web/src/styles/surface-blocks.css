@@ -675,6 +675,18 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
+/* Files that rode along with a user message, shown under its text so the history keeps them (before
+   this, an attachment vanished the moment it was sent). Images render as thumbnails; anything else is
+   the same chip the composer uses. Both link to GET /api/tasks/:id/uploads/:idx. */
+.msg-atts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.msg-atts .msg-att-img {
+  display: block; width: 92px; height: 92px; object-fit: cover;
+  border-radius: 9px; border: 1px solid var(--border); background: var(--bg-elevated-2);
+}
+.msg-atts a { display: block; line-height: 0; }
+.msg-atts a:hover .msg-att-img { border-color: var(--accent); }
+.msg-atts .img-chip { max-width: 190px; }
+
 .msg-assistant { color: var(--tx-1); font-size: 13.5px; }
 .msg-assistant p { margin: 0 0 12px; }
 .msg-assistant p:last-child { margin-bottom: 0; }

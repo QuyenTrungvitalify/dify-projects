@@ -1,0 +1,1002 @@
+# x-provenance: source=original repo=
+#   commit= file="projects/_drafts/yml_tsv_webhook_url/workflows/main.yml" orig_sha256= promoted=2026-08-07
+#   license=MIT spec=052 known_good_dify=
+# Pattern: Chunked Batch → TSV → Fire-and-Forget Webhook Relay
+#
+# Use case: an operator submits a free-text list; the workflow generates one structured ROW per
+# item (chunked so the LLM is called a handful of times, not once per item), routes each chunk to
+# one of two prompt variants, runs a QC pass, assembles a fixed-width TSV table for the operator —
+# and THEN relays that same table to a downstream receiver over HTTP as a pure side effect. The
+# relay is fail-soft by construction: a dead endpoint, a 5xx or a timeout must never cost the
+# operator the table they waited for. Classic shapes: bulk content generation handed off to a
+# spreadsheet/webhook sink, exam/catalog/row generation with a downstream ingest, any
+# "give me the result AND ship it onward" build.
+#
+# Flow:
+#   Start (category select + item_list paragraph)
+#     → Code: split list → classify into 2 groups → chunk into "<label>|<payload>" strings
+#     → Iteration over chunks:
+#         Code: peel the "<label>|" envelope → { type, clean_text }
+#         → If-Else: type == type_a ?
+#             true  → LLM A: generate rows (variant A prompt)
+#             false → LLM B: generate rows (variant B prompt)
+#         → Variable Aggregator: merge both variants into one stream
+#         → LLM QC: audit each row, append a complaint column (never rewrites columns 1..N-1)
+#     → Code: assemble + validate + pad to a fixed column count → fenced TSV
+#     ├─→ End (final_output)                              ← the operator's result, untouchable
+#     └─→ Code: strip the fence, json.dumps the payload
+#           → HTTP POST (error_strategy: fail-branch)
+#               ├─ success-branch ─┐
+#               └─ fail-branch ────┴→ Template: one-line relay status
+#                                       → End (send_result)
+#
+# Customization points (`# TODO:`):
+#   1. Start variables — `category` options and what `item_list` actually holds.
+#   2. The classification rule + CHUNK_SIZE in "Split & chunk input".
+#   3. Both generator prompts (LLM A / LLM B) and the column contract they must emit.
+#   4. The QC prompt — the one rule you want an LLM to judge.
+#   5. COLUMN_COUNT + the deterministic validations in "Assemble & validate rows".
+#   6. PAYLOAD_KEY in "Build relay payload" — the field name YOUR receiver expects.
+#   7. The relay URL, and the auth header + `RELAY_WEBHOOK_TOKEN` env secret (delete both if your
+#      receiver authenticates by token-in-URL only).
+#   8. Model choice — provider/name are blank placeholders (configure in Dify, or let the builder
+#      inject at test/deploy). `dependencies: []` for the same reason; add the plugin hash from
+#      templates/tool-catalog.json once you pick a provider.
+#
+# GOTCHA: `{{start.level}}` IS NOT A REFERENCE. The source build shipped prompts mixing a real
+#   `{{#<node_id>.<field>#}}` ref with a bare `{{start.<var>}}`, and Dify rendered the bare form as
+#   LITERAL TEXT into the prompt — the model was silently told the category was the string
+#   "{{start.level}}". No linter catches it (ref linting only inspects the `{{# … #}}` shape) and
+#   nothing fails loudly. The ONLY valid form is `{{#<node_id>.<field>#}}`. Grep your prompts for
+#   `{{` without a `#` before trusting any generated text.
+# GOTCHA: `http://localhost/...` inside an http-request node means the DIFY SERVER CONTAINER, not
+#   your laptop. A webhook URL copy-pasted from the browser address bar connects to nothing in a
+#   Docker deployment. Use the in-network service name (`http://nginx/...`),
+#   `http://host.docker.internal/...`, or the host's LAN IP.
+# GOTCHA: an http-request `timeout:` left unset defaults to 0 — that is "unconfigured", not
+#   "unlimited by choice", and a hung receiver stalls the run. Always set real values, and note the
+#   exported DSL spells the keys `max_connect_timeout` / `max_read_timeout` / `max_write_timeout`
+#   (NOT `connect`/`read`/`write`).
+# GOTCHA: a fail-branch that dead-ends is worse than no fail-branch — the operator gets nothing on
+#   failure, not even the work already finished. BOTH `success-branch` and `fail-branch` edges must
+#   converge on a handler and reach a terminal node. The handle replaces `source` in the
+#   `sourceHandle` field AND in the edge id (`<src>-fail-branch-<dst>-target`). At runtime only the
+#   branch that fired carries values; the other reads empty — which is why the status template
+#   switches on `error_message` being non-empty.
+# GOTCHA: TWO `end` nodes on parallel branches is legal and is the right way to bolt a side effect
+#   onto an existing workflow — the original end keeps its exact output contract, the new end
+#   reports the relay. Both outputs render side by side in the run result.
+# GOTCHA: never build the JSON body by concatenation in the HTTP node's field. A TSV payload is
+#   full of tabs, newlines and quotes; the first one produces invalid JSON. Build the ENTIRE body
+#   with `json.dumps` in a code node and pass the resulting string as a single `raw-text` body value.
+# GOTCHA: the ```-fence is a UI affordance, not data. Wrapping the final text in ```tsv makes Dify
+#   preserve newlines and show a copy button — so the relay branch has to strip it again before
+#   sending. That is the entire reason "Build relay payload" exists. Strip defensively: an empty or
+#   None upstream value must not raise.
+# GOTCHA: an LLM will not emit clean TSV, ever. The assembly code node is the contract enforcer,
+#   not the prompt: it accepts a line ONLY if its first cell is a number, pads short rows to the
+#   fixed column count, re-glues cells the model wrapped onto the next line, and sorts by id. That
+#   is what makes a stray fence or a "Sure, here you go!" preamble harmless.
+# GOTCHA: the `"<label>|<payload>"` envelope is how a routing decision survives an `array[string]`
+#   iterator. Dify iterations carry one scalar per item, so encoding the branch label into the
+#   string lets ONE iteration fan out to two prompt variants — no second iterator, no object array.
+# GOTCHA: this shape is NOT idempotent — every run re-POSTs the whole table. If duplicates hurt,
+#   dedup in the receiver or record sent-state outside the workflow.
+app:
+  description: 'TSV batch generate + fail-soft webhook relay: chunked iteration, dual-prompt routing, QC audit column, then POST the result downstream without risking the operator output'
+  icon: "\U0001F4E4"
+  icon_background: '#FFEAD5'
+  icon_type: emoji
+  mode: workflow
+  name: tsv_batch_webhook_relay
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables:
+  # TODO: rename to the secret your receiver needs — or delete this entry together with the
+  # X-Api-Token line in the relay node if the endpoint authenticates by token-in-URL only.
+  - name: RELAY_WEBHOOK_TOKEN
+    value_type: secret
+    value: ''
+  features:
+    file_upload: { enabled: false }
+    opening_statement: ''
+    retriever_resource: { enabled: false }
+    sensitive_word_avoidance: { enabled: false }
+    speech_to_text: { enabled: false }
+    suggested_questions: []
+    suggested_questions_after_answer: { enabled: false }
+    text_to_speech: { enabled: false, language: '', voice: '' }
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: code
+      id: 1776908399472-source-1776909076669-target
+      source: '1776908399472'
+      sourceHandle: source
+      target: '1776909076669'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInLoop: false
+        sourceType: code
+        targetType: iteration
+      id: 1776909076669-source-17769966313390-target
+      source: '1776909076669'
+      sourceHandle: source
+      target: '17769966313390'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '17769966313390'
+        sourceType: iteration-start
+        targetType: code
+      id: 1776996631339start-source-1776996631339017769966313390-target
+      source: 1776996631339start
+      sourceHandle: source
+      target: '1776996631339017769966313390'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '17769966313390'
+        sourceType: code
+        targetType: if-else
+      id: 1776996631339017769966313390-source-1776996631339017769966313391-target
+      source: '1776996631339017769966313390'
+      sourceHandle: source
+      target: '1776996631339017769966313391'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    # The two branch edges of the if-else: the case id replaces `source` in the handle AND the id.
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '17769966313390'
+        sourceType: if-else
+        targetType: llm
+      id: 1776996631339017769966313391-true-1776996631339017769966313392-target
+      source: '1776996631339017769966313391'
+      sourceHandle: 'true'
+      target: '1776996631339017769966313392'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '17769966313390'
+        sourceType: if-else
+        targetType: llm
+      id: 1776996631339017769966313391-false-1776996631339017769966313403-target
+      source: '1776996631339017769966313391'
+      sourceHandle: 'false'
+      target: '1776996631339017769966313403'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '17769966313390'
+        sourceType: llm
+        targetType: variable-aggregator
+      id: 1776996631339017769966313392-source-1776996631339017769966313404-target
+      source: '1776996631339017769966313392'
+      sourceHandle: source
+      target: '1776996631339017769966313404'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '17769966313390'
+        sourceType: llm
+        targetType: variable-aggregator
+      id: 1776996631339017769966313403-source-1776996631339017769966313404-target
+      source: '1776996631339017769966313403'
+      sourceHandle: source
+      target: '1776996631339017769966313404'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '17769966313390'
+        sourceType: variable-aggregator
+        targetType: llm
+      id: 1776996631339017769966313404-source-1778210827940-target
+      source: '1776996631339017769966313404'
+      sourceHandle: source
+      target: '1778210827940'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInLoop: false
+        sourceType: iteration
+        targetType: code
+      id: 17769966313390-source-1776995995822-target
+      source: '17769966313390'
+      sourceHandle: source
+      target: '1776995995822'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    # Branch 1 of 2 out of the assembler: the operator's result. Nothing downstream may endanger it.
+    - data:
+        isInLoop: false
+        sourceType: code
+        targetType: end
+      id: 1776995995822-source-1776912809110-target
+      source: '1776995995822'
+      sourceHandle: source
+      target: '1776912809110'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    # Branch 2 of 2: the fire-and-forget relay side branch.
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: code
+      id: 1776995995822-source-1785997751782-target
+      source: '1776995995822'
+      sourceHandle: source
+      target: '1785997751782'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: http-request
+      id: 1785997751782-source-1785998153396-target
+      source: '1785997751782'
+      sourceHandle: source
+      target: '1785998153396'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    # Both handles of the fail-branch node converge on ONE status handler; both must reach an end.
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: http-request
+        targetType: template-transform
+      id: 1785998153396-success-branch-1786081343721-target
+      source: '1785998153396'
+      sourceHandle: success-branch
+      target: '1786081343721'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: http-request
+        targetType: template-transform
+      id: 1785998153396-fail-branch-1786081343721-target
+      source: '1785998153396'
+      sourceHandle: fail-branch
+      target: '1786081343721'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: template-transform
+        targetType: end
+      id: 1786081343721-source-1786081343723-target
+      source: '1786081343721'
+      sourceHandle: source
+      target: '1786081343723'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        selected: false
+        title: Operator input
+        type: start
+        variables:
+        # TODO: your own dimension — whatever switches the generator's rules.
+        - hint: ''
+          label: category
+          options:
+          - option_a
+          - option_b
+          - option_c
+          placeholder: ''
+          required: true
+          type: select
+          variable: category
+        # TODO: what the operator pastes — one item per line, or comma separated.
+        - default: ''
+          hint: ''
+          label: item list
+          options: []
+          placeholder: ''
+          required: true
+          type: paragraph
+          variable: item_list
+      height: 135
+      id: '1776908399472'
+      position: { x: 81, y: 282 }
+      positionAbsolute: { x: 81, y: 282 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+
+    - data:
+        code: |
+          # TODO: replace the classification rule and CHUNK_SIZE with yours.
+          GROUP_A = "type_a"
+          GROUP_B = "type_b"
+          CHUNK_SIZE = 5
+
+
+          def main(args=None, **kwargs):
+              if args is None:
+                  args = kwargs
+              raw_text = args.get("item_list", "") or ""
+
+              # Accept both newline- and comma-separated input; drop blanks.
+              items = [w.strip() for w in raw_text.replace("\n", ",").split(",") if w.strip()]
+
+              group_a = []
+              group_b = []
+              for i, item in enumerate(items):
+                  item_clean = item.strip()
+                  # The 1-based index is glued to the item so every later stage (LLM output,
+                  # QC, assembly) can key a row back to the operator's input order.
+                  indexed = "{}:{}".format(i + 1, item_clean)
+                  # TODO: your routing rule. Shown: multi-word entries go to group B.
+                  if " " in item_clean:
+                      group_b.append(indexed)
+                  else:
+                      group_a.append(indexed)
+
+              chunks = []
+              for label, group in ((GROUP_B, group_b), (GROUP_A, group_a)):
+                  for i in range(0, len(group), CHUNK_SIZE):
+                      # "<label>|<payload>" — the label rides through the array[string]
+                      # iterator so ONE iteration can fan out to two prompt variants.
+                      chunks.append(label + "|" + ", ".join(group[i:i + CHUNK_SIZE]))
+
+              return {"chunked_array": chunks}
+        code_language: python3
+        outputs:
+          chunked_array:
+            children: null
+            type: array[string]
+        selected: false
+        title: Split & chunk input
+        type: code
+        variables:
+        - value_selector:
+          - '1776908399472'
+          - item_list
+          value_type: string
+          variable: item_list
+      height: 52
+      id: '1776909076669'
+      position: { x: 396, y: 398 }
+      positionAbsolute: { x: 396, y: 398 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+
+    - data:
+        error_handle_mode: terminated
+        flatten_output: true
+        height: 322
+        is_parallel: false
+        iterator_input_type: array[string]
+        iterator_selector:
+        - '1776909076669'
+        - chunked_array
+        output_selector:
+        - '1778210827940'
+        - text
+        output_type: array[string]
+        parallel_nums: 10
+        selected: false
+        start_node_id: 1776996631339start
+        title: Per chunk (Iteration)
+        type: iteration
+        width: 1594
+      height: 322
+      id: '17769966313390'
+      position: { x: 688, y: 446 }
+      positionAbsolute: { x: 688, y: 446 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 1594
+      zIndex: 1
+
+    - data:
+        desc: ''
+        isInIteration: true
+        selected: false
+        title: ''
+        type: iteration-start
+      draggable: false
+      height: 48
+      id: 1776996631339start
+      parentId: '17769966313390'
+      position: { x: 24, y: 68 }
+      positionAbsolute: { x: 712, y: 514 }
+      selectable: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom-iteration-start
+      width: 44
+      zIndex: 1002
+
+    - data:
+        code: |
+          def main(args=None, **kwargs):
+              if args is None:
+                  args = kwargs
+              text = args.get("item", "") or ""
+
+              # Peel the "<label>|<payload>" envelope written by the chunker. The label
+              # drives the if-else below; clean_text is what the LLM actually sees.
+              if "|" in text:
+                  type_str, clean_text = text.split("|", 1)
+              else:
+                  type_str = "type_a"
+                  clean_text = text
+
+              return {"type": type_str, "clean_text": clean_text}
+        code_language: python3
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '17769966313390'
+        outputs:
+          clean_text:
+            children: null
+            type: string
+          type:
+            children: null
+            type: string
+        selected: false
+        title: Peel chunk label
+        type: code
+        variables:
+        - value_selector:
+          - '17769966313390'
+          - item
+          value_type: string
+          variable: item
+      height: 52
+      id: '1776996631339017769966313390'
+      parentId: '17769966313390'
+      position: { x: 128, y: 68 }
+      positionAbsolute: { x: 816, y: 514 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          # TODO: match the label your chunker writes for group A.
+          - comparison_operator: is
+            id: 1df35022-b5e1-41e7-b9fb-289b5bdaf615
+            value: type_a
+            varType: string
+            variable_selector:
+            - '1776996631339017769966313390'
+            - type
+          id: 'true'
+          logical_operator: and
+        conditions:
+        - comparison_operator: is
+          id: 1df35022-b5e1-41e7-b9fb-289b5bdaf615
+          value: type_a
+          varType: string
+          variable_selector:
+          - '1776996631339017769966313390'
+          - type
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '17769966313390'
+        logical_operator: and
+        selected: false
+        title: Route by chunk type
+        type: if-else
+      height: 148
+      id: '1776996631339017769966313391'
+      parentId: '17769966313390'
+      position: { x: 430, y: 68 }
+      positionAbsolute: { x: 1118, y: 514 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '17769966313390'
+        model:
+          # TODO: wire your model (or let the builder inject at live test/deploy)
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: ''
+          provider: ''
+        prompt_template:
+        - id: b2288235-d66e-428b-8028-783c06e1e7d6
+          role: system
+          # TODO: your generator prompt for GROUP A. Keep the OUTPUT CONTRACT block — the
+          # assembler downstream depends on it. Every reference must use the
+          # {{#<node_id>.<field>#}} form; a bare {{start.category}} renders as literal text.
+          text: |-
+            You generate structured data rows. You never greet, explain, or wrap output in a code fence.
+
+            Category: {{#1776908399472.category#}}
+            Items (comma separated, each prefixed "<id>:"): {{#1776996631339017769966313390.clean_text#}}
+
+            RULES (TODO: replace with the rules that define a good row for you)
+            - Produce exactly one row per input item.
+            - Keep every row self-contained; do not reference other rows.
+
+            OUTPUT CONTRACT (keep this shape)
+            - One TAB-separated line per item, nothing else. No bullets, no numbering prefix
+              such as "-", no blank lines, no ``` fence.
+            - Column 1 is the incoming id, reused verbatim — never renumber.
+            - Column 2 is the category. Columns 3..13 are your payload columns.
+              # TODO: name columns 3..13 explicitly here; the model follows what you name.
+            - Never emit a real newline inside a cell. If a value spans lines, join with a space.
+        selected: false
+        title: Generate rows A (LLM)
+        type: llm
+        vision:
+          enabled: false
+      height: 88
+      id: '1776996631339017769966313392'
+      parentId: '17769966313390'
+      position: { x: 732, y: 66 }
+      positionAbsolute: { x: 1420, y: 513 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '17769966313390'
+        model:
+          # TODO: wire your model (or let the builder inject at live test/deploy)
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: ''
+          provider: ''
+        prompt_template:
+        - id: 44bfec87-1dbf-4455-9e61-2cc51bc53320
+          role: system
+          # TODO: your generator prompt for GROUP B. Same output contract as variant A —
+          # the two variants MUST agree on the column layout, or the assembler mixes shapes.
+          text: |-
+            You generate structured data rows. You never greet, explain, or wrap output in a code fence.
+
+            Category: {{#1776908399472.category#}}
+            Items (comma separated, each prefixed "<id>:"): {{#1776996631339017769966313390.clean_text#}}
+
+            RULES (TODO: the group-B specific rules — this is why the branch exists)
+            - Produce exactly one row per input item.
+            - Apply the constraints that only group B needs.
+
+            OUTPUT CONTRACT (identical to variant A — keep them in sync)
+            - One TAB-separated line per item, nothing else. No bullets, no ``` fence.
+            - Column 1 is the incoming id, reused verbatim. Column 2 is the category.
+              Columns 3..13 are your payload columns.
+            - Never emit a real newline inside a cell.
+        selected: false
+        title: Generate rows B (LLM)
+        type: llm
+        vision:
+          enabled: false
+      height: 88
+      id: '1776996631339017769966313403'
+      parentId: '17769966313390'
+      position: { x: 733, y: 194 }
+      positionAbsolute: { x: 1421, y: 640 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+
+    # Merges the two mutually-exclusive branches back into one stream: at runtime only the
+    # branch that fired carries a value, so the aggregator always yields exactly one.
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '17769966313390'
+        output_type: string
+        selected: false
+        title: Merge variants
+        type: variable-aggregator
+        variables:
+        - - '1776996631339017769966313403'
+          - text
+        - - '1776996631339017769966313392'
+          - text
+      height: 135
+      id: '1776996631339017769966313404'
+      parentId: '17769966313390'
+      position: { x: 1034, y: 68 }
+      positionAbsolute: { x: 1723, y: 514 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+
+    - data:
+        context:
+          enabled: true
+          variable_selector:
+          - '1776996631339017769966313404'
+          - output
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '17769966313390'
+        model:
+          # TODO: wire your model (or let the builder inject at live test/deploy)
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: ''
+          provider: ''
+        prompt_template:
+        - id: 33300925-acea-4bcd-ba69-b1e9ea9779d1
+          role: system
+          # TODO: your audit rule. This is the ONE judgement worth an extra LLM call — keep it
+          # narrow. Deterministic checks belong in the assembler code node, not here.
+          text: |-
+            You are an output-only auditor. No greeting, no explanation, no markdown fence.
+
+            Read the TAB-separated rows below and check each one against the rule.
+
+            RULE (TODO: the single quality trap you want caught)
+            - Flag a row when it violates the rule; say nothing about rows that are fine.
+
+            OUTPUT RULES (iron-clad)
+            - NEVER rewrite columns 1..13. Echo them byte for byte.
+            - Only when a row violates the rule, append a 14th TAB-separated column stating
+              which column is wrong and why.
+            - When a row is fine, leave the 14th column empty.
+            - Output only the rows. Each row starts with its numeric id.
+
+            Input: {{#1776996631339017769966313404.output#}}
+        selected: false
+        title: QC audit (LLM)
+        type: llm
+        vision:
+          enabled: false
+      height: 88
+      id: '1778210827940'
+      parentId: '17769966313390'
+      position: { x: 1336, y: 68 }
+      positionAbsolute: { x: 2024, y: 514 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+
+    - data:
+        code: |
+          # The contract enforcer. The prompts ASK for clean TSV; this node GUARANTEES it.
+          COLUMN_COUNT = 14           # TODO: 13 payload columns + 1 audit column
+          WRAP_RECOVERY_COLUMNS = [6, 7]   # TODO: 0-based columns that may hold long free text
+
+
+          def main(args=None, **kwargs):
+              if args is None:
+                  args = kwargs
+              array_data = args.get("array_data", []) or []
+
+              rows = {}
+              for text_block in array_data:
+                  if not text_block or not isinstance(text_block, str):
+                      continue
+
+                  last_id = None
+                  for line in text_block.strip().split("\n"):
+                      line = line.strip()
+                      if not line:
+                          continue
+
+                      parts = line.split("\t")
+                      # A line counts as data ONLY if its first cell is a number. This is what
+                      # makes a stray ``` fence or a "Sure, here you go!" preamble harmless.
+                      head = parts[0].replace("-", "").replace(".", "").strip()
+                      if head.isdigit():
+                          idx = int(head)
+                          last_id = idx
+                          if idx not in rows:
+                              while len(parts) < COLUMN_COUNT:
+                                  parts.append("")
+                              rows[idx] = parts[:COLUMN_COUNT]
+                      elif last_id is not None:
+                          # The model wrapped a long cell onto the next line: glue it back.
+                          for col in WRAP_RECOVERY_COLUMNS:
+                              if len(rows.get(last_id, [])) > col:
+                                  rows[last_id][col] = (rows[last_id][col] + " " + line).strip()
+
+              final_rows = []
+              for key in sorted(rows.keys()):
+                  row = rows[key]
+
+                  # The last column collects every complaint: whatever the LLM auditor wrote,
+                  # plus the deterministic checks below. Keep both — only these are reliable.
+                  existing = str(row[COLUMN_COUNT - 1]).strip()
+                  errors = [existing] if existing else []
+
+                  # TODO: your deterministic validations. Kept here as shape, not as rules.
+                  payload = row[6] if len(row) > 6 else ""
+                  if not payload.strip():
+                      errors.append("empty payload column")
+                  elif len(payload.split()) > 60:
+                      errors.append("payload too long ({} words)".format(len(payload.split())))
+
+                  row[COLUMN_COUNT - 1] = " / ".join(errors) if errors else ""
+                  final_rows.append("\t".join([str(p).strip() for p in row[:COLUMN_COUNT]]))
+
+              # The ```tsv fence is a UI affordance: it makes Dify keep the newlines and show a
+              # copy button. The relay branch strips it again before sending.
+              return {"final_output": "```tsv\n" + "\n".join(final_rows) + "\n```"}
+        code_language: python3
+        outputs:
+          final_output:
+            children: null
+            type: string
+        selected: false
+        title: Assemble & validate rows
+        type: code
+        variables:
+        - value_selector:
+          - '17769966313390'
+          - output
+          value_type: array[string]
+          variable: array_data
+      height: 52
+      id: '1776995995822'
+      position: { x: 2418, y: 594 }
+      positionAbsolute: { x: 2418, y: 594 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+
+    # The operator's terminal. When you bolt a side effect onto an existing workflow, this node
+    # and its output contract are exactly what must NOT change.
+    - data:
+        outputs:
+        - value_selector:
+          - '1776995995822'
+          - final_output
+          value_type: string
+          variable: output
+        selected: false
+        title: Result output
+        type: end
+      height: 88
+      id: '1776912809110'
+      position: { x: 2769, y: 462 }
+      positionAbsolute: { x: 2769, y: 462 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+
+    - data:
+        code: |
+          import json
+
+          # TODO: the field name YOUR receiver expects ("data" / "text" / "rows" / …).
+          PAYLOAD_KEY = "tsv_data"
+
+
+          def main(raw_output: str) -> dict:
+              text = (raw_output or "").strip()
+
+              # Undo the display fence added upstream. Defensive on purpose: an empty or None
+              # upstream value must return an empty payload, never raise.
+              if text.startswith("```"):
+                  nl = text.find("\n")
+                  text = text[nl + 1:] if nl != -1 else ""
+              text = text.rstrip()
+              if text.endswith("```"):
+                  text = text[:-3]
+              plain = text.strip("\n")
+
+              # Build the ENTIRE JSON body here. Never concatenate it in the HTTP node: the
+              # first tab, newline or quote in the payload would produce invalid JSON.
+              return {"json_body": json.dumps({PAYLOAD_KEY: plain}, ensure_ascii=False)}
+        code_language: python3
+        outputs:
+          json_body:
+            children: null
+            type: string
+        selected: false
+        title: Build relay payload
+        type: code
+        variables:
+        - value_selector:
+          - '1776995995822'
+          - final_output
+          value_type: string
+          variable: raw_output
+      height: 52
+      id: '1785997751782'
+      position: { x: 2769, y: 589 }
+      positionAbsolute: { x: 2769, y: 589 }
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+
+    - data:
+        authorization:
+          config: null
+          type: no-auth
+        body:
+          data:
+          - id: key-value-33
+            key: ''
+            type: text
+            value: '{{#1785997751782.json_body#}}'
+          type: raw-text
+        desc: Fire-and-forget relay. fail-branch keeps a send failure from costing the operator
+          the result. A localhost URL here means the Dify server container, not your machine.
+        error_strategy: fail-branch
+        # TODO: drop the X-Api-Token line (and the env secret) if your receiver authenticates by
+        # token-in-URL only. Custom auth headers need `no-auth` above — an api-key auth type
+        # rewrites the header away.
+        headers: |
+          Content-Type: application/json
+          X-Api-Token: {{#env.RELAY_WEBHOOK_TOKEN#}}
+        method: post
+        params: ''
+        retry_config:
+          max_retries: 3
+          retry_enabled: true
+          retry_interval: 100
+        selected: false
+        ssl_verify: true
+        # Never leave these at 0 — 0 means unconfigured, and a hung receiver stalls the run.
+        timeout:
+          max_connect_timeout: 10
+          max_read_timeout: 30
+          max_write_timeout: 10
+        title: Relay POST
+        type: http-request
+        # TODO: your receiver's endpoint, reachable FROM THE DIFY SERVER (service name inside the
+        # Docker network, host.docker.internal, or a LAN IP — not the browser's localhost).
+        url: https://example.invalid/webhook/TODO-endpoint
+        variables: []
+      height: 153
+      id: '1785998153396'
+      position: { x: 3071, y: 589 }
+      positionAbsolute: { x: 3071, y: 589 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+
+    # Both handles converge here. Only the branch that fired carries values at runtime, so the
+    # template switches on error_message being non-empty rather than on which edge ran.
+    - data:
+        desc: Collapses success-branch and fail-branch into one human-readable relay status line.
+        selected: false
+        template: '{% if error_message %}RELAY FAILED [{{ error_type }}]: {{ error_message }}{%
+          else %}RELAY OK status={{ status_code }} body={{ body[:200] }}{% endif %}'
+        title: Relay status
+        type: template-transform
+        variables:
+        - value_selector:
+          - '1785998153396'
+          - status_code
+          variable: status_code
+        - value_selector:
+          - '1785998153396'
+          - body
+          variable: body
+        - value_selector:
+          - '1785998153396'
+          - error_type
+          variable: error_type
+        - value_selector:
+          - '1785998153396'
+          - error_message
+          variable: error_message
+      height: 88
+      id: '1786081343721'
+      position: { x: 3373, y: 589 }
+      positionAbsolute: { x: 3373, y: 589 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+
+    # The second terminal. Two ends on parallel branches is legal and is the point: the relay
+    # reports itself without touching the result end's output contract.
+    - data:
+        desc: Relay terminal, parallel to the result end.
+        outputs:
+        - value_selector:
+          - '1786081343721'
+          - output
+          value_type: string
+          variable: send_result
+        selected: false
+        title: Relay output
+        type: end
+      height: 88
+      id: '1786081343723'
+      position: { x: 3675, y: 589 }
+      positionAbsolute: { x: 3675, y: 589 }
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+    viewport:
+      x: -1600
+      y: -63
+      zoom: 0.64
+  rag_pipeline_variables: []

@@ -29,12 +29,45 @@ import type {
 let _uid = 0;
 const uid = (): string => 'i' + ++_uid;
 
+/** Composer attachments → the slim history shape (drops nothing the bubble needs; see ThreadAttachment). */
+const attsOf = (files?: Attachment[]): ThreadAttachment[] | undefined =>
+  files && files.length ? files.map((f) => ({ name: f.name, mime: f.mime, dataUrl: f.dataUrl })) : undefined;
+
+/** Stamp the server-side indices (`uploads`, echoed by the POST) onto the user bubble we pushed
+ *  optimistically — that is what makes the files survive a reload. A no-op when the message carried no
+ *  files or the item is gone (e.g. the thread was replaced by a task switch mid-POST). */
+function stampUploads(itemId: string, uploads?: number[]): void {
+  if (!uploads || !uploads.length) return;
+  const cur = thread.value.slice();
+  const i = cur.findIndex((it) => it.id === itemId);
+  if (i === -1) return;
+  const it = cur[i];
+  if (it.kind !== 'user' || !it.atts) return;
+  cur[i] = { ...it, atts: it.atts.map((a, n) => (uploads[n] === undefined ? a : { ...a, idx: uploads[n] })) };
+  thread.value = cur;
+}
+
 export type UiPhaseState = 'pending' | 'running' | 'awaiting' | 'done' | 'error';
 const PHASE_ORDER: WirePhase[] = ['analyze', 'spec', 'implement', 'test'];
 
 /** Live chat-thread items, built client-side from SSE transitions (the backend stores no chat log). */
+/** One file the user attached to a message, as the HISTORY needs it (the chat used to forget them the
+ *  moment the message was sent). Two ways to show the same file, and both are needed:
+ *   - `dataUrl` — the composer's in-memory copy, so the bubble renders the thumbnail INSTANTLY on send,
+ *     before the POST even answers. Stripped when the thread is persisted (one screenshot as base64
+ *     would eat the ~5MB localStorage quota on its own).
+ *   - `idx` — where the server put it (`task.attachments[idx]`, echoed back as `uploads`), addressable
+ *     as `GET /api/tasks/:id/uploads/:idx`. This is what SURVIVES a reload, so the reopened build still
+ *     shows the files it was given. */
+export interface ThreadAttachment {
+  name: string;
+  mime: string;
+  dataUrl?: string;
+  idx?: number;
+}
+
 export type LiveThreadItem =
-  | { id: string; kind: 'user'; text: string }
+  | { id: string; kind: 'user'; text: string; atts?: ThreadAttachment[] }
   | { id: string; kind: 'run'; phase: WirePhase; running: boolean; output: string; stopped?: boolean }
   | { id: string; kind: 'gate'; phase: WirePhase; snapshot: WireTask; resolved?: string }
   /** spec 033: a conversational Ask exchange — message↔message, never re-runs the phase. `done` flips
@@ -898,7 +931,8 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
   clearErrors();
   _lastPersisted = ''; // fresh build — reset the persistence dedupe so the new task.json persists cleanly
   const s = settings.value;
-  thread.value = [{ id: uid(), kind: 'user', text: requirement }];
+  const userItemId = uid();
+  thread.value = [{ id: userItemId, kind: 'user', text: requirement, atts: attsOf(files) }];
   task.value = null;
   // spec 030: the Workflow setting is either 'none' or a COMPOUND `project/workflow` (the composer
   // dropdown / sidebar workflow-"+" both use it). Split it into the bare workflow + its parent project.
@@ -922,6 +956,7 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
       ...(project ? { project } : {}),
       ...(files && files.length ? { files } : {}),
     });
+    stampUploads(userItemId, t.uploads); // the saved copies — what the history shows after a reload
     applyTask(t);
     openStream(t.taskId);
     void loadTree();
@@ -942,7 +977,8 @@ export async function startConsult(text: string, files?: Attachment[]): Promise<
   try {
     const t = await api.createConsult({ text, ...(files && files.length ? { files } : {}) });
     thread.value = [
-      { id: uid(), kind: 'user', text },
+      // the POST already answered here, so the upload indices land straight on the bubble
+      { id: uid(), kind: 'user', text, atts: attsOf(files)?.map((a, n) => ({ ...a, idx: t.uploads?.[n] })) },
       { id: uid(), kind: 'qa', question: text, answer: '', done: false },
     ];
     task.value = null;
@@ -1251,11 +1287,14 @@ export async function reply(text: string, label?: string, files?: Attachment[]):
   if (!trimmed && t.status !== 'error') return false;
   const items = thread.value.slice();
   // No empty user bubble on a text-less retry; a steered reply still shows the user's message.
-  if (trimmed) items.push({ id: uid(), kind: 'user', text: trimmed });
+  const userItemId = uid();
+  if (trimmed) items.push({ id: userItemId, kind: 'user', text: trimmed, atts: attsOf(files) });
   thread.value = items;
   try {
     // Optimistic: close the gate; SSE re-opens the current phase as a fresh run (no duplicate).
-    optimisticAdvance(await api.reply(t.taskId, trimmed, files), label ?? 'Requested changes');
+    const res = await api.reply(t.taskId, trimmed, files);
+    stampUploads(userItemId, res.uploads);
+    optimisticAdvance(res, label ?? 'Requested changes');
     void loadActive();
     return true; // spec 040 D2
   } catch (e) {
@@ -1279,13 +1318,14 @@ export async function ask(text: string, files?: Attachment[]): Promise<boolean> 
   // reached. A concurrent Ask would 409 on the global turn lock anyway.
   if (asking.value) return false;
   const items = thread.value.slice();
-  items.push({ id: uid(), kind: 'user', text: text.trim() });
+  const userItemId = uid();
+  items.push({ id: userItemId, kind: 'user', text: text.trim(), atts: attsOf(files) });
   const qaId = uid();
   items.push({ id: qaId, kind: 'qa', question: text.trim(), answer: '', done: false });
   thread.value = items;
   asking.value = true;
   try {
-    await api.ask(t.taskId, text.trim(), files);
+    stampUploads(userItemId, (await api.ask(t.taskId, text.trim(), files)).uploads);
     return true; // spec 040 D2
   } catch (e) {
     // The POST itself failed (400/409/500) — no turn was ever dispatched, so no ask:done will ever

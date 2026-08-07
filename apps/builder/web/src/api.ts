@@ -73,9 +73,17 @@ export interface CreateTaskBody {
   files?: Attachment[];
 }
 
+/** The four file-accepting POSTs echo back WHERE each file landed: indices into `task.attachments`,
+ *  addressable as `GET /api/tasks/:id/uploads/:idx`. The chat history stores those indices on the user
+ *  bubble so a reopened build can still render the files it was given (data-URLs are far too big to
+ *  persist). Absent when the request carried no files. */
+export interface UploadIdx {
+  uploads?: number[];
+}
+
 export const api = {
   /** POST /api/tasks → start a build (run-lock; 409 surfaces as ApiError.status===409, AC #21). */
-  createTask: (body: CreateTaskBody): Promise<WireTask> => request('POST', '/api/tasks', body),
+  createTask: (body: CreateTaskBody): Promise<WireTask & UploadIdx> => request('POST', '/api/tasks', body),
   /** GET /api/tasks/:id → authoritative state + artifact contents (the reconnect re-fetch, AC #22). */
   getTask: (id: string): Promise<WireTask> => request('GET', `/api/tasks/${encodeURIComponent(id)}`),
   /** POST /api/tasks/:id/confirm → advance the gate (carries the chosen action id, + slug/name at ②, or
@@ -83,7 +91,7 @@ export const api = {
   confirm: (id: string, actionId: string, extra?: { slug?: string; name?: string; keepCurrent?: boolean }): Promise<WireTask> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/confirm`, { actionId, ...extra }),
   /** POST /api/tasks/:id/reply → within-phase change request / Retry-out-of-error (+ optional files, AC3). */
-  reply: (id: string, text: string, files?: Attachment[]): Promise<WireTask> =>
+  reply: (id: string, text: string, files?: Attachment[]): Promise<WireTask & UploadIdx> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/reply`, {
       text,
       ...(files && files.length ? { files } : {}),
@@ -91,14 +99,14 @@ export const api = {
   /** spec 033: POST /api/tasks/:id/ask → conversational Q&A at a parked gate — no phase re-run, no
    *  gate/status change. Responds `{ok:true}` immediately; the answer streams over SSE (ask:answer/done).
    *  spec 089: carries optional files, so a chat can take a document on any message, not just its first. */
-  ask: (id: string, text: string, files?: Attachment[]): Promise<{ ok: boolean }> =>
+  ask: (id: string, text: string, files?: Attachment[]): Promise<{ ok: boolean } & UploadIdx> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/ask`, {
       text,
       ...(files && files.length ? { files } : {}),
     }),
   /** spec 082: POST /api/consult → start a `kind:'consult'` chat task (chat lane; a running build never
    *  blocks it). `text` is the first message; every later message is a plain api.ask(id, text). */
-  createConsult: (body: { text: string; files?: Attachment[] }): Promise<WireTask> =>
+  createConsult: (body: { text: string; files?: Attachment[] }): Promise<WireTask & UploadIdx> =>
     request('POST', '/api/consult', body),
   /** spec 082: GET /api/consults → the consult chats (newest first) for the sidebar's own section. */
   consults: (): Promise<{ consults: WireTreeTask[] }> => request('GET', '/api/consults'),

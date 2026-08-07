@@ -22,6 +22,7 @@ import {
   ACCEPTED_EXT,
   isImageMime,
 } from '../lib/attachments';
+import type { ThreadAttachment } from '../store';
 import type {
   PhaseStates,
   PhaseKey,
@@ -610,6 +611,40 @@ function SettingSelect({ icon, label, value, options, onChange, mono, shrink, di
 /** The composer's `<input accept>` allowlist — image MIME + the non-image extensions (spec 025 D1),
  *  built from the shared constants so it can't drift from the validator. */
 const ACCEPT_ATTR = [...ACCEPTED_IMAGE_MIME, ...[...ACCEPTED_EXT].map((e) => `.${e}`)].join(',');
+
+/**
+ * The files a user message carried, rendered INSIDE its bubble (Claude Nexus does the same: the server
+ * serves each upload by id and the bubble points an <img> at it). Two sources for the same file:
+ * `dataUrl` is the composer's in-memory copy — instant, no request, available before the POST answers —
+ * and `idx` addresses the saved copy at `/api/tasks/:id/uploads/:idx`, which is what still works after a
+ * reload (the data-URL is stripped when the thread is persisted; see lib/thread-persist).
+ * An attachment with neither (a pre-fix persisted thread) simply renders as a nameplate chip.
+ */
+export function MsgAttachments({ atts, taskId }: { atts: ThreadAttachment[]; taskId?: string }) {
+  const srcOf = (a: ThreadAttachment): string =>
+    a.dataUrl ?? (taskId && a.idx !== undefined ? `/api/tasks/${encodeURIComponent(taskId)}/uploads/${a.idx}` : '');
+  return (
+    <div className="msg-atts">
+      {atts.map((a, i) => {
+        const src = srcOf(a);
+        if (isImageMime(a.mime) && src) {
+          return (
+            <a key={i} href={src} target="_blank" rel="noreferrer" title={a.name}>
+              <img className="msg-att-img" src={src} alt={a.name} loading="lazy" />
+            </a>
+          );
+        }
+        const chip = (
+          <div className="img-chip" title={a.name}>
+            <span className="ic-file"><I.doc /></span>
+            <span className="ic-name">{a.name}</span>
+          </div>
+        );
+        return src ? <a key={i} href={src} target="_blank" rel="noreferrer">{chip}</a> : <Fragment key={i}>{chip}</Fragment>;
+      })}
+    </div>
+  );
+}
 
 export function Composer({ value, onChange, onSend, settings, onSettings, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, onMode }: {
   value: string;
