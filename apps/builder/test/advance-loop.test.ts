@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { startTask, confirmAdvance, replyWithin, type OrchestratorCtx } from '../server/lib/orchestrator.js';
 import { acquireTurn, releaseTurn, markCancelled, unmarkCancelled } from '../server/lib/lock.js';
+import { canRequestFix } from '../server/lib/gate.js';
 import { createTask, type Task } from '../server/state/task.js';
 import { PHASES } from '../server/lib/phases.js';
 import { applyInitFake } from './helpers/scaffold-fake.js';
@@ -327,19 +328,62 @@ describe('advance-loop integration (013 D3)', () => {
     assert.equal(task.deploy, 'selfhost', 'deploy stays selfhost through the terminal report');
   });
 
-  test('/reply at ④ re-runs the REPORT, not a turn', async () => {
+  test('a Retry out of ERROR at ④ re-runs the REPORT, not a turn', async () => {
+    // The remaining fall-through in replyWithin's ④ branch. It is scoped to `error` (and to a ④ with no
+    // implement session): a build parked at a ④ GATE routes to Implement (spec 041, next test), and so
+    // does a DONE one (the post-import fix loop, the test after that) — for both, re-running the report
+    // on an unchanged main.yml would be the silent no-op 041 was written to kill.
     const dir = fixtureDir();
     const task = await createTask(dir, { requirement: 'x', confirmMode: 'auto', deploy: 'none' });
     const h = harness(dir, task);
     await withTurn(task.taskId, () => startTask(task, h.ctx)); // run to done@test
     assert.equal(task.phase, 'test');
+    task.status = 'error'; // the Retry-out-of-error path (§I)
     const turnsBefore = h.calls.runTurn;
     const reportsBefore = h.calls.runReport;
 
     await replyWithin(task, 'tweak the report', h.ctx);
 
-    assert.equal(h.calls.runTurn, turnsBefore, '/reply at ④ spawned NO turn');
-    assert.equal(h.calls.runReport, reportsBefore + 1, '/reply at ④ re-ran the report');
+    assert.equal(h.calls.runTurn, turnsBefore, 'the Retry at ④ spawned NO turn');
+    assert.equal(h.calls.runReport, reportsBefore + 1, 'the Retry at ④ re-ran the report');
+  });
+
+  test('the post-import fix loop — a fix request on a DONE build re-runs IMPLEMENT (the build reopens)', async () => {
+    // A finished build is where the human's REAL acceptance test happens: they import the workflow into
+    // Dify, run it, and only then find what to change. That fix must land in the SAME conversation —
+    // resuming the implement session — rather than dying at `done` (the old behavior: /reply 409'd, so
+    // the only route was a brand-new edit-existing build, fresh session and all four phases again).
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'x', confirmMode: 'auto', deploy: 'none' });
+    const h = harness(dir, task);
+    await withTurn(task.taskId, () => startTask(task, h.ctx)); // run to done@test
+    assert.equal(task.status, 'done');
+    assert.equal(task.phase, 'test');
+    assert.ok(canRequestFix(task), 'a done ①②③④ build with an implement session + on-disk workflow is fixable');
+    const turnsBefore = h.calls.runTurn;
+    const reportsBefore = h.calls.runReport;
+
+    await withTurn(task.taskId, () => replyWithin(task, 'the LLM node uses the wrong variable', h.ctx));
+
+    assert.equal(h.calls.runTurn, turnsBefore + 1, 'the fix re-ran the IMPLEMENT turn → main.yml is actually edited');
+    assert.equal(h.calls.runReport, reportsBefore, 'it did NOT re-run the report on the unchanged workflow');
+    assert.equal(task.phase, 'implement', 're-parked at the Implement gate — the human re-tests/re-imports from there');
+    assert.equal(task.status, 'awaiting_confirm', 'the build is live again, not terminal');
+    assert.ok(task.gate?.actions.some((a) => a.id === 'continue'), 'the Implement gate offers "Continue to Test"');
+  });
+
+  test('canRequestFix — what stays terminal', async () => {
+    const dir = fixtureDir();
+    const base = await createTask(dir, { requirement: 'x', confirmMode: 'auto', deploy: 'none' });
+    const done = { ...base, status: 'done' as const, phase: 'test' as const, project: 'p', workflowSlug: 'wf',
+      sessionIds: { implement: 'sess-implement' } };
+    assert.ok(canRequestFix(done));
+    assert.ok(!canRequestFix({ ...done, status: 'cancelled' }), 'a cancelled build re-enters via Restore, not a fix');
+    assert.ok(!canRequestFix({ ...done, status: 'awaiting_confirm' }), 'a parked build never needed this door');
+    assert.ok(!canRequestFix({ ...done, kind: 'promote' }), 'a promote build has no implement phase to resume');
+    assert.ok(!canRequestFix({ ...done, kind: 'consult' }), 'a chat has no workflow to revise');
+    assert.ok(!canRequestFix({ ...done, sessionIds: {} }), 'no implement session → the reply would silently no-op');
+    assert.ok(!canRequestFix({ ...done, workflowSlug: null }), 'no on-disk workflow → nothing to edit');
   });
 
   test('spec 036 fix — "Request changes" at the LIVE ④ gate re-runs IMPLEMENT (edits main.yml), not a bare re-test', async () => {

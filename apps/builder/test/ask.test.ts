@@ -450,6 +450,34 @@ describe('askTestWithin — spec 034: fresh-seeded ④/terminal Ask', () => {
   beforeEach(async () => { dir = await tmp(); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
+  test('names the task attachments in the prompt (a file at ④ / on a terminal build was invisible to the turn)', async () => {
+    const task = await createTask(dir, { requirement: 'r', confirmMode: 'each_step' });
+    task.phase = 'test';
+    task.status = 'done';
+    task.attachments = [`apps/builder/.runs/${task.taskId}/uploads/0_shot.png`];
+    await saveTask(dir, task);
+
+    let seenPrompt = '';
+    const runTurn = async (
+      _s: ClaudeSession, prompt: string,
+      onSessionId?: (id: string) => void, opts?: { onText?: (t: string) => void }
+    ): Promise<TurnResult> => {
+      seenPrompt = prompt;
+      onSessionId?.('askTest-att');
+      opts?.onText?.('ok');
+      return { sessionId: 'askTest-att', result: { type: 'result', is_error: false }, isError: false };
+    };
+    const { ctx } = ctxWith(dir, runTurn);
+    assert.ok(acquireTurn(task.taskId, 'ask'));
+    try {
+      await askTestWithin(task, 'what is red in this screenshot?', ctx);
+    } finally {
+      releaseTurn(task.taskId);
+    }
+    assert.match(seenPrompt, /Attached files:/);
+    assert.ok(seenPrompt.includes(`uploads/0_shot.png`), 'the saved path is named, so the turn can Read it');
+  });
+
   test('assembles the seed from artifacts + task fields, streams an answer, leaves the ④ gate untouched, persists askTest', async () => {
     const task = await createTask(dir, { requirement: 'my requirement', confirmMode: 'each_step' });
     task.project = 'p';

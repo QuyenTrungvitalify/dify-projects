@@ -77,6 +77,38 @@ describe('hydrateForReopen — decision #2 (reconcile: drop unresolved gates, fi
     expect(out[0].running).toBe(false);
   });
 
+  // An open `qa` after a hard reload is the same class of bug as a still-`running` run: nothing will ever
+  // settle it (ask:done belongs to the OLD page's SSE stream), so it rendered "Answering…" forever —
+  // through every subsequent reload. Observed after a mid-Ask server restart, where it read as a hung build.
+  it('drops an unanswered open qa (the phantom "Answering…" that survived every reload)', () => {
+    const items: LiveThreadItem[] = [
+      { id: 'u', kind: 'user', text: 'what broke?' },
+      { id: 'q', kind: 'qa', question: 'what broke?', answer: '', done: false },
+    ];
+    const out = hydrateForReopen(items);
+    expect(out.map((i) => i.id)).toEqual(['u']); // the question bubble stands alone; no empty "Answered" box
+  });
+
+  it('KEEPS a partially-streamed open qa and marks it done (real text is worth reading)', () => {
+    const items: LiveThreadItem[] = [
+      { id: 'q', kind: 'qa', question: 'why?', answer: 'the LLM node references', done: false },
+    ];
+    const out = hydrateForReopen(items) as (LiveThreadItem & { kind: 'qa' })[];
+    expect(out).toHaveLength(1);
+    expect(out[0].done).toBe(true);
+    expect(out[0].answer).toBe('the LLM node references');
+  });
+
+  it('a whitespace-only answer counts as never-answered (dropped, not a blank Answered box)', () => {
+    const items: LiveThreadItem[] = [{ id: 'q', kind: 'qa', question: 'q', answer: '  \n ', done: false }];
+    expect(hydrateForReopen(items)).toHaveLength(0);
+  });
+
+  it('leaves an already-done qa untouched', () => {
+    const items: LiveThreadItem[] = [{ id: 'q', kind: 'qa', question: 'q', answer: 'a', done: true }];
+    expect(hydrateForReopen(items)).toEqual(items);
+  });
+
   it('round-trip: serialize → parse → hydrate preserves the conversation, drops the live gate', () => {
     const items: LiveThreadItem[] = [
       { id: 'u', kind: 'user', text: 'build me X' },

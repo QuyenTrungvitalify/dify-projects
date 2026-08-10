@@ -11,8 +11,41 @@
  *   - kind:"reply"   → focus the composer for a within-phase change (POST /reply)
  *   - kind:"cancel"  → abandon (POST /cancel)
  */
-import type { Deploy, Gate, GateAction, Phase } from '../state/task.js';
+import type { Deploy, Gate, GateAction, Phase, Task } from '../state/task.js';
 import type { DifyTargets } from './dify-io.js';
+
+/**
+ * A FINISHED build stays fixable — `done` is not the end of the conversation.
+ *
+ * The human's real acceptance test happens AFTER the build says done: they import the workflow into
+ * Dify, run it, and only then find what needs changing. Until now that discovery had nowhere to go —
+ * `/reply` refuses a terminal task, so the only route was a NEW edit-existing build (fresh session,
+ * empty thread, all four phases re-run) for what is usually a three-line fix.
+ *
+ * A `done` build reopens iff it can actually be revised IN PLACE:
+ *   - an ①②③④ build (a promote/consult has no implement phase to resume),
+ *   - parked at ④ (every done build is — import.ts/live-test.ts pin `phase='test'` before finishing),
+ *   - with its workflow on disk (project + slug resolved), and
+ *   - with an `implement` session to `--resume`. Without one, replyWithin's ④ branch falls through to
+ *     re-running the REPORT on an unchanged main.yml — a silent no-op (the 032 bug 041 fixed). In
+ *     practice every build that reaches ④ has run ③ as a turn, so this is a fail-safe, not a filter.
+ *
+ * PURE. The `/reply` route reads it as the authoritative guard; the FE's terminal gate-foot renders its
+ * button from the same facts minus `sessionIds` (not on the wire — the impossible case 409s, honestly).
+ */
+export function canRequestFix(
+  task: Pick<Task, 'kind' | 'status' | 'phase' | 'project' | 'workflowSlug' | 'sessionIds'>
+): boolean {
+  return (
+    task.status === 'done' &&
+    task.kind !== 'promote' &&
+    task.kind !== 'consult' &&
+    task.phase === 'test' &&
+    !!task.project &&
+    !!task.workflowSlug &&
+    !!task.sessionIds?.implement
+  );
+}
 
 /** Verify outcome the orchestrator resolves before gating. `awaiting_import` is the Lát-5 ④ state:
  *  selfhost lint is clean but the import hasn't run yet → present the Import button (AC #16). */

@@ -443,7 +443,7 @@ export function QaAnswer({ answer, done, seededFrom }: { answer: string; done: b
   );
 }
 
-export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCancel, onRetry, onRestore, onEditAgain, onRunTest, onOpenArtifact }: {
+export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCancel, onRetry, onRestore, onEditAgain, onRunTest, onRequestFix, onOpenArtifact }: {
   task: WireTask;
   resolved?: string;
   busy?: boolean;
@@ -462,6 +462,10 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
   /** spec 036 D5: run a live workflow test from a done AUTONOMOUS build (its only live path). Rendered
    *  only when terminalFootActions.runTest holds (done + creds reachable + auto/spec_only). */
   onRunTest?: () => void;
+  /** The post-import fix loop: arm change-mode on a DONE build so the fix found while testing in Dify is
+   *  typed into THIS conversation (→ POST /reply, which resumes the implement session) instead of
+   *  starting a new build. Contrast with `onEditAgain`, which deliberately opens a NEW conversation. */
+  onRequestFix?: () => void;
   onOpenArtifact: (tab: ArtifactTab) => void;
 }) {
   const v = gateView(task);
@@ -482,11 +486,13 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
   // Run-test / Restore) — its source project/workflowSlug would otherwise wrongly light Edit-again on a
   // done promotion. Suppress them so only the promote gate's own actions render.
   const isPromote = task.kind === 'promote';
-  const { restore: canRestore, editAgain: canEditAgain, runTest: canRunTest } = terminalFootActions(task, {
-    restore: !!onRestore && !isPromote,
-    editAgain: !!onEditAgain && !isPromote,
-    runTest: !!onRunTest && !isPromote,
-  });
+  const { restore: canRestore, editAgain: canEditAgain, runTest: canRunTest, requestFix: canRequestFix } =
+    terminalFootActions(task, {
+      restore: !!onRestore && !isPromote,
+      editAgain: !!onEditAgain && !isPromote,
+      runTest: !!onRunTest && !isPromote,
+      requestFix: !!onRequestFix && !isPromote,
+    });
 
   return (
     <div className={'gate' + tone}>
@@ -532,11 +538,18 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
             <I.check style={{ width: 13, height: 13 }} />{tAction(resolved)}
           </span>
         </div>
-      ) : canRestore || canEditAgain || canRunTest ? (
+      ) : canRestore || canEditAgain || canRunTest || canRequestFix ? (
         // spec 035 D2 / 036 D5: Restore (cancelled-only — reopens THIS build), Edit-this-workflow (both
         // statuses — starts a NEW edit-existing build), and Run-test-with-workflow (done autonomous +
         // creds — re-enters the live sub-orchestrator) coexist as independent actions in one foot.
+        // Request-a-fix (done-only) leads: it is the "keep working right here" action, and the one the
+        // user reaches for after importing into Dify and finding something to change.
         <div className="gate-foot">
+          {canRequestFix && (
+            <button className="btn ghost" disabled={busy} onClick={() => onRequestFix!()} title={tr('requestFixHint')}>
+              <I.message />{tr('requestFix')}
+            </button>
+          )}
           {canRestore && (
             <button className="btn ghost" disabled={busy} onClick={() => onRestore!()}>
               <I.undo />{tr('restoreBuild')}

@@ -117,9 +117,21 @@ write-deny + a byte-snapshot/restore backstop), not by trusting the model. Expli
 revise the artifact — the two are always an explicit choice, never inferred from the text. **Spec 034**
 extends Ask to the ④ Test gates and to a terminal `done`/`cancelled` build: since there is no phase
 session to resume there, it runs a **fresh-seeded** turn (assembled from requirement/SPEC.md/main.yml/
-report.json/liveTest, shown as a "based on:" caption), and a terminal build's composer becomes Ask-only.
-**Spec 035** adds an "Edit this workflow" button on the done/cancelled gate foot to start a new
-edit-existing build (starting a brand-new build lives at the sidebar "+").
+report.json/liveTest, shown as a "based on:" caption), so a terminal build's composer is Ask **by
+default**. **Spec 035** adds an "Edit in a new conversation" button on the done/cancelled gate foot to
+start a new edit-existing build (starting a brand-new build lives at the sidebar "+").
+
+**A finished build stays fixable** — the human's real acceptance test happens *after* `done`: you import
+the workflow into Dify, run it, and only then find what needs changing. A done build's gate foot
+therefore carries **Request a fix**, which arms change-mode on the same composer: the message goes to
+`POST /reply`, which reopens the build and resumes the **implement** session (`canRequestFix` in
+`lib/gate.ts` is the one predicate the route and the foot both read). It re-lints and re-parks at the
+Implement gate, so you iterate in the SAME conversation — same thread, same context — instead of
+spending a fresh 4-phase build on a three-line fix. The neighbouring "Edit in a new conversation" button
+is the deliberate opposite: it opens a NEW build seeded from the workflow on disk. A `cancelled` build
+re-enters through **Restore** instead, and a promote/consult has no implement phase to resume.
+Caveat while iterating: re-importing still creates a **new** Dify app each time (`sync.py` never sends
+`app_id`), so the fix loop currently accumulates apps in the workspace.
 
 **⚡ Fast build** (spec 028) — a composer toggle for **from-scratch single-LLM** builds: it merges
 Analyze ①+② into one turn (skips the `find.py` pattern search) and still **stops at the Spec gate**.

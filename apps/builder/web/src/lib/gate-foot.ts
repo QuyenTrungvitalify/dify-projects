@@ -27,13 +27,21 @@ function isAutonomous(mode: WireTask['confirmMode'] | undefined): boolean {
   return mode === 'auto' || mode === 'spec_only';
 }
 
-/** `has.restore`/`has.editAgain`/`has.runTest` = whether the parent wired that handler (GateCard passes
- *  `!!onRestore` / `!!onEditAgain` / `!!onRunTest`). Returns which terminal-foot actions should render. Pure. */
+/** `has.restore`/`has.editAgain`/`has.runTest`/`has.requestFix` = whether the parent wired that handler
+ *  (GateCard passes `!!onRestore` / `!!onEditAgain` / `!!onRunTest` / `!!onRequestFix`). Returns which
+ *  terminal-foot actions should render. Pure. */
 export function terminalFootActions(
   task: Pick<WireTask, 'status' | 'project' | 'workflowSlug' | 'confirmMode' | 'liveTargets'>,
-  has: { restore: boolean; editAgain: boolean; runTest: boolean }
-): { restore: boolean; editAgain: boolean; runTest: boolean } {
+  has: { restore: boolean; editAgain: boolean; runTest: boolean; requestFix?: boolean }
+): { restore: boolean; editAgain: boolean; runTest: boolean; requestFix: boolean } {
   return {
+    // The post-import fix loop: a DONE build keeps a "Request a fix" button, because the human's real
+    // acceptance test — importing into Dify and running it — happens after this card says 完了. It arms
+    // the composer's change-mode, so the fix is typed into THIS conversation (server: POST /reply, which
+    // resumes the implement session). `done` only: a CANCELLED build's re-entry is Restore, and its
+    // implement session may never have existed. Requires an on-disk target, exactly like Edit-again.
+    requestFix:
+      task.status === 'done' && !!task.project && !!task.workflowSlug && !!has.requestFix,
     restore: task.status === 'cancelled' && has.restore,
     editAgain:
       (task.status === 'cancelled' || task.status === 'done') &&

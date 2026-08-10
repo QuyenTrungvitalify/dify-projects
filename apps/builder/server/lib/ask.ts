@@ -384,7 +384,10 @@ export async function askTestWithin(task: Task, text: string, ctx: OrchestratorC
     const prompt =
       (seed ? `You are answering a question about the following build.\n\n${seed}\n\n---\n\n` : '') +
       `${text}\n\n(Answer conversationally. Do NOT create, modify, or delete any file — this is a ` +
-      `question, not a change request.)`;
+      `question, not a change request.)` +
+      // Same omission as the consult resume path: this turn accepts files (the ④ gate and a terminal
+      // build's chat both offer attach), saved them, and then told the model nothing about them.
+      attachmentBlock(task.attachments);
 
     // Mirror askWithin's review-#2 guard: a /cancel that landed during gatherTerminalSeed (before setSession,
     // so it found no live child and merely flagged the holder) must abort HERE — not spawn + run the full
@@ -591,13 +594,19 @@ export async function consultWithin(
 
     const fresh = !task.sessionIds.askTest;
     const langPin = languagePin(task.requirement);
-    // S3: the machine checks run only on the FIRST turn (attachments only arrive at create — /ask
-    // carries no files) — card(s) stream to the FE before the model says a word, and the same facts
-    // fold into the seed. Never fatal: yamlCards reports tool failures inside the card itself.
+    // S3: the machine checks run only on the FIRST turn — card(s) stream to the FE before the model says
+    // a word, and the same facts fold into the seed. Never fatal: yamlCards reports tool failures inside
+    // the card itself. (The old reason given here — "attachments only arrive at create" — stopped being
+    // true when spec 089 gave /ask files.)
     const cardBlock = fresh ? await yamlCards(task, ctx) : '';
+    // The attachment block goes on EVERY turn, not just the first. A file dropped into an ongoing chat
+    // was saved to disk and then never mentioned to the model, which answered "I only received text" —
+    // the file was invisible to it. Listing the task's full set each turn (what askWithin already does)
+    // costs a few lines of prompt and can never silently drop the one file the user just handed over.
+    const fileBlock = attachmentBlock(task.attachments);
     const prompt = fresh
-      ? `${langPin}${CONSULT_PREAMBLE}\n\n---\n\n${text}${attachmentBlock(task.attachments)}${cardBlock}`
-      : `${langPin}${text}`;
+      ? `${langPin}${CONSULT_PREAMBLE}\n\n---\n\n${text}${fileBlock}${cardBlock}`
+      : `${langPin}${text}${fileBlock}`;
 
     const { runTurn } = resolveRunners(ctx);
     const session = new ClaudeSession(`${task.taskId}:consult`, {

@@ -276,10 +276,17 @@ const EN: Dict = {
   cardTitle: 'Machine check',
   cardLintClean: 'Structure is valid — importable as-is',
   // spec 035: the done/cancelled gate-foot "Edit this workflow" button.
-  editThisWorkflow: 'Edit this workflow',
-  // Short label for the header pill (the tooltip `editThisWorkflowHint` still spells it out).
-  editWorkflowShort: 'Edit',
-  editThisWorkflowHint: 'Start a new build that edits this workflow',
+  // Both edit affordances name their COST up front: they open a NEW conversation (a fresh edit-existing
+  // build — new session, empty thread, all four phases again). The cheap in-place path is `requestFix`
+  // on the same card, so the two must never read alike.
+  editThisWorkflow: 'Edit in a new conversation',
+  // The post-import fix loop — the done card's "keep working here" action (arms change-mode → /reply).
+  requestFix: 'Request a fix',
+  requestFixHint: 'Keep this conversation going — describe what to change and the workflow is revised here, with everything this build already knows',
+  // Short label for the header pill (the tooltip `editThisWorkflowHint` still spells it out). It says
+  // "new" because that is the distinction that matters now: this pill leaves the current conversation.
+  editWorkflowShort: 'Edit (new)',
+  editThisWorkflowHint: 'Open a NEW conversation that edits this workflow. To keep this one going, use “Request a fix” on the last card instead.',
   // spec 036 D5: the done-state "Run test with workflow" foot action (autonomous builds + self-host creds).
   runTestWithWorkflow: 'Run test with workflow',
   // Discoverability change: the foot action is always shown; clicking it without a self-host target
@@ -726,10 +733,14 @@ const JA: Dict = {
   stopConsultAnswer: 'この回答を停止',
   cardTitle: '機械チェック',
   cardLintClean: '構造は有効 — そのままインポート可能',
-  // spec 035
-  editThisWorkflow: 'このワークフローを編集',
-  editWorkflowShort: '編集',
-  editThisWorkflowHint: 'このワークフローを編集する新しいビルドを開始',
+  // spec 035 — どちらの「編集」も、新しい会話が始まることを名前で先に伝える（同じ会話で直す道は
+  // 同じカードの `requestFix`）。
+  editThisWorkflow: '新しい会話で編集',
+  editWorkflowShort: '編集（新規）',
+  editThisWorkflowHint: 'このワークフローを編集する新しい会話を開きます。この会話のまま直す場合は、最後のカードの「修正を依頼」を使ってください。',
+  // 完了後の修正ループ — 完了カードの「この会話のまま直す」アクション。
+  requestFix: '修正を依頼',
+  requestFixHint: 'この会話を続けます — 変更点を伝えると、このビルドが把握している内容をそのまま引き継いでワークフローを修正します',
   // spec 036 D5
   runTestWithWorkflow: 'ワークフローでテスト実行',
   liveTestNeedsSelfhost:

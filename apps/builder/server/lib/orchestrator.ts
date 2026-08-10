@@ -245,7 +245,12 @@ export async function replyWithin(task: Task, text: string, ctx: OrchestratorCtx
     // the workflow instead of silently re-running the report on the UNCHANGED main.yml.
     //   (History: 032 dropped `text` and re-ran runLiveTest on the unchanged workflow → the edit no-op'd;
     //    036 fixed it for the live path only; 041 extends the same correct routing to every ④ gate.)
-    if (task.status === 'awaiting_confirm' && task.sessionIds.implement) {
+    //   `done` rides the SAME branch (the post-import fix loop): a finished build reopens for a revision
+    //   instead of dying, so the fix the human found while testing in Dify lands in THIS conversation —
+    //   same thread, same implement session — rather than in a brand-new edit-existing build. The route
+    //   admits it only when `canRequestFix` holds (which already requires sessionIds.implement), so the
+    //   fall-through below stays the awaiting_confirm/error path it always was.
+    if ((task.status === 'awaiting_confirm' || task.status === 'done') && task.sessionIds.implement) {
       await runPhaseAndGate(task, 'implement', ctx, { resumeId: task.sessionIds.implement, replyText: text });
       return;
     }

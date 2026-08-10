@@ -12,7 +12,7 @@ const t = (over: Partial<WireTask>): Pick<WireTask, 'status' | 'project' | 'work
   ({ status: 'done', project: null, workflowSlug: null, confirmMode: 'each_step', liveTargets: { selfhost: false }, ...over }) as WireTask;
 
 // all handlers wired; the point is the TASK-FIELD logic, not handler presence.
-const all = { restore: true, editAgain: true, runTest: true };
+const all = { restore: true, editAgain: true, runTest: true, requestFix: true };
 
 describe('terminalFootActions (spec 035 — independent Restore / Edit-again guards)', () => {
   it('(a) cancelled + no on-disk workflow (pre-scaffold) → Restore stays, Edit-again hidden [the regression guard]', () => {
@@ -20,6 +20,7 @@ describe('terminalFootActions (spec 035 — independent Restore / Edit-again gua
       restore: true,
       editAgain: false,
       runTest: false,
+      requestFix: false,
     });
   });
 
@@ -28,6 +29,7 @@ describe('terminalFootActions (spec 035 — independent Restore / Edit-again gua
       restore: true,
       editAgain: true,
       runTest: false,
+      requestFix: false,
     });
   });
 
@@ -36,6 +38,7 @@ describe('terminalFootActions (spec 035 — independent Restore / Edit-again gua
       restore: false,
       editAgain: true,
       runTest: false,
+      requestFix: true,
     });
   });
 
@@ -44,13 +47,46 @@ describe('terminalFootActions (spec 035 — independent Restore / Edit-again gua
       restore: false,
       editAgain: false,
       runTest: false,
+      requestFix: false,
     });
   });
 
   it('a missing handler hides its own action even when the task fields qualify', () => {
     expect(
-      terminalFootActions(t({ status: 'cancelled', project: 'p', workflowSlug: 'wf' }), { restore: false, editAgain: true, runTest: true })
-    ).toEqual({ restore: false, editAgain: true, runTest: false });
+      terminalFootActions(t({ status: 'cancelled', project: 'p', workflowSlug: 'wf' }), { restore: false, editAgain: true, runTest: true, requestFix: true })
+    ).toEqual({ restore: false, editAgain: true, runTest: false, requestFix: false });
+  });
+});
+
+// The post-import fix loop: the done card's "Request a fix" button — the one action that keeps the user
+// in THIS conversation (arms change-mode → POST /reply → the implement session resumes). It is
+// deliberately done-ONLY and, unlike runTest, confirm-mode-blind: every finished build gets fixed the
+// same way, whoever confirmed the gates.
+describe('terminalFootActions — requestFix (the post-import fix loop)', () => {
+  it('done + on-disk workflow → shown, at ANY confirm-mode (unlike runTest)', () => {
+    for (const confirmMode of ['each_step', 'spec_only', 'auto'] as const) {
+      expect(terminalFootActions(t({ status: 'done', project: 'p', workflowSlug: 'wf', confirmMode }), all).requestFix).toBe(true);
+    }
+  });
+
+  it('done but NO on-disk workflow → hidden (nothing to revise)', () => {
+    expect(terminalFootActions(t({ status: 'done', project: 'p', workflowSlug: null }), all).requestFix).toBe(false);
+    expect(terminalFootActions(t({ status: 'done', project: null, workflowSlug: 'wf' }), all).requestFix).toBe(false);
+  });
+
+  it('cancelled → hidden (a cancelled build re-enters via Restore, and may have no implement session)', () => {
+    expect(terminalFootActions(t({ status: 'cancelled', project: 'p', workflowSlug: 'wf' }), all).requestFix).toBe(false);
+  });
+
+  it('not terminal (running / awaiting_confirm) → hidden (the gate already offers Request changes)', () => {
+    expect(terminalFootActions(t({ status: 'awaiting_confirm', project: 'p', workflowSlug: 'wf' }), all).requestFix).toBe(false);
+    expect(terminalFootActions(t({ status: 'running', project: 'p', workflowSlug: 'wf' }), all).requestFix).toBe(false);
+  });
+
+  it('qualified but handler NOT wired (e.g. a promote build) → hidden', () => {
+    expect(
+      terminalFootActions(t({ status: 'done', project: 'p', workflowSlug: 'wf' }), { ...all, requestFix: false }).requestFix
+    ).toBe(false);
   });
 });
 

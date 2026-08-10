@@ -34,7 +34,7 @@ import {
   toWireTask,
   type Task,
 } from '../state/task.js';
-import { computeGate } from '../lib/gate.js';
+import { canRequestFix, computeGate } from '../lib/gate.js';
 import { difyTargets } from '../lib/dify-io.js';
 import { runLiveTest } from '../lib/live-test.js';
 import { promoteConfirm, promoteReply, resolvePastedPromoteSource, resolvePromoteSource, startPromote, undoPromotion } from '../lib/promote.js';
@@ -546,7 +546,12 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     if (task.kind === 'consult') {
       return reply.code(409).send({ error: '/reply is not available for a consult chat — use /ask' });
     }
-    if (task.status !== 'awaiting_confirm' && task.status !== 'error') {
+    // A FINISHED build stays fixable (the post-import fix loop): `done` is admitted when `canRequestFix`
+    // holds — the human tests the imported workflow in Dify and brings the fix back to THIS conversation,
+    // where the implement session is still resumable. replyWithin routes it exactly like a ④ "Request
+    // changes" (resume ③ → edit main.yml → re-lint → re-park at the Implement gate), so the build simply
+    // re-enters the FSM; nothing here has to un-do `done` by hand. Everything else is terminal as before.
+    if (task.status !== 'awaiting_confirm' && task.status !== 'error' && !canRequestFix(task)) {
       return reply
         .code(409)
         .send({ error: `task is ${task.status}; /reply needs awaiting_confirm or error` });

@@ -23,6 +23,7 @@ import { type ComposerAttachment, MAX_ATTACHMENTS, isAcceptedFile, fileToDataUrl
 import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed, NewTaskOpts } from '../types';
 import { newTaskCrumb, runContextCrumb, workflowOptions, activeSidebarProject, activeSidebarWorkflow, type NewTaskCrumb } from '../lib/crumb';
 import { canPromoteFromConversation } from '../lib/promote-visibility';
+import { composerTarget, replyLabel } from '../lib/composer-route';
 import { api, ApiError } from '../api';
 
 let _attUid = 0;
@@ -234,21 +235,28 @@ export function App() {
     // spec 040 D2: the store dispatches CATCH internally and resolve (they never reject), so a 409 turn-busy
     // is signalled by a `false` return — restore the composer so the user just re-sends. The guards
     // (`d => d || msg`) never clobber text typed during the in-flight window.
+    // The mode reset lives HERE, on the SUCCESS path only (spec 033 FIX-I's intent, corrected): a send that
+    // never left — a 409 turn-busy, a stale backend, any surfaced error — restores the draft and the staged
+    // files, so it must restore the ARMED MODE too. Resetting it synchronously (as this did) silently
+    // disarmed change-mode on failure: the user saw their text come back, pressed Send again, and the
+    // second attempt went to /ask — the message became a question, and the fix they asked for never
+    // happened. Observed exactly that way on a done build against a not-yet-restarted server.
+    // FIX-I still holds: a phase transition resets mode via the [taskId, phase] effect, and a FAILED send
+    // leaves the user at the same gate with the same text, which is precisely where the arm belongs.
     const onDone = (ok: boolean): void => {
-      if (!ok) {
-        setDraft((d) => d || msg);
-        setFiles((f) => (f.length ? f : prevFiles));
+      if (ok) {
+        setMode('ask');
+        return;
       }
+      setDraft((d) => d || msg);
+      setFiles((f) => (f.length ? f : prevFiles));
     };
-    // Routing (spec 033 FIX-F + spec 034 D3/D5):
-    //   empty-view                        → store.start()  (a brand-new build)
-    //   done | cancelled  (034 D3)        → store.ask()    (ask about THIS finished/abandoned build;
-    //                                                        starting a NEW build lives at the sidebar "+")
-    //   error                             → store.reply()  (Retry-out-of-error, byte-unchanged)
-    //   awaiting_confirm, mode==='change' → store.reply(text, label) — Request-changes (incl. ④, 034 D5)
-    //   awaiting_confirm, mode==='ask'    → store.ask(text) — default at analyze/spec/implement AND ④ (034 D5)
-    const st = store.task.value?.status;
-    if (view === 'empty') {
+    // Where this message goes (spec 033 FIX-F + 034 D3/D5 + the post-import fix loop) is decided by the
+    // PURE `composerTarget` — see lib/composer-route.ts for the whole rule and its tests. The branches
+    // below only carry out the verdict, so the decision can never drift from what the tests pin.
+    const t = store.task.value;
+    const target = composerTarget(t, mode);
+    if (target === 'start') {
       // spec 082 §4.5: the Mode chip routes the entry — consult (chat lane, default) vs build (as today).
       if (settings.mode === 'consult') {
         void store.startConsult(msg, atts).then(onDone);
@@ -257,35 +265,15 @@ export function App() {
       }
       return;
     }
-    // spec 052: a promote build has no Ask surface — a typed message at a promote gate is always a
-    // "Request changes" reply (re-run the distill, note-steered). The server rejects it at the blocked gate
-    // (no reply action); here it routes to /reply, not /ask (which would 409 for a promote task).
-    if (store.task.value?.kind === 'promote') {
-      void store.reply(msg, 'Request changes', atts).then(onDone);
-      setMode('ask');
+    if (target === 'ask') {
+      // The default at every gate AND at a terminal build (034 D3/D5) — with files, since attach is live in
+      // Ask mode too (they'd otherwise be dropped on send, the worst kind of silent loss).
+      void store.ask(msg, atts).then(onDone);
       return;
     }
-    // spec 034 D3: a terminal build's composer is Ask-only — no change-mode exists (nothing to resume or
-    // re-run), attach is hidden (no files), and starting a new build moved to the sidebar "+".
-    if (st === 'done' || st === 'cancelled') {
-      void store.ask(msg, atts).then(onDone);
-      setMode('ask');
-      return;
-    }
-    // awaiting_confirm or error, non-empty. error-Retry always /reply; ④ Test (034 D5) now follows the
-    // ask|change mode chip exactly like analyze/spec/implement — the `phase==='test'` carve-out is gone.
-    // The armed `changeLabel` (FIX-G) carries through so the resolved gate reads the TRUE action.
-    if (st === 'error') {
-      void store.reply(msg, mode === 'change' ? changeLabel : undefined, atts).then(onDone);
-    } else if (mode === 'change') {
-      void store.reply(msg, changeLabel, atts).then(onDone); // Request-changes — re-run the phase, revise the artifact
-    } else {
-      // default at analyze/spec/implement AND ④ (034 D5) — with files, now that attach is live in Ask
-      // mode at a gate too (they'd otherwise be dropped on send, the worst kind of silent loss).
-      void store.ask(msg, atts).then(onDone);
-    }
-    // FIX-I: reset mode after EVERY send that could have armed change-mode — including the error-Retry path.
-    setMode('ask');
+    // 'reply' — a Request-changes at a parked gate, a Retry out of error, a promote note, or the
+    // post-import fix on a DONE build (which reopens it server-side and resumes the implement session).
+    void store.reply(msg, replyLabel(t!.status, t!.kind, mode, changeLabel), atts).then(onDone);
   }
   // spec 053: the error gate's one-click "Retry phase" — a text-less re-run of the failed phase that
   // CARRIES any staged composer files (attach is live at an error gate, so dropping them would be silent
@@ -416,6 +404,43 @@ export function App() {
   const livePlaceholder = askableGate
     ? (mode === 'change' ? tr('phChangeMode') : tr('phAskGate'))
     : tr('phReplyOrDescribe');
+  // The post-import fix loop: a DONE build whose workflow is on disk can still be revised in place, so its
+  // terminal composer is no longer Ask-ONLY — change-mode is reachable there (armed by the gate foot's
+  // Request-a-fix button, sent as POST /reply). Mirrors the server's `canRequestFix` minus `sessionIds`,
+  // which is not on the wire; the impossible session-less case 409s rather than silently doing nothing.
+  const terminalFixable = !!task && task.status === 'done' && task.kind !== 'promote' &&
+    task.kind !== 'consult' && !!task.project && !!task.workflowSlug;
+  // Arm change-mode on a finished build (the post-import fix loop). Shared by the done card's Request-a-fix
+  // button and the composer row below, so both doors behave identically.
+  function armFix(): void {
+    setChangeLabel('Request changes');
+    setMode('change');
+    setFocusToken((x) => x + 1);
+  }
+  // The change-mode indicator, shared by BOTH composer branches (parked gate + done build) so the mode is
+  // signalled identically wherever it can be armed. Ask stays implicit — its placeholder already says so.
+  const modeRow = mode === 'change' ? (
+    <div className="mode-row">
+      <span className="mode-chip on">{tr('modeChange')}</span>
+      <button type="button" className="mode-back"
+        /* keep staged files: Ask carries them too now, so dropping them on the way back would delete
+           work the user just did (they used to be change-only). */
+        onClick={() => setMode('ask')} title={tr('modeBackToAsk')}>
+        {tr('modeBackToAsk')}
+      </button>
+    </div>
+  ) : null;
+  // The done build's composer row. In change-mode it is the indicator above; in Ask-mode it is the DOOR
+  // INTO change-mode — because the gate card's Request-a-fix scrolls away above the answer the moment the
+  // user asks a question, and that is exactly the sequence that happens: chat → find what's wrong → want
+  // it fixed → the only affordance is off-screen (and Ask, which just explains, is the one still in reach).
+  const terminalModeRow = !terminalFixable ? null : (modeRow ?? (
+    <div className="mode-row">
+      <button type="button" className="mode-arm" onClick={armFix} title={tr('requestFixHint')}>
+        <I.message />{tr('requestFix')}
+      </button>
+    </div>
+  ));
   // Note: the panel NEVER auto-opens (spec 051-followup UX). It only opens on an explicit user action
   // (the 成果物 button / a gate-card "open report"·"view diff" link → openArtifact). Auto-opening on the
   // first YAML made sense for from-scratch, but for an edit-existing build the base file exists from
@@ -673,6 +698,10 @@ export function App() {
                         /* spec 036 D5: "Run test with workflow" — re-enter the live sub-orchestrator from a
                            done autonomous build (terminalFootActions gates it on creds + auto/spec_only). */
                         onRunTest={() => void store.liveTest()}
+                        /* The post-import fix loop: keep working in THIS conversation — arm change-mode so
+                           the next message is a revision (POST /reply resumes the implement session),
+                           instead of onEditAgain's new build. */
+                        onRequestFix={armFix}
                         onOpenArtifact={openArtifact}
                       />
                     </div>;
@@ -711,17 +740,7 @@ export function App() {
                           default and already signalled by the `Ask a question…` placeholder, so an always-on
                           "Ask" chip was redundant clutter. In change mode it reads "Request changes" + a
                           one-tap way back to Ask, so the mode is unmistakable exactly when it deviates. */}
-                      {askableGate && mode === 'change' && (
-                        <div className="mode-row">
-                          <span className="mode-chip on">{tr('modeChange')}</span>
-                          <button type="button" className="mode-back"
-                            /* keep staged files: Ask carries them too now, so dropping them on the way
-                               back would delete work the user just did (they used to be change-only). */
-                            onClick={() => setMode('ask')} title={tr('modeBackToAsk')}>
-                            {tr('modeBackToAsk')}
-                          </button>
-                        </div>
-                      )}
+                      {askableGate && modeRow}
                       <Composer value={draft} onChange={setDraft} onSend={() => send()}
                         /* spec 052: a promote build has no ①②③④ run-settings — omit the Workflow/Confirm/Fast
                            chips (and their confirm_mode PATCH) so the promote-gate composer is a plain reply box. */
@@ -753,10 +772,21 @@ export function App() {
                     // spec 089: attach IS offered here. A chat's first message can bring a document (POST
                     // /api/consult) and /ask now carries files too, so every later message can as well —
                     // without it, a reference raised mid-conversation had no way into the chat at all.
-                    <Composer value={draft} onChange={setDraft} onSend={() => send()}
-                      placeholder={task?.kind === 'consult' ? tr('phConsultChat') : tr('phAskAboutBuild')} disabled={asking}
-                      files={files} onAddFiles={(f) => void addFiles(f)} onRemoveFile={removeFile}
-                    />
+                    // The post-import fix loop: a done build is Ask-BY-DEFAULT, not Ask-only — change-mode
+                    // (armed by the gate foot's Request-a-fix) routes the same box to POST /reply.
+                    <>
+                      {terminalModeRow}
+                      <Composer value={draft} onChange={setDraft} onSend={() => send()}
+                        placeholder={terminalFixable && mode === 'change' ? tr('phChangeMode')
+                          : task?.kind === 'consult' ? tr('phConsultChat') : tr('phAskAboutBuild')}
+                        /* Request-a-fix bumps focusToken to put the caret in the box — without this prop the
+                           click armed change-mode but left focus on the BUTTON, so typing went nowhere and
+                           the user had to click the composer to discover that. */
+                        focusToken={focusToken}
+                        disabled={busy || asking}
+                        files={files} onAddFiles={(f) => void addFiles(f)} onRemoveFile={removeFile}
+                      />
+                    </>
                   )}
                 </div>
               </div>

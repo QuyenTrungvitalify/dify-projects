@@ -125,6 +125,32 @@ describe('spec 082 — consult mode', () => {
     await h.app.close();
   });
 
+  test('a file attached to a FOLLOW-UP message reaches the turn prompt (it used to be saved and never mentioned)', async () => {
+    const h = await build(dir);
+    const created = (await h.app.inject({ method: 'POST', url: '/api/consult', payload: { text: 'câu đầu tiên' } })).json() as Task;
+    await waitFor(() => !chatTurnBusy(), 'first turn');
+
+    const png = `data:image/png;base64,${Buffer.alloc(16, 0x41).toString('base64')}`;
+    const res = await h.app.inject({
+      method: 'POST',
+      url: `/api/tasks/${created.taskId}/ask`,
+      payload: { text: 'node nào đang đỏ?', files: [{ name: 'shot.png', mime: 'image/png', dataUrl: png }] },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    await waitFor(() => !chatTurnBusy(), 'second turn');
+
+    // The saved path must be NAMED in the prompt — without it the model answers "I only got text".
+    assert.match(h.prompts[1], new RegExp(`Attached files:[^]*\\.runs/${created.taskId}/uploads/0_shot\\.png`));
+    assert.deepEqual((res.json() as { uploads?: number[] }).uploads, [0], 'the FE gets the index to render it back');
+
+    // and the transcript records it, so reopening the chat still shows the file
+    const chat = (await readFile(join(dir, 'apps/builder/.runs', created.taskId, 'chat.jsonl'), 'utf8'))
+      .split('\n').filter(Boolean).map((l) => JSON.parse(l) as { role: string; files?: unknown[] });
+    const userLines = chat.filter((c) => c.role === 'user');
+    assert.deepEqual(userLines[1].files, [{ name: 'shot.png', mime: 'image/png', idx: 0 }]);
+    await h.app.close();
+  });
+
   test('/reply on a consult → 409 even at status error (never reaches the ④ machinery)', async () => {
     const h = await build(dir);
     const created = (await h.app.inject({ method: 'POST', url: '/api/consult', payload: { text: 'x' } })).json() as Task;

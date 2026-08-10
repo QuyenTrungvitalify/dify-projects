@@ -67,9 +67,20 @@ export function parseThread(json: string | null): LiveThreadItem[] | null {
 }
 
 /** Reconcile a restored thread for reopening (decision #2): drop UNRESOLVED gate items (the live gate
- *  comes fresh from applyTask) and finalize any `running` run. Keep user/qa + resolved-gate history. */
+ *  comes fresh from applyTask) and finalize any `running` run. Keep user/qa + resolved-gate history.
+ *
+ *  An OPEN `qa` (`done:false`) is settled the same way, and for the same reason — nothing will ever settle
+ *  it after a reload. `ask:done` arrives over the SSE stream of the OLD page context; the reconnect path
+ *  (`onInit` → `reconnected`) heals a soft drop, but a hard reload opens a FRESH stream, so a question that
+ *  was still streaming when the tab reloaded (or whose server restarted under it) rendered "Answering…"
+ *  forever — a spinner that outlives every reload and reads as a hung build. An answer with partial text is
+ *  KEPT and marked done (real content, worth reading); one that never produced a character is DROPPED
+ *  entirely — its `user` question bubble stands on its own, and an empty "Answered" box says nothing true.
+ *  Observed after a mid-Ask server restart. */
 export function hydrateForReopen(items: LiveThreadItem[]): LiveThreadItem[] {
   return items
     .filter((it) => !(it.kind === 'gate' && !it.resolved))
-    .map((it) => (it.kind === 'run' && it.running ? { ...it, running: false } : it));
+    .filter((it) => !(it.kind === 'qa' && !it.done && !it.answer.trim()))
+    .map((it) => (it.kind === 'run' && it.running ? { ...it, running: false } : it))
+    .map((it) => (it.kind === 'qa' && !it.done ? { ...it, done: true } : it));
 }
