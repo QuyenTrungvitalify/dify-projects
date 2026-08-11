@@ -130,8 +130,23 @@ Implement gate, so you iterate in the SAME conversation — same thread, same co
 spending a fresh 4-phase build on a three-line fix. The neighbouring "Edit in a new conversation" button
 is the deliberate opposite: it opens a NEW build seeded from the workflow on disk. A `cancelled` build
 re-enters through **Restore** instead, and a promote/consult has no implement phase to resume.
-Caveat while iterating: re-importing still creates a **new** Dify app each time (`sync.py` never sends
-`app_id`), so the fix loop currently accumulates apps in the workspace.
+**Re-importing updates the same Dify app** — the fix loop does not litter the workspace. The first
+import creates the app and the build remembers it (`task.importAppId`); every later import sends
+`push --app-id`, which Dify applies in place: same id, same URL, workspace app count unchanged (probed
+against self-hosted Dify, DSL 0.6.0). Three cases deliberately fall back to creating a new app instead,
+each with a note saying why:
+
+- the remembered app was **deleted in Dify** (a stale id returns HTTP 400 `App not found`; Dify does not
+  fall back to creating, so the builder does);
+- the workflow **changed type** (`workflow` → `advanced-chat`): Dify's update path installs the graph but
+  never reassigns `app.mode`, and the draft is typed from the app's mode, so an in-place update would
+  leave a structurally mismatched app;
+- the app id was never **confirmed by a push** — a name-reconciled id is a guess, and this build's
+  live-test throwaway apps share its name, so overwriting one would let the next re-test delete the
+  imported workflow.
+
+Overwriting is destructive: edits made in the Dify UI (credentials, tweaked nodes) are replaced. The ④
+Import gate says which of the two will happen before you click.
 
 **⚡ Fast build** (spec 028) — a composer toggle for **from-scratch single-LLM** builds: it merges
 Analyze ①+② into one turn (skips the `find.py` pattern search) and still **stops at the Spec gate**.

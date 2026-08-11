@@ -6,32 +6,36 @@
 // exactly how the post-import fix loop first failed in the field (a send whose /reply 409'd disarmed
 // change-mode, so the user's retry became a question).
 //
+// spec 092: `intent` is PER-MESSAGE — it names the send button the user pressed (Enter/chat = 'ask',
+// the labeled change pill / ⌘Enter = 'change'), not a sticky composer mode. The decision table is
+// unchanged from the sticky-mode era; only the parameter's source moved from state to the click.
+//
 // The rule, in one place:
 //   no task            → 'start'   a brand-new build/chat from the empty surface
 //   promote build      → 'reply'   no Ask surface; typed text is always a Request-changes (spec 052)
-//   done + change-mode → 'reply'   the post-import fix loop — reopens the build, resumes ③
+//   done + change      → 'reply'   the post-import fix loop — reopens the build, resumes ③
 //   done | cancelled   → 'ask'     terminal default: a question about a finished/abandoned build
 //   error              → 'reply'   the Retry path (§I)
-//   change-mode        → 'reply'   an armed Request-changes at a parked gate
+//   change             → 'reply'   a Request-changes at a parked gate
 //   otherwise          → 'ask'     the default at every gate (spec 033/034)
 import type { WireStatus, WireTask } from '../types';
 
 export type ComposerTarget = 'start' | 'reply' | 'ask';
-export type ComposerMode = 'ask' | 'change';
+export type ComposerIntent = 'ask' | 'change';
 
 export function composerTarget(
   task: Pick<WireTask, 'status' | 'kind'> | null | undefined,
-  mode: ComposerMode
+  intent: ComposerIntent
 ): ComposerTarget {
   if (!task) return 'start';
   if (task.kind === 'promote') return 'reply';
   if (task.status === 'done' || task.status === 'cancelled') {
-    // Change-mode is reachable at `done` ONLY (armed by the gate foot's Request-a-fix); a cancelled build
-    // re-enters through Restore, so its composer stays a question box.
-    return task.status === 'done' && mode === 'change' ? 'reply' : 'ask';
+    // A change-intent send is honored at `done` ONLY (the change pill shows there); a cancelled build
+    // re-enters through Restore, so its composer stays a question box even if 'change' arrives.
+    return task.status === 'done' && intent === 'change' ? 'reply' : 'ask';
   }
   if (task.status === 'error') return 'reply'; // Retry-out-of-error, with or without steering text
-  return mode === 'change' ? 'reply' : 'ask';
+  return intent === 'change' ? 'reply' : 'ask';
 }
 
 /**
@@ -42,10 +46,10 @@ export function composerTarget(
 export function replyLabel(
   status: WireStatus,
   kind: WireTask['kind'],
-  mode: ComposerMode,
+  intent: ComposerIntent,
   changeLabel: string
 ): string | undefined {
   if (kind === 'promote') return 'Request changes';
-  if (status === 'error' && mode !== 'change') return undefined;
+  if (status === 'error' && intent !== 'change') return undefined;
   return changeLabel;
 }

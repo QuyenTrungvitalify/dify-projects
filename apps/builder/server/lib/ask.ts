@@ -19,11 +19,12 @@ import { ClaudeSession } from './claude-session.js';
 import { clearSession, isAskCancelRequested, setSession } from './lock.js';
 import { attachmentBlock } from './attachments.js';
 import { unifiedDiffOfFiles } from './diff.js';
-import { languagePin, PHASES } from './phases.js';
+import { PHASES } from './phases.js';
+import { languagePin } from './language.js';
 import { lintStandaloneYaml } from './base-import.js';
 import { checkRunnability, preflightNote, sourceContractNote } from './runnability.js';
 import { errMsg, resolveRunners, type OrchestratorCtx } from './orchestrator-shared.js';
-import { bumpRev, saveTask, taskDir, workflowDir, type Task } from '../state/task.js';
+import { bumpRev, noteUserLang, saveTask, taskDir, workflowDir, type Task } from '../state/task.js';
 
 /** Pinned shorter than the phase default (10 min) — an Ask is a quick conversational reply, not a long
  *  agentic turn (matches the existing JUDGE_TIMEOUT_MS convention for a short data-turn, live-test.ts).
@@ -264,7 +265,12 @@ export async function askWithin(task: Task, text: string, ctx: OrchestratorCtx):
   // caught here and surfaced as a benign `ask:done{ok:false}` — the gate stays parked, exactly as at a
   // clean settle. (The turn lock is still released by the dispatch `finally` regardless.)
   try {
+    // The gate-side Ask is exactly where the language gap was FELT: the observed run has the user asking
+    // twice, in Vietnamese, for the Japanese gate questions to be explained again. This turn used to
+    // carry no language directive at all — it inherited whatever the resumed session had been speaking.
+    await noteUserLang(projectsDir, task, text);
     const prompt =
+      languagePin({ chatLang: task.chatLang, latest: text, hint: task.langHint, requirement: task.requirement }) +
       `${text}\n\n(Answer conversationally. Do NOT create, modify, or delete any file — this is a ` +
       `question, not a change request.)` +
       attachmentBlock(task.attachments);
@@ -381,7 +387,11 @@ export async function askTestWithin(task: Task, text: string, ctx: OrchestratorC
   const { projectsDir, settingsPath, log } = ctx;
   try {
     const { seed, seededFrom } = await gatherTerminalSeed(projectsDir, task);
+    await noteUserLang(projectsDir, task, text);
     const prompt =
+      // Same omission as askWithin's: the ④/terminal Ask had no language directive, so a Vietnamese
+      // question about a finished Japanese build came back in Japanese (or English, on a fresh spawn).
+      languagePin({ chatLang: task.chatLang, latest: text, hint: task.langHint, requirement: task.requirement }) +
       (seed ? `You are answering a question about the following build.\n\n${seed}\n\n---\n\n` : '') +
       `${text}\n\n(Answer conversationally. Do NOT create, modify, or delete any file — this is a ` +
       `question, not a change request.)` +
@@ -567,8 +577,9 @@ export async function readConsultChat(projectsDir: string, taskId: string): Prom
  *   1. Seed (preamble + attachments) only on a FRESH spawn — nothing on disk changes between consult
  *      questions, so a resume never re-folds context (askTestWithin re-seeds because ④ artifacts CAN
  *      change between questions; a consult's can't). Directly serves the "chat is slow" complaint.
- *   2. `languagePin(task.requirement)` on EVERY prompt (fresh + resume) — consult is a pure chat
- *      surface for JP/VN users; prose must follow the user's language from token one.
+ *   2. `languagePin(...)` on EVERY prompt (fresh + resume) — consult is a pure chat surface for JP/VN
+ *      users; prose must follow the user's language from token one. Here `latest` is THIS message, so a
+ *      chat set to `auto` tracks the language the human switches to mid-conversation.
  *   3. Self-heal: a consult stranded at `status:'error'` (the create-race loser, or a failSafe on an
  *      unexpected throw) flips back to 'done' after any successful turn — /ask routes consult by KIND
  *      (any status), so one message is all it takes to recover the chat.
@@ -593,7 +604,13 @@ export async function consultWithin(
     }
 
     const fresh = !task.sessionIds.askTest;
-    const langPin = languagePin(task.requirement);
+    await noteUserLang(projectsDir, task, text);
+    const langPin = languagePin({
+      chatLang: task.chatLang,
+      latest: text,
+      hint: task.langHint,
+      requirement: task.requirement,
+    });
     // S3: the machine checks run only on the FIRST turn — card(s) stream to the FE before the model says
     // a word, and the same facts fold into the seed. Never fatal: yamlCards reports tool failures inside
     // the card itself. (The old reason given here — "attachments only arrive at create" — stopped being

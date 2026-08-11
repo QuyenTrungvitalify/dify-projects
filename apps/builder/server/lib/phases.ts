@@ -169,25 +169,3 @@ export function renderPrompt(body: string, v: Record<string, string>): string {
   return out;
 }
 
-/**
- * A native-language directive that PINS the turn's reply language to the requirement's, prepended to the
- * final prompt (fresh AND /reply) at the orchestrator seam. Layer 1 of the reply-language guard: an
- * in-prompt English "## Output language" banner alone still let the model open with an English orienting
- * preamble ("The seed path is empty… Let me verify…"). A directive written IN the target language anchors
- * the model far harder — models mirror the language of their most prominent instruction — so it stops the
- * English lead-in at token one. Returns '' for a Latin-script requirement (the English-authored phase
- * prompts already read as English). Pure; detection is script-based (kana ⇒ Japanese — kana is unique to
- * Japanese, so no Chinese false-positive). Extend with more languages as needed.
- */
-export function languagePin(requirement: string): string {
-  // Hiragana (぀-ゟ) or Katakana (゠-ヿ) ⇒ Japanese.
-  if (/[぀-ゟ゠-ヿ]/.test(requirement)) {
-    return (
-      '【最重要・言語】この応答は、最初の文字からすべて日本語で書いてください。' +
-      '英語の前置き（例:「The seed path is empty…」「Let me…」「I\'ll start by…」）は一切禁止です。' +
-      'まず日本語で考え、英語で書いてから訳すことは絶対にしないでください。' +
-      'コード・ノードID・YAMLキー・{{#…#}}参照などの機械識別子のみ ASCII のまま残します。\n\n'
-    );
-  }
-  return '';
-}

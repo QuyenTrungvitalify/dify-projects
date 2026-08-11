@@ -19,7 +19,7 @@ describe('SSE init event id (019 C4)', () => {
     sse.broadcast('t1', 'task:update', { a: 2 }); // id 2, buffered
     const lastBuffered = Math.max(...bufferedIds(sse)); // 2
 
-    const ie = initEvent(sse, true);
+    const ie = initEvent(sse, true, false);
     assert.equal(ie.event, 'init');
     assert.ok(ie.id > lastBuffered, `init id ${ie.id} must exceed last buffered id ${lastBuffered}`);
 
@@ -32,8 +32,17 @@ describe('SSE init event id (019 C4)', () => {
     const sse = createSSEState();
     sse.broadcast('t', 'task:update', {});
     const before = bufferedIds(sse).length;
-    initEvent(sse, false);
+    initEvent(sse, false, false);
     assert.equal(bufferedIds(sse).length, before, 'initEvent must not buffer (only allocate an id)');
+  });
+
+  test('the payload carries reconnected + turnRunning (the client cannot infer a live Ask itself)', () => {
+    // An Ask never changes `status`, so over GET /api/tasks/:id a build streaming an answer and one whose
+    // answer died are identical. `turnRunning` is what lets a reopened tab close a leftover open Q&A
+    // without discarding an answer that is still arriving on the same stream.
+    const sse = createSSEState();
+    assert.deepEqual(initEvent(sse, false, true).data, { reconnected: false, turnRunning: true });
+    assert.deepEqual(initEvent(sse, true, false).data, { reconnected: true, turnRunning: false });
   });
 
   test('nextEventId() advances the same counter broadcast() uses', () => {

@@ -4,10 +4,12 @@
 > **STOP — do not begin Phase ③ (Implement).**
 
 > 🌐 **LANGUAGE — obey before anything else.** Your ENTIRE reply, from the very first character, is
-> written in the language of `{{REQUIREMENT}}`. If it is Japanese, do **not** emit a single English
-> sentence — not even an orienting lead-in like "I'll start by re-reading…" or "Let me…". There is NO
-> English preamble; token one is already in the requirement's language. Never write English then
-> translate. (Machine identifiers / slugs / YAML keys stay ASCII — see *Output language*.)
+> written in **the chat language**: the language named by the directive at the very TOP of this prompt if
+> one is there, otherwise the language of `{{REQUIREMENT}}`. Do **not** emit a single sentence in any
+> other language — not even an orienting lead-in like "I'll start by re-reading…" or "Let me…". There is
+> NO English preamble; token one is already in the chat language. Never write one language then
+> translate. (Machine identifiers / slugs / YAML keys stay ASCII, and `SPEC.md`'s body follows the
+> requirement even when the chat does not — see *Output language*.)
 
 You are turning a requirement (and, if present, the Analyze summary) into a concrete build
 plan. Read `.claude/skills/dify-build/SKILL.md` ground rules first.
@@ -20,9 +22,25 @@ plan. Read `.claude/skills/dify-build/SKILL.md` ground rules first.
 - `{{DEPLOY}}` — for context (does not change the spec itself).
 
 ## Output language
-Write all **human-facing prose** in the **same language as the requirement** (`{{REQUIREMENT}}`). This means **every word you write in chat — starting from your very first sentence** (do **not** open with an English lead-in such as "This is a from-scratch build…" / "I'll start by…" or any running commentary in English), and in `SPEC.md` the app **name**, Goal, Chosen shape/pattern rationale, node **purpose** descriptions, and Open questions. If the requirement is Japanese, the **entire** turn is Japanese from the first token; if English, write English. Do not narrate in English and translate afterward.
+**Two layers. Do not collapse them — the person you are talking to and the client who receives the build are not always the same person.**
 
-**Keep these in English/ASCII exactly, regardless of the requirement's language** (localizing any of them breaks the build — the validators reject a translated identifier):
+**① What you SAY (chat prose)** — every word of your reply from the very first sentence, including the lead-in, running commentary, and the questions you put to the user at the gate: **the chat language** — the language named by the directive at the TOP of this prompt if one is present, otherwise the language of `{{REQUIREMENT}}`. Do not open with a lead-in in another language ("This is a from-scratch build…", "I'll start by…"), and do not write one language then translate.
+
+**② What you WRITE into `SPEC.md`** — the app **name**, Goal, Chosen shape/pattern rationale, node **purpose** descriptions, Open questions, and every string destined for the workflow itself: **the language of `{{REQUIREMENT}}`**, even when the chat language differs. `SPEC.md` is a handover document; translating it into the chat language hands the client the wrong artifact.
+
+**When the two languages differ, end `SPEC.md` with a review appendix in the CHAT language** — the last section of the file:
+
+```
+## <"Summary & questions" in the chat language>
+- Key decisions: <3–6 bullets>
+- Questions for you: a NUMBERED list; each question ends with
+  "→ Suggested: <the default you would take>" so the reader can answer with a number,
+  or just say "go with your suggestions".
+```
+
+A reviewer who cannot read the spec body cannot review it, and the gate is where they decide. Everything above this section stays in the requirement's language. (The numbering + `→ Suggested:` shape is the general rule — see *Questions you put to the reviewer* below; this appendix is one place it lands, not the only one.)
+
+**Keep these in English/ASCII exactly, regardless of either language** (localizing any of them breaks the build — the validators reject a translated identifier):
 - `slug` values (`[a-z0-9_]`), node **id-placeholders**, and minted 13-digit ids;
 - node `type` values (`start`, `llm`, `end`, `answer`, `if-else`, …) and all YAML keys;
 - `{{#node.field#}}` variable references;
@@ -30,6 +48,44 @@ Write all **human-facing prose** in the **same language as the requirement** (`{
 - the `find.py --has` feature vocabulary and the `pattern` name in `analyze.json`.
 
 `analyze.json` is machine-read: its `pattern`/`features` stay English (above); only its free-text `note`/`risks` may follow the requirement's language.
+
+## Writing for the reader (chat prose) — spec 094 S5
+The person reading your chat is a **user of the app, not a workflow engineer**. Three rules, in force for
+every sentence you write **in chat**. They do NOT apply to what you write INTO `SPEC.md` / the YAML —
+that follows *Output language* above. This is about HOW you write, not WHICH language.
+
+1. **Meaning first, coordinates second.** Never open a sentence with a node label. Say what the step DOES
+   in everyday words, then put the label in parentheses if the reader may want to click it on the canvas:
+   「送信元の合言葉を照合します（node `C1`）」 — not 「`C1` が `secret` を照合」.
+2. **Machine names only when the reader must see or type them** (the affordance rule). KEEP: environment
+   variables they will create in Dify, plugin names, sheet column names, Studio button labels. SPELL OUT
+   in words: `string` / `array[string]`, `flatten_output`, `error_strategy`, `value_selector`,
+   `END_EMPTY_IMMEDIATE`, node `type` values — and internal cross-references like "(lesson #1)", which
+   mean nothing to someone not holding the document you are counting in.
+3. **Give the flow as a plain-word arrow chain first**, details after. The **Nodes** table belongs in
+   `SPEC.md` and the artifact panel — do not re-narrate it node-by-node in chat.
+
+> **BAD** — `C0` webhook takes `secret` / `row_keys` / `message_id`, all three declared `string`
+> (lesson #1). `C1` compares `secret` against `gas_shared_secret`; on mismatch it returns an empty list
+> and the run falls into the empty branch.
+>
+> **GOOD** — This branch runs the moment APP 1 calls in: it receives the request → checks the shared
+> password → reads the rows already ticked as approved in Sheets → stops early if there are none. A wrong
+> password ends the workflow quietly, writing nothing to Sheets (node `C1`). The row list is accepted as
+> one id, several ids separated by commas, or a list — so APP 1 needs no changes.
+
+## Questions you put to the reviewer — spec 094 S4
+**Whenever you ask the reviewer anything — in chat AND under `Open questions` — use a NUMBERED list, and
+end each item with `→ Suggested: <the default you would take>`** (write the marker word itself in the
+chat language). One question stays one numbered item. This is unconditional: it holds when the chat and
+requirement languages are the SAME, not only in the bilingual appendix above.
+
+The reader must be able to answer with a number, or with "go with your suggestions", without composing
+prose. Measured need: a real build's reviewer had to write 「他の質問はよく分からないので説明し直して」
+twice before settling on 「他はおすすめ通りで」. A question with no stated default costs them a round trip.
+
+This never becomes a blocker: you still choose the default, build the spec on it, and record it (see
+**NEVER end this turn without writing the file** below).
 
 ## Do
 1. Re-read `{{PRIOR_ARTIFACT}}`.

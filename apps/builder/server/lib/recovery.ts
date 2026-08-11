@@ -30,6 +30,21 @@ export interface PushIntent {
   appName: string;
   /** the captured new app id, or null while the push is unconfirmed (the idempotency guard). */
   appId: string | null;
+  /**
+   * The app this push was aiming to OVERWRITE (`push --app-id`), recorded BEFORE the push.
+   *
+   * It exists because overwrite inverts the rule this whole marker was built for. The never-re-push
+   * guard is there because a plain Dify import always creates a NEW app, so re-pushing after a crash
+   * would duplicate. An overwrite cannot duplicate — same id in, same app out — so a crashed overwrite
+   * is safe to simply REDO, which is strictly better than the create path's name-reconcile (that only
+   * finds an app, and can go `ambiguous` when several share a name; it can never tell you whether the
+   * new DSL actually landed).
+   *
+   * Deliberately NOT stored in `appId`: that field means "confirmed result". Putting the target there
+   * would make a crash BEFORE the push read as a completed import, reporting success over the app's
+   * old, unchanged content.
+   */
+  targetAppId?: string | null;
 }
 
 const markerPath = (projectsDir: string, taskId: string): string =>

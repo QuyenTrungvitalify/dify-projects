@@ -236,6 +236,9 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       // Spec 028: `⚡ Fast build` — accept `fast_mode` (public) or `fast`; createTask force-offs it
       // when a seed/workflow/slug is present, so it is honored only on a from-scratch build.
       fast: (body.fast_mode ?? body.fast) as boolean | string | null | undefined,
+      // The chat-language setting ('vi' | 'ja' | 'auto'); createTask normalizes anything else to 'auto',
+      // so an older client that sends nothing keeps today's infer-from-the-text behavior.
+      chatLang: (body.chat_lang ?? body.chatLang) as string | null | undefined,
     });
 
     // Persist the files to `.runs/<taskId>/uploads/` + record the paths on the task, BEFORE acquiring
@@ -304,6 +307,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       const task = await createPromoteTask(projectsDir, {
         project: '(external)', workflow: src.slug, sourceFile: '', slug: src.slug,
         external: { yaml, label, sha256: src.sha256, license }, test,
+        chatLang: (body.chat_lang ?? body.chatLang) as string | null | undefined,
       });
       if (!acquireTurn(task.taskId)) {
         task.status = 'error';
@@ -321,7 +325,10 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     if (!src.ok) return reply.code(src.status).send({ error: src.error });
 
     if (buildTurnBusy()) return reply.code(409).send(turnBusyError());
-    const task = await createPromoteTask(projectsDir, { project, workflow, sourceFile: src.sourceFile, slug: src.slug, test });
+    const task = await createPromoteTask(projectsDir, {
+      project, workflow, sourceFile: src.sourceFile, slug: src.slug, test,
+      chatLang: (body.chat_lang ?? body.chatLang) as string | null | undefined,
+    });
     if (!acquireTurn(task.taskId)) {
       task.status = 'error';
       task.error = 'rejected — another turn is running';
@@ -346,7 +353,11 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // Fast path: the chat lane is busy → 409 without minting a task (mirrors POST /api/tasks).
     if (chatTurnBusy()) return reply.code(409).send(turnBusyError('ask'));
 
-    const task = await createConsultTask(projectsDir, { text, name: (body.name as string | null | undefined) ?? null });
+    const task = await createConsultTask(projectsDir, {
+      text,
+      name: (body.name as string | null | undefined) ?? null,
+      chatLang: (body.chat_lang ?? body.chatLang) as string | null | undefined,
+    });
 
     // Persist files BEFORE acquiring the lane (a disk failure → 500 with NO lock held) — same ritual
     // and reasons as POST /api/tasks.

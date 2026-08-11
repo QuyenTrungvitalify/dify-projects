@@ -17,6 +17,7 @@ import { emit, resolveRunners, resolveLiveOps, type OrchestratorCtx } from './or
 import { isCancelled, setSession, clearSession } from './lock.js';
 import { ClaudeSession } from './claude-session.js';
 import { renderPrompt } from './phases.js';
+import { languagePin } from './language.js';
 import { criteriaRel } from './criteria.js';
 import type { LiveTestResult, JudgeVerdict, Task } from '../state/task.js';
 
@@ -92,12 +93,17 @@ async function runJudge(
   } catch {
     return null;
   }
-  const prompt = renderPrompt(body, {
-    REQUIREMENT: task.requirement,
-    CRITERIA: criteria.map((c, i) => `${i + 1}. ${c}`).join('\n'),
-    INPUT: JSON.stringify(input),
-    OUTPUT: JSON.stringify(output ?? {}),
-  });
+  // The judge's `summary`/`evidence` are read by the HUMAN at the ④ gate to decide pass/fail — they are
+  // a report to the reviewer, not part of what ships — so they take the same chat-language pin as every
+  // other surface the reviewer reads. `latest` is absent: a judge turn is machine-triggered, not typed.
+  const prompt =
+    languagePin({ chatLang: task.chatLang, hint: task.langHint, requirement: task.requirement }) +
+    renderPrompt(body, {
+      REQUIREMENT: task.requirement,
+      CRITERIA: criteria.map((c, i) => `${i + 1}. ${c}`).join('\n'),
+      INPUT: JSON.stringify(input),
+      OUTPUT: JSON.stringify(output ?? {}),
+    });
   const session = new ClaudeSession(`${task.taskId}:judge`, {
     taskId: task.taskId,
     workingDir: projectsDir,

@@ -11,8 +11,75 @@ import type { VNode } from 'preact';
 import { I } from './Icon';
 import { SplitDiffView } from './SplitDiffView';
 import { renderMarkdownHtml } from '../lib/markdown';
-import { t as tr, tf, localizeNotes } from '../lib/i18n';
+import { activeTocIndex, tocSelector, yamlAnchors, type TocEntry } from '../lib/artifact-toc';
+import { t as tr, tf, lang, localizeNotes } from '../lib/i18n';
 import type { ArtifactTab, WireTask, WireArtifacts, FileChange } from '../types';
+
+const EXPANDED_KEY = 'builder.artifactExpanded';
+
+/**
+ * The element that actually scrolls a given anchor into view — resolved, never assumed.
+ *
+ * Which element scrolls DIFFERS per tab: the Spec preview is its own `overflow-y:auto` box (it fills the
+ * panel height so the toolbar and Save bar stay pinned), while main.yml/Diff/Report scroll the panel body
+ * itself. Hard-coding `.artifact-body` made the rail's jumps silently do nothing on the Spec tab — the
+ * one tab this feature exists for. Walking up to the nearest ancestor that can actually scroll keeps the
+ * rail working if either layout changes again.
+ */
+function scrollContainer(el: HTMLElement, fallback: HTMLElement): HTMLElement {
+  let p: HTMLElement | null = el.parentElement;
+  while (p && p !== fallback.parentElement) {
+    const oy = getComputedStyle(p).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight + 1) return p;
+    p = p.parentElement;
+  }
+  return fallback;
+}
+
+/** An element's offset inside its scroll container — via rects, so it holds whatever the offsetParent
+ *  chain looks like (nested flex/relative wrappers made `offsetTop` alone read against the wrong box). */
+function offsetWithin(el: HTMLElement, container: HTMLElement): number {
+  return el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+}
+
+/**
+ * The contents rail — a narrow right-hand column listing the sections of whatever tab is open, with the
+ * one you are reading marked. Shown only while the panel is expanded: at the panel's normal width there
+ * is no room to spend on it without squeezing the artifact itself.
+ *
+ * Entries are measured from the RENDERED body (`ArtifactPanel` builds them), so the rail can never list
+ * a section the page does not have. `onJump` scrolls the body, which then re-runs the spy — clicking a
+ * row and scrolling to it are the same code path, so they cannot disagree.
+ */
+function ContentsRail({ entries, active, onJump }: {
+  entries: TocEntry[];
+  active: number;
+  /** By INDEX, not by pixel: where entry `i` sits is resolved fresh when the click happens. */
+  onJump: (index: number) => void;
+}) {
+  return (
+    <nav className="art-toc" aria-label={tr('contents')}>
+      <div className="art-toc-head">{tr('contents')}</div>
+      {entries.length === 0 ? (
+        <div className="art-toc-empty">{tr('contentsEmpty')}</div>
+      ) : (
+        <ul className="art-toc-list">
+          {entries.map((e, i) => (
+            <li key={e.key}>
+              <button
+                className={'art-toc-item lv' + Math.min(e.level, 3) + (i === active ? ' on' : '')}
+                onClick={() => onJump(i)}
+                title={e.text}
+              >
+                {e.text}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </nav>
+  );
+}
 
 type SpecMode = 'edit' | 'preview' | 'split';
 // Preview FIRST (review-before-edit): the panel opens on the rendered spec; Edit is one click away.
@@ -345,15 +412,156 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
   const tabs = allTabs.filter((t) => available.includes(t.key));
   const activeTab = tabs.some((t) => t.key === tab) ? tab : tabs[0]?.key ?? 'spec';
 
+  // Expand is a display option of the PANEL, not of one tab: it is a viewport concern, and main.yml /
+  // diff are the longest artifacts here — a zoom that only Spec had would read as an oversight. Persisted
+  // because it is a working preference (someone reviewing specs all afternoon wants it to stay).
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    try { return localStorage.getItem(EXPANDED_KEY) === '1'; } catch { return false; }
+  });
+  const toggleExpanded = (): void => {
+    setExpanded((x) => {
+      try { localStorage.setItem(EXPANDED_KEY, x ? '0' : '1'); } catch { /* private mode — just don't persist */ }
+      return !x;
+    });
+  };
+  // Esc leaves expanded view. It deliberately does NOT close the panel: the panel has no Esc-to-close
+  // today, and quietly adding one would change a behavior nobody asked about.
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') toggleExpanded(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expanded]);
+
+  const bodyRef = useRef<HTMLDivElement>(null);
+  // Whatever actually scrolls for the CURRENT tab (see scrollContainer), plus the anchors themselves:
+  // a heading ELEMENT, or a LINE in main.yml. Positions are derived from these on demand — never stored.
+  // Anchors are stored as ADDRESSES, never as element references: the nth match of the tab's selector,
+  // or a line in main.yml. A held element goes stale on the next re-render — the Spec preview replaces
+  // its whole subtree through innerHTML — and a detached node measures as all-zero, so every row quietly
+  // scrolled to the top instead of to its section. An address survives any amount of re-rendering.
+  const anchorsRef = useRef<{ domIndex: number; line: number }[]>([]);
+  const [entries, setEntries] = useState<TocEntry[]>([]);
+  const [active, setActive] = useState(-1);
+
+  /** The element that scrolls for the current tab, resolved fresh (see scrollContainer). */
+  const resolveScroller = (): HTMLElement | null => {
+    const body = bodyRef.current;
+    if (!body) return null;
+    const sel = tocSelector(activeTab);
+    const first = sel
+      ? body.querySelector<HTMLElement>(sel)
+      : body.querySelector<HTMLElement>('.codeblock pre');
+    return first ? scrollContainer(first, body) : body;
+  };
+
+  /** Where each anchor sits inside the scroller, measured NOW — one rect per heading, or one rect total
+   *  for main.yml (every line is `lineHeight` apart in a non-wrapping monospace block). */
+  const currentTops = (): number[] => {
+    const body = bodyRef.current;
+    const scroller = resolveScroller();
+    const anchors = anchorsRef.current;
+    if (!body || !scroller || anchors.length === 0) return [];
+    const sel = tocSelector(activeTab);
+    if (sel) {
+      const els = body.querySelectorAll<HTMLElement>(sel);
+      return anchors.map((a) => {
+        const el = els[a.domIndex];
+        return el ? offsetWithin(el, scroller) : 0;
+      });
+    }
+    const pre = body.querySelector<HTMLElement>('.codeblock pre');
+    if (!pre) return [];
+    const cs = getComputedStyle(pre);
+    const lh = parseFloat(cs.lineHeight) || 0;
+    const base = offsetWithin(pre, scroller) + (parseFloat(cs.paddingTop) || 0);
+    return anchors.map((a) => base + a.line * lh);
+  };
+
+  // Measure the rail off the rendered body. Runs only while expanded (the rail is hidden otherwise, so
+  // measuring would be work nobody sees) and re-runs whenever what is on screen could have moved: the
+  // tab, the artifact bytes, or the language (which re-renders every section title).
+  useEffect(() => {
+    if (!expanded) { setEntries([]); return; }
+    const body = bodyRef.current;
+    if (!body) return;
+    const collect = (): void => {
+      const found: TocEntry[] = [];
+      const anchors: { domIndex: number; line: number }[] = [];
+      const sel = tocSelector(activeTab);
+      if (sel) {
+        // `i` is the index in the FULL match list — that is the address `currentTops` re-queries with,
+        // so a heading skipped here for having no text must not shift the ones after it.
+        [...body.querySelectorAll<HTMLElement>(sel)].forEach((el, i) => {
+          const text = (el.textContent ?? '').trim();
+          if (!text) return;
+          found.push({ key: `d${i}`, text, level: el.tagName === 'H1' ? 1 : el.tagName === 'H3' ? 3 : 2 });
+          anchors.push({ domIndex: i, line: 0 });
+        });
+      } else if (activeTab === 'yaml' && art.yaml) {
+        // A <pre> is one text node — there is nothing to query. Anchor by LINE instead: the code block
+        // is monospace and never wraps (`white-space: pre`), so every line is exactly one line-height and
+        // line N sits at `<top of pre's text> + N * lineHeight`. Measured, never assumed — a theme or
+        // browser zoom changes the line height, and re-measuring here keeps the rail honest.
+        if (body.querySelector('.codeblock pre')) {
+          for (const a of yamlAnchors(art.yaml)) {
+            found.push({ key: `y${a.line}`, text: a.text, level: a.level });
+            anchors.push({ domIndex: -1, line: a.line });
+          }
+        }
+      }
+      anchorsRef.current = anchors;
+      // Only publish a real change — this runs on every content/tab update and an unconditional setState
+      // would re-render the whole panel for an identical rail.
+      setEntries((prev) =>
+        prev.length === found.length && prev.every((p, i) => p.key === found[i].key && p.text === found[i].text)
+          ? prev
+          : found
+      );
+    };
+    // Measure NOW, then refine one frame later. The sync pass is the one that must not be skipped:
+    // `getBoundingClientRect` forces layout, so it is already accurate here — and a rAF-only measure
+    // silently produced an empty rail whenever the window was in the background, because browsers do not
+    // run animation frames for a hidden page. The extra frame only catches late reflow (fonts, a table
+    // settling), so losing it to a cancel is harmless.
+    // Collecting anchors is layout-independent (it reads elements and text, not pixels), so one pass
+    // after render is enough — no resize handling, because nothing measured here can go stale.
+    collect();
+  }, [expanded, activeTab, art.spec, art.yaml, art.report, art.diff, lang.value]);
+
+  // Scroll-spy. Passive listener + rAF coalescing: this fires on every wheel tick, and the work is a
+  // linear scan that must never be the reason a long spec scrolls badly.
+  useEffect(() => {
+    const scroller = resolveScroller();
+    if (!scroller || !expanded || entries.length === 0) { setActive(-1); return; }
+    let queued = false;
+    const onScroll = (): void => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        setActive(activeTocIndex(currentTops().map((top) => ({ top })), scroller.scrollTop));
+      });
+    };
+    onScroll();
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, [expanded, entries]);
+
   return (
-    <aside className="artifact">
+    <aside className={'artifact' + (expanded ? ' expanded' : '')}>
       <div className="artifact-head">
         <I.panel style={{ width: 15, height: 15, color: 'var(--tx-muted)' }} />
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
           <span className="ah-title">{tr('artifact')}</span>
           <span className="ah-sub">{task.workflowSlug ?? task.name ?? tr('newWorkflow')}</span>
         </div>
-        <button className="icon-btn artifact-close" style={{ marginLeft: 'auto' }} onClick={onClose} title={tr('hidePanel')}><I.close /></button>
+        <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={toggleExpanded}
+          title={expanded ? tr('collapsePanelHint') : tr('expandPanelHint')}
+          aria-label={expanded ? tr('collapsePanel') : tr('expandPanel')} aria-pressed={expanded}>
+          {expanded ? <I.shrink /> : <I.expand />}
+        </button>
+        <button className="icon-btn artifact-close" onClick={onClose} title={tr('hidePanel')}><I.close /></button>
       </div>
 
       <div className="artifact-tabs">
@@ -365,11 +573,26 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
         ))}
       </div>
 
-      <div className="artifact-body">
-        {activeTab === 'spec' && <SpecTab task={task} content={art.spec ?? ''} onSave={onSaveSpec} />}
-        {activeTab === 'yaml' && <YamlTab yaml={art.yaml} report={report} onReveal={onReveal} />}
-        {activeTab === 'diff' && <DiffTab diff={art.diff} />}
-        {activeTab === 'report' && <ReportTab report={report} onReveal={onReveal} />}
+      {/* The body and the rail scroll as one row so the rail can stay put while the artifact moves. */}
+      <div className="artifact-main">
+        <div className="artifact-body" ref={bodyRef}>
+          {activeTab === 'spec' && <SpecTab task={task} content={art.spec ?? ''} onSave={onSaveSpec} />}
+          {activeTab === 'yaml' && <YamlTab yaml={art.yaml} report={report} onReveal={onReveal} />}
+          {activeTab === 'diff' && <DiffTab diff={art.diff} />}
+          {activeTab === 'report' && <ReportTab report={report} onReveal={onReveal} />}
+        </div>
+        {expanded && (
+          <ContentsRail entries={entries} active={active}
+            onJump={(i) => {
+              const top = currentTops()[i];
+              const scroller = resolveScroller();
+              // Assign scrollTop rather than scrollTo({behavior:'smooth'}): the smooth animation does not
+              // run in this container (verified — an identical instant assignment lands exactly, the
+              // smooth call leaves it a few pixels in), and a jump that silently goes nowhere is far worse
+              // than one without an animation. A contents rail is expected to jump anyway.
+              if (top !== undefined && scroller) scroller.scrollTop = top;
+            }} />
+        )}
       </div>
     </aside>
   );

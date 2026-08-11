@@ -77,31 +77,19 @@ describe('hydrateForReopen — decision #2 (reconcile: drop unresolved gates, fi
     expect(out[0].running).toBe(false);
   });
 
-  // An open `qa` after a hard reload is the same class of bug as a still-`running` run: nothing will ever
-  // settle it (ask:done belongs to the OLD page's SSE stream), so it rendered "Answering…" forever —
-  // through every subsequent reload. Observed after a mid-Ask server restart, where it read as a hung build.
-  it('drops an unanswered open qa (the phantom "Answering…" that survived every reload)', () => {
+  // An open `qa` is NOT closed here, unlike a running run — the asymmetry is deliberate and load-bearing.
+  // A hard reload's fresh SSE stream keeps delivering ask:answer/ask:done for a turn the server is still
+  // running, and they land on exactly this restored item; closing it here would throw the rest of the
+  // answer away. The settle happens in the store's `init` handler, gated on the server's `turnRunning`.
+  it('leaves an open qa OPEN — a still-streaming answer resumes onto it after a reload', () => {
     const items: LiveThreadItem[] = [
       { id: 'u', kind: 'user', text: 'what broke?' },
-      { id: 'q', kind: 'qa', question: 'what broke?', answer: '', done: false },
-    ];
-    const out = hydrateForReopen(items);
-    expect(out.map((i) => i.id)).toEqual(['u']); // the question bubble stands alone; no empty "Answered" box
-  });
-
-  it('KEEPS a partially-streamed open qa and marks it done (real text is worth reading)', () => {
-    const items: LiveThreadItem[] = [
-      { id: 'q', kind: 'qa', question: 'why?', answer: 'the LLM node references', done: false },
+      { id: 'q', kind: 'qa', question: 'what broke?', answer: 'the LLM node ', done: false },
     ];
     const out = hydrateForReopen(items) as (LiveThreadItem & { kind: 'qa' })[];
-    expect(out).toHaveLength(1);
-    expect(out[0].done).toBe(true);
-    expect(out[0].answer).toBe('the LLM node references');
-  });
-
-  it('a whitespace-only answer counts as never-answered (dropped, not a blank Answered box)', () => {
-    const items: LiveThreadItem[] = [{ id: 'q', kind: 'qa', question: 'q', answer: '  \n ', done: false }];
-    expect(hydrateForReopen(items)).toHaveLength(0);
+    expect(out.map((i) => i.id)).toEqual(['u', 'q']);
+    expect(out[1].done).toBe(false); // still open — the store closes it only if no turn holds the task
+    expect(out[1].answer).toBe('the LLM node '); // partial text preserved for the resume to append to
   });
 
   it('leaves an already-done qa untouched', () => {

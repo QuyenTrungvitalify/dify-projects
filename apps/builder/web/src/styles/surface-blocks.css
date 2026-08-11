@@ -585,15 +585,18 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .setting-chip.disabled { cursor: default; opacity: 0.6; }
 .setting-chip.disabled:hover { background: var(--bg-chip); color: var(--tx-2); border-color: var(--border); }
 
+/* spec 092: labeled like the ✎ change pill so the pair reads as two send actions (not toggle+send).
+   The ↵ glyph is deliberate: the button IS the Enter key. Filled accent keeps it the visual default. */
 .composer-send {
-  display: grid; place-items: center; width: 32px; height: 32px;
-  border-radius: 9px; border: none;
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  height: 32px; padding: 0 12px; border-radius: 9px; border: none;
+  font-size: 12px; font-weight: 500; letter-spacing: 0.01em; white-space: nowrap;
   background: var(--bg-elevated-2); color: var(--tx-muted);
   transition: background 0.14s, color 0.14s;
 }
 .composer-send.ready { background: var(--accent); color: var(--on-accent); }
 .composer-send.ready:hover { filter: brightness(1.08); }
-.composer-send svg { width: 16px; height: 16px; }
+.composer-send svg { width: 14px; height: 14px; flex: none; }
 .composer-circle {
   display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
   border: none; background: transparent; color: var(--tx-muted);
@@ -890,30 +893,28 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   background: var(--bg-elevated); border: 1px solid var(--border-soft); border-radius: var(--r-card);
 }
 
-.mode-row { display: flex; align-items: center; gap: 8px; margin: 0 0 7px 2px; }
-.mode-chip {
-  display: inline-flex; align-items: center;
-  padding: 3px 10px; border-radius: var(--r-pill);
-  font-size: 11px; font-weight: 500; letter-spacing: 0.02em;
-  background: var(--bg-chip); color: var(--tx-muted); border: 1px solid var(--border-soft);
+/* spec 092: the ✎ change pill — the composer's second, deliberate send action (re-runs the phase /
+   reopens a done build). Labeled on purpose: the expensive action never hides behind a bare icon. Sits
+   left of the round ask button; outline styling keeps the round accent button reading as the default. */
+.composer-change {
+  display: inline-flex; align-items: center; gap: 5px; flex: none; cursor: pointer;
+  height: 32px; padding: 0 11px; border-radius: 9px; font-family: inherit;
+  font-size: 12px; font-weight: 500; letter-spacing: 0.01em; white-space: nowrap;
+  background: transparent; color: var(--tx-muted); border: 1px solid var(--border-soft);
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
 }
-.mode-chip.on { background: var(--accent-dim); color: var(--accent-tx); border-color: var(--accent-line); }
-.mode-back {
-  background: none; border: none; padding: 0; color: var(--tx-faint);
-  font-size: 11.5px; text-decoration: underline; cursor: pointer;
+.composer-change svg { width: 13px; height: 13px; flex: none; }
+.composer-change.ready { color: var(--accent-tx); border-color: var(--accent-line); }
+.composer-change.ready:hover { background: var(--accent-dim); }
+/* An arm hint ("Edit spec" / "Request a fix" clicked on a gate) highlights the pill for the next
+   message — presentation only; Enter still sends the cheap ask. */
+.composer-change.armed { background: var(--accent-dim); color: var(--accent-tx); border-color: var(--accent-line); }
+/* Narrow viewports: the label yields to keep the chip row on one line (nowrap rule — only the workflow
+   chip may truncate); the pill falls back to icon-only + its tooltip. */
+@media (max-width: 560px) {
+  .composer-change .cc-label, .composer-send .cs-label { display: none; }
+  .composer-change, .composer-send { padding: 0 9px; }
 }
-.mode-back:hover { color: var(--tx-2); }
-/* The way INTO change-mode at a finished build — `.mode-chip`'s shape, made clickable. It lives next to
-   the composer because the gate card that carries the same action scrolls out of reach the moment the
-   user asks a question: they chat, find what's wrong, and then have nowhere to ask for the fix. */
-.mode-arm {
-  display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-family: inherit;
-  padding: 3px 10px; border-radius: var(--r-pill);
-  font-size: 11px; font-weight: 500; letter-spacing: 0.02em;
-  background: var(--bg-chip); color: var(--tx-2); border: 1px solid var(--border-soft);
-}
-.mode-arm:hover { background: var(--accent-dim); color: var(--accent-tx); border-color: var(--accent-line); }
-.mode-arm svg { width: 12px; height: 12px; }
 
 /* ============================================================
    BOTTOM STICKY INPUT (conversation)
@@ -989,7 +990,43 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .atab .tab-dot.ok { background: var(--ok); }
 .atab .tab-dot.warn { background: var(--warn); }
 
+/* Expanded: the panel fills the chat column. It stays inside `.main`, so the left nav is untouched —
+   a "maximize" that also swallowed the app's own navigation would be a trap, not a zoom. */
+.artifact.expanded { width: 100%; max-width: 100%; }
+/* Body + contents rail scroll as one row: only the body scrolls, so the rail stays put beside it. */
+.artifact-main { flex: 1; display: flex; min-height: 0; }
 .artifact-body { flex: 1; overflow-y: auto; min-height: 0; padding: 16px 18px 28px; }
+/* Expanded reading measure: prose past ~90ch is hard to track back to the next line, and a full-width
+   spec was the reason to expand in the first place. The code/diff tabs opt out via their own overflow. */
+.artifact.expanded .artifact-body { padding: 20px 28px 36px; }
+.artifact.expanded .spec-preview { max-width: 90ch; }
+
+/* ---- contents rail (expanded only) ---- */
+.art-toc {
+  flex: 0 0 216px; overflow-y: auto; min-height: 0;
+  border-left: 1px solid var(--border-soft);
+  padding: 18px 10px 28px 14px;
+}
+.art-toc-head {
+  font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--tx-faint); margin-bottom: 10px;
+}
+.art-toc-empty { font-size: 11.5px; color: var(--tx-faint); }
+.art-toc-list { list-style: none; margin: 0; padding: 0; }
+.art-toc-item {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: none; border: none; border-left: 2px solid transparent;
+  padding: 4px 6px 4px 10px; margin-bottom: 1px;
+  font-family: inherit; font-size: 11.5px; line-height: 1.45; color: var(--tx-muted);
+  /* One line per entry: a rail that reflows as you scroll is worse than a truncated label. */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.art-toc-item.lv2 { padding-left: 20px; }
+.art-toc-item.lv3 { padding-left: 30px; font-size: 11px; }
+.art-toc-item:hover { color: var(--tx-1); }
+.art-toc-item.on { color: var(--accent-tx); border-left-color: var(--accent-line); }
+/* Narrow windows: the rail would leave the artifact nothing. The expand button still widens the panel. */
+@media (max-width: 900px) { .art-toc { display: none; } }
 .art-section-title {
   display: flex; align-items: center; gap: 8px;
   font-size: 11px; letter-spacing: 0.06em; color: var(--tx-faint);

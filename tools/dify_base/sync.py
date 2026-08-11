@@ -176,7 +176,15 @@ class DifyConsoleClient:
         return r.json()["data"]  # YAML string
 
     def import_app(self, yaml_content: str, name: str | None = None,
-                   description: str | None = None) -> dict[str, Any]:
+                   description: str | None = None, app_id: str | None = None) -> dict[str, Any]:
+        """Import a DSL. With `app_id`, the endpoint OVERWRITES that app in place instead of creating a
+        new one — same id, same URL, workspace app count unchanged (probed against self-hosted Dify,
+        DSL 0.6.0: response `{app_id: <same>, status: "completed"}`). Without it, every import creates
+        another app, which is how a build that gets fixed a few times leaves a trail of duplicates.
+
+        An app_id that no longer exists does NOT silently fall back to creating: the endpoint answers
+        HTTP 400 `{status: "failed", app_id: null, error: "App not found"}`. Callers that remember an id
+        across runs must handle that (retry with no app_id) rather than assume overwrite always works."""
         payload: dict[str, Any] = {
             "mode": "yaml-content",
             "yaml_content": yaml_content,
@@ -185,6 +193,8 @@ class DifyConsoleClient:
             payload["name"] = name
         if description:
             payload["description"] = description
+        if app_id:
+            payload["app_id"] = app_id
         r = requests.post(
             f"{self.base_url}/apps/imports",
             headers=self._headers, data=json.dumps(payload), timeout=self.timeout,
@@ -599,15 +609,22 @@ def cmd_push(args) -> int:
         sys.exit(f"❌ File not found: {src}")
     yaml_content = src.read_text(encoding="utf-8")
 
+    app_id = getattr(args, "app_id", None)
     if not args.yes:
-        print(f"\nWill push {src.relative_to(BASE)} ({len(yaml_content)} bytes) as a NEW app.")
-        print("⚠ Dify import always creates a new app. To update an existing app,")
-        print("  delete the old one first, or use copy/duplicate via the Dify UI.")
+        if app_id:
+            print(f"\nWill push {src.relative_to(BASE)} ({len(yaml_content)} bytes) OVER app {app_id}.")
+            print("⚠ This REPLACES that app's workflow in place — any edits made in the Dify UI")
+            print("  (credentials, tweaked nodes) are overwritten. The app id and URL stay the same.")
+        else:
+            print(f"\nWill push {src.relative_to(BASE)} ({len(yaml_content)} bytes) as a NEW app.")
+            print("⚠ Without --app-id, Dify import creates a new app every time. Pass --app-id <id>")
+            print("  to update an existing app in place instead.")
         if input("Proceed? [y/N] ").strip().lower() not in ("y", "yes"):
             return 0
 
     try:
-        result = client.import_app(yaml_content, name=args.name, description=args.description)
+        result = client.import_app(yaml_content, name=args.name, description=args.description,
+                                   app_id=app_id)
     except requests.RequestException as e:
         sys.exit(f"❌ import_app failed: {_fmt_request_error(e)}")
     if args.json_out:
@@ -866,13 +883,17 @@ def main() -> int:
                         help="Also show in-sync files")
     p_diff.set_defaults(func=cmd_diff)
 
-    p_push = sub.add_parser("push", help="Import a local YAML into the workspace as a NEW app")
+    p_push = sub.add_parser("push", help="Import a local YAML as a new app, or --app-id to update one in place")
     p_push.add_argument("--project", required=True)
     p_push.add_argument("--workflow", help="Target workflow subfolder; omit for a bare project")
     p_push.add_argument("--file",
                         help="Path relative to projects/<project>/<workflow>/, e.g. workflows/main.yml")
     p_push.add_argument("--src-file",
                         help="Repo-root-relative path (overrides --file), e.g. apps/builder/.runs/<id>/deploy.yml")
+    p_push.add_argument("--app-id",
+                        help="Update THIS existing app in place (same id + URL, no duplicate) instead of "
+                             "creating a new one. A stale id fails with HTTP 400 'App not found' — it "
+                             "does NOT fall back to creating.")
     p_push.add_argument("--name", help="Override app name from YAML")
     p_push.add_argument("--description", help="Override description")
     p_push.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")

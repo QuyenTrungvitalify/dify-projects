@@ -270,7 +270,10 @@ export async function pushApp(
   workflowSlug: string,
   file: string,
   appName: string,
-  srcFileRel?: string
+  srcFileRel?: string,
+  /** Overwrite THIS app in place instead of creating another one — the whole reason a build can be
+   *  fixed repeatedly without leaving a trail of near-identical Dify apps. Omit to create. */
+  overwriteAppId?: string | null
 ): Promise<{ ok: boolean; appId: string | null; stdout: string; stderr: string }> {
   const r = await runSyncPy(projectsDir, [
     'push',
@@ -279,9 +282,11 @@ export async function pushApp(
     '--workflow',
     workflowSlug,
     ...(srcFileRel ? ['--src-file', srcFileRel] : ['--file', `workflows/${file}`]),
-    // Pin the created app name so the crash-recovery reconcile (reconcileAppIdByName, AC #25) matches
-    // the SAME string Dify stores it under. Without --name, Dify names the app from the YAML's
-    // app.name (agent-chosen) and the slug-match silently fails. Dify still creates a NEW app each push.
+    ...(overwriteAppId ? ['--app-id', overwriteAppId] : []),
+    // Pin the app name so the crash-recovery reconcile (reconcileAppIdByName, AC #25) matches the SAME
+    // string Dify stores it under. Without --name, Dify names the app from the YAML's app.name
+    // (agent-chosen) and the slug-match silently fails. (Only the create path needs the reconcile — an
+    // overwrite already knows its id — but pinning the name keeps the app titled consistently either way.)
     '--name',
     appName,
     '--yes',
@@ -292,9 +297,21 @@ export async function pushApp(
   return { ok: r.code === 0, appId, stdout: r.stdout, stderr: r.stderr };
 }
 
-/** Extract the new app id from a `push --json-out` last stdout line. PRIMARY field `app_id`, then
- *  `id`, then a nested `app.id` — TODO: confirm `app_id` against a real SELF-HOSTED import response
- *  (verified only on Cloud, spec 008:51); the `list`-reconcile path is the crash/absent fallback. */
+/**
+ * Extract the app id from a `push --json-out` last stdout line.
+ *
+ * Reads `app_id` (then a nested `app.id`) and DELIBERATELY NOT the top-level `id`. Those are different
+ * things: `id` is the IMPORT RECORD's id, `app_id` is the app. A failed import answers
+ * `{id: "<record>", status: "failed", app_id: null, error: "App not found"}` — the old `?? obj.id`
+ * fallback turned exactly that into a "successful" app id, so the build would stamp `task.appId` with a
+ * record id, build an `app_url` pointing at nothing, and clear the push-intent marker as resolved.
+ * Verified against self-hosted Dify (DSL 0.6.0): both fields present, distinct values, `app_id` null on
+ * failure. The old fallback was a stated guess ("self-hosted may differ") that the probe disproved.
+ *
+ * `status` gates the read for the same reason: a DSL version mismatch answers HTTP 200 with
+ * `status: "pending"` (awaiting confirmation) and no app_id — a 200 that must NOT read as success.
+ * Anything that is not `completed*` yields null, which lands on the caller's `list`-reconcile fallback.
+ */
 export function appIdFromJsonOut(stdout: string): string | null {
   const lines = stdout.split('\n').map((l) => l.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -302,14 +319,29 @@ export function appIdFromJsonOut(stdout: string): string | null {
     if (!line.startsWith('{')) continue;
     try {
       const obj = JSON.parse(line) as Record<string, unknown>;
+      // 'completed' and 'completed-with-warnings' are both successes; absent = an older/other shape that
+      // never reported status, which stays readable (the id fields below are the real guard).
+      const status = obj.status;
+      if (typeof status === 'string' && !status.startsWith('completed')) return null;
       const nested = (obj.app as Record<string, unknown> | undefined)?.id;
-      const id = obj.app_id ?? obj.id ?? nested;
+      const id = obj.app_id ?? nested;
       return typeof id === 'string' && id ? id : null;
     } catch {
       /* not the JSON line — keep scanning upward */
     }
   }
   return null;
+}
+
+/**
+ * Does this push failure mean the app we tried to OVERWRITE is gone? Dify answers a stale `app_id` with
+ * HTTP 400 `{status:"failed", app_id:null, error:"App not found"}` (probed) — it does NOT fall back to
+ * creating. The import flow retries once without the id so a user who deleted the app in Dify gets a new
+ * one instead of a hard error. Matched on the error text because that is all `sync.py` surfaces
+ * (`_fmt_request_error` → `HTTP 400 — <body>`); the HTTP code alone is too broad to key off.
+ */
+export function isAppGoneFailure(out: string): boolean {
+  return /app not found/i.test(out);
 }
 
 /** Outcome of a name-reconcile. `ambiguous` is set when ≥2 same-named apps match: we CANNOT tell which

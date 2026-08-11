@@ -20,10 +20,33 @@ import {
 } from '../server/lib/dify-io.js';
 
 describe('appIdFromJsonOut', () => {
-  test('field precedence: app_id > id > nested app.id', () => {
+  test('field precedence: app_id > nested app.id — top-level `id` is NEVER an app id', () => {
     assert.equal(appIdFromJsonOut('{"app_id":"A","id":"B"}'), 'A');
-    assert.equal(appIdFromJsonOut('{"id":"B"}'), 'B');
     assert.equal(appIdFromJsonOut('{"app":{"id":"C"}}'), 'C');
+    // Probed against self-hosted Dify (DSL 0.6.0): the response carries BOTH `id` (the import RECORD)
+    // and `app_id` (the app), with different values. The old `?? obj.id` fallback was a documented
+    // guess ("self-hosted may differ") and it read the record id as an app id.
+    assert.equal(appIdFromJsonOut('{"id":"B"}'), null, 'a bare record id is not an app id');
+  });
+
+  // The failure this guards is silent and expensive: a bogus `task.appId` + an `app_url` pointing at
+  // nothing, with the push-intent marker cleared as "resolved" — so nothing ever retries.
+  test('a FAILED import yields null even though it carries a record `id` (probed shape)', () => {
+    const failed = '{"id":"6663e102","status":"failed","app_id":null,"error":"App not found"}';
+    assert.equal(appIdFromJsonOut(failed), null);
+  });
+
+  test('status gates the read — `pending` (DSL version mismatch) is a 200 that is NOT a success', () => {
+    assert.equal(appIdFromJsonOut('{"id":"rec1","status":"pending","app_id":null}'), null);
+    // Defensive: even if a future shape carried an app_id alongside a non-completed status, an
+    // unconfirmed import must not be stamped as the build's app.
+    assert.equal(appIdFromJsonOut('{"status":"failed","app_id":"A"}'), null);
+  });
+
+  test('both success statuses are accepted; an absent status stays readable (older shapes)', () => {
+    assert.equal(appIdFromJsonOut('{"status":"completed","app_id":"A"}'), 'A');
+    assert.equal(appIdFromJsonOut('{"status":"completed-with-warnings","app_id":"A"}'), 'A');
+    assert.equal(appIdFromJsonOut('{"app_id":"A"}'), 'A');
   });
 
   test('self-hosted / missing / non-string id → null', () => {
@@ -36,7 +59,10 @@ describe('appIdFromJsonOut', () => {
 
   test('scans the LAST json line; non-JSON lines are skipped', () => {
     assert.equal(appIdFromJsonOut('starting push...\n{"app_id":"X"}\nDone.'), 'X');
-    assert.equal(appIdFromJsonOut('{"app_id":"1"}\n{"id":"2"}'), '2', 'the last JSON line wins');
+    assert.equal(appIdFromJsonOut('{"app_id":"1"}\n{"app_id":"2"}'), '2', 'the last JSON line wins');
+    // The last JSON line still wins even when it yields nothing — it is the authoritative result, so a
+    // stale earlier line must never be scavenged for an id the final outcome does not support.
+    assert.equal(appIdFromJsonOut('{"app_id":"1"}\n{"status":"failed","app_id":null}'), null);
   });
 });
 

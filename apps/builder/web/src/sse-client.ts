@@ -29,8 +29,10 @@ export interface AskAnomalyFile {
 }
 
 export interface SSEHandlers {
-  /** Minimal server init ({reconnected}). The store re-fetches GET /api/tasks/:id from here. */
-  onInit: (data: { reconnected: boolean }) => void;
+  /** Minimal server init. The store re-fetches GET /api/tasks/:id from here. `turnRunning` says whether a
+   *  turn (phase or ask) holds this task right now — optional because an older server omits it, and the
+   *  store must then fall back to its pre-existing reconnect-only behavior rather than guess. */
+  onInit: (data: { reconnected: boolean; turnRunning?: boolean }) => void;
   /** Full task state on every phase/status/gate transition. */
   onTaskUpdate: (task: WireTask) => void;
   /** A streamed assistant fragment for the current phase. */

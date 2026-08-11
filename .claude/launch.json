@@ -18,6 +18,12 @@
       "runtimeExecutable": "bash",
       "runtimeArgs": ["-c", "cd apps/builder/web && npx vite --port 5199 --strictPort"],
       "port": 5199
+    },
+    {
+      "name": "builder-web-5198",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd apps/builder/web && BUILDER_PORT=4181 npx vite --port 5198 --strictPort"],
+      "port": 5198
     }
   ]
 }

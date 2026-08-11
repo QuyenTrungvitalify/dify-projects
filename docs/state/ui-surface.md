@@ -218,6 +218,15 @@ bước đó, mở lại một build có `rev` cũ hơn sẽ bị `isFreshSnapsh
 `lang` là signal + localStorage key `lang`, mặc định `en`. Đọc `lang.value` trong `t`/`tf`/`tAction`/
 `localizeNotes` khiến component gọi nó **tự subscribe** → toggle là re-render, không reload.
 
+**Hai thứ "ngôn ngữ" KHÁC NHAU, hai pill cạnh nhau trên header.** `lang` (🌐 EN⇆JA) là ngôn ngữ **chrome
+UI**, thuần client. `settings.chatLang` (pill 💬 `Auto`/`Tiếng Việt`/`日本語`, localStorage
+`builder.chatLang`) là ngôn ngữ **model trả lời**, gửi xuống server kèm mọi request tạo task
+(`withChatLang` là cửa duy nhất). Không suy cái này từ cái kia: chrome tiếng Nhật + trả lời tiếng Việt
+là tổ hợp có thật ở đây. Pill này **luôn hiện với mọi user** — nó từng được định đặt trong panel ⚙,
+nhưng ⚙ chỉ render dưới `devMode`, tức nhóm user đích (bản sạch, không `BUILDER_DEV=1`) sẽ không bao giờ
+thấy. Nó cũng **không** được thành chip composer (hàng chip giữ nowrap). `chatLang` là **preference
+đứng lâu** như `confirm` — `resetToNew` không được xoá nó, chọn một lần là dùng mãi.
+
 ### 6.1 `t(key)` / `tf(key, params)` — dịch theo key
 
 `t` = `DICT[l][key] ?? EN[key] ?? key`. Thiếu key JA → **rơi im lặng về tiếng Anh**. EN và JA hiện có
@@ -294,6 +303,7 @@ Tách khỏi component để test được, không giữ state:
 | file | nội dung | hằng số phản trực giác |
 |---|---|---|
 | `gate-foot.ts` | `terminalFootActions` (restore/editAgain/runTest) · `replyButtonKind` | **Restore cố ý KHÔNG đòi `project`/`workflowSlug`** — build from-scratch cancel **trước** scaffold có cả hai là null; AND chúng vào là mất nút Restore. Edit-again thì **có** đòi (cần target thật). **runTest cố ý KHÔNG khoá theo `liveTargets.selfhost`** — hiện luôn để user biết tính năng tồn tại; creds kiểm lúc **click** (`store.liveTest` → message localized) và server re-guard 409. |
+| `composer-route.ts` | `composerTarget(task, intent)` · `replyLabel` — một message đã gõ đi đâu (`start`/`ask`/`reply`) | **`intent` là thuộc tính của TỪNG message** (nút gửi nào được bấm: Enter/nút ↵「質問を送信」(1-nút:「送信」) = `ask`, pill ✎「変更を依頼」/⌘Enter = `change`), **không phải state của composer**. Cạnh pill ✎, nút gửi phải nói RÕ nó gửi cái gì (質問を送信) — 「送信」trần ở đó sẽ tái sinh bẫy toggle-rồi-send cũ — composer vô trạng thái từ spec 092 (mode dính ask\|change đã bỏ; lỗi field "reply 409 → disarm ngầm → retry thành câu hỏi" không còn biểu diễn được). Bảng quyết định giữ cả những ô UI hiện không với tới (`cancelled`+`change`→`ask`, `error`+`ask`→`reply`) để caller tương lai nối sai phải đỏ ở test. "Arm" từ gate action giờ chỉ là **gợi ý trình bày** (highlight pill + placeholder + nhãn cho resolved gate) — không bao giờ đổi nghĩa Enter; Enter luôn là hành động rẻ. |
 | `phase.ts` | `PHASE_LABELS` · `phaseIndex` · `phaseLabelAt` | `phaseIndex` trả `0` cho key lạ; `phaseLabelAt` **clamp** vào `1..N` nên `PHASE_LABELS[-1]` không xảy ra — phase lạ degrade về label đầu, **không throw** (throw ở đây làm trắng cả thread). |
 | `promote-visibility.ts` | `canPromoteFromConversation(view, task)` — nút "Promote to pattern" hiện khi (spec 052/85ecfa8) | Hiện ở **`done` HOẶC `awaiting_confirm`+phase `test`** (④ gate), KHÔNG chỉ `done` — main.yml đã final+lint-sạch ở ④, và user lấy yml rồi đi thì không bao giờ tới `done`. **Loại** promote-task (không promote một promote) và build chưa scaffold (`project`/`workflowSlug` null). |
 | `markdown.ts` | `renderMarkdownHtml` — escape-by-default, không sanitizer, không `innerHTML` của raw input | Emphasis **chỉ** khớp khi marker kề ký tự **không phải word** — `my_var_name` / `a*b` mà Claude stream liên tục sẽ bị in nghiêng nếu "đơn giản hoá" regex. Code span và anchor được rút ra **sentinel `\x00`** trước, cài lại sau, để pass emphasis/link không phá nội dung bên trong. |

@@ -99,6 +99,11 @@ const EN: Dict = {
   switchToEnglish: 'Switch to English',
   switchToJapanese: '日本語に切り替え',
   changeLanguage: 'Change language',
+  /* The language the MODEL answers in — distinct from the toggle above, which is the UI chrome's own
+     language. Kept apart on purpose: a Japanese-chrome user may still want replies in Vietnamese. */
+  chatLangAuto: 'Auto',
+  chatLangHint: 'Reply language: {name} (the workflow itself keeps the requirement’s language)',
+  chatLangAutoName: 'follow what you write',
 
   /* empty / new-task surface */
   phDescribeWorkflow: 'Describe the workflow or change…',
@@ -210,7 +215,11 @@ const EN: Dict = {
   gateImportBadge: 'Ready to deploy',
   gateImportTitle: 'Import {file} to your self-hosted Dify',
   gateImportSummary1: 'Import pushes the linted workflow to your Dify workspace.',
-  gateImportSummary2: "Dify import always creates a NEW app — re-importing duplicates it (it won't update an existing app in place).",
+  // The first import of a build creates the app; from then on this build OWNS it and re-imports overwrite
+  // it in place (push --app-id). Saying "re-importing duplicates it" was true before that and is the exact
+  // sentence a user reads right before clicking Import, so it has to track the real behavior.
+  gateImportSummary2: 'Import creates a new Dify app. Later imports from this build update that same app instead of adding another.',
+  gateImportSummaryUpdate: 'This updates the Dify app this build already created — same app, same URL, no duplicate. Reload the app in Dify to see the change.',
   gateImportSummary3: 'Skip finishes the build locally without deploying.',
   gateImportSummaryEdit: "You're editing <c>{workflow}</c> — importing still creates a separate new app, not an update to it.",
 
@@ -224,12 +233,16 @@ const EN: Dict = {
   cancel: 'Cancel',
   sendRerun: 'Send & re-run',
 
-  /* spec 033: composer Ask vs Request-changes mode */
-  modeAsk: 'Ask',
+  /* spec 033/092: the composer's two send actions (ask = Enter/chat button, change = the ✎ pill) */
   modeChange: 'Request changes',
-  modeBackToAsk: 'Back to Ask',
-  phAskGate: 'Ask a question…',
+  phAskOrChange: 'Ask a question or request changes…',
   phChangeMode: 'What should change?',
+  sendAskTip: 'Send as question (Enter)',
+  sendChangeTip: 'Send as change request (⌘Enter / Ctrl+Enter) — re-runs the phase with your instruction',
+  /* the send button's label: next to the change pill it must say WHAT it sends (a bare "Send" there
+     would read as the submit for an armed "Request changes", re-creating the old mode-toggle trap). */
+  sendAskBtn: 'Send question',
+  sendBtn: 'Send',
   qaAnswered: 'Answered',
   qaAnswering: 'Answering…',
   // spec 034: terminal (done/cancelled) Ask composer placeholder + the fresh-seed "sources" caption.
@@ -279,6 +292,13 @@ const EN: Dict = {
   // Both edit affordances name their COST up front: they open a NEW conversation (a fresh edit-existing
   // build — new session, empty thread, all four phases again). The cheap in-place path is `requestFix`
   // on the same card, so the two must never read alike.
+  // Artifact panel — expand is a panel-level display option (every tab), the contents rail rides with it.
+  expandPanel: 'Expand',
+  collapsePanel: 'Collapse',
+  expandPanelHint: 'Expand the panel to fill the window — adds a contents list for jumping between sections',
+  collapsePanelHint: 'Back to the normal panel width (Esc)',
+  contents: 'Contents',
+  contentsEmpty: 'No sections to jump to',
   editThisWorkflow: 'Edit in a new conversation',
   // The post-import fix loop — the done card's "keep working here" action (arms change-mode → /reply).
   requestFix: 'Request a fix',
@@ -557,6 +577,9 @@ const JA: Dict = {
   switchToEnglish: 'Switch to English',
   switchToJapanese: '日本語に切り替え',
   changeLanguage: '言語を変更',
+  chatLangAuto: '自動',
+  chatLangHint: '返答の言語: {name}（ワークフロー自体は要件の言語のまま）',
+  chatLangAutoName: '入力した言語に合わせる',
 
   /* empty / new-task surface */
   phDescribeWorkflow: 'ワークフローや変更内容を入力…',
@@ -668,7 +691,8 @@ const JA: Dict = {
   gateImportBadge: 'デプロイ準備完了',
   gateImportTitle: '{file} をセルフホストの Dify にインポート',
   gateImportSummary1: 'インポートすると、リンター済みのワークフローが Dify ワークスペースに送信されます。',
-  gateImportSummary2: 'Dify のインポートは常に新しいアプリを作成します — 再インポートすると複製されます（既存アプリはその場で更新されません）。',
+  gateImportSummary2: 'インポートすると Dify に新しいアプリが作成されます。以降このビルドから再インポートしても、同じアプリが更新されるだけで増えません。',
+  gateImportSummaryUpdate: 'このビルドが作成済みの Dify アプリを更新します — 同じアプリ・同じ URL で、複製は作られません。変更を見るには Dify 側で再読み込みしてください。',
   gateImportSummary3: 'スキップするとデプロイせずにローカルでビルドを完了します。',
   gateImportSummaryEdit: '<c>{workflow}</c> を編集中です — インポートしても別の新規アプリが作成され、このアプリは更新されません。',
 
@@ -682,12 +706,14 @@ const JA: Dict = {
   cancel: 'キャンセル',
   sendRerun: '送信して再実行',
 
-  /* spec 033: composer Ask vs Request-changes mode */
-  modeAsk: '質問',
+  /* spec 033/092: the composer's two send actions (ask = Enter/chat button, change = the ✎ pill) */
   modeChange: '変更を依頼',
-  modeBackToAsk: '質問に戻る',
-  phAskGate: '質問を入力…',
+  phAskOrChange: '質問または変更依頼を入力…',
   phChangeMode: '何を変更しますか？',
+  sendAskTip: '質問として送信 (Enter)',
+  sendChangeTip: '変更依頼として送信 (⌘Enter / Ctrl+Enter) — 指示に沿ってフェーズを再実行します',
+  sendAskBtn: '質問を送信',
+  sendBtn: '送信',
   qaAnswered: '回答済み',
   qaAnswering: '回答中…',
   // spec 034
@@ -735,6 +761,12 @@ const JA: Dict = {
   cardLintClean: '構造は有効 — そのままインポート可能',
   // spec 035 — どちらの「編集」も、新しい会話が始まることを名前で先に伝える（同じ会話で直す道は
   // 同じカードの `requestFix`）。
+  expandPanel: '拡大',
+  collapsePanel: '元に戻す',
+  expandPanelHint: 'パネルをウィンドウ幅まで拡大します — 見出し一覧が表示され、セクション間を移動できます',
+  collapsePanelHint: '通常の幅に戻す（Esc）',
+  contents: '目次',
+  contentsEmpty: '移動できる見出しがありません',
   editThisWorkflow: '新しい会話で編集',
   editWorkflowShort: '編集（新規）',
   editThisWorkflowHint: 'このワークフローを編集する新しい会話を開きます。この会話のまま直す場合は、最後のカードの「修正を依頼」を使ってください。',
@@ -1073,6 +1105,12 @@ const NOTE_JA: [RegExp, string][] = [
   [
     /editing "([^"]+)": a Dify import always creates a NEW app \(a duplicate of "([^"]+)"\), never an in-place update — delete\/replace the old app in Dify after importing\./g,
     '"$1" を編集中: Dify インポートは常に新規アプリ（"$2" の複製）を作成し、既存アプリをその場で更新しません — インポート後に Dify で旧アプリを削除/置換してください。',
+  ],
+  // The overwrite path's honest middle case: the import meant to update the app this build made, but the
+  // user had deleted it in Dify, so a new one exists after all. Frame emitted by import.ts (staleTarget).
+  [
+    /the Dify app this build previously imported no longer exists, so a NEW app was created instead of updating it\./g,
+    'このビルドが以前インポートした Dify アプリは既に存在しないため、更新ではなく新しいアプリを作成しました。',
   ],
   // spec 037 S1 → reworded by spec 066 S5. `$1` = the blocker list; spec 064 already made each item
   // plain prose, so localizing the frame no longer leaves a literal English needs-list behind.

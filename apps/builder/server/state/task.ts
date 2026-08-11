@@ -17,6 +17,7 @@
 import { mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { difyTargets } from '../lib/dify-io.js';
+import { detectLang, normalizeChatLang, type ChatLang } from '../lib/language.js';
 
 export type Phase = 'analyze' | 'spec' | 'implement' | 'test';
 // `scaffolding` is the transient state around the (non-atomic) Spec-gate scaffold (plan QĐ #9) —
@@ -245,10 +246,51 @@ export interface Task {
   // Phase ④ test mode. Absent on a pre-032 task.json ⇒ treated as `static` (back-compat: every
   // `task.testMode === 'live'` guard reads it as off). Stamped 'live' only by a gate live action (S3/S5).
   testMode: TestMode;
-  // selfhost Phase ④ result (Lát 5 Task 6): the NEW Dify app id captured from the import + its url.
+  // selfhost Phase ④ result (Lát 5 Task 6): the Dify app id captured from the import + its url.
   appId?: string | null;
   appUrl?: string | null;
+  /**
+   * The app the ④ IMPORT owns — the one a re-import overwrites in place so a build that gets fixed a
+   * few times stops leaving a trail of near-identical apps.
+   *
+   * Separate from `appId` on purpose. `appId` is "the most recent app of ANY kind", and the live-test
+   * path writes it too (its throwaway test apps, which it auto-deletes on the next re-test). Reusing
+   * `appId` as the overwrite target would let an Import land on top of a live-test app, and the next
+   * re-test would then delete the workflow the user had just imported. Only `runImportAndFinish` ever
+   * writes this field, and ONLY from an id the push itself returned — never from the name-reconcile
+   * fallback, whose "exactly one app is called this" guess is fine for a link but not for something we
+   * then overwrite destructively (the live-test's throwaway apps share this build's name).
+   */
+  importAppId?: string | null;
+  /**
+   * The `app.mode` of the DSL last imported into {@link importAppId} (e.g. 'workflow', 'advanced-chat').
+   *
+   * Dify's import-into-existing-app path updates the graph but NEVER reassigns `app.mode`, and the draft
+   * workflow is typed from the APP's mode — so overwriting a `workflow` app with an `advanced-chat` DSL
+   * yields a structurally mismatched app rather than an error. A fix round can legitimately change the
+   * mode (ask for a chatbot and the implement phase rewrites main.yml as advanced-chat), so the mode is
+   * remembered and compared; a change disqualifies the overwrite and the import creates a fresh app.
+   */
+  importAppMode?: string | null;
   confirmMode: ConfirmMode; // drives pause-vs-auto-advance at each boundary (§D)
+  /**
+   * The user's CHAT-language setting, carried from the composer at create time. Absent on an older
+   * task.json ⇒ 'auto' (back-compat: the language is inferred exactly as before). Governs the
+   * conversation ONLY — what ships inside the deliverable still follows the requirement's language.
+   * See {@link import('../lib/language.js').resolveLang}.
+   */
+  chatLang?: ChatLang;
+  /**
+   * The language of the most recent user message that carried a detectable signal — sticky.
+   *
+   * A Continue past a gate is a FRESH turn with no user text in it, so a pin resolved only from "what
+   * the user typed this turn" has nothing to read and falls back to the requirement. On a task whose
+   * requirement is Japanese but whose user chats in Vietnamese, that made the SAME task answer Vietnamese
+   * on reply turns and Japanese on continue turns. Stamped by every entry point that receives user text;
+   * a message with NO signal ("ok", a pasted node id) leaves the previous value alone rather than
+   * clearing it — one terse reply must not reset the language of the whole conversation.
+   */
+  langHint?: 'vi' | 'ja';
   // Spec 028: opt-in "fast build" — merges Analyze+Spec into ONE merged draft turn (from-scratch
   // single-LLM only). Forced false when a seed/workflow/slug is set (§1). Absent on a pre-028
   // task.json ⇒ falsy (back-compat: every `task.fastMode && …` guard reads it as off).
@@ -360,6 +402,9 @@ export interface CreateTaskInput {
   /** spec 028: `⚡ Fast build` switch (public `fast_mode`). Normalized via {@link normalizeFastMode};
    *  force-off in {@link createTask} when a seed/workflow/slug is set. */
   fast?: boolean | string | null;
+  /** The chat-language setting from the composer (public `chat_lang`): 'vi' | 'ja' | anything else ⇒
+   *  'auto'. Normalized via {@link normalizeChatLang}. */
+  chatLang?: string | null;
 }
 
 /**
@@ -530,6 +575,10 @@ export async function createTask(projectsDir: string, input: CreateTaskInput): P
     appUrl: null,
     confirmMode: normalizeConfirmMode(input.confirmMode),
     fastMode,
+    chatLang: normalizeChatLang(input.chatLang),
+    // `langHint` is deliberately NOT seeded from the requirement: the requirement is already the last
+    // rung of the resolve chain, so seeding would only duplicate it. The hint exists to carry what the
+    // user typed AFTER the requirement into turns that carry no text of their own.
     phase: 'analyze',
     status: 'running',
     name: input.name && input.name.trim() ? input.name.trim() : null,
@@ -554,6 +603,10 @@ export async function createPromoteTask(
     external?: { yaml: string; label?: string; sha256?: string; license?: string };
     // spec 084: a DEV test distill (dry-run — never auto-finalizes). Set ONLY when BUILDER_DEV (route-gated).
     test?: boolean;
+    /** The chat-language setting, same as every other task kind. A distill's `requirement` is an
+     *  auto-generated English string, so inference has nothing to work with here — an explicit setting
+     *  is the ONLY way this surface can speak the user's language. */
+    chatLang?: string | null;
   }
 ): Promise<Task> {
   const taskId = mintTaskId();
@@ -589,6 +642,7 @@ export async function createPromoteTask(
     appUrl: null,
     confirmMode: 'each_step',
     fastMode: false,
+    chatLang: normalizeChatLang(input.chatLang),
     // pinned so the parked gate renders inline (Chat.tsx `docked` is false for 'test'); the phase FSM is
     // never entered for a promote task — the routes delegate on `kind` before confirmAdvance is reached.
     phase: 'test',
@@ -616,7 +670,7 @@ export async function createPromoteTask(
  *  mid-chat is harmless: reconcileOnBoot only touches running/scaffolding, and 'done' is neither. */
 export async function createConsultTask(
   projectsDir: string,
-  input: { text: string; name?: string | null }
+  input: { text: string; name?: string | null; chatLang?: string | null }
 ): Promise<Task> {
   const taskId = mintTaskId();
   const text = input.text.trim();
@@ -636,6 +690,7 @@ export async function createConsultTask(
     appUrl: null,
     confirmMode: 'each_step',
     fastMode: false,
+    chatLang: normalizeChatLang(input.chatLang),
     phase: 'test',
     status: 'done',
     name: input.name && input.name.trim() ? input.name.trim() : null,
@@ -645,6 +700,27 @@ export async function createConsultTask(
   await mkdir(taskDir(projectsDir, taskId), { recursive: true });
   await saveTask(projectsDir, task);
   return task;
+}
+
+/**
+ * Remember the language of a user message on the task (see {@link Task.langHint}). Called by every entry
+ * point that receives typed text — /reply, both /ask paths, a consult message — so a later turn that
+ * carries NO user text (a Continue past a gate) still answers in the language the human is speaking.
+ *
+ * Text with no detectable signal is a NO-OP, never a reset: "ok" / a pasted node id / an English stack
+ * trace must not silently flip a Vietnamese conversation back to the requirement's language. Persists
+ * only on an actual change, and never throws — a failed hint write must not take down the turn it
+ * precedes (worst case the pin falls back one rung).
+ */
+export async function noteUserLang(projectsDir: string, task: Task, text: string): Promise<void> {
+  const seen = detectLang(text);
+  if (!seen || seen === task.langHint) return;
+  task.langHint = seen;
+  try {
+    await saveTask(projectsDir, task);
+  } catch {
+    /* best-effort: the in-memory task still carries the hint for THIS turn */
+  }
 }
 
 export async function loadTask(projectsDir: string, taskId: string): Promise<Task> {

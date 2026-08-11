@@ -38,8 +38,25 @@ phase không dùng nhận `''` (riêng `DEPTH` nhận `standard`), nên không `
 prompt. `phases.ts` **io-free theo hợp đồng**: `KNOWLEDGE` (và `REFERENCES`) luôn `''` ở đây; orchestrator
 ghi đè cho ③ (§2). `PATTERN_PATH` đi qua allowlist `^[A-Za-z0-9_-]+(\.yml)?$` — `analysisPattern` là thứ turn ①
 tự ghi (không tin được), tên không lọt allowlist thoái hoá thành `''` chứ không thành đường dẫn
-traversal. `languagePin` phát hiện kana → chèn chỉ thị tiếng Nhật lên **đầu** prompt (fresh lẫn
-`/reply`); requirement Latin → `''`.
+traversal.
+
+**Ngôn ngữ hội thoại** (`lib/language.ts` — module lá, không import gì, nên `state/task.ts` dùng được
+mà không tạo vòng): `languagePin` chèn chỉ thị viết **bằng chính ngôn ngữ đích** lên **đầu** prompt của
+mọi surface có người đọc — 4 phase turn (fresh lẫn `/reply`), cả hai đường `/ask`, consult, distill và
+judge. Ranh giới bất di bất dịch: **`chatLang` chỉ điều khiển HỘI THOẠI**; những gì nằm trong bản bàn
+giao (title/desc node, prompt LLM, message thông báo, tên cột sheet, thân `SPEC.md`) giữ **ngôn ngữ
+requirement** — đội VN làm cho khách Nhật thì chat tiếng Việt mà giao hàng tiếng Nhật, gộp hai thứ là
+hỏng deliverable. Định danh máy luôn ASCII.
+
+Ngôn ngữ được resolve theo **chuỗi, dừng ở tín hiệu đầu tiên**: setting tường minh (`vi`/`ja`) → text
+user vừa gõ lượt này → `task.langHint` → requirement → `''`. Mỗi bậc trả giá bằng một lỗi đã thấy: bỏ
+bậc 2 thì reply pin theo requirement (task JP + user nhắn tiếng Việt ⇒ 12 lượt trả lời tiếng Nhật); bỏ
+`langHint` thì lượt Continue sau gate — turn *fresh*, không mang text — nhảy về ngôn ngữ requirement,
+tức cùng một task nói hai thứ tiếng xen kẽ; bỏ bậc 4 thì task JP mà user reply "OK" mất pin và preamble
+tiếng Anh quay lại. `langHint` được stamp ở mọi entry point nhận text user và **không bị xoá** bởi tin
+nhắn không có tín hiệu. Detect: **dấu tiếng Việt kiểm TRƯỚC kana** — tin nhắn Việt ở đây thường nhúng
+danh từ Nhật (「phần 合流後…」), chiều ngược lại không xảy ra; tiếng Việt không dấu không detect được
+(đó là lý do setting tường minh tồn tại).
 
 Status (`state/task.ts`): `running` · `awaiting_confirm` · `done` · `error` · `cancelled` là năm
 trạng thái công khai; `scaffolding` là sub-state nội bộ quanh scaffold ở gate Spec, boot reconcile
@@ -472,7 +489,9 @@ tránh vòng import) và mang seam:
 | `apps/builder/test/task-id-mint.test.ts` | `mintTaskId` đơn điệu (§5): ba `createTask` trong **cùng một ms** (Date.now đóng băng) → id khác nhau, tăng nghiêm ngặt |
 | `apps/builder/test/workflow-file.test.ts` | `isValidWorkflowFile` nhận tên thật, chặn traversal |
 | `apps/builder/test/timeout-knobs.test.ts` · `timeout-knobs-env.test.ts` | default các knob timeout; env override đọc lúc load; turn treo chết đúng note timeout |
-| `apps/builder/test/knowledge-inject.test.ts` | seam render §2: facts chỉ vào prompt ③ (fresh qua token, resume qua đuôi), `languagePin` kana |
+| `apps/builder/test/knowledge-inject.test.ts` | seam render §2: facts chỉ vào prompt ③ (fresh qua token, resume qua đuôi), phạm vi `languagePin` (JA + VI, còn lại rỗng) |
+| `apps/builder/test/content-language.test.ts` | chuỗi resolve ngôn ngữ + `detectLang` (Việt thắng kana, VN không dấu ⇒ rỗng); banner Output-language hai tầng của `draft.md`/`spec.md` không trôi |
+| `apps/builder/test/chat-lang-wire.test.ts` | `chat_lang` đi hết đường: wire → task.json → **prompt thật** mà turn nhận, cả cửa build lẫn consult; `/reply` tiếng Việt stamp `langHint` |
 | `apps/builder/test/pattern-path.test.ts` | allowlist `patternPath`; hợp đồng "mọi token luôn được thay" |
 | `apps/builder/test/post-turn-multi-lint.test.ts` | `resolveImplementOutcome`: tách hard/success/still-failing, kể cả file phụ và twin |
 

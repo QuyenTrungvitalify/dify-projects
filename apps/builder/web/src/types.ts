@@ -124,6 +124,10 @@ export interface WireTask {
   deploy: 'none' | 'selfhost' | 'cloud';
   appId?: string | null;
   appUrl?: string | null;
+  /** The Dify app this build's ④ Import owns — set once the first import lands, and the app every later
+   *  import overwrites in place. Its presence is what tells the Import gate to promise an update rather
+   *  than a new app. Distinct from `appId`, which the live-test path also writes (throwaway test apps). */
+  importAppId?: string | null;
   confirmMode: WireConfirmMode;
   /** spec 028: whether this build ran in ⚡ Fast mode (merged Analyze+Spec). Start-bound; the
    *  conversation-view composer reflects it read-only. Absent on a pre-028 snapshot ⇒ off. */

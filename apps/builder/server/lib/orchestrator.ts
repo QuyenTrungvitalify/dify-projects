@@ -20,7 +20,8 @@ import { ClaudeSession } from './claude-session.js';
 import { confinementCheck, gitDirtyPaths, type PostTurnDetail } from './post-turn.js';
 import { type TurnResult, isTimeoutNote } from './turn-runner.js';
 import { costFromResult } from './cost.js';
-import { PHASES, renderPrompt, languagePin, type PhaseDef } from './phases.js';
+import { PHASES, renderPrompt, type PhaseDef } from './phases.js';
+import { languagePin } from './language.js';
 import { attachmentBlock } from './attachments.js';
 import { snapshotDiffBase, writeDiffArtifact } from './diff.js';
 import { lintClean, type LintCodes } from './linters.js';
@@ -40,7 +41,7 @@ import { checkRunnability, preflightNote, sourceContractNote } from './runnabili
 import { persistCriteria } from './criteria.js';
 import { AttemptRecorder } from './run-transcript.js';
 import { logEvent } from './run-events.js';
-import { saveTask, taskDir, type Task } from '../state/task.js';
+import { noteUserLang, saveTask, taskDir, type Task } from '../state/task.js';
 
 // L2 (spec 019): the runner seams, ctx types, ConfirmPayload, and emit/errMsg/httpError moved to
 // orchestrator-shared.ts (a leaf the extracted scaffold/import modules can import without a cycle); the
@@ -228,6 +229,10 @@ export async function confirmAdvance(
  * pauses for the next decision (even in `auto`).
  */
 export async function replyWithin(task: Task, text: string, ctx: OrchestratorCtx): Promise<void> {
+  // Remember what language the human is writing in, BEFORE any branch below: only some of them carry
+  // `text` into the prompt (the ④ static path re-runs the report with no turn at all), and every later
+  // Continue carries none. Without this the language would silently revert at the next gate.
+  await noteUserLang(ctx.projectsDir, task, text);
   // Spec 062 S1b: capture the USER'S steering — a Retry out of error vs a "Request changes" revision —
   // with the change text, so the dossier can explain WHY the build changed direction.
   await logEvent(taskDir(ctx.projectsDir, task.taskId), {
@@ -456,9 +461,17 @@ async function runPhase(
   // resume prompt the SAME header as the fresh path so "revise the artifact" is unambiguous either way.
   const CHANGE_REQUEST = '## Change request (revise the existing artifact; do not restart from scratch)';
   // Layer 1 reply-language guard: a native-language pin prepended at the TOP of every phase prompt (fresh
-  // AND /reply) so the model's user-facing prose follows the requirement's language from token one. '' for
-  // a Latin-script requirement. The single seam covering both prompts, like the attachment block below.
-  const langPin = languagePin(task.requirement);
+  // AND /reply) so the model's chat prose follows the HUMAN's language from token one. The single seam
+  // covering both prompts, like the attachment block below. All four rungs are passed, and the order
+  // matters — see resolveLang: this turn's own text first (a reply pinned off the requirement is the bug
+  // that started this), then the sticky hint (THIS call is why it exists: a Continue past a gate arrives
+  // here with no replyText at all), then the requirement (back-compat for everyone who never opts in).
+  const langPin = languagePin({
+    chatLang: task.chatLang,
+    latest: opts?.replyText,
+    hint: task.langHint,
+    requirement: task.requirement,
+  });
   const freshPrompt =
     langPin + (opts?.replyText ? `${renderedFresh}\n\n${CHANGE_REQUEST}\n${opts.replyText}` : renderedFresh) + block;
   // Spec 037 D6(b): the RESUME prompt skips phases.ts injectVars entirely, so the facts ride the

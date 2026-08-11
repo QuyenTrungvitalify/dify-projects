@@ -4,10 +4,12 @@
 > **STOP — do not begin Phase ④ (Test).** This is the engine's load-bearing phase.
 
 > 🌐 **LANGUAGE — obey before anything else.** Your ENTIRE chat reply, from the very first character, is
-> written in the language of `{{REQUIREMENT}}` (carried by `SPEC.md`). If it is Japanese, do **not** emit a
-> single English sentence — not even an orienting lead-in like "I'll start by re-reading…" or "Let me…".
-> There is NO English preamble; token one is already in the requirement's language. Everything written
-> into the YAML itself (ids, `type`, keys, refs, code) stays ASCII — see *Output language*.
+> written in **the chat language**: the language named by the directive at the very TOP of this prompt if
+> one is there, otherwise the language of `{{REQUIREMENT}}` (carried by `SPEC.md`). Do **not** emit a
+> single sentence in any other language — not even an orienting lead-in like "I'll start by re-reading…"
+> or "Let me…". There is NO English preamble; token one is already in the chat language. The prose you
+> write INTO the YAML (node titles/descs, LLM prompts, user-facing messages) follows the **requirement**,
+> not the chat; ids, `type`, keys, refs and code stay ASCII — see *Output language*.
 
 You are producing a valid Dify workflow YAML that satisfies `SPEC.md`. Read
 `.claude/skills/dify-build/SKILL.md` ground rules first — every non-negotiable below comes from
@@ -41,7 +43,42 @@ You are producing a valid Dify workflow YAML that satisfies `SPEC.md`. Read
 > permission hook blocks such tool calls regardless — this caveat keeps the turn from trying.
 {{KNOWLEDGE}}
 ## Output language
-**Every word you write in chat — starting from your very first sentence** (do **not** open with an English lead-in such as "I'll start by re-reading…" or any running commentary in English) **must be in the same language as the requirement** (`{{REQUIREMENT}}`; the `SPEC.md` you re-read carries it). If the requirement is Japanese, the **entire** turn is Japanese from the first token. Do not narrate in English and translate afterward. **Everything written into the YAML stays as-is** — node **id**s, `type` values, YAML keys, `{{#node.field#}}` refs, plugin hashes / `dependencies`, `code_language`, and Python code are English/ASCII regardless of the requirement's language (localizing any breaks the build).
+**Two layers. Do not collapse them.**
+
+**① What you SAY (chat prose)** — every word of your reply from the very first sentence, including any running commentary: **the chat language** — the language named by the directive at the TOP of this prompt if one is present, otherwise the language of `{{REQUIREMENT}}`. Do not open with a lead-in in another language ("I'll start by re-reading…"), and do not write one language then translate.
+
+**② What you WRITE into the YAML** — node `title`/`desc`, the prompts you author for `llm` nodes, notification bodies, sheet column names, and every other string an end user of the workflow will read: **the language of `{{REQUIREMENT}}`** (the `SPEC.md` you re-read carries it), even when you are chatting in a different language. This is the client's deliverable, not your conversation; never translate it into the chat language.
+
+**Machine text stays as-is regardless of either language** — node **id**s, `type` values, YAML keys, `{{#node.field#}}` refs, plugin hashes / `dependencies`, `code_language`, and Python code are English/ASCII (localizing any breaks the build).
+
+## Writing for the reader (chat prose) — spec 094 S5
+This is the phase that most often slips into engineer-speak, because you have just spent the turn inside
+the node graph. The person reading your chat is a **user of the app, not a workflow engineer**. Three
+rules, in force for every sentence you write **in chat** — they do NOT apply to what you write INTO the
+YAML, which follows *Output language* above. This is about HOW you write, not WHICH language.
+
+1. **Meaning first, coordinates second.** Never open a sentence with a node label. Say what the step DOES
+   in everyday words, then put the label in parentheses if the reader may want to click it on the canvas:
+   「送信元の合言葉を照合します（node `C1`）」 — not 「`C1` が `secret` を照合」.
+2. **Machine names only when the reader must see or type them** (the affordance rule). KEEP: environment
+   variables they will create in Dify, plugin names, sheet column names, Studio button labels. SPELL OUT
+   in words: `string` / `array[string]`, `flatten_output`, `error_strategy`, `value_selector`,
+   `END_EMPTY_IMMEDIATE`, node `type` values — and internal cross-references like "(lesson #1)", which
+   mean nothing to someone not holding the document you are counting in.
+3. **Give the flow as a plain-word arrow chain first**, details after. The **Nodes** table lives in
+   `SPEC.md` and the artifact panel — do not re-narrate it node-by-node in chat.
+
+> **BAD** — `C0` webhook takes `secret` / `row_keys` / `message_id`, all three declared `string`
+> (lesson #1). `C1` compares `secret` against `gas_shared_secret`; on mismatch it returns an empty list
+> and the run falls into the empty branch.
+>
+> **GOOD** — This branch runs the moment APP 1 calls in: it receives the request → checks the shared
+> password → reads the rows already ticked as approved in Sheets → stops early if there are none. A wrong
+> password ends the workflow quietly, writing nothing to Sheets (node `C1`). The row list is accepted as
+> one id, several ids separated by commas, or a list — so APP 1 needs no changes.
+
+The same rules govern the closing summary and every **fix round**: when the user reports a Studio error
+and you explain what you changed (or why nothing needed changing), explain it this way too.
 
 ## Do — follow AGENTS.md §3 exactly
 1. **Re-read `{{PRIOR_ARTIFACT}}` (`SPEC.md`)** — treat it as the source of truth for what to build.

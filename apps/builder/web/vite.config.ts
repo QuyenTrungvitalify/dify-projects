@@ -16,7 +16,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': { target, changeOrigin: true },
+      // Regex, not the '/api' prefix: a bare prefix also swallows the SOURCE MODULE `/api.ts`
+      // (root is src/, so modules are served at "/"), handing vite's module request to the
+      // backend — which answers with index.html and the whole dev page dies on a MIME error.
+      '^/api(/|$)': { target, changeOrigin: true },
       '^/health$': { target, changeOrigin: true },
     },
   },

@@ -32,6 +32,7 @@ import { readNestedScalar } from './artifacts.js';
 import { deriveSlugName } from './slug.js';
 import { ClaudeSession } from './claude-session.js';
 import { renderPrompt } from './phases.js';
+import { languagePin } from './language.js';
 import { relocateRunArtifacts } from './scaffold.js';
 import { buildHolderId, clearSession, isCancelled, setSession } from './lock.js';
 import {
@@ -159,7 +160,13 @@ export async function runDistillTurn(task: Task, ctx: OrchestratorCtx, noteText?
     KNOWN_GOOD_DIFY: p.verdict?.knownGoodDify ?? '',
   });
   const CHANGE = '## Change request (revise the staged pattern; do not restart from scratch)';
-  const prompt = noteText ? `${rendered}\n\n${CHANGE}\n${noteText}` : rendered;
+  // The distill turn is a chat surface like any other, so it takes the same pin — but WITHOUT the
+  // requirement rung: a promote task's `requirement` is a generated English sentence ("Promote … to a
+  // reusable pattern"), i.e. noise as a language signal (promote.md says as much). So an `auto` distill
+  // resolves to '' exactly as before, and only an explicit setting (or a hint from the user's own change
+  // request) changes anything here.
+  const langPin = languagePin({ chatLang: task.chatLang, latest: noteText, hint: task.langHint });
+  const prompt = langPin + (noteText ? `${rendered}\n\n${CHANGE}\n${noteText}` : rendered);
 
   // NEVER spawn for a build that no longer owns the turn lock (mirrors runPhase's guard).
   if (isCancelled(task.taskId) || buildHolderId() !== task.taskId) {

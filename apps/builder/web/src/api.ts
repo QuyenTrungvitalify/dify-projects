@@ -71,6 +71,9 @@ export interface CreateTaskBody {
   test_mode?: string;
   /** spec 012/025: 1–3 files attached at build start; backend saves them + injects their paths (AC2). */
   files?: Attachment[];
+  /** The chat-language setting: 'vi' | 'ja'. Omitted ⇒ the server reads 'auto' (infer from the text),
+   *  which is exactly what every client did before the setting existed. */
+  chat_lang?: string;
 }
 
 /** The four file-accepting POSTs echo back WHERE each file landed: indices into `task.attachments`,
@@ -106,7 +109,7 @@ export const api = {
     }),
   /** spec 082: POST /api/consult → start a `kind:'consult'` chat task (chat lane; a running build never
    *  blocks it). `text` is the first message; every later message is a plain api.ask(id, text). */
-  createConsult: (body: { text: string; files?: Attachment[] }): Promise<WireTask & UploadIdx> =>
+  createConsult: (body: { text: string; files?: Attachment[]; chat_lang?: string }): Promise<WireTask & UploadIdx> =>
     request('POST', '/api/consult', body),
   /** spec 082: GET /api/consults → the consult chats (newest first) for the sidebar's own section. */
   consults: (): Promise<{ consults: WireTreeTask[] }> => request('GET', '/api/consults'),
@@ -170,8 +173,8 @@ export const api = {
    *  Two source doors: a LOCAL project workflow `{project, workflow}` (source=original), or spec 070's
    *  EXTERNAL pasted/uploaded YAML `{origin:'paste', yaml, ...}` (stamped source=external). */
   promote: (body:
-    | { project: string; workflow: string; test?: boolean }
-    | { origin: 'paste'; yaml: string; sourceLabel?: string; license?: string; fileName?: string; test?: boolean }
+    | { project: string; workflow: string; test?: boolean; chat_lang?: string }
+    | { origin: 'paste'; yaml: string; sourceLabel?: string; license?: string; fileName?: string; test?: boolean; chat_lang?: string }
   ): Promise<WireTask> =>
     request('POST', '/api/promote', body),
   /** GET /api/tree → the Project ▸ Workflow ▸ Task sidebar tree (AC #13). */

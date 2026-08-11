@@ -378,10 +378,12 @@ export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, 
       <div className="sb-head">
         <span className="sb-title">{tr('appName')}</span>
         <div className="sb-head-actions">
-          {/* user-facing update & restart (in-app update-and-run.command) — visible for EVERYONE. */}
-          <UpdateButton collapsed={collapsed} />
-          {/* spec 059/080/083: dev-only rebuild + shelf dashboard + settings modal, reachable anywhere. */}
-          {devMode && <RebuildButton />}
+          {/* ONE reload button, never two. They look identical (same ⟳ glyph) but do different things:
+              Update pulls main + npm install + build + restart; Rebuild only rebuilds the code already on
+              disk. On a dev machine the pull is the WRONG one — it would checkout main over the branch
+              being worked on — and a dev pulls from a terminal anyway, so dev mode shows Rebuild alone.
+              Everyone else keeps Update, which is the only one that can reach new code without a terminal. */}
+          {devMode ? <RebuildButton /> : <UpdateButton collapsed={collapsed} />}
           {devMode && <ShelfButton />}
           {devMode && <SettingsButton />}
           {/* spec 084 follow-up: the external-YAML intake door moved to the 蒸留 section's "+" (add new =

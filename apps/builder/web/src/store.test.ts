@@ -11,6 +11,7 @@ import {
   flushPendingOutput,
   applyAskAnswer,
   applyAskDone,
+  shouldSettleOpenAsk,
   flushPendingAsk,
   describeAnomalyFiles,
   ask,
@@ -331,13 +332,16 @@ describe('resetToNew clears the reconnect rev-guard (019 C2)', () => {
 describe('resetToNew resets the new-build base selectors', () => {
   it('clears workflow → none and seed → null (confirm preference persists)', () => {
     // spec 036: RunSettings no longer carries deploy/test (they are gate-time now, not composer chips).
-    settings.value = { workflow: 'workflow_uppercases_input_string', confirm: 'auto', seed: 's1', fast: true, targetProject: 'my_app', mode: 'build' };
+    settings.value = { workflow: 'workflow_uppercases_input_string', confirm: 'auto', seed: 's1', fast: true, targetProject: 'my_app', mode: 'build', chatLang: 'vi' };
     resetToNew();
     expect(settings.value.workflow).toBe('none');
     expect(settings.value.seed).toBe(null);
     expect(settings.value.fast).toBe(false); // spec 028: per-build shape assertion — reset like the base selectors
     expect(settings.value.targetProject).toBe(null); // spec 029: per-build target — reset like the base selectors (AC6)
     expect(settings.value.confirm).toBe('auto'); // general preference — not reset
+    // Same class as confirm: the chat language is a standing preference ("I speak Vietnamese"), not a
+    // per-build shape choice. Resetting it would make a Vietnamese user re-pick it for every new task.
+    expect(settings.value.chatLang).toBe('vi');
   });
 });
 
@@ -442,6 +446,31 @@ describe('reconnect recovery finalizes a stuck open Ask (FIX-H)', () => {
     const last = thread.value[thread.value.length - 1] as LiveThreadItem & { kind: 'qa' };
     expect(last.done).toBe(true);
     expect(last.answer).toBe('half an answer'); // partial answer preserved
+  });
+});
+
+// A HARD reload restores the persisted thread with its open qa still open (thread-persist decision #2),
+// which is right while an answer is still streaming — the new stream delivers the rest onto that item.
+// When the turn is gone (server restarted mid-Ask, or it finished during the reload) nothing closes it and
+// it renders "Answering…" through every later reload. `turnRunning` from the server's init frame is the
+// only honest discriminator: an Ask never changes `status`, so the two look identical over GET.
+describe('shouldSettleOpenAsk — close a leftover Q&A only when nothing is live', () => {
+  it('fresh connect + no turn running → settle (the phantom "Answering…" after a mid-Ask restart)', () => {
+    expect(shouldSettleOpenAsk({ reconnected: false, turnRunning: false })).toBe(true);
+  });
+
+  it('fresh connect + a turn IS running → leave open (the answer is still streaming onto it)', () => {
+    expect(shouldSettleOpenAsk({ reconnected: false, turnRunning: true })).toBe(false);
+  });
+
+  it('a reconnect always settles, running or not (FIX-H: it may have spanned the ask:done)', () => {
+    expect(shouldSettleOpenAsk({ reconnected: true, turnRunning: true })).toBe(true);
+    expect(shouldSettleOpenAsk({ reconnected: true, turnRunning: false })).toBe(true);
+  });
+
+  it('field ABSENT (older server) → falls back to reconnect-only; never closes a live answer', () => {
+    expect(shouldSettleOpenAsk({ reconnected: false })).toBe(false);
+    expect(shouldSettleOpenAsk({ reconnected: true })).toBe(true);
   });
 });
 

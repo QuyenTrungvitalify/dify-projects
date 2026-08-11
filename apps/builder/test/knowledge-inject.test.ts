@@ -181,13 +181,22 @@ describe('spec 037 S3 — {{KNOWLEDGE}} injection', () => {
   });
 });
 
-// ── Spec 046 AC 3 (scope pin): languagePin stays Japanese-first / English-fallback ───────────────
-describe('spec 046 — languagePin scope pin (JA-first, EN-fallback — no other languages)', () => {
-  test('kana → the JA pin; English (and any non-kana Latin text) → empty', async () => {
-    const { languagePin } = await import('../server/lib/phases.js');
-    assert.ok(languagePin('日本語のワークフローを作ってください').length > 0, 'kana → JA pin');
-    assert.ok(languagePin('チャットボット').includes('日本語'), 'the pin itself is written in Japanese');
-    assert.equal(languagePin('build an English workflow'), '', 'English → no pin');
-    assert.equal(languagePin('yeu cau khong dau'), '', 'non-kana Latin → no pin (owner scope: JA/EN only)');
+// ── languagePin scope: Japanese, Vietnamese, or nothing ──────────────────────────────────────────
+// SUPERSEDES spec 046 AC 3 ("JA-first / EN-fallback — no other languages"). Vietnamese is now a first-
+// class chat language: the team using this Builder is Vietnamese, with Japanese clients. Do not "restore"
+// the old assertion that a Vietnamese requirement gets no pin — that IS the behavior this replaced.
+describe('languagePin scope (JA + VI, else empty)', () => {
+  test('kana → the JA pin; unaccented Latin → empty', async () => {
+    const { languagePin } = await import('../server/lib/language.js');
+    assert.ok(languagePin({ requirement: '日本語のワークフローを作ってください' }).length > 0, 'kana → JA pin');
+    assert.ok(languagePin({ requirement: 'チャットボット' }).includes('日本語'), 'the pin itself is written in Japanese');
+    assert.equal(languagePin({ requirement: 'build an English workflow' }), '', 'English → no pin');
+    // Unaccented Vietnamese carries no script signal at all — there is nothing to detect, so it still
+    // falls through to no pin. The explicit `chatLang:'vi'` setting is the way out (asserted below).
+    assert.equal(languagePin({ requirement: 'yeu cau khong dau' }), '', 'unaccented Latin → no pin');
+    assert.ok(
+      languagePin({ chatLang: 'vi', requirement: 'yeu cau khong dau' }).includes('tiếng Việt'),
+      'the explicit setting pins Vietnamese even when detection cannot'
+    );
   });
 });

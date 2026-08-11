@@ -30,6 +30,7 @@ export const I: Record<string, Glyph> = {
   checkCircle:(p) => <Svg {...p}><circle cx="12" cy="12" r="9" /><path d="M8.5 12.5l2.5 2.5 4.5-5" /></Svg>,
   message:    (p) => <Svg {...p}><path d="M4 5h16v11H9l-4 4z" /></Svg>,
   edit:       (p) => <Svg {...p}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" /></Svg>,
+  enter:      (p) => <Svg {...p}><path d="M20 5v6a4 4 0 0 1-4 4H5" /><path d="M9 11l-4 4 4 4" /></Svg>,
   undo:       (p) => <Svg {...p}><path d="M9 14L4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-3" /></Svg>,
   retry:      (p) => <Svg {...p}><path d="M23 4v6h-6" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></Svg>,
   warn:       (p) => <Svg {...p}><path d="M12 4l9 16H3z" /><path d="M12 10v4M12 17.5v.5" /></Svg>,
@@ -44,6 +45,9 @@ export const I: Record<string, Glyph> = {
   sidebar:    (p) => <Svg {...p}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></Svg>,
   panel:      (p) => <Svg {...p}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M15 4v16" /></Svg>,
   close:      (p) => <Svg {...p}><path d="M6 6l12 12M18 6L6 18" /></Svg>,
+  // Artifact-panel expand/collapse: arrows out of / into the corners (the widely-read maximize idiom).
+  expand:     (p) => <Svg {...p}><path d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5" /></Svg>,
+  shrink:     (p) => <Svg {...p}><path d="M4 9h5V4M20 9h-5V4M20 15h-5v5M4 15h5v5" /></Svg>,
   image:      (p) => <Svg {...p}><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="M21 15l-5-5L5 21" /></Svg>,
   paperclip:  (p) => <Svg {...p}><path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l8.49-8.49a3.5 3.5 0 0 1 4.95 4.95l-8.49 8.49a2 2 0 0 1-2.83-2.83l7.78-7.78" /></Svg>,
   lock:       (p) => <Svg {...p}><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></Svg>,

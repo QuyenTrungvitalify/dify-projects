@@ -25,6 +25,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ServerResponse } from 'node:http';
 import { isOriginAllowed } from './sse-origin-check.js';
+import { taskTurnRunning } from '../lib/lock.js';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const MAX_QUEUE_SIZE = parseInt(process.env.SSE_CLIENT_QUEUE_SIZE || '200', 10);
@@ -122,9 +123,19 @@ export function createSSEState(): SSEState {
  * already-issued event id; a client adopting that as its `Last-Event-ID` then under/over-replays by one
  * on the next reconnect — the exact off-by-one AC #22 leans on. `init` is never buffered, so spending an
  * id is free.
+ *
+ * `turnRunning` tells the connecting client whether a turn (phase OR ask) currently holds this task. The
+ * client cannot infer it: an Ask leaves `status` untouched, so a `done` build streaming an answer and a
+ * `done` build whose answer died look identical over `GET /api/tasks/:id`. It is what lets a reopened tab
+ * settle a leftover open Q&A instead of rendering "Answering…" forever — while NOT settling one whose
+ * answer is still arriving on this very stream.
  */
-export function initEvent(sse: SSEState, reconnected: boolean): { id: number; event: 'init'; data: { reconnected: boolean } } {
-  return { id: sse.nextEventId(), event: 'init', data: { reconnected } };
+export function initEvent(
+  sse: SSEState,
+  reconnected: boolean,
+  turnRunning: boolean
+): { id: number; event: 'init'; data: { reconnected: boolean; turnRunning: boolean } } {
+  return { id: sse.nextEventId(), event: 'init', data: { reconnected, turnRunning } };
 }
 
 /** Enqueue an event for a client (drops past MAX_QUEUE_SIZE) and kick the drain. */
@@ -245,7 +256,7 @@ const ssePlugin = async (app: FastifyInstance, opts: SSEPluginOptions): Promise<
 
     // Minimal init — the store re-fetches GET /api/tasks/:id to restore the gate (AC #22). C4: a FRESH
     // id (strictly newer than any replayed event), not the stale last-broadcast counter.
-    const ie = initEvent(sse, reconnected);
+    const ie = initEvent(sse, reconnected, taskTurnRunning(taskId));
     writeToClient(client, ie.id, ie.event, ie.data);
 
     request.raw.on('close', cleanup);

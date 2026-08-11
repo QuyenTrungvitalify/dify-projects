@@ -91,6 +91,31 @@ export interface RunSettings {
    *  vs 'build' (the ①②③④ pipeline as today). Entry-only: inside a task the kind is fixed. Remembered
    *  across reloads (localStorage) so a build-heavy user isn't re-flipping it every time. */
   mode: 'consult' | 'build';
+  /** The language the MODEL replies in — 'auto' (infer from what the user writes), 'vi', or 'ja'.
+   *  Sent with every new task/chat and remembered across reloads: the team is Vietnamese, so picking
+   *  `vi` once must hold forever. NOT the same as i18n's `lang` (the UI chrome's language), and NOT a
+   *  composer chip — it lives on the header beside the 🌐/theme pills. */
+  chatLang: ChatLang;
+}
+
+/** 'auto' | 'vi' | 'ja' — mirrors the server's `ChatLang` (server/lib/language.ts). */
+export type ChatLang = 'auto' | 'vi' | 'ja';
+
+/** Endonyms — a language's own name reads the same whatever the UI chrome is set to, so these are NOT
+ *  i18n keys. 'auto' has no endonym; it renders from a translated label instead. */
+export const CHAT_LANG_NAME: Record<ChatLang, string> = { auto: '', vi: 'Tiếng Việt', ja: '日本語' };
+
+/** The header pill cycles through the three values in this order. */
+export function nextChatLang(cur: ChatLang): ChatLang {
+  return cur === 'auto' ? 'vi' : cur === 'vi' ? 'ja' : 'auto';
+}
+
+/** Attach the chat-language setting to an outgoing create-a-task body. Omitted while 'auto', so a user
+ *  who never picks a language sends the exact same request they always did (the server reads a missing
+ *  field as 'auto'). Every door that mints a task goes through here — build, chat, and distill. */
+function withChatLang<T extends object>(body: T): T & { chat_lang?: string } {
+  const l = settings.value.chatLang;
+  return l === 'auto' ? body : { ...body, chat_lang: l };
 }
 
 /** spec 082: the remembered composer mode (best-effort localStorage; default 'consult' — user's call). */
@@ -110,6 +135,26 @@ export function rememberMode(mode: RunSettings['mode']): void {
   }
 }
 
+/** The remembered chat language (same best-effort localStorage pattern as the mode above). Default
+ *  'auto' — nobody's behavior changes until they pick a language. */
+const CHAT_LANG_KEY = 'builder.chatLang';
+function initialChatLang(): ChatLang {
+  try {
+    const saved = localStorage.getItem(CHAT_LANG_KEY);
+    return saved === 'vi' || saved === 'ja' ? saved : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+export function setChatLang(next: ChatLang): void {
+  settings.value = { ...settings.value, chatLang: next };
+  try {
+    localStorage.setItem(CHAT_LANG_KEY, next);
+  } catch {
+    /* private mode / quota — the pick still holds for this session */
+  }
+}
+
 // ───────────────────────────── signals ─────────────────────────────
 export const tree = signal<WireTreeProject[]>([]);
 export const seeds = signal<Seed[]>([]);
@@ -123,7 +168,7 @@ export const active = signal<WireTreeTask[]>([]);
 export const startError = signal<string | null>(null);
 /** The taskId whose turn is running, parsed from a 409 — lets the UI offer "open it" (Lát 6). */
 export const busyHolder = signal<string | null>(null);
-export const settings = signal<RunSettings>({ workflow: 'none', confirm: 'each step', seed: null, fast: false, targetProject: null, mode: initialMode() });
+export const settings = signal<RunSettings>({ workflow: 'none', confirm: 'each step', seed: null, fast: false, targetProject: null, mode: initialMode(), chatLang: initialChatLang() });
 /** spec 082: the consult chats for the sidebar's own section (GET /api/consults, newest first). */
 export const consults = signal<WireTreeTask[]>([]);
 /** spec 084 S1.5: the distill/promote tasks for the sidebar's own "蒸留" section (GET /api/promotes,
@@ -604,6 +649,21 @@ export function describeAnomalyFiles(files: AskAnomalyFile[]): string {
     .join(', ');
 }
 
+/**
+ * Whether a (re)connect must close a leftover open Q&A. Pure so the three cases stay pinned:
+ *  - `reconnected` → FIX-H: the reconnect may have spanned the `ask:done`, so finalize (unchanged).
+ *  - `turnRunning === false` → a fresh connect with nothing live: the answer died (server restart) or
+ *    landed during the reload. Nothing will ever close it, and an open qa renders "Answering…" through
+ *    every later reload.
+ *  - `turnRunning === true` (or ABSENT, i.e. an older server) → leave it open. A live answer keeps
+ *    streaming onto the restored item over this very connection, and closing it would discard the rest.
+ *    The absent case deliberately falls back to the pre-existing reconnect-only behavior — an unknown
+ *    is never treated as "not running".
+ */
+export function shouldSettleOpenAsk(d: { reconnected: boolean; turnRunning?: boolean }): boolean {
+  return d.reconnected || d.turnRunning === false;
+}
+
 export function applyAskDone(d: { ok: boolean; anomaly?: { files: AskAnomalyFile[] }; seededFrom?: string[] }): void {
   flushPendingAsk(); // land any trailing buffered fragment before finalizing (mirrors applyTask's rule)
   asking.value = false;
@@ -786,7 +846,16 @@ function openStream(taskId: string): void {
       // very first init (the first turn is dispatched by POST /api/consult itself), and the unguarded
       // finalize was closing it as an empty "Answered" + dropping the whole streamed answer. A true
       // reconnect still finalizes (FIX-H's actual target); the first connect never spans an ask:done.
-      if (d.reconnected && (asking.value || findOpenAskIdx(thread.value) !== -1)) applyAskDone({ ok: true });
+      // A FRESH connect settles a leftover open qa too — but ONLY when the server reports no turn holds
+      // this task (`turnRunning`). A hard reload restores the persisted thread with its open qa still open
+      // (thread-persist decision #2), and that is correct while an answer is still streaming: this new
+      // stream keeps delivering ask:answer/ask:done straight onto that item. When the turn is GONE,
+      // though — the answer died with a server restart, or finished during the reload — nothing will ever
+      // close it, and it rendered "Answering…" through every reload after, reading as a hung build.
+      // `turnRunning` is the only honest discriminator: an Ask never changes `status`, so the two cases
+      // are identical over GET /api/tasks/:id. Older servers omit the field → undefined → fresh connects
+      // behave exactly as before (reconnect-only), never closing a live answer on a stale build.
+      if (shouldSettleOpenAsk(d) && (asking.value || findOpenAskIdx(thread.value) !== -1)) applyAskDone({ ok: true });
       void api.getTask(taskId).then(applyTask).catch(() => {});
     },
     onTaskUpdate: applyTask,
@@ -941,7 +1010,7 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
   // build uses the sidebar project-"+" target (`targetProject`). null ⇒ the backend resolves `_drafts` (D5).
   const project = editing?.project ?? s.targetProject ?? null;
   try {
-    const t = await api.createTask({
+    const t = await api.createTask(withChatLang({
       requirement,
       workflow: editing?.workflow ?? null,
       confirm_mode: confirmModeWire(s.confirm),
@@ -955,7 +1024,7 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
       // done-state live action) from what creds are reachable, not declared here.
       ...(project ? { project } : {}),
       ...(files && files.length ? { files } : {}),
-    });
+    }));
     stampUploads(userItemId, t.uploads); // the saved copies — what the history shows after a reload
     applyTask(t);
     openStream(t.taskId);
@@ -975,7 +1044,7 @@ export async function startConsult(text: string, files?: Attachment[]): Promise<
   clearErrors();
   _lastPersisted = '';
   try {
-    const t = await api.createConsult({ text, ...(files && files.length ? { files } : {}) });
+    const t = await api.createConsult(withChatLang({ text, ...(files && files.length ? { files } : {}) }));
     thread.value = [
       // the POST already answered here, so the upload indices land straight on the bubble
       { id: uid(), kind: 'user', text, atts: attsOf(files)?.map((a, n) => ({ ...a, idx: t.uploads?.[n] })) },
@@ -1035,7 +1104,7 @@ async function dispatchBgDistill(key: string): Promise<void> {
   const item = bgDistills.value.find((b) => b.key === key);
   if (!item || item.taskId || item.status !== 'queued') return; // already dispatched / gone
   try {
-    const t = await api.promote(item.req);
+    const t = await api.promote(withChatLang(item.req));
     upsertBg(key, bgFieldsFromTask(t, item.slug));
     void loadTree();
     void loadPromotes(); // S1.5: surface the new distill in the sidebar section immediately
@@ -1067,7 +1136,7 @@ export async function promoteExternalYaml(
   bgDistills.value = [{ key, slug: label, status: 'queued', sourceKind: 'external', req, ...(test ? { test: true } : {}) }, ...bgDistills.value];
   startBgPoll();
   try {
-    const t = await api.promote(req);
+    const t = await api.promote(withChatLang(req));
     upsertBg(key, bgFieldsFromTask(t, label));
     void loadTree();
     return true;

@@ -9,6 +9,40 @@ pattern, a changed gate. Not for docs-only edits.
 
 ---
 
+## Unreleased
+
+**Gate questions and how the model writes to you (spec 094 S4/S5/S2a)**
+- Questions put to you at a gate are now **always** a numbered list, each item ending with the default
+  the model would take, so you can answer with a digit or "go with your suggestions". This shape shipped
+  in 093 but only when the chat and requirement languages differed — chat and build in one language and
+  you still got a paragraph to unpack. Now it covers ① and ② unconditionally.
+- ②③④ gained the write-for-the-reader rules ① already had: say what a step DOES before naming the node,
+  keep machine names only where you must see or type them (env vars, plugin names, sheet columns, Studio
+  buttons — not `array[string]` / `value_selector` / `error_strategy`), and give the flow as a plain-word
+  chain instead of a node-by-node recital. Carries a worked BAD/GOOD pair. The fix-round explanations at
+  ③ — the ones you read when a Studio error is reported — follow it too.
+- Unchanged: what lands in the YAML and `SPEC.md` still follows the requirement's language (093). This is
+  about HOW the model writes to you, not WHICH language.
+- The skill body no longer tells a build turn that the Grep/Glob tools are callable straight away; they
+  are deferred in that session and must be loaded first. The old claim contradicted the permission gate's
+  own recorded evidence and cost one run 25 wasted calls.
+
+**Conversation language (spec 093)**
+- A chat-language pill on the header (`Auto` / `Tiếng Việt` / `日本語`, remembered across reloads,
+  visible to every user — not dev-gated) now decides what language the model ANSWERS in. It is
+  independent of the 🌐 UI-chrome toggle beside it.
+- The deliverable does not follow it: node titles/descs, LLM prompts, notification bodies and the
+  `SPEC.md` body still follow the requirement's language, so a Vietnamese team can chat in Vietnamese
+  and hand a Japanese client a Japanese build. When the two differ, `SPEC.md` gains a final
+  "summary & questions" appendix in the chat language, so the gate can actually be reviewed.
+- `auto` (the default, and what every pre-093 task.json reads as) now resolves as a chain: this turn's
+  own message → the language remembered from the last message → the requirement. Previously EVERY turn
+  read the requirement, so a Japanese-worded requirement answered a Vietnamese user in Japanese
+  indefinitely. Nothing changes for a user who never touches the setting.
+- The pin now also covers surfaces that had none: both `/ask` doors (including the gate-side "ask a
+  question", where the friction was actually observed), the distill turn, and the ④ judge's
+  summary/evidence.
+
 ## 0.4.0 — 2026-08-06
 
 Cut because three campaign-observable surfaces changed after the 0.3.0 cut: what the sandbox

@@ -15,6 +15,7 @@ import { Twist } from './Sidebar';
 import { renderMarkdownHtml } from '../lib/markdown';
 import { PHASE_LABELS, phaseIndex, phaseLabelAt } from '../lib/phase';
 import { replyButtonKind, terminalFootActions } from '../lib/gate-foot';
+import type { ComposerIntent } from '../lib/composer-route';
 import { t as tr, tf, phaseLabel, tAction, localizeNotes } from '../lib/i18n';
 import {
   type ComposerAttachment,
@@ -277,8 +278,16 @@ function gateView(t: WireTask): GateView {
   // D1 (spec 016): the deploy gate. After 014 D1 EVERY selfhost build (incl. auto/spec_only) parks here
   // with the `awaiting_import` flag — name the target + explain Import vs Skip so the card isn't blank.
   if (t.gate?.flag === 'awaiting_import') {
-    const summary = [tr('gateImportSummary1'), tr('gateImportSummary2'), tr('gateImportSummary3')];
-    if (t.workflow) summary.push(tf('gateImportSummaryEdit', { workflow: t.workflow })); // edit-existing footgun
+    // `importAppId` = this build already imported once, so THIS import overwrites that same app in place
+    // (same id, same URL, no second app). Saying "import always creates a new app" there would be plainly
+    // false, and the edit-existing footgun below is about creating a separate app — also not what happens.
+    const updating = !!t.importAppId;
+    const summary = [
+      tr('gateImportSummary1'),
+      updating ? tr('gateImportSummaryUpdate') : tr('gateImportSummary2'),
+      tr('gateImportSummary3'),
+    ];
+    if (t.workflow && !updating) summary.push(tf('gateImportSummaryEdit', { workflow: t.workflow }));
     return { tone: 'deploy', badge: tr('gateImportBadge'),
       title: tf('gateImportTitle', { file: t.workflowFile }),
       meta, summary, showReportLink: true };
@@ -659,10 +668,13 @@ export function MsgAttachments({ atts, taskId }: { atts: ThreadAttachment[]; tas
   );
 }
 
-export function Composer({ value, onChange, onSend, settings, onSettings, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, onMode }: {
+export function Composer({ value, onChange, onSend, settings, onSettings, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, onMode, canChange, changeArmed, sendGlyph }: {
   value: string;
   onChange: (value: string) => void;
-  onSend: () => void;
+  /** spec 092: intent is PER-MESSAGE — 'ask' from Enter / the chat button, 'change' from the labeled
+   *  change pill / ⌘⌃Enter. Call sites where only one target exists just ignore it (composerTarget
+   *  decides the route either way, so a stray intent can never mis-route — pinned in its tests). */
+  onSend: (intent: ComposerIntent) => void;
   /** spec 034 D3: optional — a terminal (done/cancelled) Ask composer omits both so the settings row
    *  (workflow/confirm/fast — spec 036 dropped deploy/test) does not render; it becomes a plain question box. */
   settings?: Settings;
@@ -692,6 +704,17 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
    *  meaningless for a chat and the row stays short (the nowrap rule keeps its slack). */
   mode?: 'consult' | 'build';
   onMode?: (mode: 'consult' | 'build') => void;
+  /** spec 092: render the second send action (the ✎ change pill) — only where a change-intent send is
+   *  actually legal (a parked ①—④ gate, kind≠promote; a fixable done build). Everywhere else the
+   *  composer keeps its single send button. */
+  canChange?: boolean;
+  /** spec 092: a gate action ("Edit spec", "Request a fix") armed a PRESENTATION hint — highlight the
+   *  change pill for the next message. Never changes what Enter does (Enter stays the cheap 'ask'). */
+  changeArmed?: boolean;
+  /** spec 092: glyph for the send button. Default is the ↵ return-arrow — the button IS the Enter key,
+   *  which is exactly what it should teach. 'edit' only where every send is a revision (promote), so
+   *  that box doesn't dress a change request up as a plain send. */
+  sendGlyph?: 'enter' | 'edit';
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -719,7 +742,13 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
     // Enter confirms the candidate — it must NOT submit. `isComposing` is the standard
     // signal; keyCode 229 covers Safari/older IMEs that don't set it (spec: JP input).
     if (e.isComposing || (e as unknown as { keyCode: number }).keyCode === 229) return;
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (ready) onSend(); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!ready) return;
+      // spec 092: ⌘Enter (mac) / Ctrl+Enter = the change-intent send, only where the change pill exists.
+      // Plain Enter is ALWAYS the cheap ask — a wrong Enter costs one answer, never a phase re-run.
+      onSend(canChange && (e.metaKey || e.ctrlKey) ? 'change' : 'ask');
+    }
   };
 
   // spec 012/025: the attach affordance is active only when the parent wired a handler and input is enabled.
@@ -818,8 +847,24 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
             </button>
           </>
         )}
-        <button className={'composer-send' + (ready ? ' ready' : '')} onClick={() => { if (ready) onSend(); }} disabled={!ready}>
-          <I.arrowUp />
+        {/* spec 092: the change pill — the deliberate, labeled door to the expensive send (re-runs the
+            phase / reopens a done build). Sits LEFT of the ask button so the rightmost position — the
+            old single-send spot, where muscle memory clicks — stays the cheap default. */}
+        {canChange && (
+          <button className={'composer-change' + (ready ? ' ready' : '') + (changeArmed ? ' armed' : '')}
+            type="button" onClick={() => { if (ready) onSend('change'); }} disabled={!ready}
+            title={tr('sendChangeTip')}>
+            <I.edit /><span className="cc-label">{tr('modeChange')}</span>
+          </button>
+        )}
+        {/* Labeled like its sibling pill so the pair reads as two SENDS, not toggle+send. Next to the
+            change pill the label says WHAT it sends (質問を送信) — a bare 送信 there would re-create the
+            old trap: click 変更を依頼 expecting a mode, type, press "送信", message leaves as a question. */}
+        <button className={'composer-send' + (ready ? ' ready' : '')}
+          onClick={() => { if (ready) onSend('ask'); }} disabled={!ready}
+          title={canChange ? tr('sendAskTip') : undefined}>
+          {sendGlyph === 'edit' ? <I.edit /> : <I.enter />}
+          <span className="cs-label">{canChange ? tr('sendAskBtn') : tr('sendBtn')}</span>
         </button>
       </div>
     </div>
