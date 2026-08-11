@@ -1,9 +1,12 @@
 # Spec 095 — Node `trigger-webhook` thiếu `variables`: workflow import xong KHÔNG publish được
 
-**Status**: DRAFT (2026-08-11) — **chặn ở S0**. Không một dòng code nào được sửa trước khi S0 xác nhận
-trên Dify thật của user. Nguồn: điều tra tách ra từ spec 094 S3 (repro checklist sau import) — S3 rơi
-vào ca 2 của bảng quyết định (§3.3 của 094: *"A1 là lỗi thật → huỷ phần note, mở spec sửa cách khai
-trigger-webhook trong template"*), nên nó đẻ ra spec này và **không** sinh note nào.
+**Status**: **S0 ĐÃ XÁC NHẬN (2026-08-11)** — chẩn đoán đúng, S1→S4 được mở khoá. Xem §11.
+Nguồn: điều tra tách ra từ spec 094 S3 (repro checklist sau import) — S3 rơi vào ca 2 của bảng quyết
+định (§3.3 của 094: *"A1 là lỗi thật → huỷ phần note, mở spec sửa cách khai trigger-webhook trong
+template"*), nên nó đẻ ra spec này và **không** sinh note nào.
+
+**Kết quả S0 một dòng**: thêm `variables` → mục **"Biến không hợp lệ" biến mất**. A0 còn lại đúng như
+dự đoán. Và lộ ra một lớp thứ ba chưa ai biết: **tool node cần xác thực cũng chặn publish** (§11.2).
 
 **Ba mức bằng chứng, đừng trộn** — spec này cố tình đánh dấu từng khẳng định:
 
@@ -306,4 +309,61 @@ bừa trong spec này. Đây có khả năng là slice giá trị nhất, vì n�
 | Mục trigger ở Quick Settings chỉ hiện **sau khi publish** (đính chính 2 note hiện có) | `docs/state/readiness-and-plugins.md` + wording tại `report.ts` |
 | "field-proven" của spec 071 nghĩa là import nhận, KHÔNG phải publish được | `AGENTS.md §9` (bài học) + provenance của chính pattern |
 | Kết quả probe S4 (danh sách field editor-only còn thiếu) | `docs/state/readiness-and-plugins.md`; mỗi field → spec riêng |
+| **Lớp thứ 6 của preflight: tool node cần xác thực chặn publish** (§11.2) | `docs/state/readiness-and-plugins.md` + `runnability.ts` |
 | Repro + ảnh checklist | spec này; sau close tóm vào `docs/prompts/runs/CAMPAIGNS.md` |
+
+## 11. Kết quả S0 — 2026-08-11
+
+**Phiên bản**: user báo *"có vẻ là 1.15"* — **[CHƯA]** chốt bằng số chính xác. Mọi kết luận dưới đây gắn
+với bản đó; `vendor/dify-src` vẫn là 1.13.0-42, nên §2/§3 đọc từ 1.13 **được thực nghiệm 1.15 xác nhận**
+ở phần webhook (dưới), nhưng không tự động đúng cho phần khác.
+
+### 11.1 Chẩn đoán §2.2 ĐÚNG — `variables` là fix
+
+Import `2-thu-nghiem-them-variables.yml` (file của run nguồn + `variables` theo §6):
+
+| | trước (control) | sau khi thêm `variables` |
+|---|---|---|
+| A0 `trigger-webhook` — *Cần có URL Webhook* | có | **vẫn có** (đúng dự đoán §2.1) |
+| A1 `code` — *Biến không hợp lệ* | có | **BIẾN MẤT** ✅ |
+
+⇒ Chuỗi `use-checklist → toNodeOutputVars → formatItem → data.variables` (§2.2) được xác nhận **trên
+Dify thật**, không chỉ trên mã nguồn 1.13. Shape ở §6 (`label` = nhãn nguồn) là shape Dify chấp nhận.
+⇒ **S1 → S4 mở khoá.** Rơi đúng vào ca 1 của bảng S0.
+
+### 11.2 Phát hiện mới, KHÔNG do bản vá gây ra — lớp thứ ba
+
+Checklist sau bản vá là **(3) mục**: A0 + hai mục mới:
+
+| node | thông báo |
+|---|---|
+| `A9a: Tavily search (30d)` (`tool`) | **Yêu cầu xác thực** |
+| `B6a: Tavily search (7d)` (`tool`) | **Yêu cầu xác thực** |
+
+**[ĐỌC]** `errorMsg.authRequired`, phát ra từ `nodes/tool/default.ts:26-30`:
+
+```ts
+checkValid(payload, t, moreDataForCheckValid) {
+  const { toolInputsSchema, toolSettingSchema, language, notAuthed } = moreDataForCheckValid
+  if (notAuthed) errorMessages = t(`${i18nPrefix}.authRequired`)
+```
+
+`notAuthed` là **trạng thái workspace lúc chạy** (plugin đã cấu hình credential chưa), **không phải
+field trong DSL**. Bản vá chỉ chạm node A0 nên không thể gây ra nó. Vì sao hai mục này không có trong
+lần import control — **[CHƯA]** biết; giả thuyết khả dĩ nhất là trạng thái auth của plugin nạp
+**bất đồng bộ**, nên ảnh chụp ngay sau import chưa kịp thấy. Không quan trọng cho kết luận.
+
+**Vì sao đây là phát hiện đáng giá**: nó cũng **chặn publish**, và preflight của ta **không hề biết**.
+`runnability.ts` hiện có đúng **5 lớp** blocker — `model_empty`, `sandbox_trap`, `plugin_todo`,
+`dataset_empty`, `env_secret_empty` — **không lớp nào** là "tool node cần xác thực". `plugin_todo` nói
+về hash TODO chưa resolve, chuyện khác hẳn. Nên user nhận một build "4 linter xanh, preflight bảo chỉ
+cần dán mấy env var", rồi vẫn không publish được.
+
+⇒ **S5** (mới): thêm lớp thứ 6 vào `runnability.ts` — mọi node `type: tool` có `provider_type: builtin`
+đều cần credential trong Dify trước khi publish; nêu **tên tool người dùng nhìn thấy** (`tool_label`,
+ví dụ "Tavily Search"), không nêu `provider_id`. Kèm `NOTE_JA`. Giữ trong 095 vì cùng triệu chứng
+(*import xong không publish được*) và cùng một lần đo; nếu phình ra thì tách spec riêng.
+
+**[CHƯA]** Sau khi xác thực Tavily xong, checklist có sạch hẳn không — hay lộ tiếp lỗi khác trên chính
+hai node đó. Lưu ý cơ chế: `checkValid` trả **một** thông báo mỗi node (điều kiện đầu tiên sai thắng),
+nên sửa xong một lỗi có thể lộ ra lỗi kế trên cùng node. Đó là việc của S5 khi chạy.
