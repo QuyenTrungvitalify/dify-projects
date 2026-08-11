@@ -161,6 +161,27 @@ def analyze_file(path):
         classes.add("env_secret_empty")
         out["runnable_blockers"].append(f"environment variable(s) declared empty but used: {empty_env}")
     out["env_vars_empty_used"] = empty_env
+    # spec 095 S5 — the SIXTH class, mirrored from apps/builder/server/lib/runnability.ts
+    # (RUNNABILITY_PROBE + classifyRunnability). The AC-2 parity test compares
+    # `runnable_blocker_classes` between the two implementations and HARD-FAILS on drift, so this
+    # block and the TS one must stay semantically identical.
+    #
+    # A MARKETPLACE tool node needs a workspace connection before Dify will PUBLISH the workflow
+    # (the editor's own checkValid → `notAuthed`). Keyed on a slashed provider_id (org/plugin/provider),
+    # which is what a marketplace plugin looks like; a Dify-native builtin has no slashes and needs no
+    # connecting. Deduped per provider — two nodes using the same tool are ONE thing to connect.
+    tool_providers = []
+    for n in nodes_of(doc):
+        d = n.get("data") or {}
+        if d.get("type") != "tool":
+            continue
+        pid = str(d.get("provider_id") or d.get("provider_name") or "")
+        if "/" in pid and pid not in tool_providers:
+            tool_providers.append(pid)
+    if tool_providers:
+        classes.add("tool_auth")
+        out["runnable_blockers"].append(f"tool provider(s) need a workspace connection: {tool_providers}")
+    out["tool_providers_needing_auth"] = tool_providers
     out["runnable_blocker_classes"] = sorted(classes)
     return out
 

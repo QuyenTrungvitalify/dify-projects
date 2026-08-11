@@ -40,6 +40,11 @@ describe('localizeNotes (spec 066 — every ADDED string ships its frame)', () =
       '"[probe] 123" という一時コピーが Dify に残っています'],
     ['S4 probe rejected', 'Dify rejected this workflow file — HTTP 400', 'Dify がこのワークフローファイルを受け付けませんでした'],
     ['S4 probe catch-branch', 'Could not check the import automatically (timeout)', '取り込みの自動チェックができませんでした（'],
+    // spec 095 S5 — the sixth blocker detail. The tool LABEL stays literal on purpose: it is the
+    // string the user has to find on their own canvas, so a translated one would point at nothing.
+    ['095 S5 tool_auth',
+      'a connection for Tavily Search — open that step in Dify and connect it (most tools need an API key or a sign-in). Dify will not let you publish while it says authorization is required',
+      'Tavily Search の接続 — Dify で該当ステップを開いて接続してください'],
   ];
 
   it('ja: each added string translates — no English payload survives', () => {

@@ -11,6 +11,25 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**Webhook workflows can be published again, and tools you must connect are named (spec 095)**
+- A workflow built around a webhook trigger could be imported into Dify and then **not published**:
+  Dify's pre-publish checklist flagged every step reading from the webhook with "invalid variable",
+  and the Publish button stayed blocked. Cause: the webhook step must also declare its output fields
+  in a `variables` list — Dify's editor builds the variable list from that and never from the body
+  fields — and neither the pattern we build from nor the generated workflows carried it. Import
+  succeeded and all four linters passed the whole time, so nothing warned you. Fixed in the pattern
+  and in the build instructions. Confirmed on Dify 1.15.
+- Two notes were also misleading: the checklist item on the webhook step itself ("webhook URL
+  required") is EXPECTED after an import — Dify creates that URL when you first open the step — and
+  the trigger only appears under Quick Settings after the workflow is published, not before.
+- The pre-run checklist gained a sixth item: **tools you have to connect**. A workflow using a
+  marketplace tool (Tavily, Slack, Google Sheets, …) cannot be published until that tool is connected
+  in your workspace, and until now the checklist listed only models, secrets, datasets and code
+  problems — so you could read "just paste these values" and still be unable to publish. Named once
+  per tool, by the label shown on the canvas.
+- Existing builds made before this fix still carry the gap; rebuilding them picks up the corrected
+  pattern.
+
 **A fix round that changed nothing now says so (spec 094 S1)**
 - When a "Request changes" round ends without altering the workflow file, the ③ gate says so: a
   **No file change** badge and a line leading the summary, with the model's own explanation underneath.

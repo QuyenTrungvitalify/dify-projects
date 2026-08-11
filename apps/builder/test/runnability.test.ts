@@ -257,6 +257,24 @@ describe('AC 2 — Python↔TS parity over shared fixtures', () => {
     // 1c: parameter-extractor + question-classifier flag too — an llm-only port fails here.
     const mt = classesOf('model_types.yml');
     assert.deepEqual(mt, ['model_empty']);
+    // spec 095 S5: the sixth class, and its ONE discriminator. A slashed provider_id is a marketplace
+    // plugin the user must connect; a bare one is a Dify-native tool with nothing to connect. Drop the
+    // slash test and the class degrades into "every tool node is a blocker" — a false alarm on every
+    // build that uses a native tool, which is how a note stops being read.
+    assert.deepEqual(classesOf('tool_auth.yml'), ['tool_auth']);
+  });
+
+  test('tool_auth is deduped per PROVIDER, and names the label the user sees (spec 095 S5)', (t) => {
+    if (!python) return t.skip('no python+pyyaml');
+    const abs = join(FIXTURES, 'tool_auth.yml');
+    const probeOut = execFileSync(python!, ['-c', RUNNABILITY_PROBE, abs], { encoding: 'utf8' });
+    const p = classifyRunnability(JSON.parse(probeOut) as RunnabilityFacts, readFileSync(abs, 'utf8'));
+    const auth = p.blockers.filter((b) => b.class === 'tool_auth');
+    // Two Tavily nodes are ONE thing to go connect — per-node would print the same sentence twice.
+    assert.equal(auth.length, 1, 'one line per provider, not per node');
+    assert.equal(auth[0].toolLabel, 'Tavily Search');
+    assert.match(auth[0].detail, /Tavily Search/, 'the human text names the on-canvas label');
+    assert.doesNotMatch(auth[0].detail, /provider_id|langgenius\//, 'no machine identifier in the human text');
   });
 });
 

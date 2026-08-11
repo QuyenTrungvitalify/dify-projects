@@ -21,11 +21,23 @@ import { readFile } from 'node:fs/promises';
 import { runPython } from './shell.js';
 
 export interface RunnabilityBlocker {
-  class: 'model_empty' | 'sandbox_trap' | 'plugin_todo' | 'dataset_empty' | 'env_secret_empty';
+  class:
+    | 'model_empty'
+    | 'sandbox_trap'
+    | 'plugin_todo'
+    | 'dataset_empty'
+    | 'env_secret_empty'
+    /** spec 095 S5 — the SIXTH class: a marketplace `tool` node whose provider needs to be connected
+     *  in the workspace before Dify will publish. Not a runtime-only problem like the other five: the
+     *  editor's own `checkValid` (`nodes/tool/default.ts`, `notAuthed`) BLOCKS the publish button. */
+    | 'tool_auth';
   nodeId?: string;
   nodeType?: string;
   /** spec 066 S2: the env var's NAME for `env_secret_empty` (dev-readable; the human `detail` says it too). */
   varName?: string;
+  /** spec 095 S5: the tool's USER-VISIBLE label for `tool_auth` (e.g. "Tavily Search") — the string on
+   *  the canvas. The `provider_id` stays out of the human text (the §2.4 affordance rule). */
+  toolLabel?: string;
   detail: string;
 }
 
@@ -84,6 +96,9 @@ export interface RunnabilityFacts {
    *  to start. OPTIONAL (an older probe/shim emits none → treat absent as []). This is the one
    *  external-input seam declared in the YAML that no other class surfaces (env/tool already are). */
   webhook_inputs?: { name: string; type: string; required: boolean }[];
+  /** spec 095 S5 — marketplace `tool` nodes (the ones needing a workspace connection). OPTIONAL
+   *  (pre-095 probe/shim emits none → absent means []). */
+  tool_nodes?: { id: string; provider_id: string; tool_label: string }[];
 }
 
 // Inline python: extract runnability FACTS from the workflow (marker string `runnability_facts`
@@ -109,7 +124,7 @@ IMPORT_RE = re.compile(r'^\\s*(?:from|import)\\s+([a-zA-Z0-9_]+)', re.M)
 MODEL_TYPES = {'llm', 'parameter-extractor', 'question-classifier'}
 wf = doc.get('workflow') or {}
 nodes = ((wf.get('graph') or {}).get('nodes')) or []
-out = {'kind': 'runnability_facts', 'model_nodes': [], 'code_nodes': [], 'kr_nodes': [], 'env_vars': [], 'webhook_inputs': []}
+out = {'kind': 'runnability_facts', 'model_nodes': [], 'code_nodes': [], 'kr_nodes': [], 'env_vars': [], 'webhook_inputs': [], 'tool_nodes': []}
 # spec 066 S2: an env var declared with an EMPTY value that a node actually consumes is a human setup
 # step (a Slack webhook URL, an API key) that no other class sees.
 # REFERENCED-ONLY by design: a workflow may legitimately declare an env var it does not use yet, and
@@ -155,6 +170,15 @@ for n in nodes:
                 out['webhook_inputs'].append({'name': str(b.get('name')),
                                               'type': str(b.get('type') or ''),
                                               'required': bool(b.get('required'))})
+    # spec 095 S5 — a MARKETPLACE tool node. Dify's editor blocks publish on \`notAuthed\` (a workspace
+    # credential state, NOT a DSL field), so the YAML can only tell us WHICH tools the user will have
+    # to connect. Keyed on a slashed \`provider_id\` (org/plugin/provider) — that is what a marketplace
+    # plugin looks like; a Dify-native builtin has no slashes and needs no connecting.
+    if t == 'tool':
+        pid = str(d.get('provider_id') or d.get('provider_name') or '')
+        if '/' in pid:
+            out['tool_nodes'].append({'id': nid, 'provider_id': pid,
+                                      'tool_label': str(d.get('tool_label') or d.get('tool_name') or '')})
 for ev in (wf.get('environment_variables') or []):
     if not isinstance(ev, dict): continue
     # Dify declares env vars with \`name:\` (spec 057 gotcha: \`variable:\` breaks the import).
@@ -234,6 +258,31 @@ export function classifyRunnability(
         detail: `a value for ${e.name} — you'll paste this into Dify (the workflow can't run without it)`,
       });
     }
+  }
+  // spec 095 S5 — the sixth class. Dify's pre-publish checklist flags a `tool` node whose provider has
+  // no workspace credentials ("authorization required", `nodes/tool/default.ts` → `notAuthed`) and
+  // BLOCKS the publish button. Measured on a real build: four green linters, a preflight that listed
+  // only env vars, and the workflow still could not be published because two Tavily nodes were
+  // unconnected — the user had no way to know that from anything we said.
+  //
+  // `notAuthed` is workspace state, NOT a DSL field, so this stays deliberately CONDITIONAL: the YAML
+  // can name WHICH tools need connecting but can never know whether this workspace already has them.
+  // Wording therefore describes what to do and what Dify will say — it never asserts "this is missing"
+  // (a false alarm on an already-connected workspace would train the user to ignore the note, which is
+  // exactly how the model_empty promise went wrong in 066).
+  // One line per distinct tool, not per node: two Tavily nodes are ONE thing to connect.
+  const seenTools = new Set<string>();
+  for (const tn of facts.tool_nodes ?? []) {
+    if (seenTools.has(tn.provider_id)) continue;
+    seenTools.add(tn.provider_id);
+    const label = tn.tool_label || tn.provider_id.split('/').pop() || 'a tool';
+    blockers.push({
+      class: 'tool_auth',
+      nodeId: tn.id,
+      nodeType: 'tool',
+      toolLabel: label,
+      detail: `a connection for ${label} — open that step in Dify and connect it (most tools need an API key or a sign-in). Dify will not let you publish while it says authorization is required`,
+    });
   }
   // spec 072 S1 — carry the external-input contract (webhook body) so the ④ report can tell the client
   // what their SOURCE must send. Not a blocker: the build runs; the SOURCE side is the client's to wire.

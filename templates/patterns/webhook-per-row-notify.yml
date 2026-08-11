@@ -8,6 +8,14 @@
 # Distilled from a field-proven build (spec 071 — trigger-webhook, 4 linters clean, Dify accepted the
 # DSL on real import 2026-07-17). Customize every `# TODO:` marker before use.
 #
+# PROVENANCE CORRECTION (spec 095, 2026-08-11): "Dify accepted the DSL on real import" was true and
+# MISLEADING — import success is not publish success. From 2026-07-17 until spec 095 this pattern
+# shipped WITHOUT the webhook node's `variables`, so every build distilled from it imported cleanly,
+# passed all four linters, and then could NOT be published: Dify's pre-publish checklist flagged every
+# downstream node with 「invalid variable」. Cost: a 5-round, ~2-hour fix loop on one real build before
+# anyone looked at the editor's own validation code. Read "field-proven" here as *imports and runs*,
+# never as *publishes* — only a published-on-a-real-instance claim covers that.
+#
 # Flow:
 #   trigger-webhook (POST: rows_json + id_map_json + today)
 #     → Code: defensive parse → filter target rows → resolve destination per row → array[object]
@@ -21,7 +29,15 @@
 #   2. A custom auth header (X-ChatWorkToken, X-Api-Key, …) needs `authorization: {type: no-auth}` and
 #      the token in `headers:` via an env-var secret. An `api-key` auth type REWRITES the header away.
 #   3. A schedule/webhook trigger only fires after you ENABLE it in Dify Studio → Quick Settings.
-#      Importing the workflow is not enough. (And there is no enable-via-API yet.)
+#      Importing the workflow is not enough. (And there is no enable-via-API yet.) NOTE: that panel
+#      shows the trigger only AFTER the workflow is published — before that it reads 「Chưa thêm trình
+#      kích hoạt / no trigger added」 even though the trigger IS in the draft.
+#   6. The webhook node MUST carry `variables` (see the node below). Without it the node exposes no
+#      outputs, every downstream reference is 「invalid variable」, and Dify BLOCKS publish — with a
+#      clean import and four green linters. Spec 095; confirmed on Dify 1.15.
+#   7. After import the checklist also flags the webhook node itself with 「Cần có URL Webhook /
+#      webhook URL required」. That one is EXPECTED and not a file problem: the URL belongs to the
+#      instance, and Dify generates it the moment you open that node's panel once.
 #   4. `today` is passed IN by the caller (GAS), not computed with a naive now() — a date compared
 #      inside the sandbox drifts with the sandbox timezone. If you must default it, use JST explicitly.
 #   5. Iteration uses `error_handle_mode: continue-on-error` so one row's HTTP failure does not abort
@@ -134,6 +150,21 @@ workflow:
         - name: today
           type: string
           required: true
+        # REQUIRED — spec 095. `variables` is what makes this node's outputs VISIBLE to every
+        # downstream node. Dify's editor builds the variable list for a webhook node from
+        # `data.variables` ONLY (web/.../variable/utils.ts, `case BlockEnum.TriggerWebhook`); it never
+        # reads `body`. Omit it and the node exposes ZERO outputs, so every `{{#<this node>.field#}}`
+        # below is flagged 「Biến không hợp lệ / invalid variable」 and Dify BLOCKS publishing — while
+        # import, all four linters and the generated schema stay green (the field is editor-only state,
+        # absent from the backend pydantic model the schema is generated from). Confirmed on Dify 1.15.
+        # Keep ONE entry per body/params/headers item, and mirror `type` here:
+        #   `label` is the SOURCE TAG ('body' | 'param' | 'header'), NOT a display name — Dify filters
+        #   on it (`v.label === 'body'`); `variable` is the param name (headers: '-' becomes '_').
+        variables:
+        - {variable: _webhook_raw, label: raw, value_type: object, value_selector: [], required: true}
+        - {variable: rows_json, label: body, value_type: string, value_selector: [], required: true}
+        - {variable: id_map_json, label: body, value_type: string, value_selector: [], required: true}
+        - {variable: today, label: body, value_type: string, value_selector: [], required: true}
         status_code: 200
         response_body: ''
       position: { x: 0, y: 100 }

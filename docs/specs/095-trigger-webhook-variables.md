@@ -1,6 +1,7 @@
 # Spec 095 — Node `trigger-webhook` thiếu `variables`: workflow import xong KHÔNG publish được
 
-**Status**: **S0 ĐÃ XÁC NHẬN (2026-08-11)** — chẩn đoán đúng, S1→S4 được mở khoá. Xem §11.
+**Status**: **S0 xác nhận · S1 + S2 + S5 ĐÃ SHIP (2026-08-12)** · còn S3, S4. Xem §11 (kết quả S0) và
+§12 (nhật ký thi công). Phiên bản Dify: **1.15 — user xác nhận 2026-08-12**.
 Nguồn: điều tra tách ra từ spec 094 S3 (repro checklist sau import) — S3 rơi vào ca 2 của bảng quyết
 định (§3.3 của 094: *"A1 là lỗi thật → huỷ phần note, mở spec sửa cách khai trigger-webhook trong
 template"*), nên nó đẻ ra spec này và **không** sinh note nào.
@@ -314,9 +315,9 @@ bừa trong spec này. Đây có khả năng là slice giá trị nhất, vì n�
 
 ## 11. Kết quả S0 — 2026-08-11
 
-**Phiên bản**: user báo *"có vẻ là 1.15"* — **[CHƯA]** chốt bằng số chính xác. Mọi kết luận dưới đây gắn
-với bản đó; `vendor/dify-src` vẫn là 1.13.0-42, nên §2/§3 đọc từ 1.13 **được thực nghiệm 1.15 xác nhận**
-ở phần webhook (dưới), nhưng không tự động đúng cho phần khác.
+**Phiên bản**: **1.15 — user xác nhận 2026-08-12** (§5.1 đóng lại). `vendor/dify-src` vẫn là
+1.13.0-42, nên §2/§3 đọc từ 1.13 **đã được thực nghiệm 1.15 xác nhận** ở phần webhook (dưới), nhưng
+không tự động đúng cho phần khác — S4 vẫn phải nâng vendor trước (OQ2).
 
 ### 11.1 Chẩn đoán §2.2 ĐÚNG — `variables` là fix
 
@@ -367,3 +368,70 @@ ví dụ "Tavily Search"), không nêu `provider_id`. Kèm `NOTE_JA`. Giữ tron
 **[CHƯA]** Sau khi xác thực Tavily xong, checklist có sạch hẳn không — hay lộ tiếp lỗi khác trên chính
 hai node đó. Lưu ý cơ chế: `checkValid` trả **một** thông báo mỗi node (điều kiện đầu tiên sai thắng),
 nên sửa xong một lỗi có thể lộ ra lỗi kế trên cùng node. Đó là việc của S5 khi chạy.
+
+## 12. Nhật ký thi công S1 + S2 + S5 — 2026-08-12
+
+### S1 — pattern curated
+
+`templates/patterns/webhook-per-row-notify.yml`: thêm `variables` (4 entry: `_webhook_raw` + 3 body
+param) kèm comment giải thích *vì sao* ngay tại node; thêm GOTCHA #6 (`variables` bắt buộc) và #7
+(A0 đỏ là expected, tự hết khi mở panel); mở rộng GOTCHA #3 (mục trigger ở Quick Settings chỉ hiện
+sau khi publish). **Sửa provenance**: khối "PROVENANCE CORRECTION" nói thẳng *"field-proven" nghĩa là
+import và chạy được, KHÔNG phải publish được* — kèm giá phải trả (5 vòng, ~2 giờ).
+
+Cả 4 linter vẫn exit 0 sau khi sửa — **đó chính là bằng chứng cho §3**: `lint_node_bodies.py` xanh cả
+trước lẫn sau, nên nó không thể là cửa chặn cho lớp lỗi này (đó là việc của S3).
+
+### S2 — chỗ sinh YAML
+
+`implement.md`, bullet mới ngay trước "Code nodes", có: luật, lý do (editor đọc `variables` chứ không
+đọc `body`), hậu quả (Dify **từ chối publish**), cảnh báo *"không cửa nào phía sau bắt được"*, block
+YAML mẫu, hai bẫy (`label` = nhãn nguồn; header `-`→`_`), và một câu chặn lan: `trigger-schedule`
+KHÔNG có field này, đừng thêm.
+
+### S5 — lớp blocker thứ 6 `tool_auth`
+
+- `RUNNABILITY_PROBE` thu thêm `tool_nodes` — chỉ node `type: tool` có `provider_id` **chứa dấu `/`**
+  (= plugin marketplace phải kết nối). Tool native của Dify (`time`, …) không có `/` ⇒ không bắt.
+  Nếu bỏ điều kiện này, lớp mới thoái hoá thành "mọi tool node đều là blocker" — một cảnh báo giả trên
+  mọi build dùng tool native, và đó là cách một note bị người dùng bỏ qua vĩnh viễn.
+- `classifyRunnability` phát **một dòng mỗi PROVIDER**, không phải mỗi node (2 node Tavily = 1 việc
+  phải làm), nêu `tool_label` người dùng nhìn thấy trên canvas, giấu `provider_id`.
+- **Câu chữ cố ý có điều kiện**: `notAuthed` là trạng thái workspace, không phải field DSL, nên YAML
+  chỉ biết *tool nào cần kết nối*, không biết workspace đã kết nối chưa. Note mô tả *việc phải làm và
+  điều Dify sẽ nói*, không khẳng định "cái này đang thiếu" — khẳng định sai trên workspace đã kết nối
+  chính là kiểu hứa hão mà spec 066 đã phải đi sửa.
+- **Mirror sang `report_structure.py`**: bắt buộc, vì test parity AC-2 so `runnable_blocker_classes`
+  giữa hai bản cài đặt và **hard-fail** khi lệch. Sửa một phía là suite đỏ ngay.
+- i18n: entry `NOTE_JA` mới (giữ nguyên `tool_label` không dịch — nó là chuỗi user phải tìm trên màn
+  hình của họ, dịch đi là trỏ vào thứ không tồn tại) + một dòng trong bảng `ADDED` của
+  `notes-i18n.test.ts`.
+
+**Test**: fixture parity mới `tool_auth.yml` (2 node Tavily cùng provider + 1 tool native để ghim đúng
+điều kiện `/`), một assert trong test "fixture coverage", và một test riêng cho dedup-theo-provider +
+"human text không được chứa machine identifier". Fixture tự động vào vòng lặp parity (test đọc cả thư
+mục), nên TS↔Python được so trên chính lớp mới — không phải xanh giả.
+
+**Kiểm trên build thật** (`projects/_drafts/build_requirement_news_automation/workflows/main.yml`):
+
+```
+classes: env_secret_empty, model_empty, tool_auth
+NOTE: … ; a connection for Tavily Search — open that step in Dify and connect it
+      (most tools need an API key or a sign-in). Dify will not let you publish while
+      it says authorization is required. (The build itself is finished — …)
+```
+
+Đúng bước đang âm thầm chặn publish, và gộp 1 dòng cho 2 node Tavily.
+
+**Suite**: server **937/937**, web **301/301**, typecheck cả hai nửa sạch, `web/dist` đã rebuild.
+
+### Chưa làm — và vì sao
+
+- **S3 (cửa chặn offline)**: chưa. Đây là slice giữ cho lỗi không quay lại; S1/S2 chỉ sửa hiện tại và
+  dạy tương lai, không có gì **chặn** một file thiếu `variables` lọt qua lần nữa.
+- **S4 (probe lớp editor-only)**: chưa, và **không nên làm trước khi nâng `vendor/dify-src` lên 1.15**
+  (OQ2) — đối chiếu trên 1.13 sẽ cho danh sách lệch.
+- **5 build đang hỏng trong `projects/_drafts/`**: giữ nguyên Non-goal §8 — không sửa như một
+  deliverable. Có script vá một lần (`--check` / `--write`, idempotent, đã dry-run đúng trên cả 5
+  file); quyết định là của user. Lưu ý script ghi qua PyYAML nên **mất comment** — chỉ dùng cho
+  `projects/*/workflows/main.yml` sinh tự động, tuyệt đối không trỏ vào template curated.

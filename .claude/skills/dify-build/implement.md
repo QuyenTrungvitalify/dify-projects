@@ -182,6 +182,23 @@ and you explain what you changed (or why nothing needed changing), explain it th
      a missing key is not). NEVER `variable:` there — that is the start-node input shape, and the
      Dify import fails with "missing name" (field incident 2026-07-08; validate_workflow.py now
      rejects it).
+   - **`trigger-webhook` nodes MUST carry `variables` (spec 095 — no linter can catch this).**
+     Declaring the fields under `body:` is NOT enough. Dify's editor builds the node's OUTPUT variable
+     list from `data.variables` only — it never reads `body` — so a node without `variables` exposes
+     **zero** outputs, every downstream `{{#<webhook node>.field#}}` is flagged "invalid variable", and
+     **Dify refuses to publish the workflow**. Import still succeeds, all four linters still pass, and
+     the generated schema does not even list the field (it is editor-only state, absent from the
+     backend model the schema comes from) — so nothing downstream of you will catch the omission.
+     Write ONE entry per `body` / `params` / `headers` item, plus the built-in raw object:
+     ```yaml
+     variables:
+     - {variable: _webhook_raw, label: raw, value_type: object, value_selector: [], required: true}
+     - {variable: <body field>, label: body, value_type: <same type as in body>, value_selector: [], required: <same>}
+     ```
+     `label` is the SOURCE TAG — `body` / `param` / `header` — **not** a display name (Dify filters on
+     it). `variable` is the field name; for a header, `-` becomes `_`. Copy the working shape from
+     `templates/patterns/webhook-per-row-notify.yml`. (`trigger-schedule` has no such field — do not
+     add one there.)
    - **Code nodes:** `code_language: python3`, `def main(...) -> dict`, stdlib-only, guard
      `None`/`""` from upstream (§4.5).
    - **if-else nodes:** emit BOTH legacy `conditions` AND modern `cases` (§9, validator quirk) —

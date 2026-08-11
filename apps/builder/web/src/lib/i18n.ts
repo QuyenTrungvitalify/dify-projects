@@ -1163,6 +1163,13 @@ const NOTE_JA: [RegExp, string][] = [
     /a value for ([A-Za-z0-9_]+) — you'll paste this into Dify \(the workflow can't run without it\)/g,
     '$1 の値 — Dify に貼り付けてください（これがないとワークフローは実行できません）',
   ],
+  // spec 095 S5 — the sixth blocker detail. `$1` = the tool's on-canvas label (e.g. "Tavily Search"),
+  // kept literal: it is the string the user must find on their own screen, so translating it would
+  // point at something that is not there (the affordance rule).
+  [
+    /a connection for (.+?) — open that step in Dify and connect it \(most tools need an API key or a sign-in\)\. Dify will not let you publish while it says authorization is required/g,
+    '$1 の接続 — Dify で該当ステップを開いて接続してください（多くのツールは API キーかサインインが必要です）。「認証が必要」と表示されている間は公開できません',
+  ],
   // spec 066 S4: the ④ import-probe verdicts. Previously had NO frame at all, so a JA user read
   // "import-probe: OK — Dify accepted this DSL (probe app deleted)" in raw English.
   [

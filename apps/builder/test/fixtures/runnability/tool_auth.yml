@@ -1,0 +1,54 @@
+# Parity fixture: spec 095 S5 — the SIXTH class, `tool_auth`.
+#
+# Two marketplace tool nodes sharing ONE provider (the real shape that produced this class: a build
+# with `A9a: Tavily search (30d)` and `B6a: Tavily search (7d)`) plus a Dify-native builtin. The
+# fixture pins BOTH halves of the predicate:
+#   - a slashed provider_id (org/plugin/provider) = a marketplace plugin the user must connect → flagged
+#     ONCE, not once per node (two nodes, one thing to go connect);
+#   - a bare provider_id (a Dify-native tool, nothing to connect) → NOT flagged, so the class cannot
+#     become a blanket "every tool node is a blocker" false alarm.
+# Everything else here is deliberately clean so `tool_auth` is the ONLY class this file yields.
+dependencies:
+  - type: marketplace
+    value:
+      marketplace_plugin_unique_identifier: langgenius/tavily:0.1.11@391b4eb300000000000000000000000000000000000000000000000000000000
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000101'
+        data:
+          type: llm
+          title: Filled
+          model: { provider: openai, name: gpt-4o-mini, mode: chat }
+      - id: '1700000000102'
+        data:
+          type: tool
+          title: 'A9a: Tavily search (30d)'
+          provider_id: langgenius/tavily/tavily
+          provider_type: builtin
+          provider_name: langgenius/tavily/tavily
+          tool_name: tavily_search
+          tool_label: Tavily Search
+          tool_parameters: {}
+          tool_configurations: {}
+      - id: '1700000000103'
+        data:
+          type: tool
+          title: 'B6a: Tavily search (7d)'
+          provider_id: langgenius/tavily/tavily
+          provider_type: builtin
+          provider_name: langgenius/tavily/tavily
+          tool_name: tavily_search
+          tool_label: Tavily Search
+          tool_parameters: {}
+          tool_configurations: {}
+      - id: '1700000000104'
+        data:
+          type: tool
+          title: Current Time
+          provider_id: time
+          provider_type: builtin
+          provider_name: time
+          tool_name: current_time
+          tool_label: Current Time
+          tool_parameters: {}

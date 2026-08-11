@@ -290,8 +290,12 @@ Repro (làm trên Dify thật, chính là môi trường user dùng):
    diễn sang một shape khác: nếu pattern sạch mà YAML của run không sạch, ta sẽ dán nhãn "expected"
    cho triệu chứng của một file khác. (`import-deploy.yml` chỉ tồn tại khi model-inject có patch —
    `import.ts:47` — nên đây là control *cơ hội*, có thì dùng; run này có.)
-1. Import một workflow có `trigger-webhook` đã biết là hợp lệ
-   (`templates/patterns/yml-tsv-webhook-url.yml` hoặc `webhook-per-row-notify.yml`) — không sửa gì.
+1. Import `templates/patterns/webhook-per-row-notify.yml` — không sửa gì.
+   **Chỉ file này**, không phải `yml-tsv-webhook-url.yml`: kiểm lại thì file kia có **0 node trigger**
+   (entry là `type: start`, dòng 319) nên không thể tái hiện triệu chứng A0 "Cần có URL Webhook" —
+   dùng nó sẽ cho ra "không mục nào biến mất" và dẫn thẳng vào kết luận sai (ca 4). Còn
+   `webhook-per-row-notify.yml` đúng hình dạng cần: `trigger-webhook`「Webhook 受信（POST）」→ node
+   `code` đọc field của nó, tức đúng cặp A0 → A1 trong ảnh của user.
 2. Mở checklist trước-publish, **chụp lại**: có mấy mục, mục nào, node nào.
 3. Bật trigger / phát hành URL theo đường Studio.
 4. Mở lại checklist, **chụp lại**.
