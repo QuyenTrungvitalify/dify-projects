@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { computeGate } from './gate.js';
 import { appUrlFrom, difyCreds, isAppGoneFailure, pushApp, reconcileAppIdByName, resolveLlmModels, deployWithModel } from './dify-io.js';
 import { clearPushIntent, readPushIntent, writePushIntent } from './recovery.js';
+import { artifactHash } from './post-turn.js';
 import { emit, resolveRunners, type OrchestratorCtx } from './orchestrator-shared.js';
 import type { Task } from '../state/task.js';
 
@@ -232,6 +233,19 @@ export async function runImportAndFinish(task: Task, ctx: OrchestratorCtx): Prom
   if (confirmedAppId) {
     task.importAppId = confirmedAppId;
     task.importAppMode = currentMode;
+  }
+  // Spec 094 S1 — stamp WHAT was imported and WHEN, so a later gate can say "this is byte-for-byte the
+  // file you already imported at HH:MM" instead of offering an identical Import that reads like a new
+  // one. Hashes the SOURCE artifact, not the injected `import-deploy.yml` copy: the copy only exists
+  // when the model-inject patched a node, and the ③ verify hashes the source too — comparing the same
+  // thing on both sides is the whole point. Gated on `appId` (the same "resolved" test that clears the
+  // push-intent marker below): an unconfirmed push must not be recorded as a known-imported state.
+  if (appId) {
+    task.importedHash = await artifactHash(
+      projectsDir,
+      `projects/${project}/${workflowSlug}/workflows/${task.workflowFile}`
+    );
+    task.importedAt = Date.now();
   }
   await writePushIntent(projectsDir, task.taskId, { project, workflowSlug, file: task.workflowFile, appName, appId });
 

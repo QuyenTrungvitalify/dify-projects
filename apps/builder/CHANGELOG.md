@@ -11,6 +11,23 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**A fix round that changed nothing now says so (spec 094 S1)**
+- When a "Request changes" round ends without altering the workflow file, the ③ gate says so: a
+  **No file change** badge and a line leading the summary, with the model's own explanation underneath.
+  Previously an empty round rendered identically to one that fixed two real bugs — on the run that
+  prompted this, two of five rounds were empty, and the user re-imported an unchanged file believing it
+  was a new fix.
+- The ④ Import gate adds one line when the file on disk is byte-for-byte what was already imported, with
+  the time of that import. The Import button is untouched and still works — re-importing is your call,
+  and since the ④-overwrite change it lands on the same app anyway.
+- The run timeline records `artifact_unchanged`, so an exported dossier shows the empty round. Until now
+  the only way to tell was opening the transcript and counting file writes by hand.
+- Measured by hashing the workflow file before and after each ③ turn. Deliberately not a git diff: a
+  from-scratch build lives in `projects/_drafts/`, which the repo gitignores, so git cannot see the file
+  at all — and on a re-run the file is already dirty from the previous turn, which hides a real edit.
+  Both traps are pinned by tests.
+- Nothing gates on this. A round that changes nothing is often the right answer; it just has to be said.
+
 **Gate questions and how the model writes to you (spec 094 S4/S5/S2a)**
 - Questions put to you at a gate are now **always** a numbered list, each item ending with the default
   the model would take, so you can answer with a digit or "go with your suggestions". This shape shipped

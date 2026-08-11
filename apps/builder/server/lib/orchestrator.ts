@@ -17,7 +17,7 @@
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { ClaudeSession } from './claude-session.js';
-import { confinementCheck, gitDirtyPaths, type PostTurnDetail } from './post-turn.js';
+import { confinementCheck, gitDirtyPaths, artifactHash, type PostTurnDetail } from './post-turn.js';
 import { type TurnResult, isTimeoutNote } from './turn-runner.js';
 import { costFromResult } from './cost.js';
 import { PHASES, renderPrompt, type PhaseDef } from './phases.js';
@@ -487,6 +487,13 @@ async function runPhase(
   // Confinement baseline for THIS turn (captured just before spawn — after any scaffold).
   const baseline = await gitDirtyPaths(projectsDir);
 
+  // Spec 094 S1 — the artifact's content hash for THIS turn, same moment as the baseline (after any
+  // scaffold, before the spawn). ③ only: ①/② produce analyze.json / SPEC.md, whose "did it change"
+  // question nobody asked. `null` here means the file does not exist yet (a first Implement), which
+  // compares correctly against the post-turn hash — that turn WILL read as changed.
+  const artifactHashBefore =
+    phaseId === 'implement' ? await artifactHash(projectsDir, phase.artifactRel(task)) : undefined;
+
   const runDir = taskDir(projectsDir, task.taskId);
   const spawnOnce = async (
     resumeSessionId: string | undefined,
@@ -591,7 +598,7 @@ async function runPhase(
     return { outcome: 'error', reasons: ['cancelled by user'] };
   }
 
-  const verify = await verifyPhase(phase, task, ctx, baseline, turn.note);
+  const verify = await verifyPhase(phase, task, ctx, baseline, turn.note, artifactHashBefore);
   // verifyPhase awaits python/git subprocesses — a /cancel can land in that window. Re-check (mirrors
   // the guard at the spawn boundary above) so the success save below can't clobber `cancelled`→`running`.
   if (isCancelled(task.taskId)) {
@@ -662,7 +669,9 @@ async function verifyPhase(
   task: Task,
   ctx: OrchestratorCtx,
   baseline: Set<string>,
-  turnNote: string | undefined
+  turnNote: string | undefined,
+  /** spec 094 S1 — the pre-spawn artifact hash (③ only; `undefined` elsewhere ⇒ not measured). */
+  artifactHashBefore?: string | null
 ): Promise<PhaseVerify> {
   const { projectsDir, log } = ctx;
   const { postTurnCheck } = resolveRunners(ctx); // 013 D2: real impl unless a test injects a fake
@@ -679,10 +688,31 @@ async function verifyPhase(
       workflowFile: task.workflowFile,
       taskId: task.taskId,
       baseline,
+      artifactHashBefore,
       log,
     });
     const reasons = [...check.reasons];
     if (turnNote) reasons.unshift(turnNote);
+
+    // Spec 094 S1 — carry the measurement onto the Task so BOTH gates can render it: ③ right here, and
+    // ④ `awaiting_import` after the ③→④ hop (the R3→R4 path, where the user re-imported a file they
+    // believed was new). A Task field, not a Gate field: `Gate.flag` is a union of mutually-exclusive
+    // gate STATES, while "this round changed nothing" is an attribute that can ride any of them — and
+    // the ④ gate is computed far from here, with no access to this verify.
+    // `undefined` (not measured) leaves both fields untouched rather than asserting anything.
+    if (check.detail.artifactChanged !== undefined) {
+      task.artifactUnchanged = !check.detail.artifactChanged;
+      task.artifactHash = await artifactHash(projectsDir, phase.artifactRel(task));
+      if (task.artifactUnchanged) {
+        await logEvent(taskDir(projectsDir, task.taskId), {
+          kind: 'artifact_unchanged',
+          phase: 'implement',
+          // The dossier's only record of an empty round: before this, the ONLY way to tell R3 from R1
+          // was opening the transcript and counting Write/Edit calls by hand.
+          detail: task.workflowFile,
+        });
+      }
+    }
 
     // Spec 037 S1 — the runnability preflight (D3/D4): recomputed on EVERY implement verify (fresh,
     // /reply revise) so a fix clears the note and a regression re-raises it; persisted to

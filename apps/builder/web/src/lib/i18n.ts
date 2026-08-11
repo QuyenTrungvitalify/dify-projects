@@ -211,6 +211,13 @@ const EN: Dict = {
   gateReadyBadge: 'Ready',
   gateReadyTitle: 'Continue',
 
+  /* spec 094 S1 — the round that changed nothing. Says WHAT happened and WHERE that leaves the user;
+     it never says the round was wrong (answering without editing is often the correct answer). The
+     model's own explanation of why is already rendered above this line. */
+  gateNoChangeBadge: 'No file change',
+  gateNoChangeSummary: 'This round did not change the workflow file — the answer above explains why. If you expected an edit, say what should differ and ask again.',
+  gateNoChangeImport: 'The file is byte-for-byte the one imported at {time}, so importing again would send Dify what it already has.',
+
   /* deploy gate — awaiting_import (spec 016 D1) */
   gateImportBadge: 'Ready to deploy',
   gateImportTitle: 'Import {file} to your self-hosted Dify',
@@ -686,6 +693,11 @@ const JA: Dict = {
   gateImplSummary1: 'ワークフロー YAML を生成、すべてのリンターが成功。',
   gateReadyBadge: '準備完了',
   gateReadyTitle: '続行',
+
+  /* spec 094 S1 */
+  gateNoChangeBadge: 'ファイル変更なし',
+  gateNoChangeSummary: 'この回はワークフローファイルを変更していません — 理由は上の回答をご覧ください。修正が入るはずだった場合は、どこが違うべきかを書いてもう一度お伝えください。',
+  gateNoChangeImport: '{time} にインポートしたファイルと1バイトも違いません。もう一度インポートしても、Dify にすでにあるものを送ることになります。',
 
   /* deploy gate — awaiting_import (spec 016 D1) */
   gateImportBadge: 'デプロイ準備完了',

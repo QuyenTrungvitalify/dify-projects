@@ -22,7 +22,11 @@ export type RunEventKind =
   | 'request_changes' // a "Request changes" /reply — detail carries the USER'S change text
   | 'error' // the phase/turn errored (detail: the reason / triage)
   | 'retry' // a Retry-out-of-error re-ran the phase (detail: the user's text, if any)
-  | 'live_test'; // a ④ live-test verdict (detail: verdict + reason)
+  | 'live_test' // a ④ live-test verdict (detail: verdict + reason)
+  | 'artifact_unchanged'; // spec 094 S1 — an ③ turn ended with the artifact's bytes IDENTICAL (detail:
+//                           the workflow file). Emitted only when measured; absent ⇒ the turn changed
+//                           the file, or the build predates 094. Two of the five fix rounds on run
+//                           1786089321835 were this, and nothing in the timeline said so.
 
 export interface RunEvent {
   ts: number;

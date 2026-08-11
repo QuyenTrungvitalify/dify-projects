@@ -339,6 +339,26 @@ export interface Task {
   // really pushed to the configured Dify (probe app deleted immediately). Set/cleared per static ④
   // run; a Task field (not a ReportOpts) so it survives the Import/Skip re-report like preflightNote.
   probeNote?: string;
+  /**
+   * Spec 094 S1 — the last ③ turn ended WITHOUT changing the artifact's bytes.
+   *
+   * Advisory, and set/cleared on every measured Implement verify (the preflightNote convention), so a
+   * later round that does change the file clears it. `undefined` = never measured (a pre-094 build, or
+   * a phase that does not measure) — render nothing, never "unchanged".
+   *
+   * Why it exists: a fix round that changes nothing is legitimate ("the fix is on your side"), but the
+   * gate rendered it IDENTICALLY to a round that fixed two bugs. On run 1786089321835 that cost two of
+   * five rounds and a re-import of a file the user believed was new.
+   */
+  artifactUnchanged?: boolean;
+  /** Spec 094 S1 — sha256 of the artifact as of the last measured ③ verify. Compared with
+   *  {@link importedHash} to tell the ④ gate whether the file on disk is the one already imported. */
+  artifactHash?: string | null;
+  /** Spec 094 S1 — sha256 of the artifact at the last SUCCESSFUL ④ import, and when it landed. Written
+   *  only by `runImportAndFinish`, beside {@link importAppId} / {@link importAppMode} (same lifecycle:
+   *  what the last import did). Absent ⇒ nothing imported yet, so nothing to compare. */
+  importedHash?: string | null;
+  importedAt?: number;
   // Spec 078 S2 advisory (dev-surface ONLY): the self-harvest promote nudge — set/cleared by every
   // ④ report when a from-scratch, lint-clean build proves a shape absent from the curated shelf.
   // Rides `toWireTask` but is rendered ONLY under devMode (DevPanel); NEVER folded into report

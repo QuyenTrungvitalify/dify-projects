@@ -22,7 +22,8 @@
  * "clean of any write OUTSIDE {…}" is relative to that baseline.
  */
 import { join } from 'node:path';
-import { stat } from 'node:fs/promises';
+import { stat, readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { runPython, runGit } from './shell.js';
 import { LINTERS, LINT_DETAIL_LINES, type LintCodes } from './linters.js';
 import type { SessionLogger } from './claude-session.js';
@@ -37,7 +38,46 @@ export interface PostTurnParams {
   taskId: string;
   /** git-porcelain dirty paths captured BEFORE the turn (see gitDirtyPaths). */
   baseline: Set<string>;
+  /**
+   * Spec 094 S1 — {@link artifactHash} of the declared artifact captured BEFORE the turn spawned,
+   * `null` when the file did not exist yet. Compared against the post-turn hash to answer the one
+   * question a fix round could not answer: *did this turn change the file at all?*
+   *
+   * OMITTED (`undefined`) ⇒ "not measured", and {@link PostTurnDetail.artifactChanged} stays
+   * `undefined` rather than guessing. The whole point of the flag is a badge telling the user a round
+   * was empty; inferring that from a missing measurement would put a false "nothing changed" in front
+   * of a round that DID change something — the one failure direction that costs more than no badge.
+   */
+  artifactHashBefore?: string | null;
   log: SessionLogger;
+}
+
+/**
+ * Spec 094 S1 — sha256 of one repo-relative file, or `null` when it does not exist / cannot be read.
+ *
+ * Content, deliberately — NOT git, and NOT `diff.json`:
+ *
+ *  - **git is blind to this file.** `projects/_drafts/` is gitignored WHOLESALE (.gitignore) and a
+ *    from-scratch build defaults there (`DRAFTS_PROJECT`), so `gitDirtyPaths` returns nothing for the
+ *    artifact and the `turnTouched` delta below can never contain it. `projects/*​/workflow_*​/` is
+ *    ignored too. Measured on run 1786089321835 (which built into `projects/_drafts/…`): a git-derived
+ *    flag reads "unchanged" for all six attempts, including the one that wrote the file.
+ *  - **even where git DOES see it**, a `/reply` turn's artifact is already dirty from the previous
+ *    turn, so it sits in `baseline` and drops out of `turnTouched` — the flag would read "unchanged"
+ *    for a round that really did fix something. The Builder never commits between turns.
+ *  - **`diff.json` answers a different question**: `snapshotDiffBase` is a deliberate no-op on `/reply`
+ *    (orchestrator), so its base is the pre-EDIT state of the FIRST turn — non-empty even on a round
+ *    that changed nothing.
+ *
+ * A hash also gets the honest answer when a turn rewrites the file byte-identically: nothing changed,
+ * which is exactly what the user is being told.
+ */
+export async function artifactHash(projectsDir: string, rel: string): Promise<string | null> {
+  try {
+    return createHash('sha256').update(await readFile(join(projectsDir, rel))).digest('hex');
+  } catch {
+    return null; // missing (pre-first-write) or unreadable — both mean "no content to compare"
+  }
 }
 
 /** Spec 039 D5 — the per-file verdict for every OTHER turn-touched `workflows/*.ya?ml` (the
@@ -68,6 +108,17 @@ export interface PostTurnDetail {
   /** spec 039 — per-file gate results for every other turn-touched `workflows/*.ya?ml`
    *  (`[]` = the turn touched only its declared file, the universal case pre-039). */
   extraFiles: ExtraFileCheck[];
+  /**
+   * Spec 094 S1 — did THIS turn change the declared artifact's bytes? `undefined` = not measured
+   * (no {@link PostTurnParams.artifactHashBefore} was supplied), which every consumer must treat as
+   * "don't claim anything", never as `true` or `false`.
+   *
+   * Advisory only: it never feeds {@link resolveImplementOutcome}. A round that changed nothing is a
+   * perfectly legal outcome (the right answer is sometimes "the fix is on your side") — it just has
+   * to be SAID, because the gate rendered it identically to a round that fixed two bugs, and a user
+   * re-imported the same file believing it was new (run 1786089321835, rounds R3 and R5).
+   */
+  artifactChanged?: boolean;
 }
 
 export interface PostTurnResult {
@@ -214,7 +265,22 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
   // Confinement breach reasons LAST — as before 039 (assembly order is byte-compatible).
   reasons.push(...confinementBreaches);
 
-  const detail: PostTurnDetail = { artifactOk, yamlOk, lintCodes, idsOk, confinementBreaches, extraFiles };
+  // Spec 094 S1 — the after-hash, compared with the before-hash the orchestrator captured pre-spawn.
+  // Only measured when a before-hash was supplied (see PostTurnParams.artifactHashBefore).
+  const artifactChanged =
+    p.artifactHashBefore === undefined
+      ? undefined
+      : (await artifactHash(p.projectsDir, rel)) !== p.artifactHashBefore;
+
+  const detail: PostTurnDetail = {
+    artifactOk,
+    yamlOk,
+    lintCodes,
+    idsOk,
+    confinementBreaches,
+    extraFiles,
+    artifactChanged,
+  };
   const ok = reasons.length === 0;
   return { ok, status: ok ? 'done' : 'error', reasons, detail };
 }

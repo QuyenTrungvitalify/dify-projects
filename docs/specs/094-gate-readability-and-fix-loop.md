@@ -1,14 +1,19 @@
 # Spec 094 — Vòng fix đọc được: nhãn "không đổi file", cảnh báo expected sau import, và luật viết cho người dùng
 
-**Status**: rev 2 (2026-08-11) — **S4 + S5 + S2(a) ĐÃ SHIP**; S1 / S3 / S2(b) chưa làm. Nguồn: rà quá
+**Status**: rev 2 (2026-08-11) — **S1 + S4 + S5 + S2(a) ĐÃ SHIP**; S3 / S2(b) chưa làm. Nguồn: rà quá
 trình sử dụng thật của run `1786089321835` (dossier export 2026-08-10) + yêu cầu của user về cách hành
 văn của output/spec.
 
-**Đã ship (2026-08-11)** — `analyze.md` / `spec.md` / `draft.md` (S4), `spec.md` / `draft.md` /
-`implement.md` / `promote.md` / `judge.md` (S5), `SKILL.md` (S2a), + 8 assert mới trong
-`content-language.test.ts`, + CHANGELOG. Suite `apps/builder`: 926/926 pass, typecheck sạch. Mỗi assert
-mới đã được bắn thử **đỏ-khi-revert** trên bản sao trong scratchpad (không đụng file thật).
-**Hai chỗ lệch khỏi §3.5, có chủ ý** — xem §10.
+**Đã ship (2026-08-11)**
+- **S4/S5/S2a** (commit `16ac83f`) — `analyze.md` / `spec.md` / `draft.md` (S4), `spec.md` / `draft.md` /
+  `implement.md` / `promote.md` / `judge.md` (S5), `SKILL.md` (S2a), + 8 assert trong
+  `content-language.test.ts`. **Hai chỗ lệch khỏi §3.5, có chủ ý** — xem §10.
+- **S1** — hash nội dung theo §3.1(b), cờ đi qua `PostTurnDetail` → `Task` → wire → hai gate; event
+  `artifact_unchanged`; mốc `importedHash`/`importedAt`. 9 test cơ chế
+  (`test/artifact-changed.test.ts`) + 7 test render (`web/src/gate-no-change.test.ts`). Xem §11.
+
+Suite: server **935/935**, web **301/301**, typecheck cả hai nửa sạch. Cơ chế đã được **hiệu chuẩn**:
+chạy cùng fixture qua cả hash lẫn git-delta, git-delta sai 3/5 ca (§11).
 
 **rev 2 đổi gì so với rev 1** (sau một lượt review đối chiếu code, xem §9):
 S1 **đổi cơ chế** — `turnTouched` (git) mù với chính file cần theo dõi, thay bằng hash nội dung;
@@ -588,5 +593,49 @@ luôn assert rằng mutation đã thực sự áp.
 *Output language* (đầu file, trước `## Do`) chứ không nhét cuối — đúng lo ngại "luật mới bị chôn" ở
 §8.2.
 
-**Còn lại**: S1 (đợi việc ④-overwrite trong working tree land trước — §3.1(c′)), S3 (cần thao tác tay
-trên Dify), S2(b) (mặc định không làm).
+**Còn lại sau lượt này**: S1, S3, S2(b).
+
+## 11. Nhật ký thi công S1 — 2026-08-11
+
+**Đã đụng** (10 file): `post-turn.ts` (hàm `artifactHash` + `PostTurnParams.artifactHashBefore` +
+`PostTurnDetail.artifactChanged`), `orchestrator.ts` (chụp hash cạnh `baseline` :488, thread qua
+`verifyPhase`, set cờ + event), `task.ts` (4 field mới), `run-events.ts` (mở union),
+`dossier.ts` (nhãn `= no file change`), `import.ts` (ghi `importedHash`/`importedAt`),
+`web/types.ts` + `web/i18n.ts` (EN+JA) + `web/Chat.tsx` (2 nhánh render, export `gateView`),
++ 2 file test mới. **KHÔNG** đụng `Gate.flag`, `computeGate`, `resolveImplementOutcome`.
+
+**Hiệu chuẩn cơ chế (bắt buộc, không phải tuỳ chọn).** Chạy cùng 5 fixture qua cả hai cơ chế:
+
+| kịch bản | đúng phải là | hash (đã ship) | git-delta (đề xuất rev 1) |
+|---|---|---|---|
+| `_drafts`: turn GHI LẠI file | true | true ✓ | **false ✗** |
+| `_drafts`: turn không ghi gì (R3/R5) | false | false ✓ | false ✓ |
+| ghi lại y hệt byte | false | false ✓ | false ✓ |
+| implement đầu tiên (chưa có file) | true | true ✓ | **false ✗** |
+| `/reply` trên file đã dirty | true | true ✓ | **false ✗** |
+
+git-delta trả **false cho cả 5** — tức nếu ship theo rev 1, badge "không đổi file" sẽ hiện ở **mọi
+vòng**, kể cả vòng sửa thật. Ba ca sai là ba test đỏ trong `artifact-changed.test.ts`.
+
+**Quyết định lệch khỏi §3.1(c), có chủ ý**: cờ **không** đi qua `Gate`/`computeGate` mà nằm trên
+`Task`. Lý do đọc từ code: `computeGate` có ~20 call site và ④ `awaiting_import` được dựng ở
+`orchestrator.ts:898` — xa chỗ verify, không có `PhaseVerify` trong tay. Một field trên `Task` (đúng
+tiền lệ `preflightNote`/`probeNote`) tới được cả hai gate, sống qua hop ③→④, và tự động lên wire vì
+`toWireTask` là spread. Blast radius nhỏ hơn hẳn.
+
+**Ba lớp kiểm, không chỉ unit test**:
+1. cơ chế — 9 test trên **git repo thật có `projects/_drafts/` bị ignore** (không phải temp dir trần),
+   trong đó một test `calibration` assert thẳng rằng git KHÔNG thấy file — để lý do "không dùng git"
+   là một sự thật được kiểm, không phải một comment;
+2. render — 7 test trên `gateView` (phải export nó, cùng kiểu `GateActions`/`richText` đã export);
+3. **entry-point thật** — dựng một task tạm trong `.runs/`, gọi `GET /api/tasks/:id` qua chính app
+   đang chạy: 4 field lên wire đủ; mở UI thấy badge ⚠ *No file change* + câu dẫn đầu, nút
+   *Continue to Test* nguyên vẹn; task tạm đã xoá, `/api/tree` xác nhận sạch. Đồng thời kiểm bundle
+   `web/dist` (đường server thật serve — `server/index.ts:171`) có chứa chuỗi mới, tránh bẫy stale-dist.
+   Lưu ý: `apps/builder/web/src/dist/` là bundle **cũ, không được serve** — đừng nhầm.
+
+**Back-compat**: `artifactChanged` là optional. `undefined` = chưa đo ⇒ UI render thẻ thường, không bao
+giờ khẳng định "không đổi". Kiểm trên chính run `1786089321835` qua API: field vắng mặt, đúng như thiết
+kế. Mọi `task.json` cũ vẫn chạy.
+
+**Còn lại**: S3 (cần thao tác tay trên Dify, §3.3), S2(b) (mặc định không làm).

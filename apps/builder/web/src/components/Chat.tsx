@@ -245,8 +245,10 @@ function promoteGateView(t: WireTask): GateView {
     summary, showYamlLink: true };
 }
 
-/** Synthesize the gate's presentational copy from the live task (the backend sends only actions). */
-function gateView(t: WireTask): GateView {
+/** Synthesize the gate's presentational copy from the live task (the backend sends only actions).
+ *  Exported for tests (the `GateActions` / `summaryLineParts` precedent): it is pure task→copy, so the
+ *  gate-card branches are assertable without mounting a build. */
+export function gateView(t: WireTask): GateView {
   if (t.kind === 'promote') return promoteGateView(t); // spec 052 — promote owns its whole render
   const idx = phaseIndex(t.phase as PhaseKey);
   const meta = tf('phaseMeta', { idx });
@@ -288,6 +290,17 @@ function gateView(t: WireTask): GateView {
       tr('gateImportSummary3'),
     ];
     if (t.workflow && !updating) summary.push(tf('gateImportSummaryEdit', { workflow: t.workflow }));
+    // Spec 094 S1 — the R3→R4 moment: a fix round changed nothing, the flow returned to THIS gate, and
+    // the Import button looked identical to the one that had shipped a real fix. State the fact and let
+    // the user decide; the button stays enabled (re-importing is their call, and since the ④-overwrite
+    // work it is harmless — same app, same URL). Needs BOTH hashes: no import yet ⇒ nothing to compare.
+    if (t.importedHash && t.artifactHash && t.importedHash === t.artifactHash) {
+      summary.unshift(
+        tf('gateNoChangeImport', {
+          time: t.importedAt ? new Date(t.importedAt).toLocaleTimeString() : '—',
+        })
+      );
+    }
     return { tone: 'deploy', badge: tr('gateImportBadge'),
       title: tf('gateImportTitle', { file: t.workflowFile }),
       meta, summary, showReportLink: true };
@@ -344,6 +357,13 @@ function gateView(t: WireTask): GateView {
       // precedent at the Analyze gate above) — backend-computed string, rendered as-is.
       const implLines = slugLine([tr('gateImplSummary1')]);
       if (t.preflightNote) implLines.unshift(localizeNotes(t.preflightNote));
+      // Spec 094 S1: a round that changed nothing gets its own badge and LEADS the summary — the
+      // measured failure was that it looked exactly like a round that fixed two bugs, so the user
+      // re-imported an unchanged file. `=== true` on purpose: `undefined` means "not measured".
+      if (t.artifactUnchanged === true) {
+        return { tone: 'warn', badge: tr('gateNoChangeBadge'), title: tr('gateImplTitle'), meta,
+          summary: [tr('gateNoChangeSummary'), ...implLines], showDiffLink: true };
+      }
       return { tone: '', badge: tr('gateImplBadge'), title: tr('gateImplTitle'), meta,
         summary: implLines, showDiffLink: true };
     }

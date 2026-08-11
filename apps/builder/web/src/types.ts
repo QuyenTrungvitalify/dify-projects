@@ -128,6 +128,14 @@ export interface WireTask {
    *  import overwrites in place. Its presence is what tells the Import gate to promise an update rather
    *  than a new app. Distinct from `appId`, which the live-test path also writes (throwaway test apps). */
   importAppId?: string | null;
+  /** spec 094 S1: the last ③ turn left the workflow file byte-identical — a fix round that changed
+   *  nothing. `undefined` = not measured (pre-094 build): render nothing, never "unchanged". */
+  artifactUnchanged?: boolean;
+  /** spec 094 S1: sha256 of the file as of the last ③ verify, and of the file at the last successful
+   *  ④ import (+ when). Equal hashes ⇒ the Import button would push what Dify already has. */
+  artifactHash?: string | null;
+  importedHash?: string | null;
+  importedAt?: number;
   confirmMode: WireConfirmMode;
   /** spec 028: whether this build ran in ⚡ Fast mode (merged Analyze+Spec). Start-bound; the
    *  conversation-view composer reflects it read-only. Absent on a pre-028 snapshot ⇒ off. */

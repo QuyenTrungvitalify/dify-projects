@@ -156,6 +156,9 @@ function flowLines(events: RunEvent[]): string[] {
       case 'error': out.push(`- ${p} ✗ ERROR${d ? `  ${d}` : ''}`); break;
       case 'retry': out.push(`- ${p} ↻ retry${d ? `  "${d}"` : ''}`); break;
       case 'live_test': out.push(`- ④ live-test${d ? `: ${d}` : ''}`); break;
+      // spec 094 S1 — reads as a sibling of the request_changes line right above it, which is the
+      // whole point: "⤺ request-changes" followed by "= no file change" is the empty round, visible.
+      case 'artifact_unchanged': out.push(`- ${p} = no file change${d ? ` (${d})` : ''}`); break;
     }
   }
   return out;
