@@ -1,0 +1,17 @@
+# Spec 095 S3 overlay fixture — a bare ping trigger: no body, no params, no headers, so it promises
+# NOTHING downstream and cannot produce the invalid-variable failure. `skip_when_nothing_to_cover`
+# must keep this SILENT; warning here would be a false alarm on a legitimate shape.
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000204'
+        data:
+          title: Ping
+          type: trigger-webhook
+          method: post
+          content_type: application/json
+          headers: []
+          params: []
+          body: []
+          status_code: 200
+          response_body: ''

@@ -1,0 +1,24 @@
+# Spec 095 S3 overlay fixture — fully declared, INCLUDING the dash-sanitised header name. Must be
+# SILENT: a rule that still nags a correct file is a rule people learn to ignore.
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000203'
+        data:
+          title: Webhook in
+          type: trigger-webhook
+          method: post
+          content_type: application/json
+          headers:
+            - {name: X-Api-Key, required: true}
+          params:
+            - {name: mode, type: string, required: false}
+          body:
+            - {name: rows_json, type: string, required: true}
+          status_code: 200
+          response_body: ''
+          variables:
+            - {variable: _webhook_raw, label: raw, value_type: object, value_selector: [], required: true}
+            - {variable: rows_json, label: body, value_type: string, value_selector: [], required: true}
+            - {variable: mode, label: param, value_type: string, value_selector: [], required: false}
+            - {variable: X_Api_Key, label: header, value_type: string, value_selector: [], required: true}

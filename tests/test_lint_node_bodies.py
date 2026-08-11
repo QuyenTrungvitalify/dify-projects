@@ -330,3 +330,111 @@ def test_unknown_keys_flag_warns_but_never_gates(tmp_path: Path) -> None:
     for exempt in ("selected", "isInIteration", "iteration_id"):
         assert exempt not in line, f"exempt key {exempt} must not be reported"
     assert "unknown top-level" not in result.stdout, "warnings never land in findings/stdout"
+
+
+# ── Spec 095 S3 — the editor-state overlay (WARN-FIRST) ─────────────────────────────────────────
+# A field Dify's EDITOR needs but its backend never models is invisible to the generated schema, so a
+# workflow can be import-clean, four-linters-clean and still refused at publish. These pin the two
+# properties that matter: it SPEAKS on the real broken shape, and it can never SHOUT (exit code).
+
+OVERLAY_FIXTURES = [
+    ("overlay_webhook_missing.yml", True, "no `variables` at all — the measured failure"),
+    ("overlay_webhook_partial.yml", True, "`variables` present but missing a declared field"),
+    ("overlay_webhook_ok.yml", False, "fully covered — must stay silent"),
+    ("overlay_webhook_no_inputs.yml", False, "nothing promised downstream — nothing to warn about"),
+]
+
+
+@pytest.mark.parametrize("fname,should_warn,why", OVERLAY_FIXTURES)
+def test_overlay_never_moves_the_exit_code(fname: str, should_warn: bool, why: str) -> None:
+    """THE load-bearing property. lint_node_bodies.py is one of the four LINTERS the builder gates ③
+    on (lintClean requires all four == 0) and it runs in pre-commit — so an overlay rule that could
+    move the exit code would be a hard gate on another project's frontend internals. Exit stays 0 in
+    every case, warning or not."""
+    result = run_tool(str(FIXTURES_DIR / fname))
+    assert result.returncode == 0, (
+        f"{fname} ({why}): overlay must never fail the linter; got {result.returncode}\n"
+        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+    assert result.stdout.strip() == "", f"{fname}: overlay findings belong on stderr, not stdout"
+
+
+@pytest.mark.parametrize("fname,should_warn,why", OVERLAY_FIXTURES)
+def test_overlay_warns_exactly_where_it_should(fname: str, should_warn: bool, why: str) -> None:
+    result = run_tool(str(FIXTURES_DIR / fname))
+    spoke = "editor-state field 'variables'" in result.stderr or "does not cover" in result.stderr
+    assert spoke is should_warn, (
+        f"{fname} ({why}): expected warn={should_warn}, got {spoke}\nstderr:\n{result.stderr}"
+    )
+
+
+def test_overlay_partial_names_the_missing_fields_and_sanitises_header_dashes() -> None:
+    """The gap list must be actionable, and `X-Api-Key` must be compared as `X_Api_Key` (Dify's own
+    sanitisation) — otherwise a correctly-declared header reads as missing forever."""
+    result = run_tool(str(FIXTURES_DIR / "overlay_webhook_partial.yml"))
+    assert "does not cover" in result.stderr
+    assert "today" in result.stderr, "the uncovered body field must be named"
+    assert "X_Api_Key" in result.stderr, "the header gap is reported under its sanitised name"
+    assert "rows_json" not in result.stderr.split("does not cover")[1].split("—")[0], (
+        "a COVERED field must not appear in the gap list"
+    )
+
+
+def test_overlay_absent_file_is_silent_not_noisy(tmp_path: Path) -> None:
+    """A missing/corrupt overlay degrades to "no rules" — never to a crash or a red exit. The overlay
+    is advisory; it must not be able to break the linter it rides in."""
+    import importlib
+
+    sys.path.insert(0, str(TOOL.parent))
+    mod = importlib.import_module("lint_node_bodies")
+    mod._overlay_rules.cache_clear()
+    real = mod.OVERLAY_PATH
+    try:
+        mod.OVERLAY_PATH = tmp_path / "does-not-exist.json"
+        mod._overlay_rules.cache_clear()
+        assert mod._overlay_rules() == ()
+        assert mod._overlay_findings(Path("x.yml"), "1", "trigger-webhook", {"body": [{"name": "a"}]}) == []
+        (tmp_path / "broken.json").write_text("{not json", encoding="utf-8")
+        mod.OVERLAY_PATH = tmp_path / "broken.json"
+        mod._overlay_rules.cache_clear()
+        assert mod._overlay_rules() == ()
+    finally:
+        mod.OVERLAY_PATH = real
+        mod._overlay_rules.cache_clear()
+
+
+def test_overlay_rules_carry_evidence_and_a_verified_version() -> None:
+    """The bar stated in the overlay's own README: a rule encodes another project's internals, so it
+    must cite the source that proves it AND a real observation with the version it was seen on. A rule
+    without that is a guess with a linter behind it."""
+    overlay = json.loads(
+        (Path(__file__).parent.parent / "schemas" / "editor-state-overlay.json").read_text(encoding="utf-8")
+    )
+    rules = overlay["editor_state_rules"]
+    assert rules, "the overlay must not be empty while spec 095 S3 is live"
+    for r in rules:
+        assert r.get("evidence"), f"{r.get('node_type')}: no evidence cited"
+        assert r.get("dify_version_verified"), f"{r.get('node_type')}: no verified Dify version"
+        assert r.get("fix"), f"{r.get('node_type')}: a warning without a fix is not actionable"
+
+
+def test_overlay_field_is_genuinely_absent_from_the_generated_schema() -> None:
+    """Rule-bar #1, checked mechanically: if the generated $defs DOES carry the field, the schema
+    already gates it and the overlay rule is redundant weight. This also catches the happy day a Dify
+    upgrade starts modelling the field — the overlay entry should then be deleted, not kept."""
+    import importlib
+
+    sys.path.insert(0, str(TOOL.parent))
+    mod = importlib.import_module("lint_node_bodies")
+    defs = json.loads(SCHEMA.read_text(encoding="utf-8"))["$defs"]
+    overlay = json.loads(
+        (Path(__file__).parent.parent / "schemas" / "editor-state-overlay.json").read_text(encoding="utf-8")
+    )
+    for r in overlay["editor_state_rules"]:
+        def_name = mod.TYPE_TO_DEF.get(r["node_type"])
+        if not def_name or def_name not in defs:
+            continue
+        props = (defs[def_name].get("properties") or {}).keys()
+        assert r["field"] not in props, (
+            f"{r['node_type']}.{r['field']} IS in {def_name} — the schema gates it; drop the overlay rule"
+        )

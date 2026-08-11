@@ -1,0 +1,19 @@
+# Spec 095 S3 overlay fixture — a webhook node that promises three body fields downstream but never
+# declares `variables`. This is the real, measured shape: import-clean, schema-clean, and REFUSED at
+# publish by Dify's editor. Must WARN and must still exit 0 (warn-first).
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000201'
+        data:
+          title: Webhook in
+          type: trigger-webhook
+          method: post
+          content_type: application/json
+          headers: []
+          params: []
+          body:
+            - {name: rows_json, type: string, required: true}
+            - {name: today, type: string, required: false}
+          status_code: 200
+          response_body: ''

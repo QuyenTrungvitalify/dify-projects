@@ -266,6 +266,81 @@ def _unknown_keys(body: dict, def_schema: dict) -> list[str]:
     return sorted(k for k in body if k not in props and k not in UNKNOWN_KEY_EXEMPT)
 
 
+OVERLAY_PATH = Path(__file__).resolve().parents[2] / "schemas" / "editor-state-overlay.json"
+
+
+@lru_cache(maxsize=1)
+def _overlay_rules() -> tuple[dict, ...]:
+    """The hand-written editor-state rules (spec 095 S3), or () when the file is absent/unreadable.
+
+    Absent ⇒ silently no rules: this pass is advisory, and a missing/broken overlay must never make
+    the linter louder or redder than it was before the overlay existed.
+    """
+    try:
+        with OVERLAY_PATH.open(encoding="utf-8") as fh:
+            data = json.load(fh)
+        rules = data.get("editor_state_rules") or []
+        return tuple(r for r in rules if isinstance(r, dict) and r.get("node_type") and r.get("field"))
+    except (OSError, ValueError):
+        return ()
+
+
+def _overlay_findings(path: Path, nid: str, ntype: str, body: dict) -> list[str]:
+    """Spec 095 S3 — WARNINGS ONLY (see the call site: this never touches the exit code).
+
+    A field Dify's EDITOR requires but its backend never models is invisible to the generated schema,
+    so a workflow can be import-clean, lint-clean and still refused at publish. The overlay names those
+    fields; this walks them for one node.
+
+    `skip_when_nothing_to_cover` keeps the pass honest: a webhook that declares no body/params/headers
+    exposes nothing for a downstream node to read, so it cannot produce the invalid-variable failure
+    and must not be nagged about it. A warning that fires where nothing is wrong is how a warning
+    stops being read.
+    """
+    out: list[str] = []
+    for rule in _overlay_rules():
+        if rule["node_type"] != ntype:
+            continue
+        field = rule["field"]
+        sources: list[str] = rule.get("must_cover") or []
+        dash_srcs = set(rule.get("sanitize_dashes_in") or [])
+        # every name the node PROMISES downstream, per source list
+        wanted: list[str] = []
+        for src in sources:
+            for item in body.get(src) or []:
+                if isinstance(item, dict) and item.get("name"):
+                    name = str(item["name"])
+                    if src in dash_srcs:
+                        name = name.replace("-", "_")
+                    wanted.append(name)
+        if not wanted and rule.get("skip_when_nothing_to_cover"):
+            continue
+
+        declared = body.get(field)
+        why, fix = rule.get("why", ""), rule.get("fix", "")
+        if not declared:
+            out.append(
+                f"{path}: node '{nid}' ({ntype}): editor-state field '{field}' is missing. {why} "
+                f"FIX: {fix}"
+            )
+            continue
+        if not isinstance(declared, list):
+            out.append(f"{path}: node '{nid}' ({ntype}): '{field}' should be a list of entries")
+            continue
+        have = {
+            str(e.get(rule.get("item_key", "variable")))
+            for e in declared
+            if isinstance(e, dict) and e.get(rule.get("item_key", "variable"))
+        }
+        gap = [n for n in wanted if n not in have]
+        if gap:
+            out.append(
+                f"{path}: node '{nid}' ({ntype}): '{field}' does not cover {', '.join(gap)} — "
+                f"declared in {'/'.join(sources)} but not exposed to downstream nodes. {why} FIX: {fix}"
+            )
+    return out
+
+
 def lint_file(
     path: Path, schema_path: Path, demoted: dict[str, set[str]], report_unknown: bool = False
 ) -> tuple[int, list[str], list[str]]:
@@ -309,6 +384,13 @@ def lint_file(
 
         nid = str(node.get("id", "?"))
         prefix = f"{path}:{lines[nid]}" if nid in lines else f"{path}"
+        # Spec 095 S3 — the editor-state overlay pass. Appends to `warnings` ONLY: this list goes to
+        # stderr and is never folded into `code`, so the rules cannot move the exit status. That is
+        # load-bearing, not stylistic — this linter is one of the four the builder gates ③ on
+        # (lintClean requires all four == 0) and it runs in pre-commit, so a rule derived from another
+        # project's FRONTEND internals must not be able to kill a build or block a commit until it has
+        # been measured warn-only over real runs (spec 038's own 3-phase discipline).
+        warnings.extend(_overlay_findings(path, nid, ntype, body))
         if report_unknown:
             unknown = _unknown_keys(body, defs[def_name])
             if unknown:

@@ -1,6 +1,6 @@
 # Spec 095 — Node `trigger-webhook` thiếu `variables`: workflow import xong KHÔNG publish được
 
-**Status**: **S0 xác nhận · S1 + S2 + S5 ĐÃ SHIP (2026-08-12)** · còn S3, S4. Xem §11 (kết quả S0) và
+**Status**: **S0 xác nhận · S1 + S2 + S3 + S5 ĐÃ SHIP (2026-08-12)** · còn S4. Xem §11 (kết quả S0) và
 §12 (nhật ký thi công). Phiên bản Dify: **1.15 — user xác nhận 2026-08-12**.
 Nguồn: điều tra tách ra từ spec 094 S3 (repro checklist sau import) — S3 rơi vào ca 2 của bảng quyết
 định (§3.3 của 094: *"A1 là lỗi thật → huỷ phần note, mở spec sửa cách khai trigger-webhook trong
@@ -435,3 +435,58 @@ NOTE: … ; a connection for Tavily Search — open that step in Dify and connec
   deliverable. Có script vá một lần (`--check` / `--write`, idempotent, đã dry-run đúng trên cả 5
   file); quyết định là của user. Lưu ý script ghi qua PyYAML nên **mất comment** — chỉ dùng cho
   `projects/*/workflows/main.yml` sinh tự động, tuyệt đối không trỏ vào template curated.
+
+## 13. Nhật ký thi công S3 (warn-first) — 2026-08-12
+
+**Vì sao BẮT BUỘC warn-first, không phải lựa chọn phong cách**: `lint_node_bodies.py` **đã** là 1 trong
+4 entry của `LINTERS` (`linters.ts:33`) và `lintClean` đòi cả 4 = 0 → mọi luật đụng exit code lập tức
+thành **gate cứng của ③**; nó **cũng** nằm trong pre-commit (`.pre-commit-config.yaml:106`) → còn chặn
+cả commit. Mà luật này mã hoá **nội tại frontend của một project khác**. Gate cứng ngay từ đầu là đánh
+cược build của user vào một thứ nằm ngoài repo.
+
+**Cơ chế**: `lint_file` vốn trả `(code, errors, warnings)`; `main` chỉ `max()` trên `code`, còn
+`warnings` in ra stderr. Overlay pass **chỉ append vào `warnings`** ⇒ không thể chạm exit code
+**bằng cấu trúc**, không phải bằng kỷ luật của người viết.
+
+**Overlay** `schemas/editor-state-overlay.json` — viết tay, có chủ đích nhỏ, KHÔNG sinh tự động
+(`gen_schema.py` chỉ ghi `dify-dsl-<version>.json` + symlink `_latest.json`, nên file này an toàn khi
+regenerate). Mỗi rule phải khai `evidence` (đường dẫn vendor CHỨNG MINH nó) + `dify_version_verified`
++ `fix`. Hôm nay đúng **một** rule.
+
+**Chống báo giả**: `skip_when_nothing_to_cover` — webhook không khai body/params/headers thì không hứa
+gì với node sau, không thể sinh lỗi invalid-variable, nên **im lặng**. Và tên header được sanitise
+`-`→`_` đúng như Dify làm, nếu không một header khai đúng sẽ bị báo thiếu vĩnh viễn.
+
+### Kiểm chứng — 8 phép, không có phép nào là "chắc là ổn"
+
+| # | phép thử | kết quả |
+|---|---|---|
+| 1 | **Exit code bất biến**: chạy linter trên **93 YAML** của repo trước/sau, so từng file | **0 khác biệt**; 5 file được cảnh báo thêm (đúng 5 build hỏng) |
+| 2 | 4 linter như gate ③ chạy, trên file đang hỏng | cả 4 exit 0 ⇒ `lintClean` xanh ⇒ **build không bị giết** |
+| 3 | `pytest tests/test_lint_node_bodies.py` | 41/41 (thêm 4 fixture + 6 test) |
+| 4 | `pre-commit run --all-files` | **Passed** toàn bộ, gồm "node-body schema linter" |
+| 5 | Builder server suite | 937/937 |
+| 6 | Builder web suite | 301/301 |
+| 7 | Typecheck server + web | sạch |
+| 8 | Thời gian chạy linter | 110–157 ms, không đổi đáng kể (overlay đọc 1 lần/process, `lru_cache`) |
+
+Bốn ca fixture: thiếu hẳn `variables` → cảnh báo; có nhưng **thiếu một phần** (kèm header có dấu `-`)
+→ cảnh báo và **nêu đúng tên còn thiếu**; đủ → **im**; không có input nào → **im**. Cộng test overlay
+hỏng/thiếu file → thoái hoá thành "không có rule", không crash không đỏ; test bắt buộc mỗi rule có
+`evidence`/`fix`/version; và test cơ học rằng field trong rule **thật sự vắng** khỏi `$defs` — ngày
+Dify bắt đầu mô hình hoá nó, test này đỏ và rule phải bị xoá chứ không phải giữ lại.
+
+### Ai thực sự đọc được cảnh báo (giới hạn có chủ ý của pha này)
+
+- **Model ở ③** — `implement.md` bước 5 bảo nó tự chạy cả 4 linter; kết quả Bash có stderr ⇒ nó thấy
+  cảnh báo **đúng lúc còn sửa được**. Đây là khán giả chính và là toàn bộ giá trị của pha warn-first.
+- **pre-commit** — người commit file pattern/project thấy.
+- **KHÔNG** hiện ở gate card ③ / report ④: `post-turn.ts:212` chỉ trích detail khi `code !== 0`.
+  Đó là hệ quả *đúng* của warn-first; đưa nó ra mặt user là việc của pha siết (dưới).
+
+### Điều kiện để siết thành gate cứng (pha sau)
+
+Chỉ khi cả ba đúng: (a) chạy warn-only qua vài build thật, **không có báo giả nào**; (b) trả lời được
+câu §5.3 — **export DSL của Dify có kèm `variables` không**, vì build edit-existing lấy file
+**pull từ Dify** làm gốc (`scaffold.ts:99`), nếu export thiếu field thì gate cứng sẽ giết mọi build
+edit-existing webhook dù không ai làm sai; (c) `vendor/dify-src` đã nâng lên đúng bản user chạy.

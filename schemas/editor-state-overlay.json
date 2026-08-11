@@ -1,0 +1,49 @@
+{
+  "_README": [
+    "Spec 095 S3 — EDITOR-STATE OVERLAY. Hand-written, deliberately tiny, NEVER generated.",
+    "",
+    "WHY THIS FILE EXISTS. `dify-dsl-<version>.json` is generated from Dify's BACKEND pydantic models",
+    "(schemas/gen_schema.py), so it can only ever describe fields the backend models. Dify's editor",
+    "keeps additional state on some node bodies that the backend never sees — and a workflow missing",
+    "that state imports cleanly, passes every linter, and then CANNOT BE PUBLISHED, because the editor's",
+    "own pre-publish checklist rejects it. That class is invisible to a backend-derived schema by",
+    "construction, which is why it needs a separate, human-maintained file instead of a patch to the",
+    "generated one (a patch would be erased on the next regeneration anyway).",
+    "",
+    "WARN-FIRST, BY CONSTRUCTION. lint_node_bodies.py feeds these findings into its `warnings` channel,",
+    "which is printed to stderr and NEVER folded into the exit code. That is not a policy anyone has to",
+    "remember: the linter is one of the four `LINTERS` the builder gates ③ on (lintClean requires all",
+    "four == 0) and it also runs in pre-commit, so a rule that moved the exit code would instantly",
+    "become a hard gate on a rule derived from another project's frontend internals. Promote a rule to",
+    "hard-failing only after it has run warn-only across real builds — the same 3-phase discipline",
+    "lint_node_bodies.py itself shipped under (spec 038: unwired → measure → wire).",
+    "",
+    "THE BAR FOR ADDING A RULE (keep this file small):",
+    "  1. the field is absent from the generated $defs for that node type — otherwise the schema gates it;",
+    "  2. its absence is USER-VISIBLE and blocking (publish refused / step broken), not cosmetic;",
+    "  3. `evidence` cites the exact vendor source that proves it, AND a real observation on a real",
+    "     instance with the version — a source read alone has been wrong before.",
+    "",
+    "MAINTENANCE. Every rule is pinned to a Dify version. When vendor/dify-src is bumped, re-read each",
+    "`evidence` path: if the mechanism changed, fix or delete the rule. A stale rule here is worse than",
+    "no rule — it teaches a shape Dify no longer wants."
+  ],
+  "editor_state_rules": [
+    {
+      "node_type": "trigger-webhook",
+      "field": "variables",
+      "item_key": "variable",
+      "must_cover": ["body", "params", "headers"],
+      "sanitize_dashes_in": ["headers"],
+      "skip_when_nothing_to_cover": true,
+      "why": "The editor builds this node's OUTPUT variable list from `data.variables` ONLY — never from `body`. Without it the node exposes zero outputs, every downstream reference reads as \"invalid variable\", and Dify blocks publishing.",
+      "fix": "Add one entry per body/params/headers item plus the built-in raw object: {variable: <name>, label: body|param|header, value_type: <same as the item>, value_selector: [], required: <same>} and {variable: _webhook_raw, label: raw, value_type: object, value_selector: [], required: true}. Working example: templates/patterns/webhook-per-row-notify.yml",
+      "evidence": [
+        "vendor/dify-src @ 1.13.0-42 — web/app/components/workflow/nodes/_base/components/variable/utils.ts, `case BlockEnum.TriggerWebhook` reads `const { variables = [] } = data`",
+        "vendor/dify-src @ 1.13.0-42 — web/app/components/workflow/hooks/use-checklist.ts flags a used-but-absent variable as errorMsg.invalidVariable",
+        "OBSERVED on Dify 1.15 (2026-08-12, spec 095 S0): importing the same workflow with `variables` added makes the checklist's 「Biến không hợp lệ」 item disappear; without it, publish is refused"
+      ],
+      "dify_version_verified": "1.15"
+    }
+  ]
+}

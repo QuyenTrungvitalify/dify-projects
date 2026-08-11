@@ -1,0 +1,24 @@
+# Spec 095 S3 overlay fixture — `variables` EXISTS but misses one body field (`today`) and one header.
+# The half-done case is the dangerous one: the node looks configured, and only the uncovered field
+# breaks. Header names are dash-sanitised by Dify (`X-Api-Key` → `X_Api_Key`), so the rule must
+# compare the sanitised name or it reports a phantom gap.
+workflow:
+  graph:
+    nodes:
+      - id: '1700000000202'
+        data:
+          title: Webhook in
+          type: trigger-webhook
+          method: post
+          content_type: application/json
+          headers:
+            - {name: X-Api-Key, required: true}
+          params: []
+          body:
+            - {name: rows_json, type: string, required: true}
+            - {name: today, type: string, required: false}
+          status_code: 200
+          response_body: ''
+          variables:
+            - {variable: _webhook_raw, label: raw, value_type: object, value_selector: [], required: true}
+            - {variable: rows_json, label: body, value_type: string, value_selector: [], required: true}

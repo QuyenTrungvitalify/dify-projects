@@ -29,6 +29,11 @@ pattern, a changed gate. Not for docs-only edits.
   per tool, by the label shown on the canvas.
 - Existing builds made before this fix still carry the gap; rebuilding them picks up the corrected
   pattern.
+- The node-body linter now also **warns** when a webhook step omits that list, so a build catches it
+  while it is still being written. Warning only — it cannot fail a build or block a commit, because
+  the rule encodes Dify's editor behaviour rather than its file format, and that is not something to
+  gate on until it has run quietly for a while. Verified: exit codes are unchanged on all 93 workflow
+  files in the repo.
 
 **A fix round that changed nothing now says so (spec 094 S1)**
 - When a "Request changes" round ends without altering the workflow file, the ③ gate says so: a
