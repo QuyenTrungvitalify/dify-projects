@@ -849,8 +849,16 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
             (only the workflow chip was allowed to truncate). Marking this one shrinkable too keeps the
             invariant the row exists to hold — everything on ONE line, Send never pushed off. */}
         {settings && onSettings && (
-          <SettingSelect shrink label={tr('model')} value={settings.model ?? 'opus'}
-            options={MODEL_OPTIONS.map((m) => ({ v: m, l: tr(`model_${m}` as never) }))}
+          <SettingSelect shrink label={tr('model')} value={settings.model ?? ''}
+            /* No `?? 'opus'` fallback: that default LIED three times over — it showed "Opus" for a
+               task that had actually run on something else, and for a pre-096 task that recorded no
+               choice at all. A chip must never assert a value nobody picked. The sentinel appears only
+               when there is genuinely nothing to show (a pre-096 task in the conversation view, where
+               the chip is disabled anyway), so the entry composer never sees it. */
+            options={[
+              ...(settings.model ? [] : [{ v: '', l: tr('modelUnset') }]),
+              ...MODEL_OPTIONS.map((m) => ({ v: m, l: tr(`model_${m}` as never) })),
+            ]}
             onChange={(v) => onSettings({ model: v })}
             disabled={lockStartBound} title={tr('modelHint')} />
         )}

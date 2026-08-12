@@ -742,7 +742,9 @@ export function App() {
                         sendGlyph={task.kind === 'promote' ? 'edit' : undefined}
                         /* spec 052: a promote build has no ①②③④ run-settings — omit the Workflow/Confirm/Fast
                            chips (and their confirm_mode PATCH) so the promote-gate composer is a plain reply box. */
-                        settings={task.kind === 'promote' ? undefined : { workflow: task.workflow ?? 'none', confirm: store.confirmModeLabel(task.confirmMode), fast: task.fastMode ?? false }}
+                        /* spec 096: `model` MUST be here too. Without it the in-task chip fell back to a default and
+                           displayed "Opus" for every running build — the same lie the entry composer's subset had. */
+                        settings={task.kind === 'promote' ? undefined : { workflow: task.workflow ?? 'none', confirm: store.confirmModeLabel(task.confirmMode), fast: task.fastMode ?? false, model: task.model }}
                         onSettings={task.kind === 'promote' ? undefined : (patch) => { if (patch.confirm) void store.patchConfirmMode(task.taskId, patch.confirm); }}
                         workflows={workflows} lockStartBound lockConfirm={busy}
                         placeholder={livePlaceholder} focusToken={focusToken}

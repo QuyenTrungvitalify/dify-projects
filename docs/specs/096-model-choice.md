@@ -83,7 +83,7 @@ argv test được mà không tạo process); `state/task.ts` (`MODEL_CHOICES`/`
 **Chip nằm NGOÀI khối build-only** — nó áp cho consult y như build; đưa ra một lựa chọn rồi âm thầm bỏ
 qua ở một trong hai chế độ thì tệ hơn không đưa ra.
 
-## 5. Ba lỗi bị bắt bởi kiểm hình, không phải bởi đọc lại code
+## 5. BỐN lỗi bị bắt bởi kiểm hình / soi lại, không phải bởi đọc code
 
 Đây là phần đáng ghi nhất của spec này — cả ba đều typecheck sạch và test xanh:
 
@@ -94,8 +94,21 @@ qua ở một trong hai chế độ thì tệ hơn không đưa ra.
    `onSettings` — cái phễu duy nhất cho mọi thay đổi setting của composer.
 3. **`settingsSubset` thiếu `model`** ⇒ chip **luôn hiện "Opus"** dù giá trị đã đổi, đã persist và đã
    được gửi lên. Một control nói dối về việc nó đang làm gì — tệ hơn hẳn một control không tồn tại.
+4. **Cùng lỗi #3, instance THỨ HAI** — composer trong task dựng `settings` từ `task` và cũng thiếu
+   `model` ⇒ chip hiện "Opus" cho **mọi** build đang chạy, bất kể nó thật sự chạy model nào. Phát hiện
+   ở lượt review sau khi đã "xong", bằng cách grep `lockStartBound=` và lần theo call site.
 
-Không lỗi nào trong ba lỗi trên bị test bắt. Chúng chỉ lộ ra khi mở app thật và bấm thật.
+**Gốc chung của #1/#3/#4 là cái fallback `?? 'opus'`** — nó biến "chưa ghi nhận" thành "đã chọn Opus".
+Đã bỏ hẳn; ca chưa ghi nhận giờ hiện nhãn riêng (`not recorded` / `記録なし`), và chip vốn đã bị khoá
+trong task nên không chọn được nó.
+
+Không lỗi nào trong bốn lỗi trên bị typecheck hay test bắt — field là optional **bắt buộc phải** optional
+(task pre-096 không có model), nên trình biên dịch không có gì để phàn nàn. Chúng chỉ lộ khi mở app bấm
+thật, và cái thứ tư chỉ lộ khi đi soi lại call site.
+
+**Guard đã dựng**: `web/src/model-chip.test.ts` ghim luật hiển thị (gồm ca chưa-ghi-nhận), và
+`test/model-choice.test.ts` ghim **call site** như một source-shape fact — vì bug thật là call site, chứ
+không phải luật. Đã hiệu chuẩn: dựng lại cả 3 bug ⇒ **3 test đỏ**; hoàn nguyên ⇒ xanh.
 
 ## 6. Kiểm chứng
 

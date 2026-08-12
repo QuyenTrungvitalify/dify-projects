@@ -22,6 +22,11 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { MODEL_CHOICES, DEFAULT_MODEL, normalizeModel } from '../server/state/task.js';
 import { buildSpawnArgs } from '../server/lib/claude-session.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 describe('096 · normalizeModel', () => {
   test('every offered alias round-trips', () => {
@@ -89,5 +94,46 @@ describe('096 · the spawn passes --model only when chosen', () => {
     const argv = buildSpawnArgs({ ...base, model: 'haiku', resumeSessionId: 'sess-1' });
     assert.deepEqual(argv.slice(0, 2), ['--resume', 'sess-1']);
     assert.ok(argv.indexOf('--model') > 1);
+  });
+});
+
+/**
+ * The CALL SITES. The display rule lives in web/src/model-chip.test.ts, but the bug that actually
+ * shipped three times in one sitting was never the rule — it was a Settings object built without
+ * `model`, twice, plus a `?? 'opus'` fallback that made the omission look like a deliberate choice.
+ * Typecheck passed all three times (the field is optional, by necessity — a pre-096 task has none).
+ *
+ * So pin it as what it is: a source-shape fact. Same technique as the prompt-file guards above, and it
+ * lives here because reading source needs node fs, which the web tsconfig has no types for.
+ */
+describe('096 · every composer call site passes `model` through', () => {
+  const WEB = join(HERE, '..', 'web', 'src', 'components');
+  const app = readFileSync(join(WEB, 'App.tsx'), 'utf8');
+  const chat = readFileSync(join(WEB, 'Chat.tsx'), 'utf8');
+
+  test('the entry composer subset carries it', () => {
+    assert.match(
+      app,
+      /const settingsSubset: Settings = \{[^}]*model:/,
+      'settingsSubset without `model` ⇒ the chip shows a default while the real value is already stored and sent'
+    );
+  });
+
+  test('the in-task composer carries it', () => {
+    const inTask = app.split('\n').find((l) => l.includes('confirmModeLabel(task.confirmMode)'));
+    assert.ok(inTask, 'in-task settings literal not found — did the composer wiring move?');
+    assert.match(
+      inTask,
+      /model: task\.model/,
+      'without it the chip read "Opus" for every running build, whatever it actually ran on'
+    );
+  });
+
+  test('no default-value fallback on the chip (that fallback WAS the lie)', () => {
+    assert.doesNotMatch(
+      chat,
+      /settings\.model \?\? '(opus|sonnet|haiku|fable)'/,
+      'a chip must never assert a model nobody picked — a pre-096 task recorded none'
+    );
   });
 });
