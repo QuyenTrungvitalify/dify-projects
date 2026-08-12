@@ -129,6 +129,23 @@ describe('096 · every composer call site passes `model` through', () => {
     );
   });
 
+  test('the in-task handler actually PATCHES on a model change (a label that changes nothing is a lie)', () => {
+    // The chip is editable inside a task (spec 096 revision). If onSettings ignored `patch.model`, the
+    // chip would relabel itself and the next turn would still spawn the old model — worse than a lock.
+    assert.match(
+      app,
+      /if \(patch\.model\) void store\.patchModel\(task\.taskId, patch\.model\)/,
+      'the in-task composer must forward a model change to PATCH /api/tasks/:id'
+    );
+  });
+
+  test('the chip is NOT start-bound-locked (the first choice is a default, not a sentence)', () => {
+    const chat = readFileSync(join(WEB, 'Chat.tsx'), 'utf8');
+    const chip = chat.slice(chat.indexOf("label={tr('model')}"), chat.indexOf("title={tr('modelHint')}"));
+    assert.doesNotMatch(chip, /disabled=\{lockStartBound\}/, 'model is changeable mid-task by design');
+    assert.match(chip, /disabled=\{lockConfirm\}/, 'but not mid-turn — that write would be clobbered');
+  });
+
   test('no default-value fallback on the chip (that fallback WAS the lie)', () => {
     assert.doesNotMatch(
       chat,

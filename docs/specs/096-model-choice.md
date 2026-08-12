@@ -59,10 +59,27 @@ release.
 Id đầy đủ vẫn được `cost.ts` ghi lại ⇒ dossier tiếp tục chứng minh **cái gì đã chạy thật**, không phải
 cái gì được yêu cầu.
 
-## 3. Ngữ nghĩa: START-BOUND
+## 3. Ngữ nghĩa: mặc định start-bound, NHƯNG đổi được giữa chừng
 
-Chọn một lần cùng tin nhắn đầu, rồi **khoá**, giống `fastMode` và workflow target (`lockStartBound`).
-Lý do: cả bốn phase của một build phải là **cùng một mức cược**, nếu không dossier mất nghĩa.
+**Bản đầu tôi khoá cứng sau khi task chạy — SAI, và user phát hiện ngay** (*"tôi ko thể select nó lại
+sau những lần chat sau nhỉ?"*). Đọc lại đúng yêu cầu: *"nếu ko thay đổi gì nó luôn default là option
+model của chat đầu tiên"* — câu đó **giả định là đổi được**; và *"cơ chế ý chang của claude"*, mà CLI
+thì cho đổi model giữa session.
+
+Lý lẽ tôi dùng để biện minh cho việc khoá — *"cả bốn phase phải cùng một mức cược, không thì dossier
+mất nghĩa"* — **không đứng vững**: `cost[phase].model` vốn đã ghi model **riêng từng phase** (chính nó
+là thứ chứng minh được hiện tượng trôi ở §1). Một build chạy ② bằng model nhỏ và ③ bằng model lớn đọc
+vẫn đúng trong dossier — và **cheap-① / strong-③ là thứ đáng làm được bằng tay**, chính là ý ở §8.1.
+
+Ngữ nghĩa đúng: lựa chọn của tin nhắn đầu là **mặc định**, không phải bản án.
+
+- Đổi được qua `PATCH /api/tasks/:id`, cùng route và cùng hai chốt 409 với `confirm_mode`.
+- Có hiệu lực **từ turn kế tiếp** (`/confirm` và `/reply` đều nạp lại task từ đĩa).
+- Phase đã chạy giữ nguyên model của nó trong `cost[*].model` — không viết lại lịch sử.
+- Chốt duy nhất: **không đổi giữa lúc turn đang chạy** (`lockConfirm`), vì orchestrator đang chạy sẽ
+  ghi đè — đúng cái comment của route gọi là *"a lying control"*.
+
+`workflow` / `deploy` / `fast` vẫn start-bound.
 
 `normalizeModel` trả `undefined` cho giá trị lạ/thiếu — **không** trả về default. Đây là chỗ
 load-bearing: `undefined` là thứ giữ cho `--model` không xuất hiện, tức task tạo **trước** 096 chạy y
@@ -133,8 +150,8 @@ không phải luật. Đã hiệu chuẩn: dựng lại cả 3 bug ⇒ **3 test 
 
 ## 8. Còn để ngỏ
 
-1. **Model theo phase.** ① Analyze là digest ngắn; ③ Implement dựng graph 27–52 node. Tiền và rủi ro
-   nằm ở ③. Cần số liệu từ vài build start-bound trước khi tách.
+1. **Model theo phase TỰ ĐỘNG.** Giờ user đã tự làm được bằng tay (đổi chip giữa chừng); việc còn lại
+   là có nên mặc định Haiku cho ① và Opus cho ③ không. Cần số liệu trước.
 2. **`promote` / `judge` turn** chưa nhận `task.model`. Không sai (chúng vẫn ambient như trước), nhưng
    là chỗ không đồng nhất còn lại.
 3. **`/campaign` nên từ chối so sánh hai run khác model** — giờ model đã có trong `task.json` nên việc

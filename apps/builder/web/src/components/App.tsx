@@ -497,12 +497,12 @@ export function App() {
                 )}
                 {/* spec 052/082: promote + consult are not ①②③④ pipelines — a label in place of the track. */}
                 {task?.kind === 'promote'
-                  ? <span style={{ fontSize: 13, color: 'var(--tx-muted)' }}>{tr('promoteToPattern')}</span>
+                  ? <span className="chat-top-label">{tr('promoteToPattern')}</span>
                   : task?.kind === 'consult'
-                    ? <span style={{ fontSize: 13, color: 'var(--tx-muted)' }}>{tr('consultChat')}</span>
+                    ? <span className="chat-top-label">{tr('consultChat')}</span>
                     : <PhaseTrack phaseStates={phaseStates} current={current} />}
               </>
-            ) : <span style={{ fontSize: 13, color: 'var(--tx-muted)' }}>{crumb.label}</span>}
+            ) : <span className="chat-top-label">{crumb.label}</span>}
             <div className="chat-top-right">
               {/* spec 082: a consult's live turn is an ask (busy never flips) — offer Stop during one,
                   and skip the "stop build?" modal there (aborting an answer is harmless + scoped: the
@@ -745,7 +745,12 @@ export function App() {
                         /* spec 096: `model` MUST be here too. Without it the in-task chip fell back to a default and
                            displayed "Opus" for every running build — the same lie the entry composer's subset had. */
                         settings={task.kind === 'promote' ? undefined : { workflow: task.workflow ?? 'none', confirm: store.confirmModeLabel(task.confirmMode), fast: task.fastMode ?? false, model: task.model }}
-                        onSettings={task.kind === 'promote' ? undefined : (patch) => { if (patch.confirm) void store.patchConfirmMode(task.taskId, patch.confirm); }}
+                        onSettings={task.kind === 'promote' ? undefined : (patch) => {
+                          if (patch.confirm) void store.patchConfirmMode(task.taskId, patch.confirm);
+                          // spec 096: without this the in-task chip would change its label and change
+                          // nothing else — the exact "lying control" the PATCH route exists to prevent.
+                          if (patch.model) void store.patchModel(task.taskId, patch.model);
+                        }}
                         workflows={workflows} lockStartBound lockConfirm={busy}
                         placeholder={livePlaceholder} focusToken={focusToken}
                         /* FIX-H: send-readiness is disabled while a phase/Reply turn runs (busy) OR a

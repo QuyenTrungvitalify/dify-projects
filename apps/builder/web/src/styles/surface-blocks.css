@@ -235,8 +235,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .sb-head {
   display: flex; align-items: center; gap: 8px;
-  /* right inset = 12px so the New-project button's right edge lines up with the New-task button below. */
-  padding: 18px 12px 10px 18px;
+  /* right inset = 12px so the New-project button's right edge lines up with the New-task button below.
+     8px top/bottom around the 32px action button = 48px — the same height as .chat-top, so the two
+     header rows read as one continuous bar across the split. */
+  padding: 8px 12px 8px 18px;
   /* anchor for the dev-only rebuild toast (.sb-rebuild-msg), which floats just below the header. */
   position: relative;
 }
@@ -423,7 +425,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .sidebar.collapsed .sb-rebuild-msg,
 .sidebar.collapsed .sb-foot .tw-name { display: none; }
 .sidebar.collapsed .sb-newtask { justify-content: center; padding: 9px; }
-.sidebar.collapsed .sb-head { justify-content: center; padding: 18px 0 10px; }
+.sidebar.collapsed .sb-head { justify-content: center; padding: 8px 0; }
 
 /* ============================================================
    CHAT COLUMN
@@ -436,12 +438,24 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* top bar — phase indicator */
 .chat-top {
   display: flex; align-items: center; gap: 14px;
-  padding: 13px 22px;
+  /* 9px vertical: the row is ALWAYS one line (the pill group scrolls horizontally rather than wrapping,
+     see .chat-top-right), so its height is just the tallest pill (~28px) + this padding. 13px made a
+     56px bar for 28px of content — more air than a one-line toolbar earns. 48px total, and .sb-head is
+     padded to the same 48 so the sidebar title row and this bar stay on one line together. */
+  padding: 9px 22px;
   border-bottom: 1px solid var(--border-soft);
   flex-shrink: 0;
-  min-height: 52px;
+  min-height: 48px;
 }
 .sb-toggle { margin-right: 2px; }
+
+/* The header's plain text label (New task / 相談 / パターン化). It MUST NOT wrap: the bar is one line by
+   design, and a wrapped two-line label silently grew the header by ~13px on narrow/crowded widths (the
+   pill group is a scroll region, so it never wraps — only this label did). Ellipsize instead. */
+.chat-top-label {
+  font-size: 13px; color: var(--tx-muted);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* spec 029: context breadcrumb in the conversation-view chat-top — which project/workflow the open
    build belongs to. Sits left of the phase track; truncates gracefully on narrow widths. */
@@ -1671,10 +1685,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
    in-flight distill. Theme-aware via the same CSS vars as the cards.
    ============================================================ */
 .bg-tray {
-  /* top-right, just under the 52px header (13+26+13 chat-top) — was bottom-right; newest card first
+  /* top-right, just under the 48px header (9+30+9 chat-top) — was bottom-right; newest card first
      (column, not column-reverse) so cards stack DOWNWARD from the header. The right inset matches the
      ~3px top gap to the header so the tray hugs the corner symmetrically. */
-  position: fixed; right: 3px; top: 62px; z-index: 60;
+  position: fixed; right: 3px; top: 58px; z-index: 60;
   display: flex; flex-direction: column; gap: 10px;
   width: 300px; max-width: calc(100vw - 36px);
   pointer-events: none; /* the gap is click-through; cards re-enable */

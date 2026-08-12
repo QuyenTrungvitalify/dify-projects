@@ -120,7 +120,7 @@ export const api = {
    *  "蒸留" section. Shows ALL (incl. done/shared) as history; excluded from /api/tree. */
   promotes: (): Promise<{ promotes: WireTreeTask[] }> => request('GET', '/api/promotes'),
   /** PATCH /api/tasks/:id → live-patch confirm_mode on a non-terminal build (spec 010 F2; 409 if terminal). */
-  patchTask: (id: string, patch: { confirm_mode: string }): Promise<WireTask> =>
+  patchTask: (id: string, patch: { confirm_mode?: string; model?: string }): Promise<WireTask> =>
     request('PATCH', `/api/tasks/${encodeURIComponent(id)}`, patch),
   /** POST /api/tasks/:id/cancel → abandon: kill child, terminal status, release lock (AC #24). */
   cancel: (id: string): Promise<WireTask> =>

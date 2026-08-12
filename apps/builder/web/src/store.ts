@@ -1599,6 +1599,23 @@ export async function patchConfirmMode(taskId: string, uiLabel: string): Promise
   }
 }
 
+/**
+ * spec 096 — switch the model of a RUNNING task. Takes effect from the next turn; phases already run
+ * keep their own recorded model, so the dossier still reads correctly. Mirrors patchConfirmMode: the
+ * new value also becomes the default future builds inherit, because changing it here is a statement
+ * about what you want, not a one-off.
+ */
+export async function patchModel(taskId: string, model: string): Promise<void> {
+  settings.value = { ...settings.value, model };
+  rememberModel(model);
+  try {
+    const t = await api.patchTask(taskId, { model });
+    if (task.value?.taskId === t.taskId) task.value = { ...task.value, model: t.model };
+  } catch (e) {
+    surfaceError(e);
+  }
+}
+
 /** Save an in-place SPEC.md edit (AC #3). */
 export async function saveSpec(content: string): Promise<void> {
   const t = task.value;

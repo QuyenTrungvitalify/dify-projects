@@ -860,7 +860,12 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
               ...MODEL_OPTIONS.map((m) => ({ v: m, l: tr(`model_${m}` as never) })),
             ]}
             onChange={(v) => onSettings({ model: v })}
-            disabled={lockStartBound} title={tr('modelHint')} />
+            /* spec 096: NOT `lockStartBound`. The first message's choice is the DEFAULT, not a
+               life sentence — the requirement said "if you don't change it", which presumes you can,
+               and the CLI this mirrors lets you switch mid-session. `lockConfirm` (busy) is the right
+               guard: the same one confirm-mode uses, because a patch mid-turn would be clobbered by
+               the running orchestrator's own write — a lying control. */
+            disabled={lockConfirm} title={tr('modelHint')} />
         )}
         {/* spec 034 D3: the settings row is optional — a terminal Ask composer omits settings/onSettings,
             so this whole block disappears and only the spacer + attach + send remain. spec 082: the build

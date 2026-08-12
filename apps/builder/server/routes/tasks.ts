@@ -28,6 +28,7 @@ import {
   isValidWorkflowFile,
   loadTask,
   normalizeConfirmMode,
+  normalizeModel,
   restoreTargetPhaseFor,
   sanitizeSlug,
   saveTask,
@@ -506,12 +507,23 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
   //     write back to disk — so a patch mid-turn is both ineffective AND silently reverted (a lying
   //     control, the very thing F2 fixes). Reject it; the user patches once the build parks at a gate.
   //     (A patch to a DIFFERENT, parked build while some OTHER build's turn runs is fine — distinct
-  //     task.json, no writer race.) Only `confirm_mode` is patchable; workflow/deploy are start-bound.
+  //     task.json, no writer race.)
+  //
+  // Spec 096: `model` is patchable HERE for the same reason confirm_mode is. It shipped start-bound for
+  // one release and that was too tight — the requirement was "the first message's choice is the
+  // DEFAULT", which presumes it can be changed, and the CLI it mirrors lets you switch mid-session.
+  // Nothing technical forced the lock (`--model` is per-spawn), and the audit trail was never the
+  // problem: `cost[phase].model` already records each phase separately, so a build that ran ② small and
+  // ③ large reads correctly in the dossier — and cheap-①/strong-③ is worth being able to do by hand.
+  // `workflow`/`deploy`/`fast` stay start-bound.
   app.patch('/api/tasks/:id', async (req, reply) => {
     const id = idOf(req);
     const body = (req.body ?? {}) as Record<string, unknown>;
-    if (body.confirm_mode === undefined && body.confirmMode === undefined) {
-      return reply.code(400).send({ error: 'confirm_mode is required' });
+    // spec 096: `model` joined confirm_mode as patchable — see the note above the handler.
+    const wantsConfirm = body.confirm_mode !== undefined || body.confirmMode !== undefined;
+    const wantsModel = body.model !== undefined;
+    if (!wantsConfirm && !wantsModel) {
+      return reply.code(400).send({ error: 'confirm_mode or model is required' });
     }
     let task;
     try {
@@ -532,7 +544,14 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     if (isCancelled(id)) {
       return reply.code(409).send({ error: 'task was cancelled — confirm_mode is no longer changeable' });
     }
-    task.confirmMode = normalizeConfirmMode(body.confirm_mode ?? body.confirmMode);
+    if (wantsConfirm) task.confirmMode = normalizeConfirmMode(body.confirm_mode ?? body.confirmMode);
+    if (wantsModel) {
+      // spec 096: takes effect from the NEXT turn on — /confirm and /reply both re-load the task from
+      // disk, so the next spawn reads this. Phases already run keep their model in `cost[*].model`, so
+      // a mid-build switch stays auditable instead of rewriting history. An unrecognised value clears
+      // the pin (back to ambient) rather than guessing — the same rule as create.
+      task.model = normalizeModel(body.model);
+    }
     bumpRev(task); // D5: this direct broadcast bypasses emit — bump so a stale GET can't revert confirmMode
     await saveTask(projectsDir, task);
     broadcast?.(id, 'task:update', task);
