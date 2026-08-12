@@ -407,8 +407,8 @@ describe('runLiveTest verdict → gate', () => {
     assert.match(task.liveTest?.reason ?? '', /ran OK/, 'the normal run summary still leads');
     assert.ok(
       (task.liveTest?.reason ?? '').includes(
-        'trigger-entry workflow: an API run is a manual fire — the schedule/webhook only runs ' +
-          'automatically after you ENABLE the trigger in Dify Studio Quick Settings'
+        'trigger-entry workflow: the run above was a manual fire — a schedule or webhook starts ' +
+          'firing on its own only once you PUBLISH the workflow in Dify Studio'
       ),
       'the wording-stable EN advisory is appended'
     );

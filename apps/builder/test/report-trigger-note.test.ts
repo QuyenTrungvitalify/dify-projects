@@ -20,8 +20,10 @@ const log = { info() {}, warn() {}, error() {} } as unknown as SessionLogger;
 
 // The EN string is wording-stable: web/src/lib/i18n.ts NOTE_JA matches it verbatim. Pin it byte-exact.
 const EXPECTED_NOTE =
-  'trigger-entry workflow: an API run is a manual fire — the schedule/webhook only runs ' +
-  'automatically after you ENABLE the trigger in Dify Studio Quick Settings';
+  'trigger-entry workflow: the run above was a manual fire — a schedule or webhook starts firing on ' +
+  'its own only once you PUBLISH the workflow in Dify Studio. After publishing, the app page lists ' +
+  'the trigger with an on/off switch; check that it is on. (Before you publish, that panel says no ' +
+  'trigger has been added, even though the trigger is already in your draft.)';
 
 const TRIGGER_YAML = [
   'workflow:',

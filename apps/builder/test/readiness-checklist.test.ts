@@ -86,7 +86,9 @@ describe('spec 066 AC-1 — the deploy=none checklist is COMPLETE', () => {
   const REQUIRED: Array<[what: string, rx: RegExp]> = [
     ['add an AI model (workspace has 0)', /an AI model — add one in Dify first/],
     ['paste the Slack webhook secret', /a value for SLACK_WEBHOOK_URL/],
-    ['ENABLE the schedule trigger', /turn the trigger ON in Dify Studio → Quick Settings/],
+    // spec 095: the FACT is unchanged (the trigger needs an action in Dify before it ever fires);
+    // what changed is which action — publish, not hunt for a switch that is not on screen yet.
+    ['publish so the schedule trigger starts firing', /only once you PUBLISH it in Dify Studio/],
     ['import the workflow file', /Your workflow file is projects\/proj_readiness\/wf_readiness\/workflows\/main\.yml/],
   ];
 
@@ -119,10 +121,12 @@ describe('spec 066 AC-1 — the deploy=none checklist is COMPLETE', () => {
     assert.equal(rep.lintClean, true, 'readiness is advice, never a gate (037 AC-3b spirit)');
   });
 
-  test('selfhost/cloud keep the API-run wording; only `none` gets the reworded variant', async () => {
-    assert.match(await noteFor('cloud'), /an API run is a manual fire/,
-      'a mode that DOES run against Dify keeps 057\'s original clause');
-    assert.ok(!(await noteFor('none')).includes('an API run is a manual fire'),
+  test('selfhost/cloud keep the ran-just-now wording; only `none` gets the reworded variant', async () => {
+    // spec 095 reworded both variants (publish first, then check the switch), but the SPLIT this test
+    // guards is untouched: only a mode that actually ran against Dify may refer to that run.
+    assert.match(await noteFor('cloud'), /the run above was a manual fire/,
+      'a mode that DOES run against Dify still points at the run it just did');
+    assert.ok(!(await noteFor('none')).includes('was a manual fire'),
       'a `none` build never ran anything — the clause would describe a fiction');
   });
 });

@@ -42,6 +42,18 @@ describe('localizeNotes (spec 066 — every ADDED string ships its frame)', () =
     ['S4 probe catch-branch', 'Could not check the import automatically (timeout)', '取り込みの自動チェックができませんでした（'],
     // spec 095 S5 — the sixth blocker detail. The tool LABEL stays literal on purpose: it is the
     // string the user has to find on their own canvas, so a translated one would point at nothing.
+    // spec 095 — the reworded trigger notes + the new webhook-checklist note. All three must ship a
+    // JA frame: the old pair had one, and a reword that forgets to move the frame silently drops a JA
+    // reader back to English on the single most instruction-heavy sentence in the report.
+    ['095 trigger-entry (reworded)',
+      'trigger-entry workflow: the run above was a manual fire — a schedule or webhook starts firing on its own only once you PUBLISH the workflow in Dify Studio. After publishing, the app page lists the trigger with an on/off switch; check that it is on. (Before you publish, that panel says no trigger has been added, even though the trigger is already in your draft.)',
+      'Dify Studio で「公開」して初めて始まります'],
+    ['095 trigger-enable (reworded, deploy=none)',
+      'This workflow starts on a schedule (or a webhook), so importing it is not enough: it begins firing on its own only once you PUBLISH it in Dify Studio. After publishing, the app page lists the trigger with an on/off switch; check that it is on. (Before you publish, that panel says no trigger has been added, even though the trigger is already in your draft.)',
+      '取り込むだけでは足りません'],
+    ['095 webhook URL checklist note',
+      'Right after importing, Dify flags the webhook step with "webhook URL required" and will not let you publish yet. That one is expected: the address for receiving data is issued by your Dify, not stored in the file. Click that step once — the URL appears and the warning clears. If any other item stays in the checklist, that is a real problem — send a screenshot.',
+      'そのステップを一度クリックすれば URL が表示され'],
     ['095 S5 tool_auth',
       'a connection for Tavily Search — open that step in Dify and connect it (most tools need an API key or a sign-in). Dify will not let you publish while it says authorization is required',
       'Tavily Search の接続 — Dify で該当ステップを開いて接続してください'],
@@ -169,12 +181,17 @@ describe('localizeNotes (spec 045 — turn-failure triage frames)', () => {
 // ── Spec 057 S4 — the trigger-entry manual-enable advisory (report notes + ④ live reason) ───────
 describe('localizeNotes (spec 057 S4 — trigger-entry frame)', () => {
   // Wording-stable: report.ts TRIGGER_ENTRY_NOTE byte-exact (also appended by live-test.ts).
+  // spec 095 reworded it (publish first, then check the switch); the frame contract is unchanged.
   const EN =
-    'trigger-entry workflow: an API run is a manual fire — the schedule/webhook only runs ' +
-    'automatically after you ENABLE the trigger in Dify Studio Quick Settings';
+    'trigger-entry workflow: the run above was a manual fire — a schedule or webhook starts firing on ' +
+    'its own only once you PUBLISH the workflow in Dify Studio. After publishing, the app page lists ' +
+    'the trigger with an on/off switch; check that it is on. (Before you publish, that panel says no ' +
+    'trigger has been added, even though the trigger is already in your draft.)';
   const JA =
-    'トリガー起動のワークフローです。上のテスト実行は手動実行です — スケジュール/Webhook の自動起動は ' +
-    'Studio の Quick Settings でトリガーを有効化した後に作動します';
+    'トリガー起動のワークフローです。上の実行は手動実行でした — スケジュールや Webhook の自動起動は、' +
+    'Dify Studio で「公開」して初めて始まります。公開後、アプリ画面にトリガーがオン/オフのスイッチ付きで' +
+    '表示されるので、オンになっているか確認してください。（公開前はトリガーが下書きに入っていても、' +
+    'その欄には「トリガーがありません」と表示されます。）';
 
   it('ja: translates the frame in full (no English residue)', () => {
     setLang('ja');

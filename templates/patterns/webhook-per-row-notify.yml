@@ -28,10 +28,13 @@
 #      a code node with try/except — never assume valid JSON; empty/None/broken input must not raise.
 #   2. A custom auth header (X-ChatWorkToken, X-Api-Key, …) needs `authorization: {type: no-auth}` and
 #      the token in `headers:` via an env-var secret. An `api-key` auth type REWRITES the header away.
-#   3. A schedule/webhook trigger only fires after you ENABLE it in Dify Studio → Quick Settings.
-#      Importing the workflow is not enough. (And there is no enable-via-API yet.) NOTE: that panel
-#      shows the trigger only AFTER the workflow is published — before that it reads 「Chưa thêm trình
-#      kích hoạt / no trigger added」 even though the trigger IS in the draft.
+#   3. Importing is not enough: a schedule/webhook trigger starts firing only after you PUBLISH the
+#      workflow. Corrected in spec 095 — the old text here sent people to Quick Settings right after
+#      import to flip a switch, and that panel does not list the trigger until the workflow is
+#      published (before that it reads 「no trigger added」 even though the trigger IS in the draft).
+#      Publishing also creates the trigger already ENABLED
+#      (api/events/event_handlers/update_app_triggers_when_app_published_workflow_updated.py sets
+#      status=ENABLED), so the switch there is for turning it OFF — check it, don't hunt for it.
 #   6. The webhook node MUST carry `variables` (see the node below). Without it the node exposes no
 #      outputs, every downstream reference is 「invalid variable」, and Dify BLOCKS publish — with a
 #      clean import and four green linters. Spec 095; confirmed on Dify 1.15.

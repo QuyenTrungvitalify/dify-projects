@@ -565,3 +565,54 @@ của bản mới, có thể vô hại (node `B0: Schedule 09:00 JST` của user
 
 Vẫn **giữ warn-first**. Gỡ được một điều kiện không phải lý do bỏ hai điều kiện còn lại — chính cái
 bar này là thứ ngăn một luật đọc từ mã nguồn bên thứ ba biến thành thứ giết build của user.
+
+## 15. S2 phần còn thiếu — hai note trong `report.ts` (2026-08-12)
+
+§12 ghi S2 "đã ship" nhưng chỉ ship **nửa đầu** (`implement.md`). Nửa sau — sửa hai note đang chỉ sai
+chỗ — bị bỏ quên. Đây là phần đó.
+
+### 15.1 Note cũ sai HAI chỗ, không phải một
+
+Bản cũ: *"turn the trigger ON in Dify Studio → Quick Settings. Until you do, it never fires."*
+
+1. **Sai thứ tự** — **[ĐO]** panel đó chỉ liệt kê trigger **sau khi publish**; trước đó nó ghi
+   「Chưa thêm trình kích hoạt … có hiệu lực sau khi xuất bản」. Người đọc đi tìm một cái switch chưa
+   tồn tại. Đúng cái đã xảy ra với user.
+2. **Sai cả việc phải bật** — **[ĐỌC]** publish phát event `app_published_workflow_was_updated`, và
+   handler `update_app_triggers_when_app_published_workflow_updated.py` tạo `AppTrigger(...,
+   status=AppTriggerStatus.ENABLED)`. Tức **publish đã bật sẵn**; cái `Switch` trong trigger-card có
+   để **tắt**, không phải vì nó mặc định tắt. Câu *"until you do, it never fires"* thổi phồng một bước
+   mà publish đã làm hộ.
+
+Điểm 2 đọc từ vendor 1.13 và **chưa quan sát được sau một lần publish thành công trên 1.15** (build
+làm lộ ra tất cả những chuyện này thì chưa publish nổi). Vì thế câu chữ mới nói **"kiểm xem switch đã
+bật chưa"** chứ không khẳng định "nó đã bật rồi" — đúng dưới cả hai cách đọc, và dù thế nào cũng chỉ
+người đọc tới đúng màn hình vào đúng lúc.
+
+### 15.2 Đã sửa
+
+- `TRIGGER_ENTRY_NOTE` + `TRIGGER_ENABLE_NOTE`: publish trước → rồi kiểm switch. Giữ nguyên **sự phân
+  đôi** giữa hai biến thể (chỉ mode thực sự chạy mới được nhắc tới lần chạy đó).
+- **Note mới `WEBHOOK_URL_NOTE`**, gate bằng `hasWebhookEntry` mới (hẹp hơn `hasTriggerEntry`) nên
+  build schedule-only không bao giờ thấy nó — kiểm: `hasWebhookEntry(schedule-only) === false`.
+  Nội dung: mục "Cần có URL Webhook" là **expected**, click vào node một lần là hết. Và câu chốt bắt
+  buộc: *"nếu còn mục nào khác trong checklist thì đó mới là lỗi thật — gửi ảnh"* — vì trên đúng build
+  đó, mục còn lại **là** lỗi thật (`variables`), nên một note dạy "cảnh báo này bình thường" sẽ chôn
+  luôn nó.
+- 3 entry `NOTE_JA` (2 sửa + 1 mới). Bỏ quên là user JP rơi về tiếng Anh ở đúng câu nhiều chỉ dẫn nhất.
+- GOTCHA #3 của pattern sửa theo, kèm đường dẫn chứng minh.
+
+### 15.3 Chuỗi được canh gác tốt — 12 test đỏ khi sửa
+
+Wording được đánh dấu `wording-stable` và có **6 chỗ** ghim: `report-trigger-note.test.ts`,
+`readiness-checklist.test.ts`, `live-test.test.ts`, 2 entry `NOTE_JA`, `notes-i18n.test.ts`. Sửa chuỗi
+làm **12 test đỏ ngay** — đúng chức năng của chúng. Đã cập nhật từng chỗ **giữ nguyên ý định test**:
+ví dụ `readiness-checklist` vẫn khẳng định *chỉ mode thực sự chạy mới nhắc tới lần chạy*, chỉ đổi cụm
+từ nó bắt. Không nới lỏng assert nào.
+
+Một lỗi của tôi trong lúc sửa, ghi lại: bản `sed` đầu tiên chỉ thay dòng thứ hai của một chuỗi nối
+nhiều dòng, tạo ra câu lai vô nghĩa — test bắt được ngay. Và `hasWebhookEntry(yamlText)` đặt sai scope
+(`yamlText` là `const` trong `try`), phải hoist thành `webhookEntry` cạnh `triggerEntry`; cũng do test
+bắt, không phải do đọc lại.
+
+**Suite**: server **937/937**, web **301/301**, typecheck sạch, `web/dist` rebuild.

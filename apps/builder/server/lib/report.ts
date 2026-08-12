@@ -73,10 +73,49 @@ export { hasUnresolvedPluginTodo };
 
 /** Spec 057 S4 — the trigger-entry manual-enable advisory. ONE string, shared by the report notes
  *  (below) and the ④ live gate card (live-test.ts appends it to the parked result's reason). */
+/**
+ * Spec 095 (2026-08-12) — CORRECTED. The previous wording sent users to Quick Settings right after
+ * import to "ENABLE the trigger", and both halves of that were wrong:
+ *
+ *  1. ORDER. Before the workflow is published, that panel reads "no trigger added" — Dify only lists
+ *     a trigger there once the workflow is PUBLISHED (observed on 1.15: the panel says the trigger
+ *     "may already exist in the draft, takes effect after publishing"). A user following the old note
+ *     went hunting for a switch that does not exist yet. That is exactly what happened.
+ *  2. THE SWITCH IS ALREADY ON. Publishing raises `app_published_workflow_was_updated`, whose handler
+ *     creates the AppTrigger row with `status=AppTriggerStatus.ENABLED`
+ *     (api/events/event_handlers/update_app_triggers_when_app_published_workflow_updated.py). The
+ *     switch in Quick Settings exists so you can turn it OFF, not because it starts off. So "until you
+ *     enable it, it never fires" overstated a step that publishing performs.
+ *
+ * Read from vendor/dify-src @1.13 and NOT yet observed after a successful publish on 1.15 (the build
+ * that surfaced all this could not be published at all), which is why the wording says CHECK the
+ * switch rather than asserting it is already on. Both readings stay true, and the reader is pointed
+ * at the right screen at the right moment either way.
+ */
 // wording-stable (NOTE_JA keys off this)
 export const TRIGGER_ENTRY_NOTE =
-  'trigger-entry workflow: an API run is a manual fire — the schedule/webhook only runs ' +
-  'automatically after you ENABLE the trigger in Dify Studio Quick Settings';
+  'trigger-entry workflow: the run above was a manual fire — a schedule or webhook starts firing on ' +
+  'its own only once you PUBLISH the workflow in Dify Studio. After publishing, the app page lists ' +
+  'the trigger with an on/off switch; check that it is on. (Before you publish, that panel says no ' +
+  'trigger has been added, even though the trigger is already in your draft.)';
+
+/**
+ * Spec 095 — the webhook-only companion. A freshly imported webhook workflow ALWAYS shows a
+ * pre-publish checklist item on the webhook step ("webhook URL required"), and publishing is blocked
+ * until it clears — which reads like a broken file but is not one: the URL belongs to the Dify
+ * instance, not to the file, and Dify mints it the moment that step's panel is opened (observed on
+ * 1.15: the checklist went 3 → 2 the instant the node opened, with no typing and no publish).
+ *
+ * Deliberately says what to DO and what will be seen, and does not tell anyone to ignore a checklist
+ * item — the one other item in that list on the same build was a real bug in our own YAML (the
+ * missing `variables`), and a note that teaches "those warnings are normal" would have buried it.
+ */
+// wording-stable (NOTE_JA keys off this)
+export const WEBHOOK_URL_NOTE =
+  'Right after importing, Dify flags the webhook step with "webhook URL required" and will not let ' +
+  'you publish yet. That one is expected: the address for receiving data is issued by your Dify, not ' +
+  'stored in the file. Click that step once — the URL appears and the warning clears. If any other ' +
+  'item stays in the checklist, that is a real problem — send a screenshot.';
 
 /**
  * Spec 066 S4(a) — the SAME advisory for a `deploy: 'none'` build, which is the DEFAULT
@@ -93,9 +132,12 @@ export const TRIGGER_ENTRY_NOTE =
  * mode that needed it most.
  */
 // wording-stable (NOTE_JA keys off this)
+// Spec 095: same two corrections as TRIGGER_ENTRY_NOTE above — publish first, then CHECK the switch.
 export const TRIGGER_ENABLE_NOTE =
-  'This workflow starts on a schedule (or a webhook), so it does not run just because it exists: ' +
-  'after you import it, turn the trigger ON in Dify Studio → Quick Settings. Until you do, it never fires.';
+  'This workflow starts on a schedule (or a webhook), so importing it is not enough: it begins ' +
+  'firing on its own only once you PUBLISH it in Dify Studio. After publishing, the app page lists ' +
+  'the trigger with an on/off switch; check that it is on. (Before you publish, that panel says no ' +
+  'trigger has been added, even though the trigger is already in your draft.)';
 
 /**
  * Spec 049 D2 / 066 S4 — the ④ import-probe verdicts, in ONE place.
@@ -155,6 +197,13 @@ export function importFileNote(wfRel: string): string {
  *  Matches the node-body `type:` line, quoted or not. */
 export function hasTriggerEntry(yamlText: string): boolean {
   return /^\s*type:\s*['"]?trigger-/m.test(yamlText);
+}
+
+/** Spec 095 — narrower than {@link hasTriggerEntry}: a `trigger-webhook` entry specifically. Only a
+ *  webhook gets the "webhook URL required" checklist item, so only a webhook gets that note; a
+ *  schedule-only build showing it would be describing a screen the reader will never see. */
+export function hasWebhookEntry(yamlText: string): boolean {
+  return /^\s*type:\s*['"]?trigger-webhook(['"]|\s|$)/m.test(yamlText);
 }
 
 /** Spec 061 — does the workflow declare a `tool` node (a plugin tool the target workspace must have)?
@@ -287,6 +336,7 @@ export async function runReport(
   // Spec 057 S4: same read also feeds the trigger-entry predicate (one file read, two advisories).
   let unresolvedPluginTodo = false;
   let triggerEntry = false;
+  let webhookEntry = false; // spec 095: narrower than triggerEntry — only a webhook gets the URL note
   let toolNodePresent = false; // spec 075 S1: reused by the criteria classifier below
   let toolNote = ''; // spec 061: the plain-language tool checklist (empty ⇒ not a tool workflow)
   // The pattern-coverage advisory, RE-CHECKED against the delivered workflow. Seeded with ①'s line so
@@ -296,6 +346,7 @@ export async function runReport(
     const yamlText = await readFile(join(projectsDir, wfRel), 'utf8');
     unresolvedPluginTodo = hasUnresolvedPluginTodo(yamlText);
     triggerEntry = hasTriggerEntry(yamlText);
+    webhookEntry = hasWebhookEntry(yamlText);
     toolNodePresent = hasToolNode(yamlText);
     if (toolNodePresent) toolNote = toolInstallNote(toolLabels(yamlText));
     // task.patternAdvisory was computed at ① — BEFORE ③ wrote any YAML — so it can only compare the
@@ -403,6 +454,10 @@ export async function runReport(
   // "an API run is a manual fire" clause (no run happened). Advisory only — never feeds lintClean.
   if (triggerEntry) {
     noteParts.push(task.deploy === 'none' ? TRIGGER_ENABLE_NOTE : TRIGGER_ENTRY_NOTE);
+    // Spec 095: webhook-only, and it belongs BEFORE the source-contract note — the reader hits the
+    // checklist the moment they open the workflow, long before they go wire up the caller. Gated on
+    // the webhook node itself (not on `triggerEntry`), so a schedule-only build never sees it.
+    if (webhookEntry) noteParts.push(WEBHOOK_URL_NOTE);
   }
   // Spec 072 S2 — a webhook entry also needs its SOURCE wired (enabling the trigger is necessary but
   // not sufficient: Google Form does not call a webhook by itself). Sits right after the enable note.

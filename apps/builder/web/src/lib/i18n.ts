@@ -1134,9 +1134,16 @@ const NOTE_JA: [RegExp, string][] = [
   // gated to selfhost|cloud, and the only note naming the workflow file was gated to cloud, so the
   // default build was told neither to enable its trigger nor that the file exists — while its own
   // digest promised 「自動起動・自走」.
+  // spec 095: re-worded on both sides. The old JA sentence told a user to flip a switch that is not on
+  // that screen until the workflow is published — the same misdirection as the English it mirrored.
   [
-    /This workflow starts on a schedule \(or a webhook\), so it does not run just because it exists: after you import it, turn the trigger ON in Dify Studio → Quick Settings\. Until you do, it never fires\./g,
-    'このワークフローはスケジュール（または Webhook）で起動するため、存在するだけでは実行されません。取り込んだあと、Dify Studio → Quick Settings でトリガーを ON にしてください。ONにするまで一度も起動しません。',
+    /This workflow starts on a schedule \(or a webhook\), so importing it is not enough: it begins firing on its own only once you PUBLISH it in Dify Studio\. After publishing, the app page lists the trigger with an on\/off switch; check that it is on\. \(Before you publish, that panel says no trigger has been added, even though the trigger is already in your draft\.\)/g,
+    'このワークフローはスケジュール（または Webhook）で起動します。取り込むだけでは足りません — Dify Studio で「公開」して初めて自動起動が始まります。公開後、アプリ画面にトリガーがオン/オフのスイッチ付きで表示されるので、オンになっているか確認してください。（公開前はトリガーが下書きに入っていても、その欄には「トリガーがありません」と表示されます。）',
+  ],
+  // spec 095 — the webhook-only checklist note.
+  [
+    /Right after importing, Dify flags the webhook step with "webhook URL required" and will not let you publish yet\. That one is expected: the address for receiving data is issued by your Dify, not stored in the file\. Click that step once — the URL appears and the warning clears\. If any other item stays in the checklist, that is a real problem — send a screenshot\./g,
+    '取り込んだ直後、Dify は Webhook のステップに「Webhook URL が必要です」と表示し、まだ公開させません。これは想定どおりです — データを受け取るアドレスはファイルではなく、お使いの Dify が発行するためです。そのステップを一度クリックすれば URL が表示され、警告は消えます。チェックリストに他の項目が残る場合は本当の不具合です — スクリーンショットをお送りください。',
   ],
   [
     /Your workflow file is (.+?) \(you can copy it from the main\.yml tab\)\. To use it: in Dify Studio choose Create app → "Import DSL", then paste the file in\./g,
@@ -1209,8 +1216,8 @@ const NOTE_JA: [RegExp, string][] = [
   // spec 057 S4: the trigger-entry manual-enable advisory (report notes + the ④ live reason —
   // wording-stable in report.ts TRIGGER_ENTRY_NOTE).
   [
-    /trigger-entry workflow: an API run is a manual fire — the schedule\/webhook only runs automatically after you ENABLE the trigger in Dify Studio Quick Settings/g,
-    'トリガー起動のワークフローです。上のテスト実行は手動実行です — スケジュール/Webhook の自動起動は Studio の Quick Settings でトリガーを有効化した後に作動します',
+    /trigger-entry workflow: the run above was a manual fire — a schedule or webhook starts firing on its own only once you PUBLISH the workflow in Dify Studio\. After publishing, the app page lists the trigger with an on\/off switch; check that it is on\. \(Before you publish, that panel says no trigger has been added, even though the trigger is already in your draft\.\)/g,
+    'トリガー起動のワークフローです。上の実行は手動実行でした — スケジュールや Webhook の自動起動は、Dify Studio で「公開」して初めて始まります。公開後、アプリ画面にトリガーがオン/オフのスイッチ付きで表示されるので、オンになっているか確認してください。（公開前はトリガーが下書きに入っていても、その欄には「トリガーがありません」と表示されます。）',
   ],
   // spec 032: the `infra_degraded` reason (live run couldn't reach Dify). Two backend prefixes wrap a
   // sync.py `_fmt_request_error` variant; translate the fixed phrases, keep the exception class name.
