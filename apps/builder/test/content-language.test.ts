@@ -167,6 +167,13 @@ describe('094 · gate-question shape (S4) + writing-for-the-reader (S5)', () => 
     assert.match(body, /nothing to pick/, 'it warns off the picker dead end');
     assert.match(body, /webhook URL required/, 'the expected-after-import item is distinguished');
     assert.match(body, /authorization required/, 'the tool-credential case is distinguished');
+    // The two additions after the first real fix round on the corrected code (2026-08-12): that round
+    // cleared the known causes correctly, then invented a new one and rewired a graph that a full
+    // reference check says was already clean.
+    assert.match(body, /NEVER the cause of "invalid variable"/, 'env/sys refs ruled out explicitly');
+    assert.match(body, /STOP — do NOT edit the file/, 'a no-cause-found round must not write');
+    assert.match(body, /What is left in the checklist that no file change can fix/,
+      'the user gets an explicit report of what cannot be fixed — their stated requirement');
   });
 
   test('S2(a) · SKILL.md no longer claims Grep/Glob are callable without ToolSearch', () => {

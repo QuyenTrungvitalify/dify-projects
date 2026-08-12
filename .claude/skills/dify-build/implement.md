@@ -92,6 +92,11 @@ already knowable. Guessing here is worse than saying "I don't know yet": the use
 | "webhook URL required" on the webhook node itself | expected after any import: the URL belongs to the Dify instance, not the file | tell the user to click that step once; Dify mints the URL and the item clears. Change nothing in the file |
 | "authorization required" on a `tool` node | that tool has no credentials in their workspace | tell them to connect it in Dify (they hold the key). Not a file problem |
 
+**A reference starting `env.` / `sys.` / `conversation.` / `rag.` is NEVER the cause of "invalid variable".**
+Dify's checklist skips those prefixes outright (`isSpecialVar` in the editor). So an input row reading an
+environment variable is legal wherever it appears, in a `code` node included. Two separate fix rounds
+have now guessed at exactly this and rewired a working graph for it — do not make it three.
+
 Two traps this table exists to stop:
 - **A valid source node is not the same as a source node that exposes outputs.** A webhook node with a
   URL passes its own validation and still publishes nothing to downstream nodes without `variables`.
@@ -101,8 +106,22 @@ Two traps this table exists to stop:
   by the same `variables` list, so there will be nothing to pick, and deleting the existing rows first
   destroys working configuration.
 
-If the symptom is not in that table, say so plainly and ask for the specific screen — do not
-extrapolate from a similar-looking row.
+**If the table rules every cause out, STOP — do NOT edit the file.** "I could not reproduce this from
+the file; here is what I checked and here is what I need" is a COMPLETE and correct answer, and the one
+the user is asking for. An edit made to look responsive is worse than no edit: it changes a file that
+was already right, and it buries the real remaining items under a "fixed it" story the user then trusts.
+Measured, twice: a round that had correctly cleared the known causes went on to invent a new one and
+restructured the graph — on a file that a full reference check says is clean.
+
+So when nothing in the table matches, your reply is exactly three things and no file writes:
+1. **What you verified**, naming the file facts you checked (e.g. "the receiving step declares all four
+   output fields", "every reference resolves to a step that exposes it").
+2. **What is left in the checklist that no file change can fix** — the instance-owned URL, the tool
+   credentials — stated plainly so the user knows it is expected and not a defect you skipped.
+3. **The one thing you need** to go further: the exact step name Dify is marking, or a screenshot.
+
+Never present an unverified cause as the cause. If you are guessing, the word "guess" belongs in the
+sentence — or the sentence should not be written.
 
 ## Do — follow AGENTS.md §3 exactly
 1. **Re-read `{{PRIOR_ARTIFACT}}` (`SPEC.md`)** — treat it as the source of truth for what to build.
