@@ -122,19 +122,36 @@ export function renderMarkdownHtml(text: string, _workingDir?: string): string {
   while (i < lines.length) {
     const line = lines[i];
 
-    // Fenced code block: ```lang … ```
-    const fence = line.match(/^```(\w*)\s*$/);
-    if (fence) {
+    // Fenced code block, CommonMark rules — the length of the fence MATTERS. A run of 3+ backticks
+    // (or tildes) opens, and only a run of AT LEAST that many closes it. That is the one escape hatch
+    // for the case that broke here: an answer that hands over a whole document to copy, where the
+    // document itself contains ``` blocks. Wrapping it in ```` is the correct way to say "all of this
+    // is one block" — the old `^```(\w*)$` matched neither the 4-backtick open nor its close, so the
+    // wrapper rendered as literal text and the document's own fences toggled at the wrong places:
+    // half the block came out as a code box, the rest spilled into the page as prose.
+    // The info string is now taken as-is instead of `\w*`, which had quietly rejected every ordinary
+    // label with punctuation in it (```sh-session, ```c++, ```js title="a.js") — those pasted the fence
+    // line into the paragraph above and left an empty code box behind.
+    const fence = line.match(/^( {0,3})(`{3,}|~{3,})(.*)$/);
+    // A backtick fence's info string may not itself contain a backtick (CommonMark), which is what
+    // keeps an inline run like ``` `x` and `y` ``` from being read as the start of a block.
+    if (fence && !(fence[2][0] === '`' && fence[3].includes('`'))) {
       closeList();
-      const lang = fence[1] ? ` data-lang="${esc(fence[1])}"` : '';
+      const [, pad, marker, info] = fence;
+      const lang = info.trim().split(/\s+/)[0] ?? '';
+      const langAttr = lang ? ` data-lang="${esc(lang)}"` : '';
+      // Same character, at least as long, nothing but whitespace after it.
+      const closer = new RegExp(`^ {0,3}${marker[0] === '`' ? '`' : '~'}{${marker.length},}\\s*$`);
       const body: string[] = [];
       i++;
-      while (i < lines.length && !/^```\s*$/.test(lines[i])) {
-        body.push(lines[i]);
+      while (i < lines.length && !closer.test(lines[i])) {
+        // An indented fence indents its content too — strip the opener's indent, no more.
+        body.push(lines[i].replace(new RegExp(`^ {0,${pad.length}}`), ''));
         i++;
       }
-      i++; // consume the closing fence (or EOF)
-      html.push(`<pre class="md-code"${lang}><code>${esc(body.join('\n'))}</code></pre>`);
+      i++; // consume the closing fence (or EOF — an unterminated block still renders, which is what
+      //      a half-streamed answer needs)
+      html.push(`<pre class="md-code"${langAttr}><code>${esc(body.join('\n'))}</code></pre>`);
       continue;
     }
 
@@ -225,7 +242,9 @@ export function renderMarkdownHtml(text: string, _workingDir?: string): string {
     while (
       i < lines.length &&
       lines[i].trim() !== '' &&
-      !/^```/.test(lines[i]) &&
+      // Must match what the fence scanner above accepts, or a paragraph swallows the fence line that
+      // was meant to end it (that is how ```sh-session ended up glued to the prose before it).
+      !/^ {0,3}(`{3,}|~{3,})/.test(lines[i]) &&
       !/^#{1,6}\s/.test(lines[i]) &&
       !/^[-*+]\s/.test(lines[i]) &&
       !/^\d+\.\s/.test(lines[i]) &&

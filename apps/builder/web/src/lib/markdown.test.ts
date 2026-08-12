@@ -148,3 +148,75 @@ describe('renderMarkdownHtml — GFM tables', () => {
     expect(out).toContain('<p>a | b | c</p>');
   });
 });
+
+/**
+ * Fence LENGTH and the info string. The reported symptom was a hand-over block ("copy this whole
+ * document") that rendered as a code box which stopped mid-document, with the remainder spilling into
+ * the page as prose. Cause: the scanner only understood exactly three backticks and a `\w*` label, so
+ * the one correct way to wrap content that itself contains ``` — a longer fence — was unreadable to it,
+ * and every label with punctuation (`sh-session`, `c++`) fell out of the code path entirely.
+ */
+describe('renderMarkdownHtml — fenced blocks', () => {
+  const blocks = (html: string): number => (html.match(/<pre class="md-code"/g) || []).length;
+
+  it('a ````-fence holds content that itself contains ``` (the copy-a-document case)', () => {
+    const out = renderMarkdownHtml(
+      ['````markdown', '# Doc', '', '```', 'inner', '```', '', 'tail', '````'].join('\n')
+    );
+    // ONE block, and everything is inside it — no half-block plus loose prose.
+    expect(blocks(out)).toBe(1);
+    expect(out).toContain('data-lang="markdown"');
+    expect(out).toContain('# Doc');
+    expect(out).toContain('tail');
+    expect(out).not.toContain('<p>tail</p>');
+    expect(out).not.toContain('<h1>Doc</h1>'); // the wrapped text stays verbatim, never re-parsed
+  });
+
+  it('a shorter run inside a longer fence does not close it', () => {
+    const out = renderMarkdownHtml(['`````', '```', 'x', '```', '`````'].join('\n'));
+    expect(blocks(out)).toBe(1);
+    // Assert the CONTENT, not just the count: before the fix this input also produced exactly one
+    // block — the wrong one, opened by the inner ``` while the ````` lines fell out as paragraphs.
+    expect(out).toContain('<code>```\nx\n```</code>');
+  });
+
+  it('a fence closes only on a run at least as long as the one that opened it', () => {
+    const out = renderMarkdownHtml(['```', 'a', '````', 'b', '```'].join('\n'));
+    // The 4-run closes the 3-fence (>= is the rule), so `b` lands outside it.
+    expect(out).toContain('<code>a</code>');
+    expect(out).toContain('<p>b</p>');
+  });
+
+  it('keeps a label with punctuation in it (and puts the code IN the block)', () => {
+    for (const [label, expected] of [['sh-session', 'sh-session'], ['c++', 'c++'], ['js title="a.js"', 'js']] as const) {
+      const out = renderMarkdownHtml(['```' + label, 'CODE_LINE', '```'].join('\n'));
+      expect(out, label).toContain(`data-lang="${expected.replace(/"/g, '&quot;')}"`);
+      expect(out, label).toContain('<code>CODE_LINE</code>');
+      expect(out, label).not.toContain('<p>'); // the fence line used to be glued into a paragraph
+    }
+  });
+
+  it('accepts up to 3 spaces of indent and strips that much from the content', () => {
+    const out = renderMarkdownHtml(['   ```', '   code', '   ```'].join('\n'));
+    expect(blocks(out)).toBe(1);
+    expect(out).toContain('<code>code</code>');
+  });
+
+  it('supports ~~~ fences without eating them as strikethrough', () => {
+    const out = renderMarkdownHtml(['~~~', 'code', '~~~'].join('\n'));
+    expect(blocks(out)).toBe(1);
+    expect(out).toContain('<code>code</code>');
+    expect(out).not.toContain('<del>');
+  });
+
+  it('leaves an unterminated fence open to EOF (a half-streamed answer still renders)', () => {
+    const out = renderMarkdownHtml(['```', 'still', 'streaming'].join('\n'));
+    expect(blocks(out)).toBe(1);
+    expect(out).toContain('still\nstreaming');
+  });
+
+  it('does not read an inline backtick run as a fence opener', () => {
+    const out = renderMarkdownHtml('``` `a` and `b` ```');
+    expect(blocks(out)).toBe(0);
+  });
+});

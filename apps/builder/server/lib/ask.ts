@@ -31,6 +31,22 @@ import { bumpRev, noteUserLang, saveTask, taskDir, workflowDir, type Task } from
  *  Env-tunable (spec 048 D1): read ONCE at module load, so a change needs a restart. */
 export const ASK_TIMEOUT_MS = Number(process.env.BUILDER_ASK_TIMEOUT_MS) || 3 * 60 * 1000;
 
+/**
+ * Every answer surface renders Markdown, where a fence closes at the FIRST run of backticks at least as
+ * long as the one that opened it. A hand-over block ("copy this whole document") whose content has its
+ * own ``` sections therefore cut ITSELF in half: the reader got a code box that stopped mid-document and
+ * the rest spilled into the page as prose — unreadable, and impossible to copy as one piece. Observed on
+ * a Build-Requirement hand-over. The renderer understands ````-fences (see web/src/lib/markdown.ts), so
+ * the escape hatch exists; this line is what makes the model reach for it.
+ *
+ * Shared by all three ask surfaces on purpose: the rule is about the shared RENDERER, so letting the
+ * three prompts drift on it would just mean fixing this three times.
+ */
+export const FENCE_RULE =
+  ' FORMATTING: when a fenced block you write contains ``` anywhere inside it (e.g. handing over a whole' +
+  ' document to copy), open and close that block with FOUR backticks (````) or more — always longer than' +
+  ' any run of backticks inside it. Otherwise the block ends early and the rest leaks into the page.';
+
 /** One anomaly the layer-2 restore found + already reverted (FIX-M — a file OTHER than the phase's own
  *  gate artifact is just as reportable as the artifact itself). */
 export interface AskFileAnomaly {
@@ -272,7 +288,7 @@ export async function askWithin(task: Task, text: string, ctx: OrchestratorCtx):
     const prompt =
       languagePin({ chatLang: task.chatLang, latest: text, hint: task.langHint, requirement: task.requirement }) +
       `${text}\n\n(Answer conversationally. Do NOT create, modify, or delete any file — this is a ` +
-      `question, not a change request.)` +
+      `question, not a change request.${FENCE_RULE})` +
       attachmentBlock(task.attachments);
 
     let gotText = false;
@@ -394,7 +410,7 @@ export async function askTestWithin(task: Task, text: string, ctx: OrchestratorC
       languagePin({ chatLang: task.chatLang, latest: text, hint: task.langHint, requirement: task.requirement }) +
       (seed ? `You are answering a question about the following build.\n\n${seed}\n\n---\n\n` : '') +
       `${text}\n\n(Answer conversationally. Do NOT create, modify, or delete any file — this is a ` +
-      `question, not a change request.)` +
+      `question, not a change request.${FENCE_RULE})` +
       // Same omission as the consult resume path: this turn accepts files (the ④ gate and a terminal
       // build's chat both offer attach), saved them, and then told the model nothing about them.
       attachmentBlock(task.attachments);
@@ -470,7 +486,10 @@ export const CONSULT_PREAMBLE =
   'When the user wants to actually build the workflow, do NOT just decline: tell them to click the ' +
   '"Start build from this chat" button at the top of this chat — it turns this whole conversation into ' +
   'a ready-to-run build requirement (they can edit it before running) — and keep helping them shape the ' +
-  'idea until they click it. Never tell them to copy-paste text into another box by hand.';
+  'idea until they click it. Never tell them to copy-paste text into another box by hand.' +
+  // The consult is where hand-over blocks actually happen (it is the surface that drafts a document for
+  // the user to take elsewhere), but the rule is shared — see FENCE_RULE.
+  FENCE_RULE;
 
 /** Spec 082 S3 — one YAML report card: the MACHINE checks (no LLM, ~1s) run on a `.yml` the user
  *  dropped into the consult. `lint` = the same 4-linter gate the promote paste door uses ([] = clean);
