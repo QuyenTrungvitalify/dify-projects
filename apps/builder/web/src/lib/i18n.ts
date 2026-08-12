@@ -214,6 +214,14 @@ const EN: Dict = {
   /* spec 094 S1 — the round that changed nothing. Says WHAT happened and WHERE that leaves the user;
      it never says the round was wrong (answering without editing is often the correct answer). The
      model's own explanation of why is already rendered above this line. */
+  /* spec 096 — the composer Model chip. The alias values are product names: identical in both
+     languages, and they are what the user would type at a CLI, so they stay as-is. */
+  model: 'Model',
+  model_opus: 'Opus',
+  model_sonnet: 'Sonnet',
+  model_haiku: 'Haiku',
+  model_fable: 'Fable',
+  modelHint: 'Which model runs every step of this task. Each option means the newest of that family your environment can reach. Fixed once the task starts.',
   gateNoChangeBadge: 'No file change',
   gateNoChangeSummary: 'This round did not change the workflow file — the answer above explains why. If you expected an edit, say what should differ and ask again.',
   gateNoChangeImport: 'The file is byte-for-byte the one imported at {time}, so importing again would send Dify what it already has.',
@@ -695,6 +703,13 @@ const JA: Dict = {
   gateReadyTitle: '続行',
 
   /* spec 094 S1 */
+  /* spec 096 */
+  model: 'モデル',
+  model_opus: 'Opus',
+  model_sonnet: 'Sonnet',
+  model_haiku: 'Haiku',
+  model_fable: 'Fable',
+  modelHint: 'このタスクの全ステップを実行するモデル。各項目はご利用環境で使える、その系列の最新版を指します。開始後は変更できません。',
   gateNoChangeBadge: 'ファイル変更なし',
   gateNoChangeSummary: 'この回はワークフローファイルを変更していません — 理由は上の回答をご覧ください。修正が入るはずだった場合は、どこが違うべきかを書いてもう一度お伝えください。',
   gateNoChangeImport: '{time} にインポートしたファイルと1バイトも違いません。もう一度インポートしても、Dify にすでにあるものを送ることになります。',

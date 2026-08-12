@@ -23,7 +23,7 @@ import {
   ACCEPTED_EXT,
   isImageMime,
 } from '../lib/attachments';
-import type { ThreadAttachment } from '../store';
+import { MODEL_OPTIONS, type ThreadAttachment } from '../store';
 import type {
   PhaseStates,
   PhaseKey,
@@ -838,6 +838,21 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
           <SettingSelect label={tr('mode')} value={mode}
             options={[{ v: 'consult', l: tr('modeConsult') }, { v: 'build', l: tr('modeBuild') }]}
             onChange={(v) => onMode(v as 'consult' | 'build')} title={tr('modeHint')} />
+        )}
+        {/* spec 096: the Model chip sits OUTSIDE the build-only block below — it applies to a consult
+            chat exactly as much as to a build, and offering a choice that is silently dropped in one of
+            the two modes would be worse than not offering it. Start-bound like Workflow/Fast: locked
+            once the task is running, so every phase of one build is the same bet. Values are family
+            ALIASES, so each one means "the newest of that family this environment can reach".
+            `shrink` is load-bearing, not cosmetic: measured at an 820px viewport this chip added 93px
+            to a row that fit exactly without it, and `.composer-row` is `flex-wrap: nowrap` by design
+            (only the workflow chip was allowed to truncate). Marking this one shrinkable too keeps the
+            invariant the row exists to hold — everything on ONE line, Send never pushed off. */}
+        {settings && onSettings && (
+          <SettingSelect shrink label={tr('model')} value={settings.model ?? 'opus'}
+            options={MODEL_OPTIONS.map((m) => ({ v: m, l: tr(`model_${m}` as never) }))}
+            onChange={(v) => onSettings({ model: v })}
+            disabled={lockStartBound} title={tr('modelHint')} />
         )}
         {/* spec 034 D3: the settings row is optional — a terminal Ask composer omits settings/onSettings,
             so this whole block disappears and only the spacer + attach + send remain. spec 082: the build

@@ -184,9 +184,17 @@ export function App() {
   const activeWorkflow = task
     ? activeSidebarWorkflow(task)
     : (editingSel?.project ? `${editingSel.project}/${editingSel.workflow}` : null);
-  const settingsSubset: Settings = { workflow: settings.workflow, confirm: settings.confirm, fast: settings.fast };
+  // spec 096: `model` MUST be in this subset — it is what the composer chip DISPLAYS. Left out, the
+  // chip fell back to its default label and read "Opus" forever while the picked value was already
+  // stored and sent: the one state where a control lies about what it is doing.
+  const settingsSubset: Settings = { workflow: settings.workflow, confirm: settings.confirm, fast: settings.fast, model: settings.model };
   const onSettings = (patch: Partial<Settings>): void => {
     store.settings.value = { ...store.settings.value, ...patch };
+    // spec 096: the model choice outlives the tab. A team that decided on Opus decided once — having
+    // to re-pick it every reload is how a default quietly becomes "whatever was there". Persisted HERE
+    // (the single funnel for composer setting changes) rather than inside the signal, so the store stays
+    // a plain value holder.
+    if (patch.model) store.rememberModel(patch.model);
   };
   // spec 029: the new-task crumb + its clear action (reads the FULL signal, incl. targetProject).
   const crumb = newTaskCrumb(settings.workflow, settings.targetProject, tree);

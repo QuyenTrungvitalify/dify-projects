@@ -214,6 +214,7 @@ async function askTurn(
     log,
     resumeSessionId: task.sessionIds[phaseId],
     askMode: true,
+    model: task.model, // spec 096 — same start-bound choice as the build phases
   });
   setSession(task.taskId, session); // hand the child to /cancel (D9)
   const turn = await runTurn(
@@ -431,6 +432,7 @@ export async function askTestWithin(task: Task, text: string, ctx: OrchestratorC
       log,
       resumeSessionId: task.sessionIds.askTest, // D2: continue the same ④/terminal conversation if any
       askMode: true, // D4 layer 1: BUILDER_ASK_MODE — the hook denies every write
+      model: task.model, // spec 096 — same start-bound choice as the build phases
     });
     setSession(task.taskId, session); // hand the child to /cancel (scoped abort, same as askWithin — D9)
 
@@ -654,6 +656,7 @@ export async function consultWithin(
       // outside phases" (034 D2), and a consult never has phase sessions to collide with.
       resumeSessionId: task.sessionIds.askTest,
       askMode: true, // layer-1 write-deny: BUILDER_ASK_MODE → the hook denies every Write/Edit
+      model: task.model, // spec 096 — same start-bound choice as the build phases
     });
     setSession(task.taskId, session); // hand the child to /cancel (scoped abort, D9)
 

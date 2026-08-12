@@ -11,6 +11,20 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**You can pick the model, and it stops being whatever the machine felt like (spec 096)**
+- A **Model** chip now sits under the composer input: Opus · Sonnet · Haiku · Fable. It applies to a
+  chat as much as to a build, is chosen with the first message and then fixed for that task, and is
+  remembered across reloads.
+- Each option means **the newest model of that family your environment can reach** — they are aliases,
+  not pinned versions, so the list does not go stale after a release. The exact model that ran is still
+  recorded per phase in the run's own record.
+- Why it matters: until now nothing chose a model. Three consecutive real builds ran on different mixes
+  (Haiku+Opus, Haiku+Opus, all-Haiku) with no way to control or predict it — the same before/after
+  comparison could have credited a prompt change for a model change, and a 50-node workflow built on the
+  small model is not the same bet as one built on the large one.
+- A task created before this keeps behaving exactly as it did: with no choice recorded, nothing is
+  pinned and the CLI picks, as before.
+
 **Webhook workflows can be published again, and tools you must connect are named (spec 095)**
 - A workflow built around a webhook trigger could be imported into Dify and then **not published**:
   Dify's pre-publish checklist flagged every step reading from the webhook with "invalid variable",

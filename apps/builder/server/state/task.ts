@@ -274,6 +274,14 @@ export interface Task {
   importAppMode?: string | null;
   confirmMode: ConfirmMode; // drives pause-vs-auto-advance at each boundary (§D)
   /**
+   * Spec 096 — the model every turn of THIS task spawns with, as a family alias (see
+   * {@link MODEL_CHOICES}). START-BOUND on purpose: chosen once with the first message and then fixed,
+   * like `fastMode` and the workflow target, so all four phases of one build are the same bet and a
+   * dossier means something. Absent ⇒ `--model` is not passed and the CLI picks, which is exactly how
+   * every task behaved before this field existed.
+   */
+  model?: ModelChoice;
+  /**
    * The user's CHAT-language setting, carried from the composer at create time. Absent on an older
    * task.json ⇒ 'auto' (back-compat: the language is inferred exactly as before). Governs the
    * conversation ONLY — what ships inside the deliverable still follows the requirement's language.
@@ -404,6 +412,8 @@ export interface CreateTaskInput {
   workflow?: string | null;
   /** verbose `confirm_mode` OR internal value — normalized via {@link normalizeConfirmMode}. */
   confirmMode?: string;
+  /** spec 096: public `model` — a family alias or a full id; normalized via {@link normalizeModel}. */
+  model?: string;
   /** spec 036 D3: IGNORED by {@link createTask} — deploy is no longer start-bound (stamped at gate-time
    *  from reachable creds). Retained on the input for wire back-compat; a sent value is a no-op. */
   deploy?: string;
@@ -439,6 +449,35 @@ export function normalizeConfirmMode(raw: unknown): ConfirmMode {
   if (s === 'spec_only' || s === 'confirm at spec only' || s === 'spec only') return 'spec_only';
   if (s === 'each_step' || s === 'confirm each step' || s === 'each step') return 'each_step';
   return 'each_step';
+}
+
+/**
+ * Spec 096 — the model choices offered for a build, newest-capability first. These are CLI ALIASES,
+ * deliberately not pinned ids: `claude --model` documents an alias as "the latest model" of that
+ * family, so `opus` keeps meaning the newest Opus this environment can reach and this list never goes
+ * stale behind a release. Verified by real spawns under the Builder's own flags (2026-08-12):
+ * opus→claude-opus-5 · sonnet→claude-sonnet-5 · haiku→claude-haiku-4-5-20251001 · fable→claude-fable-5.
+ *
+ * The first entry is {@link DEFAULT_MODEL}. `opus` leads because ③ Implement builds a 27–52 node graph
+ * and that is where the money and the risk are; the resolved id still lands in `task.cost[*].model`,
+ * so a dossier keeps proving what actually ran rather than what was requested.
+ */
+export const MODEL_CHOICES = ['opus', 'sonnet', 'haiku', 'fable'] as const;
+export type ModelChoice = (typeof MODEL_CHOICES)[number];
+export const DEFAULT_MODEL: ModelChoice = MODEL_CHOICES[0];
+
+/**
+ * Normalize the public `model` field to one of {@link MODEL_CHOICES}. Unknown/missing → `undefined`,
+ * NOT the default: an absent value must leave `--model` off the spawn so a pre-096 task keeps its
+ * old ambient behaviour, and so a typo can never silently become a different model than asked for.
+ * A full id (`claude-opus-5`) maps back to its family alias — the alias is what we want to store, so
+ * a task re-run months later gets that family's newest rather than a frozen version.
+ */
+export function normalizeModel(raw: unknown): ModelChoice | undefined {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (!s) return undefined;
+  const hit = MODEL_CHOICES.find((m) => s === m || s.includes(`-${m}-`) || s.startsWith(`claude-${m}`));
+  return hit;
 }
 
 /** Normalize the public `fast_mode`/`fast` field to a boolean (spec 028). Accepts a real boolean or
@@ -594,6 +633,8 @@ export async function createTask(projectsDir: string, input: CreateTaskInput): P
     appId: null,
     appUrl: null,
     confirmMode: normalizeConfirmMode(input.confirmMode),
+    model: normalizeModel(input.model), // spec 096 — start-bound; undefined keeps the pre-096 behaviour
+
     fastMode,
     chatLang: normalizeChatLang(input.chatLang),
     // `langHint` is deliberately NOT seeded from the requirement: the requirement is already the last
@@ -690,7 +731,7 @@ export async function createPromoteTask(
  *  mid-chat is harmless: reconcileOnBoot only touches running/scaffolding, and 'done' is neither. */
 export async function createConsultTask(
   projectsDir: string,
-  input: { text: string; name?: string | null; chatLang?: string | null }
+  input: { text: string; name?: string | null; chatLang?: string | null; model?: string | null }
 ): Promise<Task> {
   const taskId = mintTaskId();
   const text = input.text.trim();
@@ -710,6 +751,9 @@ export async function createConsultTask(
     appUrl: null,
     confirmMode: 'each_step',
     fastMode: false,
+    // Spec 096: the composer's Model chip shows in BOTH modes, so a consult must honour it too —
+    // offering a choice and then ignoring it is worse than not offering one.
+    model: normalizeModel(input.model),
     chatLang: normalizeChatLang(input.chatLang),
     phase: 'test',
     status: 'done',

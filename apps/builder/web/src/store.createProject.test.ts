@@ -26,7 +26,7 @@ beforeEach(() => {
   createProjectMock.mockReset();
   treeMock.mockClear();
   treeMock.mockResolvedValue({ projects: [] });
-  settings.value = { workflow: 'grammar', confirm: 'auto', seed: 's1', fast: true, targetProject: null, mode: 'build', chatLang: 'auto' };
+  settings.value = { workflow: 'grammar', confirm: 'auto', seed: 's1', fast: true, targetProject: null, mode: 'build', chatLang: 'auto', model: 'opus' };
 });
 
 describe('createProject — success (D5)', () => {

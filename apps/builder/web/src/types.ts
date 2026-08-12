@@ -128,6 +128,8 @@ export interface WireTask {
    *  import overwrites in place. Its presence is what tells the Import gate to promise an update rather
    *  than a new app. Distinct from `appId`, which the live-test path also writes (throwaway test apps). */
   importAppId?: string | null;
+  /** spec 096: the start-bound model alias this task runs on (absent on a pre-096 task). */
+  model?: string;
   /** spec 094 S1: the last ③ turn left the workflow file byte-identical — a fix round that changed
    *  nothing. `undefined` = not measured (pre-094 build): render nothing, never "unchanged". */
   artifactUnchanged?: boolean;
@@ -258,6 +260,9 @@ export interface Settings {
   /** spec 028: `⚡ Fast build` toggle (merge Analyze+Spec). Optional so the conversation-view composer
    *  (which builds a Settings without it) still type-checks; absent ⇒ off. */
   fast?: boolean;
+  /** spec 096: the model family alias every turn of this task spawns with. Optional so the
+   *  conversation-view composer (which builds a partial Settings) still type-checks. */
+  model?: string;
   // spec 036: `deploy` + `test` removed — they are no longer composer settings; deploy/testMode are
   // decided at the test gate from reachable creds (difyTargets), then stamped on the task at gate-time.
 }

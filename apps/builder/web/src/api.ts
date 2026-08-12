@@ -74,6 +74,9 @@ export interface CreateTaskBody {
   /** The chat-language setting: 'vi' | 'ja'. Omitted ⇒ the server reads 'auto' (infer from the text),
    *  which is exactly what every client did before the setting existed. */
   chat_lang?: string;
+  /** spec 096: the model family alias (`opus`/`sonnet`/`haiku`/`fable`) every turn of this task spawns
+   *  with. Omitted ⇒ the server passes no `--model` and the CLI picks, as it did before 096. */
+  model?: string;
 }
 
 /** The four file-accepting POSTs echo back WHERE each file landed: indices into `task.attachments`,
@@ -109,7 +112,7 @@ export const api = {
     }),
   /** spec 082: POST /api/consult → start a `kind:'consult'` chat task (chat lane; a running build never
    *  blocks it). `text` is the first message; every later message is a plain api.ask(id, text). */
-  createConsult: (body: { text: string; files?: Attachment[]; chat_lang?: string }): Promise<WireTask & UploadIdx> =>
+  createConsult: (body: { text: string; files?: Attachment[]; chat_lang?: string; model?: string }): Promise<WireTask & UploadIdx> =>
     request('POST', '/api/consult', body),
   /** spec 082: GET /api/consults → the consult chats (newest first) for the sidebar's own section. */
   consults: (): Promise<{ consults: WireTreeTask[] }> => request('GET', '/api/consults'),

@@ -221,6 +221,9 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       workflow: (body.workflow as string | null | undefined) ?? null,
       // Accept the spec's public `confirm_mode` (verbose) AND the internal token; normalized in createTask.
       confirmMode: (body.confirm_mode ?? body.confirmMode) as string | undefined,
+      // spec 096: a family alias (`opus`/`sonnet`/`haiku`/`fable`); normalizeModel drops anything else
+      // rather than guessing, so a typo can never silently run a different model than was asked for.
+      model: (body.model ?? body.model_alias) as string | undefined,
       // NOTE: `deploy`/`test_mode` are deliberately NOT forwarded (spec 036 D3). They are stamped at
       // GATE-time from reachable creds, never start-bound — createTask hard-codes 'none'/'static' and
       // does not read them. Forwarding them (and a `DEFAULT_DEPLOY` env fallback) only made a dead knob
@@ -357,6 +360,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       text,
       name: (body.name as string | null | undefined) ?? null,
       chatLang: (body.chat_lang ?? body.chatLang) as string | null | undefined,
+      model: (body.model ?? body.model_alias) as string | null | undefined, // spec 096
     });
 
     // Persist files BEFORE acquiring the lane (a disk failure → 500 with NO lock held) — same ritual

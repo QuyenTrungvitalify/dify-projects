@@ -44,6 +44,50 @@ export interface SessionOptions {
    *  hook (permission-gate.ts `decide()`) denies every Write/Edit/MultiEdit/NotebookEdit outright —
    *  an Ask turn may resume a phase session but must never mutate its artifact. */
   askMode?: boolean;
+  /**
+   * Spec 096 — `--model` for this spawn. An ALIAS (`opus` / `sonnet` / `haiku` / `fable`), not a
+   * pinned id: the CLI documents an alias as "the latest model" of that family, so the alias keeps
+   * meaning "newest available in THIS environment" with no version table for us to maintain and go
+   * stale. Verified by real spawns under these exact flags — `opus`→claude-opus-5,
+   * `sonnet`→claude-sonnet-5, `haiku`→claude-haiku-4-5-20251001, `fable`→claude-fable-5.
+   *
+   * Omitted ⇒ the flag is not passed and the CLI picks, which is what every run did before this: the
+   * model was AMBIENT. Measured drift across three real builds (haiku+opus, haiku+opus, all-haiku)
+   * with nothing in the repo choosing — `--setting-sources local` even excludes the operator's own
+   * ~/.claude preference. `cost.ts` recorded which model ran but nothing selected it, so a
+   * before/after campaign could credit a prompt change for a model change.
+   */
+  model?: string;
+}
+
+/**
+ * The child `claude` argv, as a PURE function of the options (spec 096 extracted it out of `spawn` so
+ * the flag set is assertable without creating a process — the ESM `child_process` binding cannot be
+ * stubbed, and "does this spawn carry --model" is exactly the kind of thing that must be pinned).
+ * Order matters in one place only: `--resume` must precede the prompt.
+ */
+export function buildSpawnArgs(o: SessionOptions): string[] {
+  const args: string[] = [];
+
+  // Resume must come before prompt.
+  if (o.resumeSessionId) args.push('--resume', o.resumeSessionId);
+
+  // stdin carries the prompt, so special characters (a prompt starting with "---") are never read as
+  // CLI flags.
+  args.push('--output-format', 'stream-json', '--verbose');
+
+  // Spec 096 — pin the model for this turn (see SessionOptions.model). ONLY when asked: with no value
+  // the flag is absent and the argv is byte-identical to every pre-096 spawn, so a task created before
+  // this shipped keeps running exactly as it did.
+  if (o.model) args.push('--model', o.model);
+
+  // Model C spawn flags (spike findings §5): broad-allow acceptEdits + candidate settings file +
+  // local-only layer (excludes host ~/.claude AND the repo's project .claude layer, incl. its
+  // permission-gate.js PreToolUse hook — findings §2/E4).
+  args.push('--permission-mode', 'acceptEdits');
+  args.push('--settings', o.settingsPath);
+  args.push('--setting-sources', 'local');
+  return args;
 }
 
 export interface ClaudeStreamEvent {
@@ -98,23 +142,7 @@ export class ClaudeSession {
 
   async spawn(prompt: string): Promise<boolean> {
     this.stderrRing = []; // 045 D1: per-spawn reset — the tail always belongs to THIS turn
-    const args: string[] = [];
-
-    // Resume must come before prompt.
-    if (this.options.resumeSessionId) {
-      args.push('--resume', this.options.resumeSessionId);
-    }
-
-    // Use stdin for prompt to avoid shell interpretation issues with special characters
-    // (e.g., prompts starting with "---" being interpreted as CLI flags).
-    args.push('--output-format', 'stream-json', '--verbose');
-
-    // Model C spawn flags (spike findings §5): broad-allow acceptEdits + candidate settings
-    // file + local-only layer (excludes host ~/.claude AND the repo's project .claude layer,
-    // incl. its permission-gate.js PreToolUse hook — findings §2/E4).
-    args.push('--permission-mode', 'acceptEdits');
-    args.push('--settings', this.options.settingsPath);
-    args.push('--setting-sources', 'local');
+    const args = buildSpawnArgs(this.options);
 
     // Clean env — remove ALL Claude Code env vars to prevent nested-session issues, AND every
     // `DIFY_*` var (esp. DIFY_CONSOLE_TOKEN / DIFY_CONSOLE_URL / DIFY_API_KEY). Dify I/O is

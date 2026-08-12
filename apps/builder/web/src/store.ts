@@ -91,6 +91,12 @@ export interface RunSettings {
    *  vs 'build' (the ①②③④ pipeline as today). Entry-only: inside a task the kind is fixed. Remembered
    *  across reloads (localStorage) so a build-heavy user isn't re-flipping it every time. */
   mode: 'consult' | 'build';
+  /** spec 096: which model every turn of the task spawns with, as a CLI family alias. The alias (not a
+   *  pinned id) is deliberate — `claude --model opus` means "the newest Opus this environment can
+   *  reach", so the list never goes stale behind a release. START-BOUND per task like `fast`/`workflow`:
+   *  picked with the first message, then fixed, so all four phases are the same bet. Remembered across
+   *  reloads, because a team that wants Opus wants it every time. */
+  model: string;
   /** The language the MODEL replies in — 'auto' (infer from what the user writes), 'vi', or 'ja'.
    *  Sent with every new task/chat and remembered across reloads: the team is Vietnamese, so picking
    *  `vi` once must hold forever. NOT the same as i18n's `lang` (the UI chrome's language), and NOT a
@@ -116,6 +122,32 @@ export function nextChatLang(cur: ChatLang): ChatLang {
 function withChatLang<T extends object>(body: T): T & { chat_lang?: string } {
   const l = settings.value.chatLang;
   return l === 'auto' ? body : { ...body, chat_lang: l };
+}
+
+/** spec 096 — the offered models, newest-capability first; MUST mirror the server's MODEL_CHOICES
+ *  (state/task.ts), which is where an unknown value is dropped. `opus` leads because ③ Implement is
+ *  where the graph, the cost and the risk are. */
+export const MODEL_OPTIONS = ['opus', 'sonnet', 'haiku', 'fable'] as const;
+const MODEL_KEY = 'builder.model';
+function initialModel(): string {
+  try {
+    const saved = localStorage.getItem(MODEL_KEY);
+    return (MODEL_OPTIONS as readonly string[]).includes(saved ?? '') ? saved! : MODEL_OPTIONS[0];
+  } catch {
+    return MODEL_OPTIONS[0];
+  }
+}
+export function rememberModel(model: string): void {
+  try {
+    localStorage.setItem(MODEL_KEY, model);
+  } catch {
+    /* private mode / quota — the in-memory signal still holds for this session */
+  }
+}
+/** spec 096: ride the same seam as withChatLang — one place, so a new create path cannot forget it. */
+function withModel<T extends object>(body: T): T & { model?: string } {
+  const m = settings.value.model;
+  return m ? { ...body, model: m } : body;
 }
 
 /** spec 082: the remembered composer mode (best-effort localStorage; default 'consult' — user's call). */
@@ -168,7 +200,7 @@ export const active = signal<WireTreeTask[]>([]);
 export const startError = signal<string | null>(null);
 /** The taskId whose turn is running, parsed from a 409 — lets the UI offer "open it" (Lát 6). */
 export const busyHolder = signal<string | null>(null);
-export const settings = signal<RunSettings>({ workflow: 'none', confirm: 'each step', seed: null, fast: false, targetProject: null, mode: initialMode(), chatLang: initialChatLang() });
+export const settings = signal<RunSettings>({ workflow: 'none', confirm: 'each step', seed: null, fast: false, targetProject: null, mode: initialMode(), chatLang: initialChatLang(), model: initialModel() });
 /** spec 082: the consult chats for the sidebar's own section (GET /api/consults, newest first). */
 export const consults = signal<WireTreeTask[]>([]);
 /** spec 084 S1.5: the distill/promote tasks for the sidebar's own "蒸留" section (GET /api/promotes,
@@ -1010,7 +1042,7 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
   // build uses the sidebar project-"+" target (`targetProject`). null ⇒ the backend resolves `_drafts` (D5).
   const project = editing?.project ?? s.targetProject ?? null;
   try {
-    const t = await api.createTask(withChatLang({
+    const t = await api.createTask(withModel(withChatLang({
       requirement,
       workflow: editing?.workflow ?? null,
       confirm_mode: confirmModeWire(s.confirm),
@@ -1024,7 +1056,7 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
       // done-state live action) from what creds are reachable, not declared here.
       ...(project ? { project } : {}),
       ...(files && files.length ? { files } : {}),
-    }));
+    })));
     stampUploads(userItemId, t.uploads); // the saved copies — what the history shows after a reload
     applyTask(t);
     openStream(t.taskId);
@@ -1044,7 +1076,7 @@ export async function startConsult(text: string, files?: Attachment[]): Promise<
   clearErrors();
   _lastPersisted = '';
   try {
-    const t = await api.createConsult(withChatLang({ text, ...(files && files.length ? { files } : {}) }));
+    const t = await api.createConsult(withModel(withChatLang({ text, ...(files && files.length ? { files } : {}) })));
     thread.value = [
       // the POST already answered here, so the upload indices land straight on the bubble
       { id: uid(), kind: 'user', text, atts: attsOf(files)?.map((a, n) => ({ ...a, idx: t.uploads?.[n] })) },

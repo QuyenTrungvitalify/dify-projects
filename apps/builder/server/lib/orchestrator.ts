@@ -506,6 +506,9 @@ async function runPhase(
       settingsPath,
       log,
       resumeSessionId,
+      // Spec 096: the start-bound model choice, so all four phases of one build are the same bet.
+      // Undefined on a pre-096 task ⇒ no --model flag ⇒ unchanged behaviour.
+      model: task.model,
     });
     setSession(task.taskId, session); // hand the child to /cancel
     // Spec 062 S1: record THIS attempt (prompt + output + tool calls + result). Best-effort — every
