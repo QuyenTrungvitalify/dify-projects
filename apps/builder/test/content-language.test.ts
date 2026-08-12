@@ -155,6 +155,20 @@ describe('094 · gate-question shape (S4) + writing-for-the-reader (S5)', () => 
     assert.doesNotMatch(body, /\*\*BAD\*\*/, 'the chat-prose few-shot does NOT belong in a JSON-only phase');
   });
 
+  test('095 · implement.md carries the fix-round diagnosis table, not just the write rule', () => {
+    // S2 taught the GENERATOR how to write `variables`; a fix round is a different surface and was
+    // left uncovered — a real /reply turn then diagnosed "invalid variable" as a fault inside the
+    // node showing the error and told the user to delete its variable rows, which would have been
+    // unrecoverable (the picker that refills them is fed by the very list that is missing).
+    const body = read('implement.md');
+    assert.match(body, /## Fix rounds/, 'the diagnosis section exists');
+    assert.match(body, /invalid variable/, 'the symptom is named as Dify words it');
+    assert.match(body, /do NOT touch the node showing the error/, 'it points at the SOURCE node');
+    assert.match(body, /nothing to pick/, 'it warns off the picker dead end');
+    assert.match(body, /webhook URL required/, 'the expected-after-import item is distinguished');
+    assert.match(body, /authorization required/, 'the tool-credential case is distinguished');
+  });
+
   test('S2(a) · SKILL.md no longer claims Grep/Glob are callable without ToolSearch', () => {
     // The claim it used to make ("the Grep and Glob TOOLS themselves ARE available") contradicted the
     // permission gate's own recorded evidence (hooks/permission-gate.ts: deferred in the child session,

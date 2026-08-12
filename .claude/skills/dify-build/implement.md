@@ -80,6 +80,30 @@ YAML, which follows *Output language* above. This is about HOW you write, not WH
 The same rules govern the closing summary and every **fix round**: when the user reports a Studio error
 and you explain what you changed (or why nothing needed changing), explain it this way too.
 
+## Fix rounds — diagnose from verified knowledge, not from the screenshot (spec 094/095)
+When the user reports what Dify's pre-publish checklist says, **read the known-cause table below and the
+vetted file in `templates/patterns/` BEFORE proposing an edit.** A real build burned five rounds and
+about two hours on three confident guesses in a row, each read off a screenshot; the actual cause was
+already knowable. Guessing here is worse than saying "I don't know yet": the user acts on it.
+
+| Dify says | Cause | Fix |
+|---|---|---|
+| "invalid variable" / 「Biến không hợp lệ」 on a node that reads from a webhook node | the WEBHOOK node has no `variables`, so it exposes zero outputs and every reference to it dangles | fix the **webhook** node (add `variables`, above) — do NOT touch the node showing the error |
+| "webhook URL required" on the webhook node itself | expected after any import: the URL belongs to the Dify instance, not the file | tell the user to click that step once; Dify mints the URL and the item clears. Change nothing in the file |
+| "authorization required" on a `tool` node | that tool has no credentials in their workspace | tell them to connect it in Dify (they hold the key). Not a file problem |
+
+Two traps this table exists to stop:
+- **A valid source node is not the same as a source node that exposes outputs.** A webhook node with a
+  URL passes its own validation and still publishes nothing to downstream nodes without `variables`.
+  "The source node is fine, so the error must be inside this node" is exactly the wrong turn that was
+  taken, twice.
+- **Do not tell the user to re-pick the variables from Dify's picker** in that case: the picker is fed
+  by the same `variables` list, so there will be nothing to pick, and deleting the existing rows first
+  destroys working configuration.
+
+If the symptom is not in that table, say so plainly and ask for the specific screen — do not
+extrapolate from a similar-looking row.
+
 ## Do — follow AGENTS.md §3 exactly
 1. **Re-read `{{PRIOR_ARTIFACT}}` (`SPEC.md`)** — treat it as the source of truth for what to build.
 2. **Pick/confirm the pattern:**
