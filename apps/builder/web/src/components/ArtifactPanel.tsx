@@ -18,6 +18,22 @@ import type { ArtifactTab, WireTask, WireArtifacts, FileChange } from '../types'
 const EXPANDED_KEY = 'builder.artifactExpanded';
 
 /**
+ * Where the reader was in each artifact, so closing the panel and reopening it lands back there.
+ *
+ * Closing UNMOUNTS the panel (App renders it behind `artifactOpen`), which is what made every reopen
+ * start at the top — and the working pattern this exists for is exactly the one that suffers: read the
+ * spec, close, ask about what you read, reopen, keep reading. So the memory has to outlive the component:
+ * module-level, not state (nothing here should cause a render).
+ *
+ * Keyed by task AND tab — each artifact is its own document, and the tab survives a close (App owns it),
+ * so coming back to main.yml must not inherit the spec's offset. `len` is a cheap content fingerprint:
+ * a phase re-run rewrites the artifact underneath, and restoring a pre-rewrite offset would drop the
+ * reader somewhere unrelated while looking deliberate — so a changed length forgets the position instead.
+ * In memory only: after a page reload, "top" is the honest answer.
+ */
+const scrollMemory = new Map<string, { top: number; len: number }>();
+
+/**
  * The element that actually scrolls a given anchor into view — resolved, never assumed.
  *
  * Which element scrolls DIFFERS per tab: the Spec preview is its own `overflow-y:auto` box (it fills the
@@ -477,6 +493,45 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
     const base = offsetWithin(pre, scroller) + (parseFloat(cs.paddingTop) || 0);
     return anchors.map((a) => base + a.line * lh);
   };
+
+  // The bytes on screen for the CURRENT tab — the fingerprint scrollMemory keys its position against,
+  // and the signal that content has actually arrived (App refetches artifacts when the panel opens, so
+  // the first render after a reopen is usually still empty).
+  const tabLen = (activeTab === 'spec' ? art.spec : activeTab === 'yaml' ? art.yaml
+    : activeTab === 'diff' ? art.diff : art.report ? JSON.stringify(art.report) : null)?.length ?? 0;
+  const memKey = `${task.taskId}:${activeTab}`;
+
+  // Remember the scroll position (see scrollMemory). Passive + no state: this fires on every wheel tick.
+  useEffect(() => {
+    const scroller = resolveScroller();
+    if (!scroller || !tabLen) return;
+    const onScroll = (): void => { scrollMemory.set(memKey, { top: scroller.scrollTop, len: tabLen }); };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+    // `expanded` re-resolves the scroller: expanding changes the layout the position was measured in.
+  }, [memKey, tabLen, expanded]);
+
+  // Restore it. Deliberately waits for content (`tabLen`): assigning scrollTop to an empty box clamps to
+  // 0, which is how a naive restore silently does nothing. Even with content the box can need a frame or
+  // two to lay out (fonts, a wide table settling), so retry until it can actually scroll — bounded, so a
+  // genuinely short artifact costs ~half a second of idle frames and never spins.
+  useEffect(() => {
+    const saved = scrollMemory.get(memKey);
+    if (!saved || saved.top <= 0 || !tabLen) return;
+    if (saved.len !== tabLen) { scrollMemory.delete(memKey); return; } // rewritten underneath — start at top
+    let raf = 0;
+    let tries = 0;
+    const apply = (): void => {
+      const scroller = resolveScroller();
+      if (scroller && scroller.scrollHeight > scroller.clientHeight + 1) {
+        scroller.scrollTop = saved.top; // clamps itself if the box got shorter
+        return;
+      }
+      if (tries++ < 30) raf = requestAnimationFrame(apply);
+    };
+    apply();
+    return () => cancelAnimationFrame(raf);
+  }, [memKey, tabLen]);
 
   // Measure the rail off the rendered body. Runs only while expanded (the rail is hidden otherwise, so
   // measuring would be work nobody sees) and re-runs whenever what is on screen could have moved: the

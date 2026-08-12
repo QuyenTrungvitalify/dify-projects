@@ -746,10 +746,15 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
   // Auto-grow the textarea to fit its content. `autosize` resets height then reads scrollHeight.
   // We call it on every `input` (live — incl. mid-IME composition) so the box grows AS you wrap,
   // AND on value/resize changes, since soft-wrapping (line count → height) depends on width.
+  // The 180px ceiling is viewport-aware: on a very short window a full-height input pushed the chip/send
+  // row past the bottom edge (the dock cannot shrink, and the thread's padding floors its own height), so
+  // the send buttons became unreachable. 35vh keeps the ceiling at a flat 180px for any window taller than
+  // ~515px — i.e. unchanged in normal use — and yields only when the window is too short to afford it.
   const autosize = () => {
     const el = ref.current; if (!el) return;
+    const cap = Math.max(90, Math.min(180, window.innerHeight * 0.35));
     el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+    el.style.height = Math.min(el.scrollHeight, cap) + 'px';
   };
   useEffect(() => {
     autosize();

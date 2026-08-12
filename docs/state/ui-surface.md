@@ -154,6 +154,15 @@ Chỉ `GET /api/tasks/:id` mang `artifactContents`; `task:update` và snapshot l
 Ràng buộc thứ hai là cái giữ cho §3.1 còn nghĩa: nếu graft áp cả snapshot, một gate đã cancel/đã bị thay
 sẽ sống lại. "Đơn giản hoá" nó thành `task.value = t` là hỏng đúng bất biến mà guard tồn tại để bảo vệ.
 
+**Vị trí cuộn của panel sống ngoài component.** Đóng panel là UNMOUNT (App render nó sau `artifactOpen`),
+nên mọi lần mở lại đều về đầu — đúng ngay lối làm việc "đọc spec → đóng → hỏi → mở đọc tiếp". `scrollMemory`
+(Map cấp module trong `ArtifactPanel.tsx`, **không** phải state — không được gây render) nhớ theo khoá
+`taskId:tab`: mỗi artifact là một tài liệu riêng, và tab thì sống sót qua lần đóng vì App giữ nó. Kèm
+`len` làm vân tay nội dung — phase chạy lại ghi đè artifact, khôi phục offset cũ sẽ thả người đọc vào chỗ
+vô nghĩa mà trông như cố ý, nên **đổi độ dài thì quên vị trí**. Khôi phục phải **đợi nội dung** (`tabLen`)
+rồi retry theo rAF có chặn: gán `scrollTop` vào hộp rỗng bị kẹp về 0 — đó chính là kiểu "khôi phục" âm thầm
+không làm gì. Chỉ trong bộ nhớ: reload xong thì "về đầu" mới là câu trả lời trung thực.
+
 ## 4. `thread` — thứ duy nhất không có bản backend
 
 Backend **không giữ transcript nào**. `thread` là `LiveThreadItem[]` dựng hoàn toàn client-side, bốn kind:
