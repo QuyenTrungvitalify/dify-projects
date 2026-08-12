@@ -128,8 +128,6 @@ export interface WireTask {
    *  import overwrites in place. Its presence is what tells the Import gate to promise an update rather
    *  than a new app. Distinct from `appId`, which the live-test path also writes (throwaway test apps). */
   importAppId?: string | null;
-  /** spec 096: the start-bound model alias this task runs on (absent on a pre-096 task). */
-  model?: string;
   /** spec 094 S1: the last ③ turn left the workflow file byte-identical — a fix round that changed
    *  nothing. `undefined` = not measured (pre-094 build): render nothing, never "unchanged". */
   artifactUnchanged?: boolean;
@@ -139,6 +137,11 @@ export interface WireTask {
   importedHash?: string | null;
   importedAt?: number;
   confirmMode: WireConfirmMode;
+  /** spec 096: the model family alias this task's turns spawn with (`opus`/`sonnet`/`haiku`/`fable`).
+   *  Absent ⇒ nothing was pinned and the CLI picks — every task created before 096 reads that way, so
+   *  the composer must render "not recorded" there rather than a default. Changeable after start
+   *  (PATCH), including on a FINISHED build, because its follow-up Ask turns still spawn with it. */
+  model?: string;
   /** spec 028: whether this build ran in ⚡ Fast mode (merged Analyze+Spec). Start-bound; the
    *  conversation-view composer reflects it read-only. Absent on a pre-028 snapshot ⇒ off. */
   fastMode?: boolean;
@@ -260,9 +263,6 @@ export interface Settings {
   /** spec 028: `⚡ Fast build` toggle (merge Analyze+Spec). Optional so the conversation-view composer
    *  (which builds a Settings without it) still type-checks; absent ⇒ off. */
   fast?: boolean;
-  /** spec 096: the model family alias every turn of this task spawns with. Optional so the
-   *  conversation-view composer (which builds a partial Settings) still type-checks. */
-  model?: string;
   // spec 036: `deploy` + `test` removed — they are no longer composer settings; deploy/testMode are
   // decided at the test gate from reachable creds (difyTargets), then stamped on the task at gate-time.
 }

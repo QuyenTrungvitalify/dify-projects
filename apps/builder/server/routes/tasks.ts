@@ -531,7 +531,12 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     } catch {
       return reply.code(404).send({ error: `no such task: ${id}` });
     }
-    if (task.status === 'done' || task.status === 'cancelled') {
+    // Terminal blocks confirm_mode but NOT model. The 409 reason for confirm_mode is "there is no next
+    // boundary to honor it" — true, and it does not transfer: a FINISHED build still takes follow-up
+    // questions, and those Ask turns spawn with `task.model` (ask.ts). Refusing to change it there would
+    // leave the user reading a model they cannot pick for the very next turn they are about to send —
+    // and picking a cheap model for a quick question about a finished build is the point.
+    if ((task.status === 'done' || task.status === 'cancelled') && wantsConfirm) {
       return reply.code(409).send({ error: `task is ${task.status} — confirm_mode is no longer changeable` });
     }
     if (taskTurnRunning(id)) {
@@ -541,7 +546,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     }
     // A /cancel can land during the loadTask above; without this re-check, saveTask would write the
     // stale in-memory snapshot (status:awaiting_confirm) back, RESURRECTING the just-cancelled build.
-    if (isCancelled(id)) {
+    if (isCancelled(id) && wantsConfirm) {
       return reply.code(409).send({ error: 'task was cancelled — confirm_mode is no longer changeable' });
     }
     if (wantsConfirm) task.confirmMode = normalizeConfirmMode(body.confirm_mode ?? body.confirmMode);

@@ -106,51 +106,77 @@ describe('096 · the spawn passes --model only when chosen', () => {
  * So pin it as what it is: a source-shape fact. Same technique as the prompt-file guards above, and it
  * lives here because reading source needs node fs, which the web tsconfig has no types for.
  */
-describe('096 · every composer call site passes `model` through', () => {
+describe('096 · every composer that can spawn a turn offers the model', () => {
   const WEB = join(HERE, '..', 'web', 'src', 'components');
   const app = readFileSync(join(WEB, 'App.tsx'), 'utf8');
   const chat = readFileSync(join(WEB, 'Chat.tsx'), 'utf8');
 
-  test('the entry composer subset carries it', () => {
-    assert.match(
-      app,
-      /const settingsSubset: Settings = \{[^}]*model:/,
-      'settingsSubset without `model` ⇒ the chip shows a default while the real value is already stored and sent'
+  // The chip has its OWN props rather than riding `settings` — precisely because `settings` vanishes
+  // where build settings are meaningless (a finished build) while the MODEL is still in force there:
+  // ask.ts spawns follow-up questions with `task.model`. Folding it into `settings` hid a live value.
+  /**
+   * The three composers, anchored by a prop unique to each rather than by slicing JSX. Slicing was the
+   * first attempt and it was wrong twice over: `<Composer` also matches the type `<ComposerAttachment[]>`
+   * in a useState, and cutting to the first `/>` can overrun into the NEXT element, so an unwired
+   * composer could borrow its neighbour's `onModel` and the assert would pass.
+   */
+  const ANCHORS: Array<[name: string, anchor: RegExp]> = [
+    ['entry (new task)', /onSend=\{\(\) => send\(\)\}/],
+    ['in-task (running/parked build)', /lockConfirm=\{busy\}/],
+    ['terminal (finished build — the reported gap)', /canChange=\{terminalFixable\}/],
+  ];
+
+  test('there are exactly three composers (a new one must be considered here too)', () => {
+    // `[\s]` after the name so the ComposerAttachment TYPE is not counted as an element.
+    assert.equal([...app.matchAll(/<Composer[\s]/g)].length, 3);
+  });
+
+  for (const [name, anchor] of ANCHORS) {
+    test(`${name} offers the model`, () => {
+      const at = app.search(anchor);
+      assert.notEqual(at, -1, `anchor for the ${name} composer not found — did the wiring move?`);
+      // Look in a window around the anchor: props of one element, not the whole file.
+      const window = app.slice(Math.max(0, at - 1200), at + 1200);
+      assert.match(
+        window,
+        /onModel=\{/,
+        `the ${name} composer can send a message, so it must show and let you change the model — ` +
+          'without it a turn spawns with one the user can neither see nor change'
+      );
+    });
+  }
+
+  test('the terminal composer is one of them (the reported gap)', () => {
+    // A done build's composer omits `settings` by design (no next boundary for workflow/confirm/fast),
+    // which is exactly how the model chip went missing there while ask turns kept using it.
+    const terminal = app.slice(app.indexOf('canChange={terminalFixable}'));
+    assert.match(terminal.slice(0, 900), /onModel=\{/, 'the finished-build composer must offer it too');
+  });
+
+  test('in-task and terminal both PATCH (a label that changes nothing is a lie)', () => {
+    assert.equal(
+      [...app.matchAll(/store\.patchModel\(/g)].length,
+      2,
+      'both task-bound composers must forward the change to PATCH /api/tasks/:id'
     );
   });
 
-  test('the in-task composer carries it', () => {
-    const inTask = app.split('\n').find((l) => l.includes('confirmModeLabel(task.confirmMode)'));
-    assert.ok(inTask, 'in-task settings literal not found — did the composer wiring move?');
-    assert.match(
-      inTask,
-      /model: task\.model/,
-      'without it the chip read "Opus" for every running build, whatever it actually ran on'
-    );
+  test('the chip renders off its own prop, not `settings.model`', () => {
+    assert.match(chat, /\{onModel && \(/, 'gated on onModel, so it survives a settings-less composer');
+    assert.doesNotMatch(chat, /value=\{settings\.model/, 'must not read the build-settings object');
   });
 
-  test('the in-task handler actually PATCHES on a model change (a label that changes nothing is a lie)', () => {
-    // The chip is editable inside a task (spec 096 revision). If onSettings ignored `patch.model`, the
-    // chip would relabel itself and the next turn would still spawn the old model — worse than a lock.
-    assert.match(
-      app,
-      /if \(patch\.model\) void store\.patchModel\(task\.taskId, patch\.model\)/,
-      'the in-task composer must forward a model change to PATCH /api/tasks/:id'
-    );
-  });
-
-  test('the chip is NOT start-bound-locked (the first choice is a default, not a sentence)', () => {
-    const chat = readFileSync(join(WEB, 'Chat.tsx'), 'utf8');
+  test('not start-bound-locked, but not mid-turn either', () => {
     const chip = chat.slice(chat.indexOf("label={tr('model')}"), chat.indexOf("title={tr('modelHint')}"));
-    assert.doesNotMatch(chip, /disabled=\{lockStartBound\}/, 'model is changeable mid-task by design');
+    assert.doesNotMatch(chip, /disabled=\{lockStartBound\}/, 'model is changeable after start by design');
     assert.match(chip, /disabled=\{lockConfirm\}/, 'but not mid-turn — that write would be clobbered');
   });
 
-  test('no default-value fallback on the chip (that fallback WAS the lie)', () => {
+  test('no default-value fallback (that fallback WAS the lie)', () => {
     assert.doesNotMatch(
       chat,
-      /settings\.model \?\? '(opus|sonnet|haiku|fable)'/,
-      'a chip must never assert a model nobody picked — a pre-096 task recorded none'
+      /model \?\? '(opus|sonnet|haiku|fable)'/,
+      'a chip must never assert a model nobody picked'
     );
   });
 });

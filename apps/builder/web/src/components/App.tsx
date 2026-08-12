@@ -184,17 +184,19 @@ export function App() {
   const activeWorkflow = task
     ? activeSidebarWorkflow(task)
     : (editingSel?.project ? `${editingSel.project}/${editingSel.workflow}` : null);
-  // spec 096: `model` MUST be in this subset — it is what the composer chip DISPLAYS. Left out, the
-  // chip fell back to its default label and read "Opus" forever while the picked value was already
-  // stored and sent: the one state where a control lies about what it is doing.
-  const settingsSubset: Settings = { workflow: settings.workflow, confirm: settings.confirm, fast: settings.fast, model: settings.model };
+  const settingsSubset: Settings = { workflow: settings.workflow, confirm: settings.confirm, fast: settings.fast };
   const onSettings = (patch: Partial<Settings>): void => {
     store.settings.value = { ...store.settings.value, ...patch };
-    // spec 096: the model choice outlives the tab. A team that decided on Opus decided once — having
-    // to re-pick it every reload is how a default quietly becomes "whatever was there". Persisted HERE
-    // (the single funnel for composer setting changes) rather than inside the signal, so the store stays
-    // a plain value holder.
-    if (patch.model) store.rememberModel(patch.model);
+  };
+  /**
+   * spec 096 — the model is NOT a build setting, so it gets its own funnel (see Composer's `onModel`).
+   * On the entry composer there is no task yet, so the choice lands on the remembered default: it
+   * outlives the tab because a team that decided on Opus decided once, and re-picking every reload is
+   * how a default quietly becomes "whatever was there".
+   */
+  const onEntryModel = (v: string): void => {
+    store.settings.value = { ...store.settings.value, model: v };
+    store.rememberModel(v);
   };
   // spec 029: the new-task crumb + its clear action (reads the FULL signal, incl. targetProject).
   const crumb = newTaskCrumb(settings.workflow, settings.targetProject, tree);
@@ -637,7 +639,8 @@ export function App() {
 
           {view === 'empty' ? (
             <EmptyState draft={draft} setDraft={setDraft} send={send}
-              settings={settingsSubset} onSettings={onSettings} workflows={workflows}
+              settings={settingsSubset} onSettings={onSettings}
+              model={settings.model} onModel={onEntryModel} workflows={workflows}
               crumb={crumb} onClearCrumb={clearNewTaskCrumb}
               seeds={seeds} selectedSeed={settings.seed}
               onSeed={(id) => { store.settings.value = { ...store.settings.value, seed: id }; }}
@@ -742,15 +745,14 @@ export function App() {
                         sendGlyph={task.kind === 'promote' ? 'edit' : undefined}
                         /* spec 052: a promote build has no ①②③④ run-settings — omit the Workflow/Confirm/Fast
                            chips (and their confirm_mode PATCH) so the promote-gate composer is a plain reply box. */
-                        /* spec 096: `model` MUST be here too. Without it the in-task chip fell back to a default and
-                           displayed "Opus" for every running build — the same lie the entry composer's subset had. */
-                        settings={task.kind === 'promote' ? undefined : { workflow: task.workflow ?? 'none', confirm: store.confirmModeLabel(task.confirmMode), fast: task.fastMode ?? false, model: task.model }}
+                        settings={task.kind === 'promote' ? undefined : { workflow: task.workflow ?? 'none', confirm: store.confirmModeLabel(task.confirmMode), fast: task.fastMode ?? false }}
                         onSettings={task.kind === 'promote' ? undefined : (patch) => {
                           if (patch.confirm) void store.patchConfirmMode(task.taskId, patch.confirm);
-                          // spec 096: without this the in-task chip would change its label and change
-                          // nothing else — the exact "lying control" the PATCH route exists to prevent.
-                          if (patch.model) void store.patchModel(task.taskId, patch.model);
+                          // spec 096: the model does NOT arrive here — the chip has its own onModel prop
+                          // (it is not a build setting; see Composer). Routing it through `settings` is
+                          // what hid it from the terminal composer.
                         }}
+                        model={task.model} onModel={(v) => void store.patchModel(task.taskId, v)}
                         workflows={workflows} lockStartBound lockConfirm={busy}
                         placeholder={livePlaceholder} focusToken={focusToken}
                         /* FIX-H: send-readiness is disabled while a phase/Reply turn runs (busy) OR a
@@ -781,6 +783,11 @@ export function App() {
                     // intent; the old mode-arm row is gone since the pill is always visible here).
                       <Composer value={draft} onChange={onDraftChange} onSend={(intent) => send(undefined, intent)}
                         canChange={terminalFixable} changeArmed={!!armed}
+                        /* spec 096: a finished build still takes follow-up questions, and those Ask
+                           turns spawn with `task.model` — so the chip belongs here too. Without it the
+                           model was in force but invisible and unchangeable. It is the ONLY chip here:
+                           workflow/confirm/fast have no next boundary to act on. */
+                        model={task?.model} onModel={task ? (v) => void store.patchModel(task.taskId, v) : undefined}
                         placeholder={terminalFixable && armed ? tr('phChangeMode')
                           : task?.kind === 'consult' ? tr('phConsultChat') : tr('phAskAboutBuild')}
                         /* Request-a-fix bumps focusToken to put the caret in the box — without this prop the
@@ -874,12 +881,16 @@ function StartErrorBanner({ startError, busyHolder, onOpen = (id) => void store.
 }
 
 /* ---------- empty / new-task surface ---------- */
-function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, crumb, onClearCrumb, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile, mode }: {
+function EmptyState({ draft, setDraft, send, settings, onSettings, model, onModel, workflows, crumb, onClearCrumb, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile, mode }: {
   draft: string;
   setDraft: (s: string) => void;
   send: (text?: string) => void;
   settings: Settings;
   onSettings: (patch: Partial<Settings>) => void;
+  /** spec 096: the model chip is NOT part of `settings` (it applies to every turn type, including a
+   *  finished build's follow-up questions), so it travels as its own pair. */
+  model?: string;
+  onModel: (v: string) => void;
   workflows: { v: string; l: string }[];
   crumb: NewTaskCrumb;
   onClearCrumb: () => void;
@@ -917,6 +928,7 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, workflows, cr
         )}
 
         <Composer value={draft} onChange={setDraft} onSend={() => send()}
+          model={model} onModel={onModel}
           settings={settings} onSettings={onSettings} workflows={workflows}
           placeholder={consult ? tr('phConsult') : tr('phDescribeWorkflow')}
           files={files} onAddFiles={onAddFiles} onRemoveFile={onRemoveFile}

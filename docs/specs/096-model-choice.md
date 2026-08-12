@@ -100,6 +100,25 @@ argv test được mà không tạo process); `state/task.ts` (`MODEL_CHOICES`/`
 **Chip nằm NGOÀI khối build-only** — nó áp cho consult y như build; đưa ra một lựa chọn rồi âm thầm bỏ
 qua ở một trong hai chế độ thì tệ hơn không đưa ra.
 
+## 4b. Chip là prop RIÊNG, không nằm trong `settings` (sửa vòng hai)
+
+Bản đầu tôi cho chip đi qua `settings`/`onSettings` như workflow/confirm/fast. **Sai**, và user thấy
+ngay: *"những chat phía sau vẫn ko có phần select model"*.
+
+Vì composer của một build **đã xong** cố ý bỏ hẳn `settings` (spec 034 D3 — workflow/confirm/fast không
+còn boundary nào để tác động), nên chip biến mất theo. Nhưng **tin nhắn ở đó vẫn spawn Ask turn dùng
+`task.model`** (`ask.ts:217/435/659` — chính tôi nối). Tức một giá trị **đang có hiệu lực mà user không
+thấy và không đổi được** — đúng định nghĩa "lying control".
+
+Gốc: model **không phải** build-setting. Nó được **mọi** loại turn đọc: phase build, consult, và Ask
+trên build đã xong. Nên nó có cặp prop riêng `model`/`onModel`, render khi có `onModel` — độc lập với
+`settings`. Đã gỡ `Settings.model` khỏi type để không ai nối lại vào đó.
+
+**Kéo theo một sửa ở route**: chốt 409-khi-terminal chỉ còn áp cho `confirm_mode`. Lý do của nó
+(*"không còn boundary nào để honor"*) **không chuyển sang model được**: build đã xong vẫn nhận câu hỏi
+tiếp, và những turn đó spawn bằng `task.model`. Chọn model rẻ cho một câu hỏi nhanh về build đã xong
+chính là điều đáng làm được.
+
 ## 5. BỐN lỗi bị bắt bởi kiểm hình / soi lại, không phải bởi đọc code
 
 Đây là phần đáng ghi nhất của spec này — cả ba đều typecheck sạch và test xanh:
@@ -137,7 +156,9 @@ không phải luật. Đã hiệu chuẩn: dựng lại cả 3 bug ⇒ **3 test 
 | 4 | Hàng composer ở 1280 / 1024 / 820: một dòng, Send cùng dòng, không overflow | ✅ đo DOM |
 | 5 | Chip đổi giá trị + persist qua reload | ✅ `Opus → Sonnet`, localStorage `sonnet` |
 | 6 | **Payload thật** gửi lên có `model` | ✅ chặn `fetch`, đọc body, **không tạo task nào** |
-| 7 | server 946/946 · web 309/309 · typecheck cả hai nửa | ✅ |
+| 7 | `PATCH` trên task thật: `sonnet` lưu; `gpt-4o` **xoá pin** chứ không đoán; `''` xoá; body rỗng → 400 | ✅ qua app đang chạy |
+| 8 | Bất biến **mọi `<Composer>` phải có `onModel`** — neo từng site, không cắt JSX | ✅ hiệu chuẩn: bỏ site terminal ⇒ 3 test đỏ |
+| 9 | server 955/955 · web 314/314 · typecheck cả hai nửa | ✅ |
 
 ## 7. Non-goals
 

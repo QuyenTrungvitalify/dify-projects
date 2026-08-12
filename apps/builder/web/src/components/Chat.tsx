@@ -688,7 +688,7 @@ export function MsgAttachments({ atts, taskId }: { atts: ThreadAttachment[]; tas
   );
 }
 
-export function Composer({ value, onChange, onSend, settings, onSettings, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, onMode, canChange, changeArmed, sendGlyph }: {
+export function Composer({ value, onChange, onSend, settings, onSettings, model, onModel, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, onMode, canChange, changeArmed, sendGlyph }: {
   value: string;
   onChange: (value: string) => void;
   /** spec 092: intent is PER-MESSAGE — 'ask' from Enter / the chat button, 'change' from the labeled
@@ -707,6 +707,16 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
   /** F2 (spec 010): conversation view — Workflow is start-bound (read-only); only Confirm is
    *  live-patchable. In the empty view both are editable (they feed the next build). (spec 036: Deploy
    *  is no longer a chip — deploy is decided at the test gate from reachable creds.) */
+  /**
+   * spec 096 — the model chip has its OWN props, deliberately not part of `settings`. Workflow/confirm/
+   * fast are BUILD settings and vanish with them (a consult has no phases; a finished build has no next
+   * boundary). The model is not like that: it is read by every turn type there is — build phases,
+   * consult, and the ask-about-this-build turns on a FINISHED build. Folding it into `settings` is what
+   * hid it from the terminal composer while ask.ts was already spawning with it: a value in force that
+   * the user could neither see nor change. Rendered whenever `onModel` is given.
+   */
+  model?: string;
+  onModel?: (v: string) => void;
   lockStartBound?: boolean;
   /** F2 (spec 010): also freeze the Confirm chip while the live build's turn is RUNNING — a patch then
    *  would 409 (the backend rejects it; the in-memory orchestrator can't honor it). Editable once parked. */
@@ -848,18 +858,18 @@ export function Composer({ value, onChange, onSend, settings, onSettings, workfl
             to a row that fit exactly without it, and `.composer-row` is `flex-wrap: nowrap` by design
             (only the workflow chip was allowed to truncate). Marking this one shrinkable too keeps the
             invariant the row exists to hold — everything on ONE line, Send never pushed off. */}
-        {settings && onSettings && (
-          <SettingSelect shrink label={tr('model')} value={settings.model ?? ''}
+        {onModel && (
+          <SettingSelect shrink label={tr('model')} value={model ?? ''}
             /* No `?? 'opus'` fallback: that default LIED three times over — it showed "Opus" for a
                task that had actually run on something else, and for a pre-096 task that recorded no
                choice at all. A chip must never assert a value nobody picked. The sentinel appears only
                when there is genuinely nothing to show (a pre-096 task in the conversation view, where
                the chip is disabled anyway), so the entry composer never sees it. */
             options={[
-              ...(settings.model ? [] : [{ v: '', l: tr('modelUnset') }]),
+              ...(model ? [] : [{ v: '', l: tr('modelUnset') }]),
               ...MODEL_OPTIONS.map((m) => ({ v: m, l: tr(`model_${m}` as never) })),
             ]}
-            onChange={(v) => onSettings({ model: v })}
+            onChange={onModel}
             /* spec 096: NOT `lockStartBound`. The first message's choice is the DEFAULT, not a
                life sentence — the requirement said "if you don't change it", which presumes you can,
                and the CLI this mirrors lets you switch mid-session. `lockConfirm` (busy) is the right
