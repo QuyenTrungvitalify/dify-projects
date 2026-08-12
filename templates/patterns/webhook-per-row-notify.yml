@@ -165,8 +165,14 @@ workflow:
         - {variable: rows_json, label: body, value_type: string, value_selector: [], required: true}
         - {variable: id_map_json, label: body, value_type: string, value_selector: [], required: true}
         - {variable: today, label: body, value_type: string, value_selector: [], required: true}
+        async_mode: true
         status_code: 200
         response_body: ''
+        # NOT written here on purpose: `webhook_url` / `webhook_debug_url`. They belong to ONE Dify
+        # instance (Dify mints them per app+node when you first open this node's panel), and Dify's own
+        # exporter BLANKS them on the way out — app_dsl_service.py `_append_workflow_export_data`:
+        # `node_data["webhook_url"] = ""`. A URL in a shared template would be a promise about someone
+        # else's server.
       position: { x: 0, y: 100 }
       positionAbsolute: { x: 0, y: 100 }
       width: 242

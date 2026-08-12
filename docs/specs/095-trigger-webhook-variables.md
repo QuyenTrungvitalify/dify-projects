@@ -490,3 +490,78 @@ Chỉ khi cả ba đúng: (a) chạy warn-only qua vài build thật, **không c
 câu §5.3 — **export DSL của Dify có kèm `variables` không**, vì build edit-existing lấy file
 **pull từ Dify** làm gốc (`scaffold.ts:99`), nếu export thiếu field thì gate cứng sẽ giết mọi build
 edit-existing webhook dù không ai làm sai; (c) `vendor/dify-src` đã nâng lên đúng bản user chạy.
+
+## 14. Xác minh trên Dify 1.15 thật, lần hai — 2026-08-12
+
+Thao tác qua Claude Chrome extension trên Dify của user. Hai việc: dựng một app mẫu sạch
+(`probe-webhook-095`: Workflow trống → 1 node webhook → gõ tay **một** body param `foo: string,
+required`) rồi lấy cấu hình node; và quan sát lại checklist của build thật.
+
+### 14.1 Shape §6 — ĐÚNG NGUYÊN VĂN, không lệch một khoá
+
+Dify tự sinh, sau khi gõ tay một body param:
+
+```yaml
+variables:
+- {variable: _webhook_raw, label: raw,  value_type: object, value_selector: [], required: true}
+- {variable: foo,          label: body, value_type: string, value_selector: [], required: true}
+async_mode: true
+webhook_url: "http://localhost/triggers/webhook/G-vlGOJGhvUe73Gb4Fbgorj5"
+webhook_debug_url: "http://localhost/triggers/webhook-debug/G-vlGOJGhvUe73Gb4Fbgorj5"
+```
+
+Khớp §6 **từng khoá**: `variable` / `label` / `value_type` / `value_selector` / `required`, và
+`label: body` đúng là **nhãn nguồn** chứ không phải tên hiển thị. Suy luận từ `syncVariablesInDraft`
+(1.13) được thực tế 1.15 xác nhận. Pattern S1 không phải sửa gì về `variables`.
+
+**Bổ sung sau quan sát**: Dify có `async_mode: true`, pattern S1 thiếu → **đã thêm**. Không phải lỗi
+chặn (checkValid không kiểm nó) nhưng frontend khai `async_mode: boolean` không optional, nên bám
+đúng hình dạng gốc là rẻ và an toàn.
+
+### 14.2 Câu hỏi CHẶN của §5.3 — đã trả lời, và trả lời từ mã nguồn chứ không từ agent
+
+Agent **không mở được file export** (công cụ của nó tự chèn `https://` vào `file://`), nên nó đọc
+**draft graph qua `GET /console/api/apps/{id}/workflows/draft`** rồi kết luận *"các trường quan trọng
+sẽ giống hệt"*. **Đó là một giả định chưa kiểm** — và đúng chỗ giả định đó là chỗ tôi cần biết, vì
+export có một vòng lọc riêng. Tra thẳng `app_dsl_service.py` `_append_workflow_export_data`:
+
+| field | export làm gì |
+|---|---|
+| `variables` | **KHÔNG đụng** → export **giữ nguyên** ✅ |
+| `webhook_url`, `webhook_debug_url` | **xoá trắng** (`= ""`) |
+| `credential_id` của node `tool` | xoá (khi không `include_secret`) |
+| `dataset_ids` của knowledge-retrieval | mã hoá |
+| node `trigger-schedule` | ghi đè `config` bằng default → **lead cho S4**, xem §14.4 |
+
+**Hệ quả**: build edit-existing lấy file pull từ Dify làm gốc (`scaffold.ts:99`) sẽ **có** `variables`.
+Rủi ro *"gate cứng giết mọi build edit-existing"* — thứ nghiêm trọng nhất tôi nêu khi cân S3 — **được
+loại bỏ**. Đồng thời khẳng định §2.1: DSL **không được** mang `webhook_url`; chính Dify cũng xoá nó khi
+xuất.
+
+### 14.3 §2.1 lên hạng [ĐO]
+
+Trên build thật `news_candidate_collector`: checklist **(3)** → click vào node A0 → ô "URL WEBHOOK"
+hiện URL và huy hiệu đổi **3 → 2 ngay lập tức** → checklist còn **(2)**, cả hai là Tavily *"Yêu cầu
+xác thực"*. Không gõ gì, không xuất bản.
+
+⇒ *"A0 tự khỏi khi mở panel"* từ **[ĐỌC]** (suy từ `panel.tsx:64-71`) thành **[ĐO]**. Note A0 của S2
+giờ có nền tảng quan sát, không còn là suy luận.
+⇒ Hai mục Tavily **vẫn còn** sau đó ⇒ lớp `tool_auth` (S5) được xác nhận là blocker thật, độc lập.
+
+### 14.4 Lead cho S4 (chưa làm, đừng suy diễn thêm)
+
+Export ghi đè `node_data["config"]` của `trigger-schedule` bằng `get_default_config()["config"]`.
+YAML của ta khai `mode`/`frequency`/`visual_config`/`timezone` chứ không có `config`. Có thể là field
+của bản mới, có thể vô hại (node `B0: Schedule 09:00 JST` của user **không** bị checklist bắt lỗi).
+**Không kết luận gì** ở đây — ghi lại làm đầu mối cho S4, sau khi nâng `vendor/dify-src` lên 1.15.
+
+### 14.5 Điều kiện siết overlay thành gate cứng — 1/3 đã xong
+
+| điều kiện | trạng thái |
+|---|---|
+| (b) export của Dify có mang `variables` không | ✅ **có** (§14.2) — rào chắn lớn nhất đã gỡ |
+| (a) chạy warn-only qua vài build thật, không báo giả | ⏳ chưa — vừa ship |
+| (c) `vendor/dify-src` nâng lên 1.15 | ⏳ chưa |
+
+Vẫn **giữ warn-first**. Gỡ được một điều kiện không phải lý do bỏ hai điều kiện còn lại — chính cái
+bar này là thứ ngăn một luật đọc từ mã nguồn bên thứ ba biến thành thứ giết build của user.
