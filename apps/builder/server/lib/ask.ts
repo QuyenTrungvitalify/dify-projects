@@ -29,6 +29,31 @@ import { bumpRev, noteUserLang, saveTask, taskDir, workflowDir, type Task } from
 /** Pinned shorter than the phase default (10 min) — an Ask is a quick conversational reply, not a long
  *  agentic turn (matches the existing JUDGE_TIMEOUT_MS convention for a short data-turn, live-test.ts).
  *  Env-tunable (spec 048 D1): read ONCE at module load, so a change needs a restart. */
+/**
+ * Spec 097 — the notice a CUT-OFF answer must carry.
+ *
+ * All three ask paths deliberately keep the partial text when a turn errors after streaming ("a turn
+ * that streamed partial text before erroring keeps that text"), which is right — throwing away a
+ * half-written answer helps nobody. What was missing is the second half of that decision: SAYING it is
+ * half-written. Without it a truncated answer is finalized as `回答済み` / "Answered", indistinguishable
+ * from a complete one, so the reader waits for a continuation that can never come.
+ *
+ * Measured on task 1786505684286: an ask on a 52-node build streamed an analysis ending "I'll report
+ * back as soon as I have the result", hit the 3-minute wall, was force-killed, and was presented as a
+ * finished answer. The two follow-ups then resumed that killed session and returned nothing, then an
+ * error — with no transcript and no recorded cost to explain any of it.
+ *
+ * `note` is turn-runner's classified cause (`timed out after …`, a quota/auth/network death) — the same
+ * string a phase turn surfaces on its gate card, and the one thing that makes this diagnosable.
+ */
+export function truncationNotice(note: string | undefined): string {
+  const why = note ? ` (${note})` : '';
+  return (
+    `\n\n---\n⚠ This answer stopped early and is incomplete${why}. ` +
+    `Nothing was written to your files. Ask again — a narrower question finishes faster.`
+  );
+}
+
 export const ASK_TIMEOUT_MS = Number(process.env.BUILDER_ASK_TIMEOUT_MS) || 3 * 60 * 1000;
 
 /**
@@ -328,6 +353,13 @@ export async function askWithin(task: Task, text: string, ctx: OrchestratorCtx):
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
       return;
     }
+    // Spec 097: errored but text DID stream — keep it (as before) and say it is incomplete. ok:false so
+    // a cut-off answer can never be captured as a build prefill by an armed graduate.
+    if (turn.isError) {
+      ctx.broadcast?.(task.taskId, 'ask:answer', { text: truncationNotice(turn.note) });
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
+      return;
+    }
 
     // Normal path — no anomaly, an answer streamed (or a clean empty result). FIX-B: ok, no task:update.
     ctx.broadcast?.(task.taskId, 'ask:done', { ok: true });
@@ -460,7 +492,15 @@ export async function askTestWithin(task: Task, text: string, ctx: OrchestratorC
 
     // FIX-D-analog: an error with no streamed text → a short canned message, never an empty bubble.
     if (turn.isError && !gotText) {
-      ctx.broadcast?.(task.taskId, 'ask:answer', { text: "couldn't get an answer for that — try again." });
+      // Spec 097: this path DROPPED `turn.note` while the other two included it — so the one surface a
+      // user actually hit reported a bare "try again" with the timeout reason stripped off.
+      const cause = turn.note ? ` (${turn.note})` : '';
+      ctx.broadcast?.(task.taskId, 'ask:answer', { text: `couldn't get an answer for that — try again.${cause}` });
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
+      return;
+    }
+    if (turn.isError) {
+      ctx.broadcast?.(task.taskId, 'ask:answer', { text: truncationNotice(turn.note) });
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
       return;
     }
@@ -705,6 +745,15 @@ export async function consultWithin(
       const msg = `couldn't get an answer for that — try again.${cause}`;
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: msg });
       await appendChat(projectsDir, task.taskId, 'assistant', msg, at + 1);
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
+      return;
+    }
+    if (turn.isError) {
+      // Spec 097: same as the other two, plus the persisted transcript — a reopened chat must not show a
+      // cut-off answer as a finished one either.
+      const notice = truncationNotice(turn.note);
+      ctx.broadcast?.(task.taskId, 'ask:answer', { text: notice });
+      await appendChat(projectsDir, task.taskId, 'assistant', answer + notice, at + 1);
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
       return;
     }

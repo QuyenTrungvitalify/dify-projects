@@ -319,7 +319,7 @@ describe('askWithin — FIX-D: a resume failure never falls through to a write-i
     assert.deepEqual(done!.data, { ok: false });
   });
 
-  test('a turn that STREAMED partial text then errored keeps that text (no canned override)', async () => {
+  test('a turn that STREAMED partial text then errored keeps that text AND says it is incomplete', async () => {
     const task = await createTask(dir, { requirement: 'r', confirmMode: 'each_step' });
     task.phase = 'spec';
     task.status = 'awaiting_confirm';
@@ -342,9 +342,19 @@ describe('askWithin — FIX-D: a resume failure never falls through to a write-i
     }
 
     const answers = events.filter((e) => e.event === 'ask:answer').map((e) => (e.data as { text: string }).text);
-    assert.deepEqual(answers, ['Partial answer before it died…'], 'partial text kept, NOT replaced by the canned message');
+    // The original guard, unchanged: the partial text SURVIVES and is not replaced by a canned message.
+    assert.equal(answers[0], 'Partial answer before it died…', 'partial text kept, NOT replaced');
+    // Spec 097: and the reader is told it is partial. Keeping the text was only half the decision —
+    // without this the answer finalized as "Answered", indistinguishable from a complete one, and the
+    // reader waited for a continuation that could never come (task 1786505684286).
+    assert.equal(answers.length, 2, 'exactly one notice appended, nothing else');
+    assert.match(answers[1], /stopped early and is incomplete/);
+    assert.match(answers[1], /process exited code 1/, 'the classified cause is carried, not swallowed');
+    assert.match(answers[1], /Nothing was written to your files/, 'says what did NOT happen');
     const done = events.find((e) => e.event === 'ask:done');
-    assert.deepEqual(done!.data, { ok: true }, 'no anomaly + streamed text → ok:true');
+    // ok:false now — `ok` only drives the graduate-to-build prefill, and a cut-off answer must never
+    // become a requirement.
+    assert.deepEqual(done!.data, { ok: false }, 'a truncated answer is not a successful one');
   });
 });
 
