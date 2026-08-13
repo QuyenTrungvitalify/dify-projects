@@ -539,6 +539,46 @@ describe('askTestWithin — spec 034: fresh-seeded ④/terminal Ask', () => {
     assert.equal(task.sessionIds.spec, undefined);
   });
 
+  test('097: a TIMED-OUT terminal ask keeps its partial answer, says it is incomplete, and keeps seededFrom', async () => {
+    // The reported failure (task 1786505684286): a 3-minute wall killed an ask mid-analysis, the partial
+    // text was kept — correctly — but finalized as "Answered", so the reader waited for a continuation
+    // that could never come. `seededFrom` must survive too: the answer WAS assembled from those files,
+    // and being cut off does not unmake that. Nothing guarded that carry, so it was silently droppable.
+    const task = await createTask(dir, { requirement: 'my requirement', confirmMode: 'each_step' });
+    task.project = 'p';
+    task.workflowSlug = 'wf';
+    task.phase = 'test';
+    task.status = 'awaiting_confirm';
+    task.gate = { actions: [], flag: 'test_result' };
+    await saveTask(dir, task);
+    await mkdir(join(dir, 'projects/p/wf/workflows'), { recursive: true });
+    await writeFile(join(dir, 'projects/p/wf/SPEC.md'), '# spec body');
+
+    const runTurn = async (
+      _s: ClaudeSession, _p: string,
+      _cb?: (id: string) => void, opts?: { onText?: (t: string) => void }
+    ): Promise<TurnResult> => {
+      opts?.onText?.('Checking the patterns in the repo… I will report back shortly.');
+      return { sessionId: null, result: null, isError: true, note: 'timed out after 180s' };
+    };
+    const { ctx, events } = ctxWith(dir, runTurn);
+    assert.ok(acquireTurn(task.taskId, 'ask'));
+    try {
+      await askTestWithin(task, 'are you done analysing?', ctx);
+    } finally {
+      releaseTurn(task.taskId);
+    }
+
+    const answers = events.filter((e) => e.event === 'ask:answer').map((e) => (e.data as { text: string }).text);
+    assert.equal(answers[0], 'Checking the patterns in the repo… I will report back shortly.', 'partial text kept');
+    assert.equal(answers.length, 2, 'exactly one notice appended');
+    assert.match(answers[1], /stopped early and is incomplete/);
+    assert.match(answers[1], /timed out after 180s/, 'the wall-clock cause is named, not swallowed');
+    const dd = events.find((e) => e.event === 'ask:done')!.data as { ok: boolean; seededFrom?: string[] };
+    assert.equal(dd.ok, false, 'a truncated answer must never read as a successful one');
+    assert.deepEqual(dd.seededFrom, ['requirement', 'SPEC.md'], 'the provenance caption survives truncation');
+  });
+
   test('degrades gracefully: a cancelled-mid-Implement task with no report.json omits it from seededFrom (still ok:true)', async () => {
     const task = await createTask(dir, { requirement: 'r', confirmMode: 'each_step' });
     task.project = 'p';

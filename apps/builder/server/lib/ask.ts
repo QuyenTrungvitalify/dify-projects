@@ -501,7 +501,10 @@ export async function askTestWithin(task: Task, text: string, ctx: OrchestratorC
     }
     if (turn.isError) {
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: truncationNotice(turn.note) });
-      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
+      // `seededFrom` rides along: the answer WAS assembled from those artifacts, and being cut off does
+      // not unmake that. applyAskDone folds the caption regardless of `ok`, so dropping it here would
+      // strip the "assembled from" line off exactly the answer whose provenance matters most.
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, seededFrom });
       return;
     }
     // No layer-2 (D4) → no anomaly branch → `ask:done` is always ok:true here, carrying `seededFrom` (§2).
