@@ -448,10 +448,23 @@ export function GateActions({ task, busy, onConfirm, onArmChange, onCancel, onRe
 
 /** spec 033 — a conversational Ask exchange's answer bubble (message↔message, no phase re-run). The
  *  question itself is already rendered as a preceding plain user bubble (store.ask() pushes both). */
-export function QaAnswer({ answer, done, seededFrom }: { answer: string; done: boolean; seededFrom?: string[] }) {
+export function QaAnswer({ answer, done, seededFrom, onStop }: {
+  answer: string;
+  done: boolean;
+  seededFrom?: string[];
+  /**
+   * spec 097 — stop THIS answer. Offered on every ask, not just a consult: the top-bar pill was gated
+   * `asking && kind === 'consult'`, so an ask on a build (the common case — asking about a finished
+   * build) had no way out at all and the wall-clock was the only escape. It sits in the head, beside
+   * the "Answering…" badge, which is where every chat UI puts it and where the eye already is.
+   */
+  onStop?: () => void;
+}) {
   const html = useMemo(() => (answer.trim() ? renderMarkdownHtml(answer) : ''), [answer]);
   return (
-    <div className="qa-bubble">
+    // `qa-thin` while there is nothing but the badge: the bubble stretched the full column to hold two
+    // words and a spinner, reading as an empty answer rather than a pending one.
+    <div className={'qa-bubble' + (html ? '' : ' qa-thin')}>
       <div className="qa-head">
         {done ? <I.checkCircle style={{ width: 13, height: 13, color: 'var(--ok)' }} /> : <span className="spin" />}
         {/* spec 082: a Q&A/consult reply is NOT a build phase — the badge said tr('running')="実行中" +
@@ -459,6 +472,11 @@ export function QaAnswer({ answer, done, seededFrom }: { answer: string; done: b
             "Answering…" label (shared: improves Ask-at-gate too) and let the spinner+badge stand alone
             while waiting — no redundant body line. */}
         <span className="qa-badge">{done ? tr('qaAnswered') : tr('qaAnswering')}</span>
+        {!done && onStop && (
+          <button className="qa-stop" onClick={onStop} type="button" title={tr('stopAnswerHint')}>
+            <span className="stop-sq" />{tr('stop')}
+          </button>
+        )}
       </div>
       {html ? (
         <div className="qa-body md-stream" dangerouslySetInnerHTML={{ __html: html }} />

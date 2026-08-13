@@ -904,6 +904,17 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .qa-head { display: flex; align-items: center; gap: 8px; color: var(--tx-muted); font-size: 12px; }
 .qa-badge { font-weight: 500; }
+/* spec 097: while only the badge is there, the bubble hugs its content instead of spanning the whole
+   column — a full-width box holding two words reads as an empty answer, not a pending one. */
+.qa-bubble.qa-thin { display: inline-flex; width: auto; max-width: 100%; }
+/* Stop, in the head beside the badge (where chat UIs put it). Danger colours are borrowed from
+   .stop-pill so the two stop affordances read as the same action. */
+.qa-stop {
+  display: inline-flex; align-items: center; gap: 6px; margin-left: 2px;
+  padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 500; line-height: 1.7;
+  border: 1px solid var(--danger-dim); color: var(--danger); background: transparent; cursor: pointer;
+}
+.qa-stop:hover { background: var(--danger-dim); border-color: var(--danger); }
 .qa-body { margin-top: 8px; color: var(--tx-1); font-size: 13.5px; }
 .qa-body .dd-line { color: var(--tx-muted); font-size: 12.5px; }
 /* spec 034 §2: the fresh-seed "based on: …" caption under a ④/terminal Ask answer. */

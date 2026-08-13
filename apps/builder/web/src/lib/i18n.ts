@@ -301,6 +301,7 @@ const EN: Dict = {
   graduateHint: 'Summarize this conversation into a requirement and prefill a new build',
   graduatePromptText: 'Summarize our conversation so far into one complete, self-contained requirement for building this Dify workflow. Reply with ONLY the requirement text, no preamble, in the language I have been using.',
   confirmDistill: 'Start distillation',
+  stopAnswerHint: 'Stop this answer (nothing is written to your files either way)',
   stopConsultAnswer: 'Stop this answer',
   cardTitle: 'Machine check',
   cardLintClean: 'Structure is valid — importable as-is',
@@ -515,6 +516,8 @@ const EN: Dict = {
   lintOk: 'ok',
   copyYaml: 'Copy',
   copied: 'Copied',
+  /* the per-code-block copy button the markdown renderer emits (every fenced block, every surface) */
+  copyCode: 'Copy this block',
   revealInFinder: 'Reveal in Finder',
 
   /* diff tab */
@@ -785,6 +788,7 @@ const JA: Dict = {
   graduateHint: '会話を要件にまとめて、新しいビルドに事前入力します',
   graduatePromptText: 'これまでの会話を要約し、このDifyワークフローを構築するための完全で独立した要件を1つ作成してください。前置きなしで要件テキストのみを、これまで使用してきた言語で返信してください。',
   confirmDistill: '蒸留を開始する',
+  stopAnswerHint: 'この回答を停止します（どちらにせよファイルには書き込まれません）',
   stopConsultAnswer: 'この回答を停止',
   cardTitle: '機械チェック',
   cardLintClean: '構造は有効 — そのままインポート可能',
@@ -987,6 +991,7 @@ const JA: Dict = {
   lintOk: 'ok',
   copyYaml: 'コピー',
   copied: 'コピーしました',
+  copyCode: 'このブロックをコピー',
   revealInFinder: 'Finderで開く',
 
   /* diff tab */

@@ -509,10 +509,13 @@ export function App() {
               {/* spec 082: a consult's live turn is an ask (busy never flips) — offer Stop during one,
                   and skip the "stop build?" modal there (aborting an answer is harmless + scoped: the
                   /cancel route's ask branch kills the child without touching status). */}
-              {view === 'conversation' && (busy || (asking && task?.kind === 'consult')) && (
+              {/* spec 097: the ask case moved INTO the answer bubble (beside "Answering…", where chat UIs
+                  put it and where the eye already is). Two stops for one action read as two different
+                  ones, so this pill is now build-only again. */}
+              {view === 'conversation' && busy && (
                 <button className="ghost-pill stop-pill"
-                  onClick={() => { if (task?.kind === 'consult') void store.cancel(); else void onStop(); }}
-                  title={task?.kind === 'consult' ? tr('stopConsultAnswer') : tr('stopRunningBuild')}>
+                  onClick={() => void onStop()}
+                  title={tr('stopRunningBuild')}>
                   <span className="stop-sq" />{tr('stop')}
                 </button>
               )}
@@ -669,7 +672,12 @@ export function App() {
                       </div>;
                     if (item.kind === 'qa')
                       return <div key={item.id} className="msg msg-assistant">
-                        <QaAnswer answer={item.answer} done={item.done} seededFrom={item.seededFrom} />
+                        <QaAnswer answer={item.answer} done={item.done} seededFrom={item.seededFrom}
+                          /* spec 097: Stop on EVERY ask, not consult-only. An ask on a build had no
+                             escape at all — the wall-clock was it. The /cancel route's ask branch keys
+                             on the LANE (`liveKind === 'ask'`), never on task kind, so this was always
+                             safe; it simply had not been offered. */
+                          onStop={item.done ? undefined : () => void store.cancel()} />
                       </div>;
                     // spec 082 S3: the YAML report card — machine facts, rendered before the model's take.
                     if (item.kind === 'card')

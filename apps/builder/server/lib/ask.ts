@@ -54,7 +54,23 @@ export function truncationNotice(note: string | undefined): string {
   );
 }
 
-export const ASK_TIMEOUT_MS = Number(process.env.BUILDER_ASK_TIMEOUT_MS) || 3 * 60 * 1000;
+/**
+ * Spec 097 — the ask wall-clock budget. Raised 3 → 8 minutes.
+ *
+ * Three minutes was killing legitimate work: an ask on a 52-node build reads the requirement, SPEC.md,
+ * a 95KB main.yml and report.json, then cross-checks vetted patterns. Measured on task 1786505684286 it
+ * was force-killed mid-analysis twice. A phase turn gets 15 minutes for comparable reading (spec 085
+ * raised it after a real build landed at 600.7s), so 3 was out of step with the evidence.
+ *
+ * NOT 15, though: an ask is interactive — someone is watching — whereas 15 minutes is the budget for a
+ * turn nobody is sitting in front of. 8 is the compromise, and it is only safe BECAUSE two other things
+ * shipped with it: a cut-off answer now says so (truncationNotice), and Stop is offered on every ask
+ * rather than consult-only, so a long budget is no longer a wait you cannot escape.
+ *
+ * The lane is a single global slot (lock.ts), so this bounds how long ONE ask can block every other
+ * chat app-wide. That is the real cost of raising it, and the Stop button is what pays for it.
+ */
+export const ASK_TIMEOUT_MS = Number(process.env.BUILDER_ASK_TIMEOUT_MS) || 8 * 60 * 1000;
 
 /**
  * Every answer surface renders Markdown, where a fence closes at the FIRST run of backticks at least as
