@@ -74,6 +74,51 @@ describe('costFromResult (spec 059)', () => {
     assert.equal(costFromResult(ev({ model: 'claude-x' })), null);
   });
 
+  /**
+   * A turn can involve MORE than one model, and the first key is not the one that answered.
+   *
+   * Captured verbatim from the first turn of a new chat spawned with `--model opus`: the CLI does its own
+   * housekeeping (the session title) on haiku, so `modelUsage` carried haiku FIRST and opus second. Taking
+   * keys[0] recorded haiku for an answer Opus wrote — a lie in the audit trail a campaign reads, and a
+   * user-visible contradiction of the model chip on the dev tip.
+   */
+  test('picks the model that WROTE, not the first key (a real two-model turn)', () => {
+    const real = ev({
+      num_turns: 1,
+      modelUsage: {
+        'claude-haiku-4-5-20251001': { inputTokens: 739, outputTokens: 14, costUSD: 0.000809 },
+        'claude-opus-5': { inputTokens: 2, outputTokens: 494, cacheReadInputTokens: 18696, costUSD: 0.077678 },
+      },
+    });
+    assert.equal(costFromResult(real)?.model, 'claude-opus-5');
+
+    // order must not matter — the same map with the answering model first still resolves to it
+    const flipped = ev({
+      num_turns: 1,
+      modelUsage: {
+        'claude-opus-5': { outputTokens: 494 },
+        'claude-haiku-4-5-20251001': { outputTokens: 14 },
+      },
+    });
+    assert.equal(costFromResult(flipped)?.model, 'claude-opus-5');
+
+    // no output counters anywhere → fall back to who READ the most, then to the first key
+    assert.equal(
+      costFromResult(ev({ num_turns: 1, modelUsage: { a: { inputTokens: 5 }, b: { inputTokens: 900 } } }))?.model,
+      'b'
+    );
+    assert.equal(
+      costFromResult(ev({ num_turns: 1, modelUsage: { first: {}, second: {} } }))?.model,
+      'first',
+      'nothing countable ⇒ the pre-existing behaviour, not an empty field'
+    );
+    // snake_case is accepted too — the CLI uses it in the top-level `usage` block
+    assert.equal(
+      costFromResult(ev({ num_turns: 1, modelUsage: { x: { output_tokens: 3 }, y: { output_tokens: 80 } } }))?.model,
+      'y'
+    );
+  });
+
   test('shape-drifted event (wrong types / non-object usage / unknown keys) → no throw', () => {
     assert.doesNotThrow(() =>
       costFromResult(ev({ duration_ms: 'nope', usage: 'not-an-object', weird: {} }))
