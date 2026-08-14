@@ -90,17 +90,22 @@ export function askCostLine(c: WirePhaseCost | undefined): string | null {
   const parts: string[] = [];
   const m = shortModel(c.model);
   if (m) parts.push(m);
-  // Fresh input and cached input are shown SEPARATELY, never summed. Measured on a real ask: raw
-  // `input_tokens` was 2 while the turn actually read 36k from cache — "in 2" alone reads as "this cost
-  // nothing", which is the opposite of true. Summing them into one number would be the other error: it
-  // would hide that almost all of it was the cheap kind. Two numbers, each what it is.
+  // The prompt is shown in its THREE parts, never summed and never partly hidden — they are billed at
+  // wildly different rates (fresh 1× · cache read 0.1× · cache write 1.25×), so one total would say
+  // nothing about the price, and any one of them alone misleads:
+  //   - "in 2" by itself read as "this was free" while the turn actually carried 15.6k of prompt;
+  //   - dropping cache WRITE (the first version did) hid the most expensive part: on a measured line,
+  //     `in` + `cache read` + `out` accounted for $0.053 of a $0.099 turn. Half the bill was invisible,
+  //     which makes the tip unable to explain the one number it prints.
   const i = tok(c.inputTokens);
   const cached = tok(c.cacheReadTokens);
+  const written = tok(c.cacheCreationTokens);
   const o = tok(c.outputTokens);
   if (i) parts.push(`in ${i}`);
   const pct = cachePct(c);
-  if (cached) parts.push(`cache ${cached}${pct === null ? '' : ` (${pct}%)`}`);
+  if (cached) parts.push(`cache ${cached} read${pct === null ? '' : ` (${pct}%)`}`);
   else if (pct !== null) parts.push(`cache ${pct}%`);
+  if (written) parts.push(`${written} written`);
   if (o) parts.push(`out ${o}`);
   const turns = c.numTurns;
   if (typeof turns === 'number' && Number.isFinite(turns)) {

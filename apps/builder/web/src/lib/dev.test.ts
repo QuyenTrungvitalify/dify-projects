@@ -131,11 +131,12 @@ describe('askCostLine — the dev tip under an answer', () => {
         inputTokens: 4000,
         outputTokens: 842,
         cacheReadTokens: 36000,
+        cacheCreationTokens: 1200,
         numTurns: 3,
         durationMs: 47200,
         totalCostUsd: 0.2134,
       }),
-    ).toBe('opus-4-5 · in 4.0k · cache 36.0k (90%) · out 842 · 3 turns · 47.2s · $0.213');
+    ).toBe('opus-4-5 · in 4.0k · cache 36.0k read (90%) · 1.2k written · out 842 · 3 turns · 47.2s · $0.213');
   });
 
   it('renders only what the turn actually reported', () => {
@@ -145,7 +146,11 @@ describe('askCostLine — the dev tip under an answer', () => {
     expect(askCostLine({ numTurns: 4 })).toBe('4 turns');
     // Fresh vs cached input stay apart: on a real ask these were 2 and 36k, and showing only the 2
     // said the answer was nearly free while the price said $0.158.
-    expect(askCostLine({ inputTokens: 2, cacheReadTokens: 36_000 })).toBe('in 2 · cache 36.0k (100%)');
+    expect(askCostLine({ inputTokens: 2, cacheReadTokens: 36_000 })).toBe('in 2 · cache 36.0k read (100%)');
+    // Cache WRITE is billed at 1.25x — the priciest part of a prompt. Leaving it out made the tip unable
+    // to account for its own price line (measured: $0.053 of the $0.099 it printed).
+    expect(askCostLine({ inputTokens: 2, cacheReadTokens: 15_600, cacheCreationTokens: 2_450, outputTokens: 393 }))
+      .toBe('in 2 · cache 15.6k read (100%) · 2.5k written · out 393');
     expect(askCostLine({ model: 'claude-haiku-4-5-20251001' })).toBe('haiku-4-5');
   });
 
