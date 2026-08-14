@@ -126,6 +126,48 @@ serialized in a code node with `json.dumps` first and the resulting **string** s
 body. Interpolating raw multi-line text into a hand-written JSON body breaks the body. Field-proven
 on a lint-clean import.
 
+### `http-request` — the two fields the backend accepts and the editor rejects
+
+Both of these ship a workflow that imports clean, passes all four linters, and runs green — while
+being wrong. Field-observed on Dify 1.15 (2026-08-13), 9 nodes in one build.
+
+**(a) An object/array `default_value` must be a JSON STRING.** Under `error_strategy: default-value`,
+a row typed `object` or `array[...]` carries its default as a quoted string, not as YAML structure:
+
+```yaml
+error_strategy: default-value
+default_value:
+- { key: body, type: string, value: '' }
+- { key: status_code, type: number, value: 0 }
+- { key: headers, type: object, value: '{}' }   # '{}' — QUOTED. Never bare {}.
+```
+
+The backend coerces either form (`DefaultValue.validate_value_type` runs `json.loads` on a string),
+which is exactly why nothing catches the mistake. The editor hands the value straight to Monaco,
+which requires a string: on a real mapping `createTextBuffer()` falls through to `factory.create(…)`
+and throws `TypeError: $.create is not a function`. **The node's config panel then goes blank the
+moment anyone clicks the node** — the run still works, but the workflow can no longer be edited.
+
+The row list must mirror the node's outputs exactly. For `http-request` that is three rows and only
+three — `body` / `status_code` / `headers` — the same list Dify's editor writes itself. A `files`
+row is not part of the contract and has no widget at all.
+
+**(b) `timeout` binds on `connect` / `read` / `write` — not `max_*_timeout`.**
+
+```yaml
+timeout: { connect: 10, read: 30, write: 10 }
+ssl_verify: true
+```
+
+`max_connect_timeout` / `max_read_timeout` / `max_write_timeout` appear in exported DSL and read like
+the real names, but they are the UI slider's **cap** — Dify's `default.ts` seeds them at 0 on every
+fresh node, and the backend model `HttpRequestNodeTimeout` has no such fields and drops them. A node
+carrying only `max_*` has **no timeout set**: it falls back to connect=10 / read=600 / write=600, so
+a hung receiver stalls the run for ten minutes instead of the seconds you wrote.
+
+Both are now caught (warn-only) by `lint_node_bodies.py` via `schemas/editor-state-overlay.json`.
+Worked example: [.claude/skills/dify-build/references/error-strategy.yml](../.claude/skills/dify-build/references/error-strategy.yml), node `1754000000007`.
+
 ## §2-supplement — Iteration ≤30: clamp the batch COUNT (not a fixed batch size); and max_tokens for long generation
 
 Refines constraints.md §2 (the ≤30-items hard cap; >30 fails at run time with **no clear error**). Two

@@ -438,3 +438,80 @@ def test_overlay_field_is_genuinely_absent_from_the_generated_schema() -> None:
         assert r["field"] not in props, (
             f"{r['node_type']}.{r['field']} IS in {def_name} — the schema gates it; drop the overlay rule"
         )
+
+
+# ── The http-request editor-state rules (2026-08-13 field break) ────────────────────────────────
+# Two divergences the BACKEND accepts and the EDITOR does not, both of which shipped to a live
+# workspace through every gate this repo has. `http-request` carries an `_error` dump-stub, so these
+# also pin the structural fix: the overlay pass must run for node types with NO usable schema.
+
+def test_overlay_runs_for_types_with_no_usable_schema() -> None:
+    """THE structural fix. The overlay used to sit AFTER the warn-skip `continue`, which made it dead
+    code for every type lacking a usable def — i.e. for `http-request`, the type whose editor-only
+    state actually broke a build. The overlay exists BECAUSE the generated schema cannot see these
+    fields; gating it on that schema being usable inverted its purpose."""
+    result = run_tool(str(FIXTURES_DIR / "overlay_http_editor_state_bad.yml"))
+    assert "no usable schema for node type 'http-request'" in result.stderr, (
+        "precondition: this fixture must exercise the warn-skip path"
+    )
+    assert "is not a JSON string" in result.stderr, (
+        "the overlay must still speak for a node the schema pass skips\n" + result.stderr
+    )
+
+
+def test_overlay_http_rules_warn_but_never_gate() -> None:
+    result = run_tool(str(FIXTURES_DIR / "overlay_http_editor_state_bad.yml"))
+    assert result.returncode == 0, f"warn-only; got {result.returncode}\n{result.stderr}"
+    assert result.stdout.strip() == "", "overlay findings belong on stderr"
+    assert "'default_value' row 'headers'" in result.stderr, "must name the offending row"
+    assert "sets only max_connect_timeout" in result.stderr, "must name the inert keys"
+
+
+def test_overlay_http_rules_silent_on_the_corrected_shape() -> None:
+    """Includes the two NARROWNESS cases: `max_*` beside real values is a legitimate slider cap, and
+    Dify's own untouched-node export (`max_*: 0`) must not be nagged — a warning that fires where
+    nothing is wrong is how a warning stops being read."""
+    result = run_tool(str(FIXTURES_DIR / "overlay_http_editor_state_ok.yml"))
+    assert result.returncode == 0
+    assert "is not a JSON string" not in result.stderr, result.stderr
+    assert "sets only" not in result.stderr, result.stderr
+
+
+def test_json_string_rule_only_fires_on_object_and_array_types() -> None:
+    """A `string`/`number` row holding a non-string is the backend's problem, not the editor's — those
+    render through <Input>, never Monaco. Firing there would be noise."""
+    import importlib
+
+    sys.path.insert(0, str(TOOL.parent))
+    mod = importlib.import_module("lint_node_bodies")
+    rule = {
+        "field": "default_value",
+        "item_key": "key",
+        "value_key": "value",
+        "string_encoded_types": ["object", "array[object]", "array[string]", "array[number]"],
+    }
+    body = {
+        "default_value": [
+            {"key": "status_code", "type": "number", "value": 0},
+            {"key": "body", "type": "string", "value": ""},
+            {"key": "files", "type": "array[file]", "value": []},
+            {"key": "headers", "type": "object", "value": {}},
+            {"key": "rows", "type": "array[object]", "value": []},
+        ]
+    }
+    out = mod._rule_json_string_values(Path("x.yml"), "1", "http-request", body, rule)
+    assert len(out) == 2, out
+    assert "'headers'" in out[0] and "'rows'" in out[1]
+
+
+def test_unknown_rule_kind_is_ignored_not_fatal() -> None:
+    """Forward-compat: a newer overlay carrying a kind this linter predates must degrade to silence.
+    The overlay is advisory and must never be able to crash the linter it rides in."""
+    import importlib
+
+    sys.path.insert(0, str(TOOL.parent))
+    mod = importlib.import_module("lint_node_bodies")
+    mod._overlay_rules.cache_clear()
+    assert mod._overlay_findings(
+        Path("x.yml"), "1", "http-request", {"timeout": {"max_read_timeout": 30}}
+    ) is not None

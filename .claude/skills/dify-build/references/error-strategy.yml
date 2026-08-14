@@ -9,7 +9,7 @@
 #   `http-request`/`code` reference slot from richer real patterns. This file is reachable only by
 #   the explicit pointer in implement.md — exactly the "hand it, don't search" contract.
 #
-# THE FOUR SHAPES DEMONSTRATED (grammar: skills/mango-svip/references/edge_types.md,
+# THE SHAPES DEMONSTRATED (grammar: skills/mango-svip/references/edge_types.md,
 #   section "Error Handling Nodes"):
 #   1. `error_strategy: fail-branch` sits INSIDE `data:` of a code / http-request node.
 #   2. A node with fail-branch gets TWO outgoing edges; their `sourceHandle` values are
@@ -22,6 +22,31 @@
 #      them like any output: `{{#<node_id>.error_message#}}` / value_selector [<node_id>, error_message].
 #   4. Several fail-branches may CONVERGE on one handler (both fail edges below target the same
 #      template-transform); at runtime only the branch that fired carries values, the other reads empty.
+#   5. `error_strategy: default-value` — the OTHER strategy (node '1754000000007'). No branch edges:
+#      the node keeps ONE `source` edge and, on failure, emits the canned `default_value` outputs so
+#      the flow continues straight through. Use it when the downstream shape matters more than the
+#      failure; use fail-branch when the operator must be TOLD.
+#   6. `default_value` rows must mirror the node's OUTPUT contract exactly. For `http-request` that is
+#      three rows and only three — `body` (string), `status_code` (number), `headers` (object) — the
+#      same list Dify's own editor writes (web/…/error-handle/utils.ts, `getDefaultValue`). For `llm`
+#      it is one `text` row; for `code`, one row per declared output.
+#
+# GOTCHA — THE ONE THAT BREAKS THE EDITOR, NOT THE RUN. In a `default_value` row whose `type` is
+#   `object` or any `array[...]`, the `value` MUST be a JSON **string** — `'{}'`, not `{}`; `'[]'`,
+#   not `[]`. Both forms import and RUN fine (the backend json.loads a string, entities.py
+#   `DefaultValue.validate_value_type`), so every linter and a green Test Run will tell you it is
+#   correct. But the editor feeds that value straight to Monaco, which requires a string:
+#   `createTextBuffer` falls through to `factory.create(...)` on a non-string and throws
+#   `TypeError: $.create is not a function` — the node panel goes blank the moment you CLICK the node.
+#   Observed on Dify 1.15 (2026-08-13): 9 http-request nodes, all import-clean and Test-Run-green,
+#   all with an unopenable panel until the `{}` was quoted.
+#
+# GOTCHA — `timeout:` keys. Write `connect` / `read` / `write`. The `max_connect_timeout` /
+#   `max_read_timeout` / `max_write_timeout` spelling appears in exported DSL of a NEVER-CONFIGURED
+#   node (Dify's own `default.ts` seeds them at 0) and is purely the UI's slider CAP — the backend
+#   model `HttpRequestNodeTimeout` has no such fields and silently drops them. A node carrying only
+#   `max_*` therefore has NO timeout set: it falls back to connect=10 / read=600 / write=600, so a
+#   hung receiver stalls the run for TEN MINUTES instead of the seconds you wrote.
 #
 # IDS: the 13-digit ids below are PLACEHOLDERS in the real format. In a build, mint your own via
 #   `.venv/bin/python skills/mango-svip/scripts/generate_id.py <count>` — never copy ids from any
@@ -32,6 +57,7 @@
 #         │             ├─ success → end (summary)
 #         │             └─ fail ────┐
 #         └─ fail ──────────────────┴→ template-transform: human-readable notice → end (error_notice)
+#       start(page_url) → HTTP HEAD (default-value) → end (probe_status)   ← shape 5, parallel probe
 app:
   description: 'Reference shape: fail-soft fetch → parse with error branches converging on one notice'
   icon: 🛟
@@ -115,6 +141,24 @@ workflow:
       type: custom
       data: { isInIteration: false, isInLoop: false, sourceType: template-transform, targetType: end }
       zIndex: 0
+    # SHAPE 5 — a `default-value` node branches NOTHING: one plain `source` edge in, one out. Compare
+    # with the two-edge pair above; that difference is the whole choice between the strategies.
+    - id: 1754000000001-source-1754000000007-target
+      source: '1754000000001'
+      target: '1754000000007'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: start, targetType: http-request }
+      zIndex: 0
+    - id: 1754000000007-source-1754000000008-target
+      source: '1754000000007'
+      target: '1754000000008'
+      sourceHandle: source
+      targetHandle: target
+      type: custom
+      data: { isInIteration: false, isInLoop: false, sourceType: http-request, targetType: end }
+      zIndex: 0
     nodes:
     - id: '1754000000001'
       type: custom
@@ -150,7 +194,8 @@ workflow:
         headers: ''
         params: ''
         body: { type: none, data: [] }
-        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 10 }
+        timeout: { connect: 10, read: 30, write: 10 }
+        ssl_verify: true
       position: { x: 400, y: 200 }
       positionAbsolute: { x: 400, y: 200 }
       width: 242
@@ -233,6 +278,53 @@ workflow:
           value_type: string
       position: { x: 1000, y: 320 }
       positionAbsolute: { x: 1000, y: 320 }
+      width: 241
+      height: 100
+      sourcePosition: right
+      targetPosition: left
+    # SHAPE 5 + 6 — `error_strategy: default-value`. On failure this node does NOT branch; it emits
+    # the three rows below and the run walks straight on, so `{{#1754000000007.status_code#}}` is
+    # readable downstream whether the request succeeded or died.
+    #   `default_value` MUST list exactly the node's outputs — for http-request: body / status_code /
+    #   headers, no more (a `files` row, for instance, is not part of the contract and the editor has
+    #   no widget for it). And note `value: '{}'` is QUOTED: an object/array default is a JSON STRING.
+    #   Unquoted `{}` imports clean, lints clean, runs clean — and then blanks the node panel on click.
+    #   See the GOTCHA in this file's header for the exact mechanism.
+    - id: '1754000000007'
+      type: custom
+      data:
+        title: probe endpoint
+        type: http-request
+        error_strategy: default-value
+        default_value:
+        - { key: body, type: string, value: '' }
+        - { key: status_code, type: number, value: 0 }
+        - { key: headers, type: object, value: '{}' }
+        method: head
+        url: '{{#1754000000001.page_url#}}'
+        authorization: { type: no-auth }
+        headers: ''
+        params: ''
+        body: { type: none, data: [] }
+        timeout: { connect: 10, read: 30, write: 10 }
+        ssl_verify: true
+      position: { x: 400, y: 460 }
+      positionAbsolute: { x: 400, y: 460 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    - id: '1754000000008'
+      type: custom
+      data:
+        title: Probe output
+        type: end
+        outputs:
+        - variable: probe_status
+          value_selector: ['1754000000007', status_code]
+          value_type: number
+      position: { x: 1000, y: 460 }
+      positionAbsolute: { x: 1000, y: 460 }
       width: 241
       height: 100
       sourcePosition: right

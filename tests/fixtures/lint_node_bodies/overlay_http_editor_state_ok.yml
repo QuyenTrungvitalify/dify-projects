@@ -1,0 +1,79 @@
+# The corrected form of overlay_http_editor_state_bad.yml, and the shape the builder should emit.
+# Two extra nodes pin the rules' NARROWNESS: `max_*` alongside real values is a legitimate slider cap,
+# and Dify's own untouched-node export (`max_*: 0`) must never be nagged about.
+app: { description: '', icon: "\U0001F6DF", icon_background: '#FFEAD5', icon_type: emoji, mode: workflow, name: overlay_http_ok, use_icon_as_answer_icon: false }
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features: {}
+  graph:
+    edges: []
+    nodes:
+    - id: '1754000000002'
+      type: custom
+      data:
+        title: fetch
+        type: http-request
+        error_strategy: default-value
+        default_value:
+        - { key: body, type: string, value: '{"processed":false}' }
+        - { key: status_code, type: number, value: 0 }
+        - { key: headers, type: object, value: '{}' }
+        method: get
+        url: 'https://example.com'
+        authorization: { type: no-auth }
+        headers: ''
+        params: ''
+        body: { type: none, data: [] }
+        timeout: { connect: 10, read: 30, write: 10 }
+        ssl_verify: true
+      position: { x: 0, y: 0 }
+      positionAbsolute: { x: 0, y: 0 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    # A deliberately lowered slider cap NEXT TO real values — configured, so no warning.
+    - id: '1754000000003'
+      type: custom
+      data:
+        title: capped
+        type: http-request
+        method: get
+        url: 'https://example.com'
+        authorization: { type: no-auth }
+        headers: ''
+        params: ''
+        body: { type: none, data: [] }
+        timeout: { connect: 5, read: 20, write: 5, max_read_timeout: 20 }
+        ssl_verify: true
+      position: { x: 0, y: 200 }
+      positionAbsolute: { x: 0, y: 200 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left
+    # Exactly what Dify's default.ts writes for a node nobody ever configured. Warning here would fire
+    # on genuine untouched exports and train the reader to ignore the channel.
+    - id: '1754000000004'
+      type: custom
+      data:
+        title: untouched
+        type: http-request
+        method: get
+        url: 'https://example.com'
+        authorization: { type: no-auth }
+        headers: ''
+        params: ''
+        body: { type: none, data: [] }
+        timeout: { max_connect_timeout: 0, max_read_timeout: 0, max_write_timeout: 0 }
+        ssl_verify: true
+      position: { x: 0, y: 400 }
+      positionAbsolute: { x: 0, y: 400 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left

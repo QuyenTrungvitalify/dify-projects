@@ -1,0 +1,40 @@
+# The field-observed break (Dify 1.15, 2026-08-13): an http-request node that imports clean, passes
+# all four linters and runs green — but whose config panel blanks the instant it is CLICKED, and
+# whose timeout was never actually set. `http-request` has no usable generated def (`_error` stub),
+# so this fixture also pins that the overlay pass runs INDEPENDENTLY of schema availability.
+app: { description: '', icon: "\U0001F6DF", icon_background: '#FFEAD5', icon_type: emoji, mode: workflow, name: overlay_http_bad, use_icon_as_answer_icon: false }
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features: {}
+  graph:
+    edges: []
+    nodes:
+    - id: '1754000000002'
+      type: custom
+      data:
+        title: fetch
+        type: http-request
+        error_strategy: default-value
+        default_value:
+        # `headers` is the break: a real YAML mapping where the editor needs the STRING '{}'.
+        - { key: body, type: string, value: '{"processed":false}' }
+        - { key: status_code, type: number, value: 0 }
+        - { key: headers, type: object, value: {} }
+        method: get
+        url: 'https://example.com'
+        authorization: { type: no-auth }
+        headers: ''
+        params: ''
+        body: { type: none, data: [] }
+        # Only the UI-cap keys — the backend drops these, so NO timeout is configured.
+        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 10 }
+      position: { x: 0, y: 0 }
+      positionAbsolute: { x: 0, y: 0 }
+      width: 242
+      height: 120
+      sourcePosition: right
+      targetPosition: left

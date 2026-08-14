@@ -53,10 +53,13 @@
 #   your laptop. A webhook URL copy-pasted from the browser address bar connects to nothing in a
 #   Docker deployment. Use the in-network service name (`http://nginx/...`),
 #   `http://host.docker.internal/...`, or the host's LAN IP.
-# GOTCHA: an http-request `timeout:` left unset defaults to 0 — that is "unconfigured", not
-#   "unlimited by choice", and a hung receiver stalls the run. Always set real values, and note the
-#   exported DSL spells the keys `max_connect_timeout` / `max_read_timeout` / `max_write_timeout`
-#   (NOT `connect`/`read`/`write`).
+# GOTCHA: an http-request `timeout:` left unset is "unconfigured", not "unlimited by choice", and a
+#   hung receiver stalls the run. The keys that actually BIND are `connect` / `read` / `write` —
+#   those are the only three on the backend model `HttpRequestNodeTimeout`. The
+#   `max_connect_timeout` / `max_read_timeout` / `max_write_timeout` spelling shows up in the
+#   exported DSL of a node nobody ever configured (Dify's `default.ts` seeds them at 0) and is only
+#   the UI slider's CAP; the backend drops those fields silently. Write `max_*` alone and you have
+#   set NO timeout: the run falls back to connect=10 / read=600 / write=600.
 # GOTCHA: a fail-branch that dead-ends is worse than no fail-branch — the operator gets nothing on
 #   failure, not even the work already finished. BOTH `success-branch` and `fail-branch` edges must
 #   converge on a handler and reach a terminal node. The handle replaces `source` in the
@@ -918,9 +921,9 @@ workflow:
         ssl_verify: true
         # Never leave these at 0 — 0 means unconfigured, and a hung receiver stalls the run.
         timeout:
-          max_connect_timeout: 10
-          max_read_timeout: 30
-          max_write_timeout: 10
+          connect: 10
+          read: 30
+          write: 10
         title: Relay POST
         type: http-request
         # TODO: your receiver's endpoint, reachable FROM THE DIFY SERVER (service name inside the

@@ -18,6 +18,18 @@
     "hard-failing only after it has run warn-only across real builds — the same 3-phase discipline",
     "lint_node_bodies.py itself shipped under (spec 038: unwired → measure → wire).",
     "",
+    "RULE KINDS. `kind` selects the check; omitting it means \"must_cover\" (the original shape), so",
+    "older rules keep working untouched. A kind this linter does not know is SKIPPED, never fatal —",
+    "a newer overlay must degrade to silence on an older checkout.",
+    "  - must_cover         a field that must expose every name declared elsewhere in the body",
+    "  - json_string_values a typed value list whose object/array rows must hold a JSON *string*",
+    "  - inert_keys         a sub-block written with keys the backend model does not carry at all",
+    "`node_type` accepts \"*\" for a rule that is not tied to one node type.",
+    "",
+    "SCOPE NOTE. This pass runs BEFORE the generated-schema gate in lint_node_bodies.py, so it still",
+    "speaks for node types whose def is missing or an `_error` dump-stub (`http-request` today). It",
+    "used to run after, which made it dead code for exactly the types it was written to cover.",
+    "",
     "THE BAR FOR ADDING A RULE (keep this file small):",
     "  1. the field is absent from the generated $defs for that node type — otherwise the schema gates it;",
     "  2. its absence is USER-VISIBLE and blocking (publish refused / step broken), not cosmetic;",
@@ -42,6 +54,42 @@
         "vendor/dify-src @ 1.13.0-42 — web/app/components/workflow/nodes/_base/components/variable/utils.ts, `case BlockEnum.TriggerWebhook` reads `const { variables = [] } = data`",
         "vendor/dify-src @ 1.13.0-42 — web/app/components/workflow/hooks/use-checklist.ts flags a used-but-absent variable as errorMsg.invalidVariable",
         "OBSERVED on Dify 1.15 (2026-08-12, spec 095 S0): importing the same workflow with `variables` added makes the checklist's 「Biến không hợp lệ」 item disappear; without it, publish is refused"
+      ],
+      "dify_version_verified": "1.15"
+    },
+    {
+      "kind": "json_string_values",
+      "node_type": "*",
+      "field": "default_value",
+      "item_key": "key",
+      "value_key": "value",
+      "string_encoded_types": ["object", "array[object]", "array[string]", "array[number]"],
+      "why": "The backend accepts BOTH a real mapping and its JSON-string form (DefaultValue.validate_value_type json.loads a str), so import, every linter and a green Test Run all agree the file is fine. The EDITOR does not: it passes the value straight to Monaco, which requires a string — createTextBuffer() falls through to `factory.create(...)` on a non-string and throws `TypeError: $.create is not a function`. The node's config panel then goes blank the moment anyone CLICKS the node, and the workflow can no longer be edited.",
+      "fix": "Quote it: `value: '{}'` not `value: {}`, `value: '[]'` not `value: []`, `value: '{\"a\":1}'` not a nested mapping. That is the form Dify's own editor writes (getDefaultValueByType returns the STRING '{}'), and the backend json.loads it back — so the quoted form is correct on both sides. Worked example: .claude/skills/dify-build/references/error-strategy.yml node '1754000000007'",
+      "evidence": [
+        "vendor/dify-src @ 1.15 — web/app/components/workflow/nodes/_base/components/error-handle/error-handle-on-panel.tsx: the panel renders <DefaultValue forms={default_value}> straight from the DSL, never through getDefaultValue()",
+        "vendor/dify-src @ 1.15 — .../error-handle/default-value.tsx: type object/array[*] renders <CodeEditor language={json} value={form.value}> with no isJSONStringifyBeauty, so the raw value reaches Monaco",
+        "vendor/dify-src @ 1.15 — web/node_modules/monaco-editor/esm/vs/editor/common/model/textModel.js createTextBuffer(): `else { factory = value }` then `factory.create(defaultEOL)` — the exact throw",
+        "vendor/dify-src @ 1.15 — .../error-handle/utils.ts getDefaultValueByType(): VarType.object returns the STRING '{}' — the editor's own writer proves the intended encoding",
+        "vendor/dify-src @ 1.15 — api/core/workflow/nodes/base/entities.py DefaultValue.validate_value_type: `converter: self._parse_json` accepts the string form, so quoting is safe for the backend too",
+        "OBSERVED on Dify 1.15 (2026-08-13): projects/_drafts/build_requirement_news_automation_2 — 9 http-request nodes each carrying `- {key: headers, type: object, value: {}}` imported clean, passed all 4 linters and ran green; clicking ANY of them blanked the panel. Quoting to '{}' fixed all 9."
+      ],
+      "dify_version_verified": "1.15"
+    },
+    {
+      "kind": "inert_keys",
+      "node_type": "http-request",
+      "field": "timeout",
+      "inert_keys": ["max_connect_timeout", "max_read_timeout", "max_write_timeout"],
+      "bound_keys": ["connect", "read", "write"],
+      "why": "`max_*_timeout` are NOT the timeout. They are the UI slider's upper CAP, seeded at 0 on every fresh node by Dify's default.ts — which is why they show up in exported DSL and read like the real field names. The backend model HttpRequestNodeTimeout carries only connect/read/write and drops the max_* keys silently, so a node written this way has NO timeout configured: it falls back to connect=10 / read=600 / write=600. A hung receiver then stalls the run for TEN MINUTES instead of the seconds the author wrote, and nothing anywhere reports it.",
+      "fix": "Write the binding keys: `timeout: { connect: 10, read: 30, write: 10 }` (add `ssl_verify: true` alongside). Keep max_* only if you also set the real values and genuinely want to lower the editor's slider ceiling.",
+      "evidence": [
+        "vendor/dify-src @ 1.15 — api/core/workflow/nodes/http_request/entities.py: `class HttpRequestNodeTimeout` declares connect/read/write ONLY; max_* appear nowhere on the node model",
+        "vendor/dify-src @ 1.15 — api/core/workflow/nodes/http_request/node.py get_default_config(): max_* exist only in the /default-workflow-block-configs payload the FRONTEND store reads for slider caps",
+        "vendor/dify-src @ 1.15 — web/app/components/workflow/nodes/http/components/timeout/index.tsx: `value={connect}` vs `max={max_connect_timeout || …}` — the two roles, side by side; onChange writes `connect`",
+        "vendor/dify-src @ 1.15 — api/configs/feature/__init__.py: the fallbacks a dropped timeout lands on — HTTP_REQUEST_MAX_CONNECT_TIMEOUT=10, MAX_READ_TIMEOUT=600, MAX_WRITE_TIMEOUT=600",
+        "OBSERVED in-repo (2026-08-13): 32 occurrences across 10 files, all tracing to one confidently-worded but wrong GOTCHA in templates/patterns/yml-tsv-webhook-url.yml that told authors max_* was the exported spelling; the 3 curated patterns and .claude/skills/dify-build/references/error-strategy.yml had copied it forward"
       ],
       "dify_version_verified": "1.15"
     }

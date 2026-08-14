@@ -399,7 +399,8 @@ workflow:
           X-Source-Token: {{#env.SOURCE_API_TOKEN#}}
         params: ''
         body: { type: none, data: [] }
-        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 10 }
+        timeout: { connect: 10, read: 30, write: 10 }
+        ssl_verify: true
       position: { x: 600, y: 200 }
       positionAbsolute: { x: 600, y: 200 }
       width: 242
@@ -520,7 +521,8 @@ workflow:
           X-Source-Token: {{#env.SOURCE_API_TOKEN#}}
         params: ''
         body: { type: none, data: [] }
-        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 10 }
+        timeout: { connect: 10, read: 30, write: 10 }
+        ssl_verify: true
       parentId: '1785218032469'
       extent: parent
       position: { x: 100, y: 90 }
@@ -972,7 +974,8 @@ workflow:
         headers: ''
         params: ''
         body: { type: none, data: [] }
-        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 10 }
+        timeout: { connect: 10, read: 30, write: 10 }
+        ssl_verify: true
       parentId: '1785218032490'
       extent: parent
       position: { x: 400, y: 90 }
@@ -1295,7 +1298,8 @@ workflow:
           - key: body
             type: text
             value: '{{#1785218032505.message#}}'
-        timeout: { max_connect_timeout: 10, max_read_timeout: 30, max_write_timeout: 10 }
+        timeout: { connect: 10, read: 30, write: 10 }
+        ssl_verify: true
       position: { x: 6700, y: 100 }
       positionAbsolute: { x: 6700, y: 100 }
       width: 242

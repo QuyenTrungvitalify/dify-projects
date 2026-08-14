@@ -285,6 +285,69 @@ def _overlay_rules() -> tuple[dict, ...]:
         return ()
 
 
+def _rule_json_string_values(
+    path: Path, nid: str, ntype: str, body: dict, rule: dict
+) -> list[str]:
+    """`kind: json_string_values` — a typed value list whose object/array rows must hold a JSON STRING.
+
+    The divergence this catches: Dify's BACKEND coerces (`DefaultValue.validate_value_type` json.loads
+    a string, and accepts a real dict/list as-is), so BOTH encodings import, lint and RUN identically.
+    Its EDITOR does not: it hands the value straight to Monaco, whose `createTextBuffer` falls through
+    to `factory.create(...)` for a non-string and throws. The node panel then blanks on click, on a
+    workflow every gate called clean. Backend-derived schemas cannot express "must be the string form"
+    because the backend genuinely accepts both — which is the whole reason this rule lives here.
+    """
+    field = rule["field"]
+    rows = body.get(field)
+    if not isinstance(rows, list):
+        return []
+    string_encoded = set(rule.get("string_encoded_types") or [])
+    key_field, value_field = rule.get("item_key", "key"), rule.get("value_key", "value")
+    out: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("type") not in string_encoded:
+            continue
+        if isinstance(row.get(value_field), str):
+            continue
+        got = json.dumps(row.get(value_field), ensure_ascii=False, default=str)
+        out.append(
+            f"{path}: node '{nid}' ({ntype}): '{field}' row '{row.get(key_field)}' has type "
+            f"'{row.get('type')}' but its {value_field} is not a JSON string — write {got!r} "
+            f"(quoted), not {got}. {rule.get('why', '')} FIX: {rule.get('fix', '')}"
+        )
+    return out
+
+
+def _rule_inert_keys(path: Path, nid: str, ntype: str, body: dict, rule: dict) -> list[str]:
+    """`kind: inert_keys` — a sub-block written with keys the BACKEND MODEL does not carry.
+
+    Narrow on purpose. It fires only when an inert key holds a MEANINGFUL (non-zero) value AND no
+    binding key is present — i.e. an author who believed they were configuring something and got
+    silence. Dify's own `default.ts` seeds the inert keys at 0 on every fresh node, so warning on
+    their mere presence would fire on genuine untouched exports and train the reader to skip the
+    channel.
+    """
+    field = rule["field"]
+    block = body.get(field)
+    if not isinstance(block, dict):
+        return []
+    inert = [k for k in (rule.get("inert_keys") or []) if block.get(k)]
+    bound = [k for k in (rule.get("bound_keys") or []) if k in block]
+    if not inert or bound:
+        return []
+    return [
+        f"{path}: node '{nid}' ({ntype}): '{field}' sets only {', '.join(sorted(inert))} — the "
+        f"backend model has no such field and drops them, so nothing is configured. "
+        f"{rule.get('why', '')} FIX: {rule.get('fix', '')}"
+    ]
+
+
+_RULE_KINDS = {
+    "json_string_values": _rule_json_string_values,
+    "inert_keys": _rule_inert_keys,
+}
+
+
 def _overlay_findings(path: Path, nid: str, ntype: str, body: dict) -> list[str]:
     """Spec 095 S3 — WARNINGS ONLY (see the call site: this never touches the exit code).
 
@@ -299,7 +362,14 @@ def _overlay_findings(path: Path, nid: str, ntype: str, body: dict) -> list[str]
     """
     out: list[str] = []
     for rule in _overlay_rules():
-        if rule["node_type"] != ntype:
+        if rule["node_type"] not in (ntype, "*"):
+            continue
+        kind = rule.get("kind", "must_cover")
+        if kind != "must_cover":
+            handler = _RULE_KINDS.get(kind)
+            if handler is None:
+                continue  # an unknown kind is a stale/newer overlay — stay silent, never crash
+            out.extend(handler(path, nid, ntype, body, rule))
             continue
         field = rule["field"]
         sources: list[str] = rule.get("must_cover") or []
@@ -375,13 +445,6 @@ def lint_file(
         if not ntype or not isinstance(ntype, str):
             continue  # sticky note / annotation — silent skip (matches build_node_map)
 
-        def_name = TYPE_TO_DEF.get(ntype)
-        if def_name is None or "_error" in defs.get(def_name, {}):
-            warnings.append(
-                f"{path}: no usable schema for node type '{ntype}' — skipping body validation"
-            )
-            continue
-
         nid = str(node.get("id", "?"))
         prefix = f"{path}:{lines[nid]}" if nid in lines else f"{path}"
         # Spec 095 S3 — the editor-state overlay pass. Appends to `warnings` ONLY: this list goes to
@@ -390,7 +453,23 @@ def lint_file(
         # (lintClean requires all four == 0) and it runs in pre-commit, so a rule derived from another
         # project's FRONTEND internals must not be able to kill a build or block a commit until it has
         # been measured warn-only over real runs (spec 038's own 3-phase discipline).
+        #
+        # RUNS BEFORE THE SCHEMA GATE, DELIBERATELY. This pass used to sit after the warn-skip
+        # `continue` below, which made it dead code for exactly the node types that need it most: a
+        # type whose def is missing or an `_error` dump-stub got skipped wholesale, overlay included.
+        # `http-request` is that case today, and it is the type whose editor-only state (`default_value`
+        # value encoding, the inert `max_*_timeout` keys) caused a field failure on Dify 1.15 that every
+        # linter passed. The overlay exists PRECISELY because the generated schema cannot see these
+        # fields, so gating it on that schema being usable inverted its purpose.
         warnings.extend(_overlay_findings(path, nid, ntype, body))
+
+        def_name = TYPE_TO_DEF.get(ntype)
+        if def_name is None or "_error" in defs.get(def_name, {}):
+            warnings.append(
+                f"{path}: no usable schema for node type '{ntype}' — skipping body validation"
+            )
+            continue
+
         if report_unknown:
             unknown = _unknown_keys(body, defs[def_name])
             if unknown:
