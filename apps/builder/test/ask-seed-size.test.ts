@@ -293,6 +293,38 @@ describe('spec 098 — the terminal ask seed', () => {
     assert.ok(Buffer.byteLength(prompt) < 16 * 1024, `seed is ${Buffer.byteLength(prompt)} bytes`);
   });
 
+  // ── the outline cap's own edge cases (found reviewing the cap after it shipped) ─────────────────
+  // The cap ran over the heading list unconditionally, so on the two inputs where there was no usable
+  // heading list it produced a seed with NO content — the excerpt it was supposed to protect was
+  // replaced by the words "… and 0 more headings".
+
+  test('a big spec with NO headings hands over an excerpt, not a count of nothing', async () => {
+    const spec = 'あ'.repeat(20_000); // 60KB of Japanese, not one `#`
+    const task = await seededTask(dir, { yaml: workflowYaml(3), spec });
+    const prompt = await promptFor(dir, task);
+    assert.ok(!prompt.includes('0 more headings'), 'the excerpt must not be replaced by a count of nothing');
+    assert.ok(prompt.includes('あ'.repeat(200)), 'an actual opening excerpt is present');
+    assert.match(prompt, /no headings/, 'and it says why it is an excerpt rather than an outline');
+    assert.ok(Buffer.byteLength(prompt) < 16 * 1024, `seed is ${Buffer.byteLength(prompt)} bytes`);
+  });
+
+  test('one heading larger than the whole outline budget is kept, clipped', async () => {
+    const spec = `# ${'x'.repeat(9000)}\n${'body\n'.repeat(5000)}`;
+    const task = await seededTask(dir, { yaml: workflowYaml(3), spec });
+    const prompt = await promptFor(dir, task);
+    assert.ok(prompt.includes(`# ${'x'.repeat(150)}`), 'the sole heading survives');
+    assert.ok(!prompt.includes('1 more heading'), 'it is not dropped and counted');
+    assert.ok(Buffer.byteLength(prompt) < 16 * 1024, `seed is ${Buffer.byteLength(prompt)} bytes`);
+  });
+
+  test('a spec with more headings than the budget says how many it left out', async () => {
+    const spec = ['# T', ...Array.from({ length: 2000 }, (_, i) => `## Section number ${i}\n` + 'y'.repeat(50))].join('\n');
+    const task = await seededTask(dir, { yaml: workflowYaml(3), spec });
+    const prompt = await promptFor(dir, task);
+    assert.match(prompt, /… and \d+ more headings \(read the file\)/);
+    assert.ok(Buffer.byteLength(prompt) < 16 * 1024, `seed is ${Buffer.byteLength(prompt)} bytes`);
+  });
+
   test('a very long node title cannot make the map unbounded', () => {
     const yaml = [
       'workflow:', '  graph:', '    nodes:', "    - id: 'a'", '      data:', '        type: llm',

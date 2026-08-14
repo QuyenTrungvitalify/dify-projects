@@ -435,6 +435,20 @@ const OUTLINE_MAX = 4 * 1024;
  *  character, so a "16KB" cap read as characters silently admitted ~48KB of real text — measured: a real
  *  SPEC.md of 16,398 bytes sailed under a 16,384-CHARACTER cap and got inlined whole. */
 const bytes = (s: string): number => Buffer.byteLength(s, 'utf8');
+/** First `max` BYTES of `s`, cut on a character boundary — slicing the buffer alone would sever a
+ *  multi-byte character and leave a replacement glyph at the seam. */
+function clipBytes(s: string, max: number): string {
+  if (bytes(s) <= max) return s;
+  let out = '';
+  let used = 0;
+  for (const ch of s) {
+    const n = bytes(ch);
+    if (used + n > max) break;
+    out += ch;
+    used += n;
+  }
+  return out;
+}
 
 const specOutlineNote = (rel: string, size: number): string =>
   `(outline only — the full ${Math.round(size / 1024)}KB document is at \`${rel}\`; read it for any section you need)`;
@@ -482,19 +496,33 @@ async function gatherTerminalSeed(
   // on the largest real spec. Under the cap it is inlined whole, which is most builds.
   const specBody = await tryReadRel(projectsDir, specRel);
   if (specBody && bytes(specBody) > SPEC_INLINE_MAX) {
-    const heads = specBody.split('\n').filter((l) => /^#{1,4} /.test(l));
-    // A long spec written without markdown headings has no outline — hand over its opening instead of
-    // a bare pointer, so the answer has somewhere to start.
-    let gist = heads.join('\n') || specBody.slice(0, 2048);
-    if (bytes(gist) > OUTLINE_MAX) {
+    // One heading is free-form text and can be a paragraph on its own, so each is clipped before it is
+    // measured — otherwise a single fat heading eats the whole budget (review: it did, and the outline
+    // came out as the words "… and 1 more headings" with no content at all).
+    const heads = specBody
+      .split('\n')
+      .filter((l) => /^#{1,4} /.test(l))
+      .map((l) => (l.length > 160 ? `${l.slice(0, 160)}…` : l));
+    let gist: string;
+    if (heads.length) {
       const kept: string[] = [];
       let used = 0;
       for (const h of heads) {
-        if (used + bytes(h) > OUTLINE_MAX) break;
+        // Backstop, not the main defence: the clip above already keeps any single heading far under the
+        // budget, so this only bites if someone lowers OUTLINE_MAX or raises the clip. An outline of
+        // nothing is not an outline.
+        if (kept.length && used + bytes(h) + 1 > OUTLINE_MAX) break;
         kept.push(h);
         used += bytes(h) + 1;
       }
-      gist = `${kept.join('\n')}\n… and ${heads.length - kept.length} more headings (read the file)`;
+      const dropped = heads.length - kept.length;
+      gist = kept.join('\n') + (dropped ? `\n… and ${dropped} more heading${dropped > 1 ? 's' : ''} (read the file)` : '');
+    } else {
+      // A long spec written without markdown headings has no outline — hand over its opening instead of
+      // a bare pointer, so the answer has somewhere to start. (Review: the cap used to run on this branch
+      // too, and with no headings to keep it replaced the excerpt with the phrase "… and 0 more
+      // headings" — destroying the one thing this branch exists to provide.)
+      gist = `${clipBytes(specBody, OUTLINE_MAX)}\n… (opening excerpt — this document has no headings; read the file for the rest)`;
     }
     add('SPEC.md', `${specOutlineNote(specRel, bytes(specBody))}\n${gist}`, 'SPEC.md');
   } else {
