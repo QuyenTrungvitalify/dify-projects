@@ -141,3 +141,22 @@ describe('serializeThread — user attachments (history keeps the files, not the
     expect(revived[0].atts).toEqual([{ name: 'spec.pdf', mime: 'application/pdf', idx: 2 }]);
   });
 });
+
+/* The dev cost tip survives a hard reload. Not an accident of the serializer passing qa items through:
+   the number describes the turn that wrote THIS answer, so it stays true for as long as the answer does.
+   Pinned because a future "slim the persisted thread" pass would otherwise drop it silently. */
+describe('a qa item keeps its cost read-out across a reload', () => {
+  it('round-trips model + tokens with the answer', () => {
+    const items = [
+      {
+        id: 'q1', kind: 'qa', question: 'how many nodes?', answer: '3', done: true,
+        seededFrom: ['main.yml'],
+        cost: { model: 'claude-opus-5', inputTokens: 2, cacheReadTokens: 15_600, outputTokens: 19 },
+      },
+    ] as unknown as LiveThreadItem[];
+    const back = parseThread(serializeThread(items));
+    const qa = back?.[0] as { cost?: { model?: string; cacheReadTokens?: number } };
+    expect(qa.cost?.model).toBe('claude-opus-5');
+    expect(qa.cost?.cacheReadTokens).toBe(15_600);
+  });
+});

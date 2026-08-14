@@ -217,6 +217,9 @@ export interface WirePhaseCost {
   cacheCreationTokens?: number;
   totalCostUsd?: number;
   at?: number;
+  /** spec 062 #1: the model id that actually ran. The backend has always sent it (cost.ts reads it off
+   *  the result event); it was simply missing from this interface until the dev tip needed to read it. */
+  model?: string;
 }
 
 /* ───── live sidebar tree (GET /api/tree) ───── */

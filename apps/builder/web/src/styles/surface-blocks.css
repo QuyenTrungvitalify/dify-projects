@@ -924,6 +924,19 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* spec 034 §2: the fresh-seed "based on: …" caption under a ④/terminal Ask answer. */
 .qa-seeded { margin-top: 8px; color: var(--tx-faint); font-size: 11.5px; }
 
+/* dev-only meter under an answer (devMode). Monospace + tabular figures so the numbers line up down a
+   thread of answers, which is the whole point of reading them; `wrap` because the line grows with the
+   model id and a dev pane is often narrow. Muted on purpose — it must never compete with the answer. */
+.qa-devcost {
+  margin-top: 6px;
+  color: var(--tx-faint);
+  font-size: 10.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+  word-break: break-word;
+}
+
 /* the docked action bar: pinned above the composer while parked at an analyze/spec/implement gate (D7)
    — outside any single gate card, since it survives across any number of qa exchanges. It MIRRORS the
    composer's exact nesting (`.docked-gate-dock` ≙ `.composer-dock` horizontal padding; the shared

@@ -63,6 +63,54 @@ export function fmt(v: number | undefined): string {
   return typeof v === 'number' && Number.isFinite(v) ? String(Math.round(v)) : '—';
 }
 
+/** `12345` → `12.3k`. Tokens are read at a glance, and a 6-digit number is not. */
+function tok(v: number | undefined): string | null {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v));
+}
+
+/** `claude-opus-4-5-20260101` → `opus-4-5`. The vendor prefix and the date stamp are the same on every
+ *  line; what a reader is scanning for is which FAMILY answered. */
+export function shortModel(id: string | undefined): string | null {
+  if (!id) return null;
+  // Strip EVERY dotted prefix, not just one: a Bedrock id is `us.anthropic.claude-…`, so a single-segment
+  // strip left `anthropic.claude-opus-4-8` — worse than doing nothing, because it looks deliberate.
+  return id.replace(/^([a-z0-9-]+\.)+/, '').replace(/^claude-/, '').replace(/-\d{8}$/, '').replace(/\[1m\]$/, ' 1m');
+}
+
+/**
+ * The one-line dev tip under an answer: which model answered, what it cost, how long it took.
+ *
+ * Returns `null` when the turn reported nothing numeric — a tip made of `—` separators tells the reader
+ * less than no tip at all, and this line only exists to be glanceable. Every field is independently
+ * optional, because `costFromResult` is presence-guarded and a CLI shape drift drops fields silently.
+ */
+export function askCostLine(c: WirePhaseCost | undefined): string | null {
+  if (!c) return null;
+  const parts: string[] = [];
+  const m = shortModel(c.model);
+  if (m) parts.push(m);
+  // Fresh input and cached input are shown SEPARATELY, never summed. Measured on a real ask: raw
+  // `input_tokens` was 2 while the turn actually read 36k from cache — "in 2" alone reads as "this cost
+  // nothing", which is the opposite of true. Summing them into one number would be the other error: it
+  // would hide that almost all of it was the cheap kind. Two numbers, each what it is.
+  const i = tok(c.inputTokens);
+  const cached = tok(c.cacheReadTokens);
+  const o = tok(c.outputTokens);
+  if (i) parts.push(`in ${i}`);
+  const pct = cachePct(c);
+  if (cached) parts.push(`cache ${cached}${pct === null ? '' : ` (${pct}%)`}`);
+  else if (pct !== null) parts.push(`cache ${pct}%`);
+  if (o) parts.push(`out ${o}`);
+  const turns = c.numTurns;
+  if (typeof turns === 'number' && Number.isFinite(turns)) {
+    parts.push(`${Math.round(turns)} turn${Math.round(turns) === 1 ? '' : 's'}`);
+  }
+  if (typeof c.durationMs === 'number' && Number.isFinite(c.durationMs)) parts.push(`${(c.durationMs / 1000).toFixed(1)}s`);
+  if (typeof c.totalCostUsd === 'number' && Number.isFinite(c.totalCostUsd)) parts.push(`$${c.totalCostUsd.toFixed(3)}`);
+  return parts.length ? parts.join(' · ') : null;
+}
+
 type Phase = 'analyze' | 'spec' | 'implement' | 'test';
 const PHASE_NUM: Record<Phase, string> = { analyze: '①', spec: '②', implement: '③', test: '④' };
 

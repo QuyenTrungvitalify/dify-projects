@@ -24,8 +24,10 @@ import { PHASES } from './phases.js';
 import { languagePin } from './language.js';
 import { lintStandaloneYaml } from './base-import.js';
 import { checkRunnability, preflightNote, sourceContractNote } from './runnability.js';
+import { costFromResult } from './cost.js';
 import { errMsg, resolveRunners, type OrchestratorCtx } from './orchestrator-shared.js';
-import { bumpRev, noteUserLang, saveTask, taskDir, workflowDir, type Task } from '../state/task.js';
+import type { TurnResult } from './turn-runner.js';
+import { bumpRev, noteUserLang, saveTask, taskDir, workflowDir, type PhaseCost, type Task } from '../state/task.js';
 
 /** Pinned shorter than the phase default (10 min) — an Ask is a quick conversational reply, not a long
  *  agentic turn (matches the existing JUDGE_TIMEOUT_MS convention for a short data-turn, live-test.ts).
@@ -100,6 +102,26 @@ export interface AskFileAnomaly {
    *  revert). The restore loop is per-file isolated so ONE such failure never aborts the rest — but a file
    *  left tampered must be surfaced, not hidden behind a clean-looking settle. */
   restoreFailed?: boolean;
+}
+
+/**
+ * What one answer cost, for the dev tip under it.
+ *
+ * Same reader a phase uses (`costFromResult` on the turn's terminal `result` event), so the numbers mean
+ * exactly what the dev panel's table already means — model, tokens, cache share, wall-clock, USD. Until
+ * now an ask recorded NONE of that: a phase wrote `task.json.cost.<phase>` and an ask wrote nothing, so
+ * the surface that turned out to cost 3.4× the build (spec 098) was the one surface with no meter on it.
+ *
+ * Rides on the `ask:done` event and nowhere else — this is a live read-out, not a record. It is NOT
+ * persisted to `task.json`: an ask has no phase slot to write to, and inventing one would put a
+ * per-message number into the build's cost table, where every reader would take it for a phase.
+ *
+ * `{}` when the turn reported nothing numeric (a killed turn has no result event), so the payload simply
+ * has no `cost` key and the client renders no tip — rather than a tip full of dashes.
+ */
+function askCost(turn: TurnResult): { cost?: PhaseCost } {
+  const cost = costFromResult(turn.result);
+  return cost ? { cost } : {};
 }
 
 const isEnoent = (e: unknown): boolean => (e as { code?: string } | null)?.code === 'ENOENT';
@@ -359,7 +381,7 @@ export async function askWithin(
       log.warn({ taskId: task.taskId, files: anomalies.map((a) => `${a.kind}:${a.path}${a.restoreFailed ? '(RESTORE-FAILED)' : ''}`) },
         'ask: layer-2 detected + reverted write(s) — layer 1 was bypassed');
       await recordAsk(projectsDir, task.taskId, text, answer, false);
-      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, anomaly: { files: anomalies } });
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, anomaly: { files: anomalies }, ...askCost(turn) });
       return;
     }
 
@@ -377,7 +399,7 @@ export async function askWithin(
       const canned = `couldn't get an answer for that — try again, or use Request changes to edit the artifact.${cause}`;
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: canned });
       await recordAsk(projectsDir, task.taskId, text, canned, false);
-      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
     // Spec 097: errored but text DID stream — keep it (as before) and say it is incomplete. ok:false so
@@ -388,13 +410,13 @@ export async function askWithin(
       // The notice is part of what the reader saw, so it is part of what gets recorded — a recovered
       // answer must never look more finished than the live one did.
       await recordAsk(projectsDir, task.taskId, text, answer + notice, false);
-      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
 
     // Normal path — no anomaly, an answer streamed (or a clean empty result). FIX-B: ok, no task:update.
     await recordAsk(projectsDir, task.taskId, text, answer, true);
-    ctx.broadcast?.(task.taskId, 'ask:done', { ok: true });
+    ctx.broadcast?.(task.taskId, 'ask:done', { ok: true, ...askCost(turn) });
   } catch (e) {
     // The never-throw guard (see above): any unexpected error → benign ask:done{ok:false}, gate untouched.
     log.error({ taskId: task.taskId, err: errMsg(e) }, 'ask: unexpected error — surfaced as ask:done{ok:false}');
@@ -635,7 +657,7 @@ export async function askTestWithin(
       const canned = `couldn't get an answer for that — try again.${cause}`;
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: canned });
       await recordAsk(projectsDir, task.taskId, text, canned, false);
-      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
     if (turn.isError) {
@@ -645,12 +667,12 @@ export async function askTestWithin(
       // `seededFrom` rides along: the answer WAS assembled from those artifacts, and being cut off does
       // not unmake that. applyAskDone folds the caption regardless of `ok`, so dropping it here would
       // strip the "assembled from" line off exactly the answer whose provenance matters most.
-      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, seededFrom });
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, seededFrom, ...askCost(turn) });
       return;
     }
     // No layer-2 (D4) → no anomaly branch → `ask:done` is always ok:true here, carrying `seededFrom` (§2).
     await recordAsk(projectsDir, task.taskId, text, answer, true);
-    ctx.broadcast?.(task.taskId, 'ask:done', { ok: true, seededFrom });
+    ctx.broadcast?.(task.taskId, 'ask:done', { ok: true, seededFrom, ...askCost(turn) });
   } catch (e) {
     clearSession(task.taskId); // ensure the /cancel handle is cleared on any throw
     log.error({ taskId: task.taskId, err: errMsg(e) }, 'askTest: unexpected error — surfaced as ask:done{ok:false}');
@@ -949,7 +971,7 @@ export async function consultWithin(
       const msg = `couldn't get an answer for that — try again.${cause}`;
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: msg });
       await appendChat(projectsDir, task.taskId, 'assistant', msg, at + 1);
-      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
     if (turn.isError) {
@@ -958,11 +980,11 @@ export async function consultWithin(
       const notice = truncationNotice(turn.note);
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: notice });
       await appendChat(projectsDir, task.taskId, 'assistant', answer + notice, at + 1);
-      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
     if (gotText) await appendChat(projectsDir, task.taskId, 'assistant', answer, at + 1);
-    ctx.broadcast?.(task.taskId, 'ask:done', { ok: true });
+    ctx.broadcast?.(task.taskId, 'ask:done', { ok: true, ...askCost(turn) });
   } catch (e) {
     clearSession(task.taskId); // ensure the /cancel handle is cleared on any throw
     log.error({ taskId: task.taskId, err: errMsg(e) }, 'consult: unexpected error — surfaced as ask:done{ok:false}');

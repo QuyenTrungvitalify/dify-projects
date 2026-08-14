@@ -23,6 +23,7 @@ import type {
   WireStatus,
   WireGate,
   WirePromoteShare,
+  WirePhaseCost,
   Seed,
   WireGateAction,
 } from './types';
@@ -75,7 +76,12 @@ export type LiveThreadItem =
    *  once the backend's `ask:done` settles (streaming stops; the "Answered" chrome renders).
    *  spec 034 §2: `seededFrom` (④/terminal Ask only) lists the sources folded into the fresh seed so a
    *  possibly-incomplete answer is visible rather than silently trusted; absent on a 033 phase Ask. */
-  | { id: string; kind: 'qa'; question: string; answer: string; done: boolean; seededFrom?: string[] }
+  /** `cost` is the DEV read-out (model/tokens/duration of the turn that answered), folded on at settle
+   *  from `ask:done`. It rides along into localStorage with the rest of the qa item and is restored on a
+   *  hard reload — correct, because it describes the turn that wrote THIS answer and cannot go stale
+   *  while the answer stands. It is NOT written to `task.json`: an ask has no phase slot, and a
+   *  per-message number in the build's cost table would read as a phase's. */
+  | { id: string; kind: 'qa'; question: string; answer: string; done: boolean; seededFrom?: string[]; cost?: WirePhaseCost }
   /** spec 082 S3: a YAML report card — the no-LLM machine checks on a consult-attached .yml (lint /
    *  preflight / source-contract; `note` names any tool that could not run — never silently clean). */
   | { id: string; kind: 'card'; file: string; lint: string[]; preflight?: string; contract?: string; note?: string };
@@ -708,7 +714,13 @@ export function shouldSettleOpenAsk(d: { reconnected: boolean; turnRunning?: boo
   return d.reconnected || d.turnRunning === false;
 }
 
-export function applyAskDone(d: { ok: boolean; anomaly?: { files: AskAnomalyFile[] }; seededFrom?: string[] }): void {
+export function applyAskDone(d: {
+  ok: boolean;
+  anomaly?: { files: AskAnomalyFile[] };
+  seededFrom?: string[];
+  /** dev tip only — see the `cost` note on the qa thread item. */
+  cost?: WirePhaseCost;
+}): void {
   flushPendingAsk(); // land any trailing buffered fragment before finalizing (mirrors applyTask's rule)
   asking.value = false;
   notifyAskDone(task.value?.name ?? undefined); // spec 088: hidden-tab badge/notification (guards inside)
@@ -727,7 +739,12 @@ export function applyAskDone(d: { ok: boolean; anomaly?: { files: AskAnomalyFile
     // spec 034 §2: fold `seededFrom` onto the qa item so QaAnswer can caption a ④/terminal answer with
     // the sources it was assembled from (absent → a 033 phase Ask, no caption).
     const qa = items[idx] as LiveThreadItem & { kind: 'qa' };
-    items[idx] = { ...qa, done: true, ...(d.seededFrom && d.seededFrom.length > 0 ? { seededFrom: d.seededFrom } : {}) };
+    items[idx] = {
+      ...qa,
+      done: true,
+      ...(d.seededFrom && d.seededFrom.length > 0 ? { seededFrom: d.seededFrom } : {}),
+      ...(d.cost ? { cost: d.cost } : {}),
+    };
   }
   thread.value = items;
   // D3 layer 2 (FIX-M): layer 1 should make this unreachable — surface it verbatim via the EXISTING

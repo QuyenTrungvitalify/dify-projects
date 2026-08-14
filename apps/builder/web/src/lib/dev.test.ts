@@ -2,7 +2,7 @@
    phase with no token data renders `—` not a misleading 0%; `fmt` rounds or `—`. (`devMode` reads the
    URL/localStorage at import — jsdom provides both here; it is exercised implicitly, not asserted.) */
 import { describe, it, expect } from 'vitest';
-import { cachePct, fmt, diagnose, classify, shares } from './dev';
+import { cachePct, fmt, diagnose, classify, shares, askCostLine, shortModel } from './dev';
 
 describe('cachePct (spec 059)', () => {
   it('cacheRead / (cacheRead + input), rounded', () => {
@@ -118,5 +118,48 @@ describe('fmt (spec 059)', () => {
     expect(fmt(undefined)).toBe('—');
     expect(fmt(NaN)).toBe('—');
     expect(fmt(Infinity)).toBe('—');
+  });
+});
+
+/* The per-answer dev tip. It is a READ-OUT, so the bar is: never invent a number, never render a line
+   made of dashes, and never make the reader parse a 6-digit token count at a glance. */
+describe('askCostLine — the dev tip under an answer', () => {
+  it('reads model, tokens, cache, turns, duration and price in one line', () => {
+    expect(
+      askCostLine({
+        model: 'claude-opus-4-5-20260101',
+        inputTokens: 4000,
+        outputTokens: 842,
+        cacheReadTokens: 36000,
+        numTurns: 3,
+        durationMs: 47200,
+        totalCostUsd: 0.2134,
+      }),
+    ).toBe('opus-4-5 · in 4.0k · cache 36.0k (90%) · out 842 · 3 turns · 47.2s · $0.213');
+  });
+
+  it('renders only what the turn actually reported', () => {
+    expect(askCostLine({ outputTokens: 120 })).toBe('out 120');
+    // ONE turn is one turn. The plural read as a typo on the most common line of all.
+    expect(askCostLine({ numTurns: 1 })).toBe('1 turn');
+    expect(askCostLine({ numTurns: 4 })).toBe('4 turns');
+    // Fresh vs cached input stay apart: on a real ask these were 2 and 36k, and showing only the 2
+    // said the answer was nearly free while the price said $0.158.
+    expect(askCostLine({ inputTokens: 2, cacheReadTokens: 36_000 })).toBe('in 2 · cache 36.0k (100%)');
+    expect(askCostLine({ model: 'claude-haiku-4-5-20251001' })).toBe('haiku-4-5');
+  });
+
+  // A turn that was killed has no result event, so `costFromResult` returns null and no `cost` rides on
+  // `ask:done`. Nothing to show is shown as nothing — a tip of em-dashes tells the reader less than none.
+  it('is null when there is nothing to say', () => {
+    expect(askCostLine(undefined)).toBeNull();
+    expect(askCostLine({})).toBeNull();
+    expect(askCostLine({ at: 1786680000000 })).toBeNull(); // a timestamp is not a measurement
+  });
+
+  it('shortens a model id to the family a reader scans for', () => {
+    expect(shortModel('claude-sonnet-4-5-20250929')).toBe('sonnet-4-5');
+    expect(shortModel('us.anthropic.claude-opus-4-8')).toBe('opus-4-8');
+    expect(shortModel(undefined)).toBeNull();
   });
 });
