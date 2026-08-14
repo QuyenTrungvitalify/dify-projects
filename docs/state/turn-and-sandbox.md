@@ -289,6 +289,36 @@ lại; file không khôi phục được thì gắn cờ `restoreFailed`.
 Snapshot fail vì lý do **khác** "không tồn tại" (EACCES/EIO…) thì **rethrow** — không được im lặng coi
 như rỗng, vì thế là làm mù luôn phép so byte.
 
+### 5.1 Ask mang gì trong prompt (spec 098)
+
+Ask ở ④/terminal **không có phase session để resume** — mọi thứ model cần phải nằm trong prompt của
+**từng lượt**. Đây là ràng buộc cứng, không phải lựa chọn thiết kế: session Ask **bị compaction** (đã
+quan sát 2 lần trong một session thật), nên YAML đã inline ở các lượt cũ sẽ bị tóm tắt mất. Bất kỳ
+phương án "chỉ seed ở lượt đầu / nhớ từ lượt trước" nào cũng dẫn tới việc model trả lời về một workflow
+nó **không còn nhìn thấy** — sai âm thầm, loại lỗi tệ nhất.
+
+→ Nguyên tắc: **không giảm TẦN SUẤT gửi, chỉ giảm KÍCH THƯỚC thứ được gửi.**
+
+| mục seed | gửi cái gì | ngưỡng |
+|---|---|---|
+| requirement | nguyên văn | — |
+| `SPEC.md` | nguyên văn; nếu lớn thì **outline heading + đường dẫn** | 16KB (**byte**, không phải ký tự) |
+| `main.yml` | **mục lục** `id \| type \| title \| [inside container]` + mọi cạnh + đường dẫn file | quét hỏng ⇒ file thô nếu ≤8KB, không thì con trỏ tới file |
+| `report.json`, `liveTest` | nguyên văn (đo rồi: nhỏ, và là phần đáng giá nhất khi trả lời) | — |
+
+Mục lục do `workflow-index.ts` dựng **không có parser YAML** (server chỉ 1 dependency). Nguyên tắc sống
+còn của nó: **sai còn tệ hơn vắng** — không dựng được map thì trả `ok:false` để caller lùi về file thô,
+tuyệt đối không xuất bản nửa bản đồ. Ba guard: số node = số item · dòng làm dừng mảng phải giống cấu
+trúc YAML · item cạnh phải rút ra được cặp. Độ chính xác được ghim bằng
+`test/workflow-index-calibration.test.ts` (golden sinh từ `python yaml`) — sửa `workflow-index.ts` thì
+**chạy lại** `test/helpers/workflow-index-golden.py` và đọc diff.
+
+**Đính kèm**: `attachmentBlock(paths, newIdx)` — file **của lượt này** giữ lời mời "Read the file(s)
+above"; file cũ vẫn kê **đường dẫn đầy đủ** nhưng bỏ lời mời (chính lời mời đó khiến ảnh cũ bị đọc lại
+mãi). `newIdx === undefined` = "caller không có ý kiến" ⇒ hành vi tiền-098 (phase/reply/consult đi
+đường này). `newIdx === []` = "lượt này không có file mới" ⇒ **không ai** được mời đọc. Gộp hai cái đó
+làm một là cách làm tính năng này thành no-op, vì đa số lượt hỏi không kèm file.
+
 ## 6. Run lock
 
 Bất biến **một turn tại một thời điểm** (`lock.ts`, `turnHolder`) là thứ khiến confinement

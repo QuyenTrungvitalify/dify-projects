@@ -120,6 +120,27 @@ không phase-doc nào nhắc tới cờ đó (bài học đã vào AGENTS §9). 
 (E2b), đo lại **2026-08-05** xác nhận đường đó sống: `--name repair` trả đúng top-1 và build vượt
 được ví dụ corpus. Đó cũng là căn cứ giữ E3/E4 ở trạng thái park.
 
+### 2026-08-13/14 · spec 098 — runbook: đo TOKEN THẬT của một lượt (không phải ước lượng)
+
+`task.json.cost.*` chỉ ghi phase; **Ask không có ở đó**. Nguồn duy nhất cho chi phí hỏi-đáp là log
+usage của chính CLI:
+
+1. Lấy session id: `task.json` → `sessionIds.askTest` (hoặc `.analyze/.spec/.implement` cho phase).
+2. Mở `~/.claude/projects/<cwd-slug>/<sessionId>.jsonl` — mỗi dòng một event; `message.usage` nằm ở
+   dòng assistant.
+3. Quy đổi **input-equivalent**: `eff = input + cache_creation×1.25 + cache_read×0.10`. Cộng dồn mọi
+   `usage` **giữa hai dòng user** ⇒ chi phí của MỘT lượt hỏi (một lượt có nhiều API call vì mỗi
+   tool-call là một call, mỗi call đọc lại toàn bộ prefix).
+4. Muốn tách "trước/sau" trong cùng một file: nhớ số dòng trước khi chạy, rồi so hai nhóm.
+
+Cạm bẫy đã dính: (a) **session được resume** — một task đã hỏi 46 lượt thì lịch sử cũ vẫn nằm trong
+prefix, nên đo "sau khi sửa" trên chính nó sẽ lẫn; muốn sạch thì chọn task có `sessionIds.askTest`
+**rỗng**. (b) Đừng dùng cửa sổ wall-clock của phase làm bằng chứng chi phí — xem pitfall 2026-08-04.
+
+Số đã đo được bằng runbook này (spec 098): trước khi sửa **0.66M eff/lượt** trung bình trên 60 lượt
+thật; sau khi sửa **147k · 127k · 102k** trên một session sạch (build 87KB) — và quan trọng hơn con số,
+đường cong **đi xuống** thay vì phình (trước đó: lượt #1 74.6k → lượt #16 **840k**).
+
 ### 2026-07-27 · spec 078 — khảo sát độ sâu "giếng" nguồn ngoài
 
 Bốn repo Dify-workflow khảo trên GitHub: **một** qua cổng license permissive
