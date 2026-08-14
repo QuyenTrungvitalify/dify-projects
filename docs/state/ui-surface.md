@@ -64,12 +64,28 @@ Hệ quả, theo từng event:
 |---|---|
 | `task:update` | **Có.** `onInit` fetch `GET /api/tasks/:id`; `task.json` là thẩm quyền, snapshot lỡ là dư. |
 | `phase:output` | **Không.** Không nằm trong buffer, và backend không giữ chat log — đoạn stream đó khuyết vĩnh viễn khỏi run item. |
-| `ask:done` | **Không**, dù server **có** buffer nó. |
+| `ask:done` | **Không**, dù server **có** buffer nó — nhưng từ nay **nội dung** lấy lại được qua `lastAsk` (xem dưới), không phải qua replay. |
 
-Nhánh `ask:done` là nhánh đắt nhất. `onInit` bù bằng `applyAskDone({ ok: true })` cho bất kỳ qa item nào
-còn mở — để `asking` không kẹt `true` và khoá composer vĩnh viễn. Nhưng nó bù bằng `ok: true`
-**vô điều kiện**: một Ask thật sự settle bằng `ok:false` + `anomaly` (backend đã phát hiện và revert file)
-sẽ hiện ra thành *"xong, không sao"*, và hộp thoại liệt kê file đã bị revert **không bao giờ hiện**.
+Nhánh `ask:done` là nhánh đắt nhất. `onInit` bù bằng `applyAskDone(...)` cho bất kỳ qa item nào còn mở —
+để `asking` không kẹt `true` và khoá composer vĩnh viễn.
+
+**Ask trên BUILD giờ có bản server, nên bù được bằng sự thật thay vì đoán.** Trước đây câu trả lời chỉ
+sống trong bộ nhớ browser: đổi task là `teardown` stream, `ask:answer` **không** nằm trong buffer replay,
+EventSource mới **không** gửi `Last-Event-ID` → gửi câu hỏi, mở task khác, quay lại thì phần trả lời trôi
+qua lúc đi vắng mất sạch, và cú bù `ok:true` đóng bong bóng thành 「回答済み」 **rỗng** — đọc y như câu trả
+lời chết giữa đường (đây là lỗi user báo, quan sát trên build đã done). Giờ `askWithin`/`askTestWithin`
+ghi từng lượt vào `chat.jsonl` (`recordAsk`, cùng file consult dùng), GET `/api/tasks/:id` mang lượt CUỐI
+dưới dạng `lastAsk` (chỉ lượt cuối: snapshot này fetch lại mỗi lần reconnect, và lane ask là **một slot
+toàn cục** nên không bao giờ có lượt thứ hai đang bay), và `lib/ask-recovery.ts` quyết định có ghép hay
+không. Hai luật **không được nói dối**: chỉ ghép khi **câu hỏi khớp** (`lastAsk` là "lượt cuối của task",
+không phải "lượt bạn đang xem"), và **không bao giờ làm ngắn đi** (stream sống đi trước transcript, vì
+transcript chỉ ghi lúc settle) — nhưng `ok` thì **luôn** lấy của server: một Ask settle `ok:false` từng
+hiện ra thành *"xong, không sao"*. Vẫn còn khuyết: `anomaly` (danh sách file bị revert) không được ghi,
+nên một ca bypass layer-1 khôi phục lại sẽ báo thất bại mà **không** liệt kê được file.
+
+`_pendingAskText` là state cấp module: `openTask`/`resetToNew` gọi `resetAskBuffer()` — thiếu nó thì một
+chunk tới đúng trong một frame quanh lúc đổi task sẽ được flush vào bong bóng của **task mới** (chữ của
+task cũ dưới câu hỏi của task này), và cũng sẽ nối đuôi rác vào câu trả lời vừa khôi phục từ transcript.
 
 `waitingForInit` bỏ mọi event đến **trước** `init`. Vì replay không chạy, và `plugins/sse.ts` đăng ký
 client rồi ghi `init` trong **cùng một lượt đồng bộ** (không `await` ở giữa), nên trên đường đi hiện tại
@@ -315,7 +331,9 @@ Tách khỏi component để test được, không giữ state:
 | `composer-route.ts` | `composerTarget(task, intent)` · `replyLabel` — một message đã gõ đi đâu (`start`/`ask`/`reply`) | **`intent` là thuộc tính của TỪNG message** (nút gửi nào được bấm: Enter/nút ↵「質問を送信」(1-nút:「送信」) = `ask`, pill ✎「変更を依頼」/⌘Enter = `change`), **không phải state của composer**. Cạnh pill ✎, nút gửi phải nói RÕ nó gửi cái gì (質問を送信) — 「送信」trần ở đó sẽ tái sinh bẫy toggle-rồi-send cũ — composer vô trạng thái từ spec 092 (mode dính ask\|change đã bỏ; lỗi field "reply 409 → disarm ngầm → retry thành câu hỏi" không còn biểu diễn được). Bảng quyết định giữ cả những ô UI hiện không với tới (`cancelled`+`change`→`ask`, `error`+`ask`→`reply`) để caller tương lai nối sai phải đỏ ở test. "Arm" từ gate action giờ chỉ là **gợi ý trình bày** (highlight pill + placeholder + nhãn cho resolved gate) — không bao giờ đổi nghĩa Enter; Enter luôn là hành động rẻ. |
 | `phase.ts` | `PHASE_LABELS` · `phaseIndex` · `phaseLabelAt` | `phaseIndex` trả `0` cho key lạ; `phaseLabelAt` **clamp** vào `1..N` nên `PHASE_LABELS[-1]` không xảy ra — phase lạ degrade về label đầu, **không throw** (throw ở đây làm trắng cả thread). |
 | `promote-visibility.ts` | `canPromoteFromConversation(view, task)` — nút "Promote to pattern" hiện khi (spec 052/85ecfa8) | Hiện ở **`done` HOẶC `awaiting_confirm`+phase `test`** (④ gate), KHÔNG chỉ `done` — main.yml đã final+lint-sạch ở ④, và user lấy yml rồi đi thì không bao giờ tới `done`. **Loại** promote-task (không promote một promote) và build chưa scaffold (`project`/`workflowSlug` null). |
-| `markdown.ts` | `renderMarkdownHtml` — escape-by-default, không sanitizer, không `innerHTML` của raw input · fence theo **độ dài** (CommonMark) | Emphasis **chỉ** khớp khi marker kề ký tự **không phải word** — `my_var_name` / `a*b` mà Claude stream liên tục sẽ bị in nghiêng nếu "đơn giản hoá" regex. Code span và anchor được rút ra **sentinel `\x00`** trước, cài lại sau, để pass emphasis/link không phá nội dung bên trong. **Fence đóng theo ĐỘ DÀI**: mở bằng 3+ backtick (hoặc `~`), chỉ đóng bởi run **dài bằng hoặc hơn**. Đây là lối thoát duy nhất cho khối "copy nguyên tài liệu" mà bên trong có ``` — regex cũ `^```(\w*)$` không hiểu ````, nên khối tự cắt đôi: nửa đầu ra code box, phần còn lại rơi ra thành văn xuôi. Info string lấy **nguyên văn** (không `\w*`): `sh-session`/`c++`/`js title="…"` từng bị dán dính vào đoạn văn phía trên rồi để lại một code box rỗng. Prompt phía server (`FENCE_RULE` trong `ask.ts`) dạy model dùng ```` khi cần — hai nửa phải đi cùng nhau, sửa một bên là vô nghĩa. |
+| `markdown.ts` | `renderMarkdownHtml` — escape-by-default, không sanitizer, không `innerHTML` của raw input · fence theo **độ dài** (CommonMark) | Emphasis **chỉ** khớp khi marker kề ký tự **không phải word** — `my_var_name` / `a*b` mà Claude stream liên tục sẽ bị in nghiêng nếu "đơn giản hoá" regex. Code span và anchor được rút ra **sentinel `\x00`** trước, cài lại sau, để pass emphasis/link không phá nội dung bên trong. **Fence đóng theo ĐỘ DÀI**: mở bằng 3+ backtick (hoặc `~`), chỉ đóng bởi run **dài bằng hoặc hơn**. Đây là lối thoát duy nhất cho khối "copy nguyên tài liệu" mà bên trong có ``` — regex cũ `^```(\w*)$` không hiểu ````, nên khối tự cắt đôi: nửa đầu ra code box, phần còn lại rơi ra thành văn xuôi. Info string lấy **nguyên văn** (không `\w*`): `sh-session`/`c++`/`js title="…"` từng bị dán dính vào đoạn văn phía trên rồi để lại một code box rỗng. Prompt phía server (`FENCE_RULE` trong `ask.ts`) dạy model dùng ```` khi cần — hai nửa phải đi cùng nhau, sửa một bên là vô nghĩa. Mỗi khối phát kèm **nút Copy** bọc trong `.md-codewrap`: bọc vì `pre` mới là hộp cuộn ngang, nút nằm trong nó sẽ trượt khỏi góc; wrapper **không khai lề** để lề của `pre` collapse xuyên qua (giữ nguyên khoảng cách khối, kể cả override 12px của `.spec-preview`). |
+| `ask-recovery.ts` | `openAskIndex` · `recoverOpenAsk(items, lastAsk, includeSettled?)` — hoàn tất một bong bóng Ask mà browser đã ngừng nhận. Chạy **hai lượt**: lượt 1 lúc settle (đủ cho ca đổi task — `task.value` vừa được GET mới), lượt 2 sau GET thẩm quyền với `includeSettled` (ca **auto-reconnect**: settle chạy TRƯỚC khi snapshot về nên `lastAsk` chưa có, bong bóng đã đóng rỗng và không gì lấp nó nữa) | Trả `null` = "settle y như cũ", nên mọi build có từ trước khi có transcript giữ nguyên hành vi. Chỉ ghép khi **câu hỏi khớp** (sau câu hỏi thứ hai thì `lastAsk` đã chuyển sang lượt khác — khớp text là thứ chặn dán câu trả lời cũ dưới câu hỏi mới) và **không bao giờ làm ngắn đi** (stream sống đi trước transcript). `ok` thì luôn của server. |
+| `copy-code.ts` | `installCodeCopy()` — hành vi của nút Copy trên từng khối | **Một** listener uỷ quyền ở `document`, không phải handler mỗi khối: HTML markdown vào trang bằng `innerHTML` ở ba bề mặt và **được dựng lại mỗi token** khi câu trả lời đang stream — handler gắn theo node sẽ phải gắn lại sau mỗi lần render, và cái nào lỡ mất sẽ thành nút chết trông như còn sống. Copy đọc từ `<code>` trong DOM (không phải chuỗi model), nên thấy gì copy nấy; hai glyph nằm **ngoài** `<code>` nên không lọt vào nội dung. Clipboard bị chặn (ngữ cảnh không an toàn / bị từ chối) thì **không** hiện tick — tick nói dối tệ hơn nút không phản ứng. |
 | `diff-parser.ts` | `parsePatch` · `buildSplitRows` · `computeWordDiff` (Myers trên token) | — |
 | `crumb.ts` | `wfDisplayName` · `projectDisplayName` · `workflowOptions` · `newTaskCrumb` · `runContextCrumb` | `workflowOptions` sort theo **recency** (`tasks[0].id` là timestamp ms 13 chữ số), không alphabet; `_drafts` bị loại. |
 | `dev.ts` | `devMode` · `ls` · `cachePct` · `fmt` · `classify` · `shares` · `diagnose` | `devMode` là flag **runtime** (`?dev=1` + localStorage `builder:dev`), **không** phải `import.meta.env.DEV` — build prod ở `web/dist` có cờ đó `false`, tức cách app thật sự chạy. Đọc **một lần** lúc load module. |

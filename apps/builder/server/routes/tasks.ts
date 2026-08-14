@@ -48,7 +48,7 @@ import {
   type ConfirmPayload,
   type OrchestratorCtx,
 } from '../lib/orchestrator.js';
-import { askWithin, askTestWithin, consultWithin, readConsultChat } from '../lib/ask.js';
+import { askWithin, askTestWithin, consultWithin, readConsultChat, readLastAsk } from '../lib/ask.js';
 import { acquireTurn, buildHolderId, buildTurnBusy, chatHolderId, chatTurnBusy, evictCancelled, isCancelled, liveKind, liveSession, markCancelled, releaseTurn, requestAskCancel, taskTurnRunning, unmarkCancelled, type TurnKind } from '../lib/lock.js';
 import { readArtifactContents } from '../lib/artifacts.js';
 import { MAX_ATTACHMENT_BYTES, saveAttachments, validateAttachments } from '../lib/attachments.js';
@@ -407,7 +407,17 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // Spec 082 (rev): a consult's persisted transcript rides the authoritative GET so a reopen restores
     // the full conversation from the backend — independent of the client's localStorage.
     const chat = task.kind === 'consult' ? await readConsultChat(projectsDir, id) : undefined;
-    return { ...toWireTask(task), artifactContents, ...(chat ? { chat } : {}) };
+    // A BUILD carries only its LAST ask exchange, not the whole transcript: this snapshot is re-fetched on
+    // every reconnect, and a build's asks can be long — the one thing the client cannot rebuild is an
+    // answer that finished while it was looking at another task, and that is always the last one (the ask
+    // lane is a single global slot, so there is never a second one in flight). A consult already ships its
+    // full `chat` and rebuilds from it, so adding this there would be pure duplication.
+    const lastAsk = task.kind === 'consult' ? undefined : await readLastAsk(projectsDir, id);
+    return {
+      ...toWireTask(task), artifactContents,
+      ...(chat ? { chat } : {}),
+      ...(lastAsk ? { lastAsk } : {}),
+    };
   });
 
   // ── POST /api/tasks/:id/confirm — advance one boundary (the gate) ──

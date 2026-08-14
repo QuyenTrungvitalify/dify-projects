@@ -12,6 +12,30 @@
  * IGNORED — the ChatMessage copy compiles unchanged.
  */
 
+import { t as tr } from './i18n';
+
+/**
+ * The per-block Copy button. Emitted as MARKUP (this renderer's output is injected with innerHTML on
+ * three surfaces — chat answers, run output, the spec preview), so it carries no handler: one delegated
+ * listener in `copy-code.ts` serves every block on the page. Both glyphs ship inline and CSS picks which
+ * one shows, so confirming a copy is a class toggle rather than DOM surgery inside a `<pre>`.
+ * Icon paths mirror `Icon.tsx`'s `copy` and `check` — duplicated because that module returns Preact
+ * VNodes and this one builds a string.
+ */
+function copyButton(): string {
+  const label = esc(tr('copyCode'));
+  return (
+    `<button class="md-copy" type="button" title="${label}" aria-label="${label}">` +
+    '<svg class="mc-i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h8" /></svg>' +
+    '<svg class="mc-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M5 12.5l4.5 4.5L19 6.5" /></svg>' +
+    '</button>'
+  );
+}
+
 /** Escape the five HTML-significant chars so user/model text can never inject markup. */
 function esc(s: string): string {
   return s
@@ -151,7 +175,13 @@ export function renderMarkdownHtml(text: string, _workingDir?: string): string {
       }
       i++; // consume the closing fence (or EOF — an unterminated block still renders, which is what
       //      a half-streamed answer needs)
-      html.push(`<pre class="md-code"${langAttr}><code>${esc(body.join('\n'))}</code></pre>`);
+      // The wrapper exists for the Copy button: `.md-code` is the horizontal SCROLL container, so a
+      // button positioned inside it would slide out of view on a wide line. Anchoring it to a
+      // non-scrolling parent keeps it pinned to the block's top-right corner instead.
+      html.push(
+        `<div class="md-codewrap"><pre class="md-code"${langAttr}><code>${esc(body.join('\n'))}</code></pre>` +
+        `${copyButton()}</div>`
+      );
       continue;
     }
 

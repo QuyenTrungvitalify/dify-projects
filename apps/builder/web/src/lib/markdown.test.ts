@@ -219,4 +219,17 @@ describe('renderMarkdownHtml — fenced blocks', () => {
     const out = renderMarkdownHtml('``` `a` and `b` ```');
     expect(blocks(out)).toBe(0);
   });
+
+  it('emits a Copy button per block, OUTSIDE <code> so its glyphs never land in the copied text', () => {
+    const out = renderMarkdownHtml(['```', 'CODE', '```', '', '```', 'OTHER', '```'].join('\n'));
+    expect((out.match(/class="md-copy"/g) || []).length).toBe(2);
+    expect((out.match(/class="md-codewrap"/g) || []).length).toBe(2);
+    // the button follows </pre>: nothing it contains is inside the <code> the copy reads from
+    expect(out).toMatch(/<\/pre><button class="md-copy"/);
+    expect(out).toContain('<code>CODE</code>');
+  });
+
+  it('a code block with no fence (never happens) leaves no orphan button', () => {
+    expect(renderMarkdownHtml('plain text')).not.toContain('md-copy');
+  });
 });

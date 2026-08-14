@@ -342,8 +342,10 @@ export async function askWithin(
       attachmentBlock(task.attachments, newAttachments);
 
     let gotText = false;
+    let answer = ''; // accumulated for the transcript (recordAsk) — the live view gets the chunks
     const turn = await askTurn(task, prompt, ctx, (chunk) => {
       gotText = true;
+      answer += chunk;
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: chunk });
     });
 
@@ -356,6 +358,7 @@ export async function askWithin(
       // errored/produced no text; the restore already happened above (review #4: per-file isolated).
       log.warn({ taskId: task.taskId, files: anomalies.map((a) => `${a.kind}:${a.path}${a.restoreFailed ? '(RESTORE-FAILED)' : ''}`) },
         'ask: layer-2 detected + reverted write(s) — layer 1 was bypassed');
+      await recordAsk(projectsDir, task.taskId, text, answer, false);
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, anomaly: { files: anomalies } });
       return;
     }
@@ -371,21 +374,26 @@ export async function askWithin(
       // Spec 045 (review #4): append the classified turn-failure note — a quota/auth/network death
       // during Ask must self-describe exactly like a phase turn's gate note does, not stay canned.
       const cause = turn.note ? ` (${turn.note})` : '';
-      ctx.broadcast?.(task.taskId, 'ask:answer', {
-        text: `couldn't get an answer for that — try again, or use Request changes to edit the artifact.${cause}`,
-      });
+      const canned = `couldn't get an answer for that — try again, or use Request changes to edit the artifact.${cause}`;
+      ctx.broadcast?.(task.taskId, 'ask:answer', { text: canned });
+      await recordAsk(projectsDir, task.taskId, text, canned, false);
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
       return;
     }
     // Spec 097: errored but text DID stream — keep it (as before) and say it is incomplete. ok:false so
     // a cut-off answer can never be captured as a build prefill by an armed graduate.
     if (turn.isError) {
-      ctx.broadcast?.(task.taskId, 'ask:answer', { text: truncationNotice(turn.note) });
+      const notice = truncationNotice(turn.note);
+      ctx.broadcast?.(task.taskId, 'ask:answer', { text: notice });
+      // The notice is part of what the reader saw, so it is part of what gets recorded — a recovered
+      // answer must never look more finished than the live one did.
+      await recordAsk(projectsDir, task.taskId, text, answer + notice, false);
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
       return;
     }
 
     // Normal path — no anomaly, an answer streamed (or a clean empty result). FIX-B: ok, no task:update.
+    await recordAsk(projectsDir, task.taskId, text, answer, true);
     ctx.broadcast?.(task.taskId, 'ask:done', { ok: true });
   } catch (e) {
     // The never-throw guard (see above): any unexpected error → benign ask:done{ok:false}, gate untouched.
@@ -596,6 +604,7 @@ export async function askTestWithin(
     setSession(task.taskId, session); // hand the child to /cancel (scoped abort, same as askWithin — D9)
 
     let gotText = false;
+    let answer = ''; // accumulated for the transcript (recordAsk) — the live view gets the chunks
     const turn = await runTurn(
       session,
       prompt,
@@ -607,6 +616,7 @@ export async function askTestWithin(
         timeoutMs: ASK_TIMEOUT_MS,
         onText: (chunk) => {
           gotText = true;
+          answer += chunk;
           ctx.broadcast?.(task.taskId, 'ask:answer', { text: chunk });
         },
       }
@@ -622,12 +632,16 @@ export async function askTestWithin(
       // Spec 097: this path DROPPED `turn.note` while the other two included it — so the one surface a
       // user actually hit reported a bare "try again" with the timeout reason stripped off.
       const cause = turn.note ? ` (${turn.note})` : '';
-      ctx.broadcast?.(task.taskId, 'ask:answer', { text: `couldn't get an answer for that — try again.${cause}` });
+      const canned = `couldn't get an answer for that — try again.${cause}`;
+      ctx.broadcast?.(task.taskId, 'ask:answer', { text: canned });
+      await recordAsk(projectsDir, task.taskId, text, canned, false);
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false });
       return;
     }
     if (turn.isError) {
-      ctx.broadcast?.(task.taskId, 'ask:answer', { text: truncationNotice(turn.note) });
+      const notice = truncationNotice(turn.note);
+      ctx.broadcast?.(task.taskId, 'ask:answer', { text: notice });
+      await recordAsk(projectsDir, task.taskId, text, answer + notice, false);
       // `seededFrom` rides along: the answer WAS assembled from those artifacts, and being cut off does
       // not unmake that. applyAskDone folds the caption regardless of `ok`, so dropping it here would
       // strip the "assembled from" line off exactly the answer whose provenance matters most.
@@ -635,6 +649,7 @@ export async function askTestWithin(
       return;
     }
     // No layer-2 (D4) → no anomaly branch → `ask:done` is always ok:true here, carrying `seededFrom` (§2).
+    await recordAsk(projectsDir, task.taskId, text, answer, true);
     ctx.broadcast?.(task.taskId, 'ask:done', { ok: true, seededFrom });
   } catch (e) {
     clearSession(task.taskId); // ensure the /cancel handle is cleared on any throw
@@ -735,6 +750,10 @@ export interface ConsultChatLine {
    *  (it is authoritative — cleared cache / another machine), so without it the reopened chat forgets
    *  every attachment. User lines only. */
   files?: { name: string; mime: string; idx: number }[];
+  /** Only ever written as `false`, and only on an assistant line: the exchange settled badly (an error,
+   *  a cut-off answer, a layer-2 anomaly). Absent means it settled fine, so every transcript written
+   *  before this field existed reads correctly. */
+  ok?: boolean;
 }
 async function appendChat(
   projectsDir: string,
@@ -742,14 +761,69 @@ async function appendChat(
   role: 'user' | 'assistant',
   text: string,
   at: number,
-  files?: ConsultChatLine['files']
+  files?: ConsultChatLine['files'],
+  ok?: boolean
 ): Promise<void> {
   try {
-    const line: ConsultChatLine = { role, text, at, ...(files && files.length ? { files } : {}) };
+    const line: ConsultChatLine = {
+      role, text, at,
+      ...(files && files.length ? { files } : {}),
+      ...(ok === false ? { ok: false } : {}),
+    };
     await appendFile(join(taskDir(projectsDir, taskId), 'chat.jsonl'), JSON.stringify(line) + '\n', 'utf8');
   } catch {
     /* transcript is best-effort — never let it affect the turn */
   }
+}
+
+/**
+ * Record ONE build ask exchange (`askWithin` at a gate, `askTestWithin` at ④/terminal) to the same
+ * `chat.jsonl` a consult uses.
+ *
+ * WHY this exists: a build ask's answer used to live ONLY in the browser. `ask:answer` is deliberately
+ * excluded from the SSE replay buffer (plugins/sse.ts — it is high-volume), a task switch tears the
+ * stream down (`openStream`), and a fresh EventSource never sends `Last-Event-ID`, so nothing was
+ * replayable either. Send a question, open another task, come back: the chunks that arrived while away
+ * were gone for good, and the client — seeing the turn no longer running — closed the bubble as a
+ * successful `回答済み` with no text in it. It read as an answer that died mid-sentence, which is exactly
+ * what the user reported. A consult never had this problem because its transcript is on disk and its
+ * reopen path reads from disk; this gives a build the same footing.
+ *
+ * `text` is what the READER SAW, notice included (a cut-off answer keeps its ⚠ line), so a recovered
+ * answer can never look more finished than the live one did.
+ */
+async function recordAsk(
+  projectsDir: string,
+  taskId: string,
+  question: string,
+  answer: string,
+  ok: boolean
+): Promise<void> {
+  const at = Date.now();
+  await appendChat(projectsDir, taskId, 'user', question, at);
+  await appendChat(projectsDir, taskId, 'assistant', answer, at + 1, undefined, ok);
+}
+
+/** The exchange a reopened build needs to finish an interrupted answer: the LAST assistant line plus the
+ *  question it belongs to. `q` is what the client matches against, so it never grafts an answer onto a
+ *  different question. Undefined when there is no transcript (every build before this shipped, and any
+ *  build nobody has asked anything). */
+export async function readLastAsk(
+  projectsDir: string,
+  taskId: string
+): Promise<{ q: string; a: string; ok: boolean } | undefined> {
+  const lines = await readConsultChat(projectsDir, taskId);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].role !== 'assistant') continue;
+    // The nearest preceding user line is this answer's question (recordAsk writes them as a pair).
+    for (let j = i - 1; j >= 0; j--) {
+      if (lines[j].role === 'user') {
+        return { q: lines[j].text, a: lines[i].text, ok: lines[i].ok !== false };
+      }
+    }
+    return undefined; // an assistant line with no question before it — nothing to match on
+  }
+  return undefined;
 }
 /** Read the persisted consult transcript (GET /api/tasks/:id folds it in for a `kind:'consult'` task). */
 export async function readConsultChat(projectsDir: string, taskId: string): Promise<ConsultChatLine[]> {

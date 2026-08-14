@@ -541,6 +541,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
    seed picker and suggestions below it) pushed the top of the content above the scroll area, where it
    painted over the header and could not be scrolled back into view. Auto margins clamp to 0 once free
    space goes negative, so the content top-aligns and the box scrolls instead. */
+/* CONSEQUENCE of scrolling here, paid for in Chat.tsx: a scroll container CLIPS. The composer's setting
+   menus open upward out of a chip near the bottom of this box, so once the surface scrolls they can be
+   cut off at its top edge (measured: a 96px menu fully hidden). `SettingSelect.fitMenu` measures the room
+   inside the nearest scrolling ancestor at open time and flips/caps the menu — do not "simplify" it away. */
 .empty {
   flex: 1; display: flex; flex-direction: column;
   align-items: center;
@@ -1481,6 +1485,32 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .md-stream code { font-family: var(--mono); font-size: 11.5px; background: var(--mono-chip-bg); color: var(--mono-chip-tx); border: 1px solid var(--mono-chip-bd); border-radius: 4px; padding: 0 4px; }
 .md-stream pre.md-code { background: var(--bg-canvas); border: 1px solid var(--border-soft); border-radius: var(--r-input); padding: 9px 11px; overflow-x: auto; margin: 0 0 8px; }
 .md-stream pre.md-code code { background: none; border: none; padding: 0; color: var(--tx-2); }
+/* The Copy button rides on the WRAPPER, not on `pre`: `pre` scrolls horizontally, and a button inside it
+   would slide away from the corner on a wide line. The wrapper deliberately declares NO margin of its
+   own — the `pre` keeps its existing bottom margin, which collapses out through this bare block, so
+   block spacing is byte-identical to before the button existed (including `.spec-preview`'s wider 12px
+   override, which out-specifies anything set here anyway). */
+.md-codewrap { position: relative; }
+.md-copy {
+  position: absolute; top: 5px; right: 5px;
+  display: grid; place-items: center; width: 24px; height: 24px;
+  border-radius: 6px; border: 1px solid var(--border-soft);
+  background: var(--bg-elevated); color: var(--tx-muted);
+  /* Faint until the block is hovered — visible enough to be discovered, quiet enough that a page of
+     code blocks doesn't turn into a page of buttons. Never fully transparent: a touch device gets no
+     hover, and an invisible affordance is no affordance. */
+  opacity: 0.45; transition: opacity 0.14s, color 0.14s, border-color 0.14s;
+  user-select: none; /* keep the glyphs out of a hand-made selection of the code */
+}
+.md-codewrap:hover .md-copy { opacity: 1; }
+.md-copy:hover { color: var(--tx-1); border-color: var(--border-strong); }
+.md-copy:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
+.md-copy svg { width: 13px; height: 13px; }
+/* Confirmation is a pure class toggle (copy-code.ts) — both glyphs are already in the DOM. */
+.md-copy .mc-ok { display: none; }
+.md-copy.copied { opacity: 1; color: var(--ok); border-color: var(--ok-dim); }
+.md-copy.copied .mc-i { display: none; }
+.md-copy.copied .mc-ok { display: block; }
 .md-stream blockquote { border-left: 2px solid var(--border-strong); margin: 0 0 8px; padding: 2px 0 2px 10px; color: var(--tx-muted); }
 .md-stream a,
 .out-link { color: var(--accent-tx); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; overflow-wrap: anywhere; }

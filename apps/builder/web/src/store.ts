@@ -10,6 +10,7 @@
 import { signal, computed, effect } from '@preact/signals';
 import { api, confirmModeWire, ApiError, type Attachment } from './api';
 import { serializeThread, parseThread, hydrateForReopen } from './lib/thread-persist';
+import { recoverOpenAsk } from './lib/ask-recovery';
 import { connectSSE, type AskAnomalyFile } from './sse-client';
 import { t as tr, tf } from './lib/i18n';
 import { notifyTransition, notifyAskDone, maybeNudge } from './lib/notify';
@@ -658,6 +659,17 @@ export function flushPendingAsk(): void {
   thread.value = items;
 }
 
+/** Drop any buffered fragment WITHOUT landing it. Called when the view changes task (openTask /
+ *  resetToNew): the buffer is module state, so a chunk that arrived within a frame of the switch would
+ *  otherwise be flushed onto the NEXT task's open bubble — the previous task's words under this task's
+ *  question. Also keeps a transcript-recovered answer (ask-recovery) from getting a stale tail appended
+ *  by `applyAskDone`'s flush. */
+export function resetAskBuffer(): void {
+  if (_askRaf != null && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(_askRaf);
+  _askRaf = null;
+  _pendingAskText = '';
+}
+
 export function applyAskAnswer(text: string): void {
   _pendingAskText += text;
   if (typeof requestAnimationFrame === 'function') {
@@ -887,8 +899,32 @@ function openStream(taskId: string): void {
       // `turnRunning` is the only honest discriminator: an Ask never changes `status`, so the two cases
       // are identical over GET /api/tasks/:id. Older servers omit the field → undefined → fresh connects
       // behave exactly as before (reconnect-only), never closing a live answer on a stale build.
-      if (shouldSettleOpenAsk(d) && (asking.value || findOpenAskIdx(thread.value) !== -1)) applyAskDone({ ok: true });
-      void api.getTask(taskId).then(applyTask).catch(() => {});
+      // Before settling an orphan, try to FINISH it from the backend transcript (`lastAsk`, recorded by
+      // the server since the ask paths persist their answers). This is the whole point of that record: the
+      // answer that streamed while the user was on another task is unrecoverable from the wire, so
+      // without it this settle closed an empty bubble as a successful "Answered". `recoverOpenAsk` returns
+      // null when it cannot honestly say anything (no record, or it belongs to a different question) —
+      // then this behaves exactly as it did before. Its `ok` is authoritative where the old hardcoded
+      // `true` was a guess: a real ok:false settle no longer reads as success.
+      if (shouldSettleOpenAsk(d) && (asking.value || findOpenAskIdx(thread.value) !== -1)) {
+        const rec = recoverOpenAsk(thread.value, task.value?.lastAsk);
+        if (rec) thread.value = rec.items;
+        applyAskDone({ ok: rec?.ok ?? true });
+      }
+      void api.getTask(taskId)
+        .then((t) => {
+          applyTask(t);
+          // Second pass, for the AUTO-RECONNECT case only in practice: the settle above runs BEFORE this
+          // authoritative snapshot exists, so on a reconnect `task.value` still predates the ask and
+          // carried no `lastAsk` — the bubble closed empty and nothing would ever fill it. Now the record
+          // is here, so complete the text of the bubble that just settled. Read from `t` rather than
+          // `task.value`: applyTask's rev guard may drop a stale snapshot, but the transcript is the
+          // server's truth either way. Same question match, same never-shorten rule; a no-op on every
+          // normal connect (the client already has the full answer).
+          const late = recoverOpenAsk(thread.value, t.lastAsk, true);
+          if (late) thread.value = late.items;
+        })
+        .catch(() => {});
     },
     onTaskUpdate: applyTask,
     onPhaseOutput: (d) => applyOutput(d.phase, d.text),
@@ -1690,6 +1726,7 @@ export async function openTask(taskId: string): Promise<void> {
   // spec 033 FIX-I: a live Ask belongs to the PREVIOUS task's stream — switching tasks must not leave
   // the new view's composer stuck "disabled".
   asking.value = false;
+  resetAskBuffer(); // …and its half-arrived words must not land on the task we are opening
   _lastPersisted = ''; // task switch — force a re-persist for the newly-opened build (dedupe reset)
   try {
     const t = await api.getTask(taskId);
@@ -1728,6 +1765,7 @@ export function resetToNew(): void {
   thread.value = [];
   // spec 033 FIX-I: same reset as openTask — a new/empty view must never inherit a stuck `asking`.
   asking.value = false;
+  resetAskBuffer();
   // C2 (spec 019): also clear the reconnect rev-guard. Without this, `_appliedTaskId`/`_appliedRev`
   // survive the reset, so re-opening a build whose persisted `rev` is ≤ the last-applied rev is dropped
   // by `isFreshSnapshot` in `applyTask` → `task.value` stays null and the thread shows only the user

@@ -115,6 +115,13 @@ export interface WireTask {
      *  reopened chat can still show them (the browser's copy of the bytes is long gone). */
     files?: { name: string; mime: string; idx: number }[];
   }[];
+  /** The LAST ask exchange on a BUILD, from the backend transcript — the one thing the client cannot
+   *  rebuild by itself. `ask:answer` is excluded from the SSE replay buffer and a task switch drops the
+   *  stream, so an answer that lands while the user is looking at another build is gone from the browser;
+   *  this is what lets the reopened thread finish it instead of closing an empty bubble as "Answered".
+   *  `q` is matched against the question the open bubble belongs to, so it can never graft the wrong
+   *  answer. Absent on a consult (its full `chat` above is authoritative) and on any build never asked. */
+  lastAsk?: { q: string; a: string; ok: boolean };
   project: string | null;
   workflow: string | null;
   workflowFile: string;

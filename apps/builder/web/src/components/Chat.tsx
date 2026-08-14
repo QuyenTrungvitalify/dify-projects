@@ -636,6 +636,9 @@ function SettingSelect({ icon, label, value, options, onChange, mono, shrink, di
   title?: string;
 }) {
   const [open, setOpen] = useState(false);
+  // Where the menu may go, decided at OPEN time (see fitMenu). Null until then — the CSS default (upward,
+  // 280px) is what renders while it is null, which is also what every pre-measurement render used.
+  const [fit, setFit] = useState<{ up: boolean; maxH: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -643,18 +646,62 @@ function SettingSelect({ icon, label, value, options, onChange, mono, shrink, di
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
+
+  /**
+   * Fit the menu inside whatever would CLIP it.
+   *
+   * The menu opens upward out of a chip that sits at the bottom of its surface. That was free while no
+   * ancestor scrolled — it simply overhung. The new-task surface now scrolls (it has to: a long
+   * requirement plus the seed list overflows, and centering the overflow used to push content up under
+   * the header), and a scroll container clips: measured, a 96px menu opened from a scrolled composer was
+   * ENTIRELY hidden above the surface's top edge. So: measure the room above the chip inside the nearest
+   * scrolling ancestor (the viewport when there is none), cap the menu to it, and flip downward when
+   * there is more room the other way. The menu scrolls internally either way, so no option is ever lost.
+   */
+  const fitMenu = (): void => {
+    const chip = ref.current?.getBoundingClientRect();
+    if (!chip) return;
+    let clipTop = 0;
+    let clipBottom = window.innerHeight;
+    for (let p = ref.current?.parentElement ?? null; p; p = p.parentElement) {
+      const oy = getComputedStyle(p).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight + 1) {
+        const r = p.getBoundingClientRect();
+        clipTop = Math.max(clipTop, r.top);
+        clipBottom = Math.min(clipBottom, r.bottom);
+        break; // the nearest one is what actually clips
+      }
+    }
+    const GAP = 10; // the CSS 6px offset plus a little breathing room
+    const above = chip.top - clipTop - GAP;
+    const below = clipBottom - chip.bottom - GAP;
+    // Upward is the established direction, so KEEP it whenever the menu actually fits — flipping a menu
+    // that had room would be a gratuitous change to how the composer has always looked. The natural
+    // height isn't measurable before the menu renders, so estimate it from the option count (row 28px +
+    // the 4px padding either side), capped like the CSS. Only when it does not fit above, and there is
+    // more room below, does it flip.
+    const wanted = Math.min(280, options.length * 28 + 8);
+    const up = above >= wanted || above >= below;
+    setFit({ up, maxH: Math.max(80, Math.min(280, up ? above : below)) });
+  };
+
   const sel = options.find((o) => o.v === value);
   return (
     <div className={'setting-select' + (shrink ? ' shrink' : '')} ref={ref} style={{ position: 'relative' }}>
       <button className={'setting-chip' + (mono ? ' mono' : '') + (disabled ? ' disabled' : '')}
-        onClick={() => { if (!disabled) setOpen((o) => !o); }} type="button"
+        onClick={() => {
+          if (disabled) return;
+          if (!open) fitMenu(); // measure BEFORE showing it, so it never renders in the wrong place first
+          setOpen((o) => !o);
+        }} type="button"
         disabled={disabled} title={disabled ? (title ?? tr('setAtStart')) : undefined}>
         {icon}<span className="sc-key">{label}:</span>
         <span className="sc-val">{sel ? sel.l : value}</span>
         {!disabled && <Twist open={open} />}
       </button>
       {open && !disabled && (
-        <div className="setting-menu">
+        <div className="setting-menu"
+          style={fit ? { maxHeight: `${fit.maxH}px`, ...(fit.up ? {} : { top: 'calc(100% + 6px)', bottom: 'auto' }) } : undefined}>
           {options.map((o) => (
             <button key={o.v} type="button" className={'setting-opt' + (o.v === value ? ' on' : '')}
               onClick={() => { onChange(o.v); setOpen(false); }}>
