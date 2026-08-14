@@ -18,6 +18,7 @@ import { join, relative, dirname, sep } from 'node:path';
 import { ClaudeSession } from './claude-session.js';
 import { clearSession, isAskCancelRequested, setSession } from './lock.js';
 import { attachmentBlock } from './attachments.js';
+import { buildWorkflowIndex } from './workflow-index.js';
 import { unifiedDiffOfFiles } from './diff.js';
 import { PHASES } from './phases.js';
 import { languagePin } from './language.js';
@@ -281,7 +282,14 @@ async function askTurn(
  * uses. Callers (the route) are responsible for the turn lock (`acquireTurn(id, 'ask')`) and for
  * validating `status==='awaiting_confirm' && phase∈{analyze,spec,implement}` (D4) before calling this.
  */
-export async function askWithin(task: Task, text: string, ctx: OrchestratorCtx): Promise<void> {
+export async function askWithin(
+  task: Task,
+  text: string,
+  ctx: OrchestratorCtx,
+  /** spec 098 S2: indices in `task.attachments` of the files THIS message brought — only those carry the
+   *  "read them" invitation. Absent ⇒ every attachment is treated as new (the pre-098 behavior). */
+  newAttachments?: number[]
+): Promise<void> {
   const { projectsDir, log } = ctx;
   const phase = PHASES.find((p) => p.id === task.phase)!;
   const artifactRel = phase.artifactRel(task);
@@ -331,7 +339,7 @@ export async function askWithin(task: Task, text: string, ctx: OrchestratorCtx):
       languagePin({ chatLang: task.chatLang, latest: text, hint: task.langHint, requirement: task.requirement }) +
       `${text}\n\n(Answer conversationally. Do NOT create, modify, or delete any file — this is a ` +
       `question, not a change request.${FENCE_RULE})` +
-      attachmentBlock(task.attachments);
+      attachmentBlock(task.attachments, newAttachments);
 
     let gotText = false;
     const turn = await askTurn(task, prompt, ctx, (chunk) => {
@@ -405,6 +413,49 @@ async function tryReadRel(projectsDir: string, rel: string): Promise<string | nu
 
 /** Assemble the fresh seed from whatever of requirement/SPEC.md/main.yml/report.json/liveTest exist (D1).
  *  Returns the prompt-ready seed block + the list of sources actually folded in (→ `seededFrom`, §2). */
+/**
+ * Spec 098 — how much of an artifact the terminal ask carries.
+ *
+ * MEASURED, on this user's own sessions: the seed was 124–141KB and was re-sent on EVERY question (46
+ * of them in one session, 89% of the bytes byte-identical to the previous ask). It made answering cost
+ * 3.4× what BUILDING the workflows cost — 60.5M vs 18.0M input-equivalent tokens — and `main.yml` alone
+ * was ~85% of it.
+ *
+ * The fix is deliberately NOT "seed once and remember": the CLI COMPACTS a long session (observed twice
+ * in that same session), which summarises the old inlined YAML away — a later ask would then answer
+ * about a workflow it can no longer see, and be confidently wrong. So the seed still goes out every
+ * turn; what changed is its SIZE. Details live in the files, whose paths ride along.
+ */
+const SPEC_INLINE_MAX = 16 * 1024;
+/** Raw YAML is inlined only when it is small enough that a map would not pay for itself. */
+const YAML_RAW_MAX = 8 * 1024;
+/** An outline is bounded too: a spec with 400 headings would otherwise be its own wall of text. */
+const OUTLINE_MAX = 4 * 1024;
+/** Every threshold here is in BYTES, not `String.length`. A user writing in Japanese pays 3 bytes per
+ *  character, so a "16KB" cap read as characters silently admitted ~48KB of real text — measured: a real
+ *  SPEC.md of 16,398 bytes sailed under a 16,384-CHARACTER cap and got inlined whole. */
+const bytes = (s: string): number => Buffer.byteLength(s, 'utf8');
+
+const specOutlineNote = (rel: string, size: number): string =>
+  `(outline only — the full ${Math.round(size / 1024)}KB document is at \`${rel}\`; read it for any section you need)`;
+
+/**
+ * The `main.yml` section: a node/edge map plus the path, or — when the file is not shaped the way the
+ * scanner understands — the raw bytes (small files) or an honest "no map, read the file" pointer.
+ * Never a partial map: `buildWorkflowIndex` reports `ok:false` rather than guess (see its header).
+ */
+async function workflowSeedBody(projectsDir: string, rel: string): Promise<string | null> {
+  const raw = await tryReadRel(projectsDir, rel);
+  if (!raw) return null;
+  const size = bytes(raw);
+  const idx = buildWorkflowIndex(raw);
+  if (idx.ok) {
+    return `File: \`${rel}\` (${Math.round(size / 1024)}KB — read it for node bodies, prompts, URLs)\n${idx.text}`;
+  }
+  if (size <= YAML_RAW_MAX) return raw; // small enough to just hand over, map or no map
+  return `File: \`${rel}\` (${Math.round(size / 1024)}KB). A node map could not be built from it — read the file directly.`;
+}
+
 async function gatherTerminalSeed(
   projectsDir: string,
   task: Task
@@ -422,10 +473,31 @@ async function gatherTerminalSeed(
 
   const dir = workflowDir(task);
   const specRel = task.artifacts.spec ?? (dir ? `${dir}/SPEC.md` : runArtifactRel(task.taskId, 'SPEC.md'));
-  add('SPEC.md', await tryReadRel(projectsDir, specRel), 'SPEC.md');
+  // Spec 098 S3: a big SPEC.md rides as its heading outline plus its path — measured 37.7KB → 748 chars
+  // on the largest real spec. Under the cap it is inlined whole, which is most builds.
+  const specBody = await tryReadRel(projectsDir, specRel);
+  if (specBody && bytes(specBody) > SPEC_INLINE_MAX) {
+    const heads = specBody.split('\n').filter((l) => /^#{1,4} /.test(l));
+    // A long spec written without markdown headings has no outline — hand over its opening instead of
+    // a bare pointer, so the answer has somewhere to start.
+    let gist = heads.join('\n') || specBody.slice(0, 2048);
+    if (bytes(gist) > OUTLINE_MAX) {
+      const kept: string[] = [];
+      let used = 0;
+      for (const h of heads) {
+        if (used + bytes(h) > OUTLINE_MAX) break;
+        kept.push(h);
+        used += bytes(h) + 1;
+      }
+      gist = `${kept.join('\n')}\n… and ${heads.length - kept.length} more headings (read the file)`;
+    }
+    add('SPEC.md', `${specOutlineNote(specRel, bytes(specBody))}\n${gist}`, 'SPEC.md');
+  } else {
+    add('SPEC.md', specBody, 'SPEC.md');
+  }
 
   const ymlRel = task.artifacts.implement ?? (dir ? `${dir}/workflows/${task.workflowFile}` : null);
-  if (ymlRel) add('main.yml', await tryReadRel(projectsDir, ymlRel), 'main.yml');
+  if (ymlRel) add('main.yml', await workflowSeedBody(projectsDir, ymlRel), 'main.yml');
 
   add('report.json', await tryReadRel(projectsDir, runArtifactRel(task.taskId, 'report.json')), 'report.json');
 
@@ -448,7 +520,13 @@ async function gatherTerminalSeed(
  * parked and a terminal build stays terminal. Mirrors `askWithin`'s never-throw guard: any error →
  * benign `ask:done{ok:false}`.
  */
-export async function askTestWithin(task: Task, text: string, ctx: OrchestratorCtx): Promise<void> {
+export async function askTestWithin(
+  task: Task,
+  text: string,
+  ctx: OrchestratorCtx,
+  /** spec 098 S2 — see askWithin. */
+  newAttachments?: number[]
+): Promise<void> {
   const { projectsDir, settingsPath, log } = ctx;
   try {
     const { seed, seededFrom } = await gatherTerminalSeed(projectsDir, task);
@@ -462,7 +540,7 @@ export async function askTestWithin(task: Task, text: string, ctx: OrchestratorC
       `question, not a change request.${FENCE_RULE})` +
       // Same omission as the consult resume path: this turn accepts files (the ④ gate and a terminal
       // build's chat both offer attach), saved them, and then told the model nothing about them.
-      attachmentBlock(task.attachments);
+      attachmentBlock(task.attachments, newAttachments);
 
     // Mirror askWithin's review-#2 guard: a /cancel that landed during gatherTerminalSeed (before setSession,
     // so it found no live child and merely flagged the holder) must abort HERE — not spawn + run the full

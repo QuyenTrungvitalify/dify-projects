@@ -11,6 +11,30 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**Asking about a finished build costs a fraction of what it did (spec 098)**
+- Asking questions about a workflow you had already built was costing **3.4× more than building it** —
+  measured on real sessions: 60.5M input-equivalent tokens spent answering versus 18.0M spent building.
+  One task cost 5.4M to build a 52-node workflow and 32.1M to talk about it afterwards.
+- The cause was not the answers. Every question re-sent the entire artifact — a 100KB workflow file
+  inlined in full, 46 times in one session, 89% of it byte-identical to the question before. The answer
+  itself was **1.7%** of what was sent.
+- Now the question carries a **map** of the workflow instead: every step with its id, type, title and
+  which loop it runs inside, plus every connection, plus the file's path. That is 3–4KB where the file
+  is 100KB. Details still live in the file, and the assistant opens it when a question actually needs
+  them — once per conversation instead of once per question.
+- A long specification travels the same way: inlined whole when it is small (most builds), as its
+  section outline plus its path when it is not.
+- Files you attached earlier stay listed with their full paths, but stop being offered up for re-reading
+  on every later question. That one standing invitation was making the assistant re-open old
+  screenshots — 7 of 15 files were read more than once, at 52k–274k tokens per image. Ask about an
+  earlier file and it is still opened; it just no longer happens by default.
+- What you see is unchanged: same "assembled from" line under each answer, same attachments, same
+  wording. Measured after the change on a real 87KB build: **≈80% less per question**, and the cost now
+  goes *down* over a conversation instead of climbing.
+- Answers were checked, not assumed: on a workflow the assistant had never seen inlined, it reproduced
+  the flow, named the exact model and temperature of all three AI steps, and diffed the current file
+  against the one originally attached — all correct.
+
 **You can pick the model, and it stops being whatever the machine felt like (spec 096)**
 - A **Model** chip now sits under the composer input: Opus · Sonnet · Haiku · Fable. It applies to a
   chat as much as to a build, is chosen with the first message and then fixed for that task, and is

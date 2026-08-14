@@ -727,9 +727,13 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       id,
       isConsultAsk
         ? consultWithin(task, text, ctx, chatFiles(attCheck.attachments, uploads))
+        // spec 098 S2: `uploads` are the indices this request just saved — the ONLY files that carry the
+        // "read them" invitation. Everything older stays listed, without it. `?? []` is load-bearing:
+        // a question with no upload must say "nothing is new here", not fall back to "assume everything
+        // is" — and a question with no upload is most of them.
         : isPhaseAsk
-          ? askWithin(task, text, ctx)
-          : askTestWithin(task, text, ctx)
+          ? askWithin(task, text, ctx, uploads ?? [])
+          : askTestWithin(task, text, ctx, uploads ?? [])
     );
     return reply.send({ ok: true, uploads });
   });
