@@ -191,6 +191,15 @@ mà không phải host-sleep → mở điều tra riêng.
 thấy build ma lọt qua guard cửa; cửa chính danh "sửa file yml đính kèm" (auto-import-base) → spec
 riêng nếu share-inbox/campaign cho thấy tần suất đáng.
 
+Để ngỏ (098 — chi phí hỏi đáp): ba mảnh **cố ý chưa làm**, cả ba đều độc lập với phần đã ship và chỉ
+đáng mở lại khi số liệu đòi. (a) **Consult** vẫn kê mọi đính kèm kèm lời mời "Read" mỗi lượt — mọi số
+đo của 098 đến từ ask của build, nên mở rộng sang consult là việc riêng, sau khi S2 chạy thật một thời
+gian. (b) **Reset session Ask theo ngưỡng** + **tách model cho làn chat** (trùng S2b của 082): cả hai
+chặn đường cong phình từ hướng khác, nhưng sau 098 đường cong đã đi xuống (147k→127k→102k), nên gate
+mở lại = thấy một session Ask thật vượt ~300k eff/lượt. (c) **Bộ quét không parser** còn một lỗ tồn dư
+đã ghi tại `workflow-index.ts`: dòng nối của scalar ở cột 0 mà *trông giống khoá* (`Note: x`) vẫn cắt
+cụt im lặng — đóng hẳn cần một dependency YAML, chỉ đổi khi thấy ca thật.
+
 Để ngỏ (082 — hai làn + consult): S2b model pin làn chat (`BUILDER_CHAT_MODEL`) chưa làm;
 race hiếm ask:answer chunk-đầu-rớt nếu CLI trả lời trước khi EventSource mở (cold-start vài giây
 nên chưa quan sát thấy — chỉ xử nếu xuất hiện thật).

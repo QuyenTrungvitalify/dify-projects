@@ -461,6 +461,11 @@ async function gatherTerminalSeed(
   task: Task
 ): Promise<{ seed: string; seededFrom: string[] }> {
   const parts: string[] = [];
+  // `seededFrom` drives the `参照:` caption under the answer, and the tags stay the FILE names even
+  // though `main.yml` now travels as a map and a big `SPEC.md` as an outline. Deliberate: the answer
+  // really is assembled from those files — the map is derived from `main.yml`, and the file itself is
+  // read when a question needs more — so the caption is not a lie. Writing `main.yml (index)` would
+  // change what the user reads, and break a pinned assertion, to say something less true, not more.
   const seededFrom: string[] = [];
   const add = (label: string, body: string | null | undefined, tag: string): void => {
     if (body && body.trim()) {
