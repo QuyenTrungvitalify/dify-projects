@@ -104,3 +104,32 @@ describe('recoverOpenAsk — the second pass (includeSettled)', () => {
     expect(recoverOpenAsk([qa('why?', '', true)], ask({ a: 'x' }))).toBeNull();
   });
 });
+
+/* The cost only ever exists on the transcript side, so recovery must fold it on even when the LIVE text
+   wins — it is a fact about the turn, not a competing version of the answer. (Rule 2 stays intact: the
+   text is never shortened.) */
+describe('recovery carries the dev cost tip', () => {
+  const cost = { model: 'claude-opus-5', outputTokens: 494 };
+
+  it('folds cost onto a bubble whose live text is already complete', () => {
+    const items = [{ id: 'a', kind: 'qa', question: 'q', answer: 'the full answer', done: false }] as unknown as LiveThreadItem[];
+    const out = recoverOpenAsk(items, { q: 'q', a: 'the full', ok: true, cost });
+    const qa = out!.items[0] as { answer: string; cost?: { model?: string } };
+    expect(qa.answer).toBe('the full answer'); // never shortened
+    expect(qa.cost?.model).toBe('claude-opus-5');
+  });
+
+  it('carries it when the transcript answer wins too', () => {
+    const items = [{ id: 'a', kind: 'qa', question: 'q', answer: 'the', done: false }] as unknown as LiveThreadItem[];
+    const out = recoverOpenAsk(items, { q: 'q', a: 'the full answer', ok: true, cost });
+    const qa = out!.items[0] as { answer: string; cost?: { model?: string } };
+    expect(qa.answer).toBe('the full answer');
+    expect(qa.cost?.model).toBe('claude-opus-5');
+  });
+
+  it('leaves a bubble untouched when the transcript has no cost (every pre-existing build)', () => {
+    const items = [{ id: 'a', kind: 'qa', question: 'q', answer: 'done text', done: false }] as unknown as LiveThreadItem[];
+    const out = recoverOpenAsk(items, { q: 'q', a: 'done', ok: true });
+    expect(out!.items[0]).toBe(items[0]);
+  });
+});

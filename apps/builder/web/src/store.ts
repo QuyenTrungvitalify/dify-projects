@@ -78,8 +78,9 @@ export type LiveThreadItem =
    *  possibly-incomplete answer is visible rather than silently trusted; absent on a 033 phase Ask. */
   /** `cost` is the DEV read-out (model/tokens/duration of the turn that answered), folded on at settle
    *  from `ask:done`. It rides along into localStorage with the rest of the qa item and is restored on a
-   *  hard reload — correct, because it describes the turn that wrote THIS answer and cannot go stale
-   *  while the answer stands. It is NOT written to `task.json`: an ask has no phase slot, and a
+   *  hard reload. It also rides the server transcript (`chat.jsonl`), which is what a CONSULT rebuilds
+   *  from — that rebuild wins over localStorage, so without the disk copy a chat lost its tip on every
+   *  reload while a build kept it. It is NOT written to `task.json`: an ask has no phase slot, and a
    *  per-message number in the build's cost table would read as a phase's. */
   | { id: string; kind: 'qa'; question: string; answer: string; done: boolean; seededFrom?: string[]; cost?: WirePhaseCost }
   /** spec 082 S3: a YAML report card — the no-LLM machine checks on a consult-attached .yml (lint /
@@ -1723,7 +1724,7 @@ function consultThreadFromChat(chat: NonNullable<WireTask['chat']>): LiveThreadI
       ? // the transcript carries each user message's files (name/mime/idx) — without them a reopened
         // chat would forget every attachment, since this restore WINS over the persisted thread
         { id: uid(), kind: 'user' as const, text: m.text, atts: m.files?.length ? m.files.map((f) => ({ ...f })) : undefined }
-      : { id: uid(), kind: 'qa' as const, question: '', answer: m.text, done: true }
+      : { id: uid(), kind: 'qa' as const, question: '', answer: m.text, done: true, ...(m.cost ? { cost: m.cost } : {}) }
   );
 }
 

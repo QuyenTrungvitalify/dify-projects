@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { askTestWithin, askWithin } from '../server/lib/ask.js';
+import { askTestWithin, askWithin, readConsultChat, readLastAsk } from '../server/lib/ask.js';
 import { createTask, saveTask, type Task } from '../server/state/task.js';
 import type { ClaudeSession } from '../server/lib/claude-session.js';
 import type { TurnResult } from '../server/lib/turn-runner.js';
@@ -142,5 +142,32 @@ describe('the dev cost tip — what one answer cost', () => {
       runners: { runTurn },
     } as unknown as OrchestratorCtx, []);
     assert.equal((done.cost as { model?: string }).model, 'claude-opus-4-5-20260101');
+  });
+
+  /* A reload must not erase the meter. A BUILD keeps its thread in localStorage, so it survived; a
+     CONSULT rebuilds from the server transcript and that rebuild WINS over the browser copy — so on the
+     one surface whose history is server-authoritative, the tip vanished on every reload. The number
+     therefore belongs on disk, beside the answer it describes. */
+  test('the transcript keeps the cost beside the answer, so a reload can restore it', async () => {
+    const task = await terminalTask(dir);
+    await settle(dir, task, { result: RESULT });
+
+    const lines = await readConsultChat(dir, task.taskId);
+    const answer = lines.at(-1)!;
+    assert.equal(answer.role, 'assistant');
+    assert.equal(answer.cost?.model, 'claude-opus-4-5-20260101');
+    assert.equal(answer.cost?.outputTokens, 842);
+    assert.equal(lines[0].cost, undefined, 'a question has no cost of its own');
+
+    // …and the build's recovery payload carries it too, for a browser whose storage was cleared.
+    const last = await readLastAsk(dir, task.taskId);
+    assert.equal(last?.cost?.model, 'claude-opus-4-5-20260101');
+  });
+
+  test('a turn that reported nothing writes no cost onto the transcript line', async () => {
+    const task = await terminalTask(dir);
+    await settle(dir, task, { result: null, isError: true });
+    const lines = await readConsultChat(dir, task.taskId);
+    assert.equal('cost' in lines.at(-1)!, false);
   });
 });

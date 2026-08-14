@@ -19,11 +19,14 @@
 //     transcript is written once, at settle), so the longer text is the more complete one. The outcome
 //     (`ok`) is adopted regardless — it is authoritative in a way the client's optimistic `true` is not.
 import type { LiveThreadItem } from '../store';
+import type { WirePhaseCost } from '../types';
 
 export interface LastAsk {
   q: string;
   a: string;
   ok: boolean;
+  /** the dev tip's numbers for that turn — present once the transcript has them */
+  cost?: WirePhaseCost;
 }
 
 /**
@@ -58,8 +61,15 @@ export function recoverOpenAsk(
   const qa = items[idx] as LiveThreadItem & { kind: 'qa' };
   // The bubble's own `question` is the match key (store.ask writes it there alongside the user item).
   if (qa.question.trim() !== lastAsk.q.trim()) return null;
-  if (lastAsk.a.length <= qa.answer.length) return { items, ok: lastAsk.ok }; // rule 2: keep the longer text
+  if (lastAsk.a.length <= qa.answer.length) {
+    // rule 2: keep the longer text — but the COST only ever exists on the transcript side, so fold it on
+    // even when the live text wins. It is a fact about the turn, not a competing version of the answer.
+    if (!lastAsk.cost || qa.cost) return { items, ok: lastAsk.ok };
+    const kept = items.slice();
+    kept[idx] = { ...qa, cost: lastAsk.cost };
+    return { items: kept, ok: lastAsk.ok };
+  }
   const next = items.slice();
-  next[idx] = { ...qa, answer: lastAsk.a };
+  next[idx] = { ...qa, answer: lastAsk.a, ...(lastAsk.cost ? { cost: lastAsk.cost } : {}) };
   return { items: next, ok: lastAsk.ok };
 }

@@ -380,7 +380,7 @@ export async function askWithin(
       // errored/produced no text; the restore already happened above (review #4: per-file isolated).
       log.warn({ taskId: task.taskId, files: anomalies.map((a) => `${a.kind}:${a.path}${a.restoreFailed ? '(RESTORE-FAILED)' : ''}`) },
         'ask: layer-2 detected + reverted write(s) — layer 1 was bypassed');
-      await recordAsk(projectsDir, task.taskId, text, answer, false);
+      await recordAsk(projectsDir, task.taskId, text, answer, false, askCost(turn).cost);
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, anomaly: { files: anomalies }, ...askCost(turn) });
       return;
     }
@@ -398,7 +398,7 @@ export async function askWithin(
       const cause = turn.note ? ` (${turn.note})` : '';
       const canned = `couldn't get an answer for that — try again, or use Request changes to edit the artifact.${cause}`;
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: canned });
-      await recordAsk(projectsDir, task.taskId, text, canned, false);
+      await recordAsk(projectsDir, task.taskId, text, canned, false, askCost(turn).cost);
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
@@ -409,13 +409,13 @@ export async function askWithin(
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: notice });
       // The notice is part of what the reader saw, so it is part of what gets recorded — a recovered
       // answer must never look more finished than the live one did.
-      await recordAsk(projectsDir, task.taskId, text, answer + notice, false);
+      await recordAsk(projectsDir, task.taskId, text, answer + notice, false, askCost(turn).cost);
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
 
     // Normal path — no anomaly, an answer streamed (or a clean empty result). FIX-B: ok, no task:update.
-    await recordAsk(projectsDir, task.taskId, text, answer, true);
+    await recordAsk(projectsDir, task.taskId, text, answer, true, askCost(turn).cost);
     ctx.broadcast?.(task.taskId, 'ask:done', { ok: true, ...askCost(turn) });
   } catch (e) {
     // The never-throw guard (see above): any unexpected error → benign ask:done{ok:false}, gate untouched.
@@ -656,14 +656,14 @@ export async function askTestWithin(
       const cause = turn.note ? ` (${turn.note})` : '';
       const canned = `couldn't get an answer for that — try again.${cause}`;
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: canned });
-      await recordAsk(projectsDir, task.taskId, text, canned, false);
+      await recordAsk(projectsDir, task.taskId, text, canned, false, askCost(turn).cost);
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
     if (turn.isError) {
       const notice = truncationNotice(turn.note);
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: notice });
-      await recordAsk(projectsDir, task.taskId, text, answer + notice, false);
+      await recordAsk(projectsDir, task.taskId, text, answer + notice, false, askCost(turn).cost);
       // `seededFrom` rides along: the answer WAS assembled from those artifacts, and being cut off does
       // not unmake that. applyAskDone folds the caption regardless of `ok`, so dropping it here would
       // strip the "assembled from" line off exactly the answer whose provenance matters most.
@@ -671,7 +671,7 @@ export async function askTestWithin(
       return;
     }
     // No layer-2 (D4) → no anomaly branch → `ask:done` is always ok:true here, carrying `seededFrom` (§2).
-    await recordAsk(projectsDir, task.taskId, text, answer, true);
+    await recordAsk(projectsDir, task.taskId, text, answer, true, askCost(turn).cost);
     ctx.broadcast?.(task.taskId, 'ask:done', { ok: true, seededFrom, ...askCost(turn) });
   } catch (e) {
     clearSession(task.taskId); // ensure the /cancel handle is cleared on any throw
@@ -776,6 +776,11 @@ export interface ConsultChatLine {
    *  a cut-off answer, a layer-2 anomaly). Absent means it settled fine, so every transcript written
    *  before this field existed reads correctly. */
   ok?: boolean;
+  /** What the turn that wrote this answer cost (assistant lines only) — the dev tip's numbers.
+   *  On DISK because a consult rebuilds its thread from this file and that rebuild WINS over the
+   *  browser's copy: without it, a reload dropped the tip on exactly the surface whose thread is
+   *  server-authoritative. Absent on every line written before this field existed. */
+  cost?: PhaseCost;
 }
 async function appendChat(
   projectsDir: string,
@@ -784,13 +789,15 @@ async function appendChat(
   text: string,
   at: number,
   files?: ConsultChatLine['files'],
-  ok?: boolean
+  ok?: boolean,
+  cost?: PhaseCost
 ): Promise<void> {
   try {
     const line: ConsultChatLine = {
       role, text, at,
       ...(files && files.length ? { files } : {}),
       ...(ok === false ? { ok: false } : {}),
+      ...(cost ? { cost } : {}),
     };
     await appendFile(join(taskDir(projectsDir, taskId), 'chat.jsonl'), JSON.stringify(line) + '\n', 'utf8');
   } catch {
@@ -819,11 +826,12 @@ async function recordAsk(
   taskId: string,
   question: string,
   answer: string,
-  ok: boolean
+  ok: boolean,
+  cost?: PhaseCost
 ): Promise<void> {
   const at = Date.now();
   await appendChat(projectsDir, taskId, 'user', question, at);
-  await appendChat(projectsDir, taskId, 'assistant', answer, at + 1, undefined, ok);
+  await appendChat(projectsDir, taskId, 'assistant', answer, at + 1, undefined, ok, cost);
 }
 
 /** The exchange a reopened build needs to finish an interrupted answer: the LAST assistant line plus the
@@ -833,14 +841,14 @@ async function recordAsk(
 export async function readLastAsk(
   projectsDir: string,
   taskId: string
-): Promise<{ q: string; a: string; ok: boolean } | undefined> {
+): Promise<{ q: string; a: string; ok: boolean; cost?: PhaseCost } | undefined> {
   const lines = await readConsultChat(projectsDir, taskId);
   for (let i = lines.length - 1; i >= 0; i--) {
     if (lines[i].role !== 'assistant') continue;
     // The nearest preceding user line is this answer's question (recordAsk writes them as a pair).
     for (let j = i - 1; j >= 0; j--) {
       if (lines[j].role === 'user') {
-        return { q: lines[j].text, a: lines[i].text, ok: lines[i].ok !== false };
+        return { q: lines[j].text, a: lines[i].text, ok: lines[i].ok !== false, ...(lines[i].cost ? { cost: lines[i].cost } : {}) };
       }
     }
     return undefined; // an assistant line with no question before it — nothing to match on
@@ -970,7 +978,7 @@ export async function consultWithin(
       const cause = turn.note ? ` (${turn.note})` : '';
       const msg = `couldn't get an answer for that — try again.${cause}`;
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: msg });
-      await appendChat(projectsDir, task.taskId, 'assistant', msg, at + 1);
+      await appendChat(projectsDir, task.taskId, 'assistant', msg, at + 1, undefined, false, askCost(turn).cost);
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
@@ -979,11 +987,11 @@ export async function consultWithin(
       // cut-off answer as a finished one either.
       const notice = truncationNotice(turn.note);
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: notice });
-      await appendChat(projectsDir, task.taskId, 'assistant', answer + notice, at + 1);
+      await appendChat(projectsDir, task.taskId, 'assistant', answer + notice, at + 1, undefined, false, askCost(turn).cost);
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
-    if (gotText) await appendChat(projectsDir, task.taskId, 'assistant', answer, at + 1);
+    if (gotText) await appendChat(projectsDir, task.taskId, 'assistant', answer, at + 1, undefined, undefined, askCost(turn).cost);
     ctx.broadcast?.(task.taskId, 'ask:done', { ok: true, ...askCost(turn) });
   } catch (e) {
     clearSession(task.taskId); // ensure the /cancel handle is cleared on any throw

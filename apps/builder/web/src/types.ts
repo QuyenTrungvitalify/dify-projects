@@ -114,6 +114,10 @@ export interface WireTask {
     /** spec: files the user's message carried — `idx` addresses `GET /api/tasks/:id/uploads/:idx`, so a
      *  reopened chat can still show them (the browser's copy of the bytes is long gone). */
     files?: { name: string; mime: string; idx: number }[];
+    /** assistant lines: what that turn cost (the dev tip). A consult's thread is rebuilt from this
+     *  transcript and that rebuild wins over localStorage, so the tip only survives a reload if it
+     *  travels here. Absent on anything recorded before this field existed. */
+    cost?: WirePhaseCost;
   }[];
   /** The LAST ask exchange on a BUILD, from the backend transcript — the one thing the client cannot
    *  rebuild by itself. `ask:answer` is excluded from the SSE replay buffer and a task switch drops the
