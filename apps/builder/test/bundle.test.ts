@@ -71,6 +71,18 @@ function mkFixture(): { projectsDir: string; task: Task; cleanup: () => void } {
   );
   writeFileSync(join(wfDir, 'SPEC.md'), '# SPEC\nposts to Slack\n');
   writeFileSync(join(wfDir, 'workflows', 'main.yml'), 'app:\n  name: Slack news\nversion: 0.6.0\n');
+  // two recorded asks — the conversation ABOUT the build, and the evidence its seed stayed small
+  writeFileSync(
+    join(runDir, 'chat.jsonl'),
+    [
+      { role: 'user', text: 'how many nodes?', at: 1 },
+      { role: 'assistant', text: 'three', at: 2, promptBytes: 5400,
+        cost: { model: 'claude-opus-5', totalCostUsd: 0.103, outputTokens: 508, inputTokens: 2 } },
+      { role: 'user', text: 'which URL does it POST to?', at: 3 },
+      { role: 'assistant', text: 'localhost', at: 4, promptBytes: 5600,
+        cost: { model: 'claude-opus-5', totalCostUsd: 0.09, outputTokens: 120, inputTokens: 2 } },
+    ].map((l) => JSON.stringify(l)).join('\n') + '\n'
+  );
   writeFileSync(join(runDir, 'uploads', 'note.txt'), 'a user attachment');
 
   return { projectsDir, task, cleanup: () => rmSync(projectsDir, { recursive: true, force: true }) };
@@ -103,11 +115,33 @@ describe('buildBundle (spec 062 S2/S5)', () => {
       writeFileSync(zp, zipBuf);
       const listing = execFileSync('unzip', ['-l', zp], { encoding: 'utf8' });
       for (const name of ['summary.md', 'dossier.json', 'build-info.json', 'task.json', 'criteria.json',
-        'report.json', 'events.jsonl', 'SPEC.md', 'workflows/main.yml', 'transcripts/implement.md', 'attachments/note.txt']) {
+        'report.json', 'events.jsonl', 'SPEC.md', 'workflows/main.yml', 'transcripts/implement.md', 'attachments/note.txt',
+        'chat.jsonl', 'ask-ledger.md']) {
         assert.ok(listing.includes(name), `bundle contains ${name}`);
       }
       assert.doesNotThrow(() => execFileSync('unzip', ['-t', zp], { stdio: 'ignore' }), 'valid archive');
     } finally {
+      fx.cleanup();
+    }
+  });
+
+  /* The bundle is how the evidence leaves the machine. A user who suspects the ask optimisation has
+     rotted can export and read one file — or hand it over — instead of re-running a measurement. */
+  test('ask-ledger.md answers "did the seed stay small?" from the exported bundle alone', async (t) => {
+    if (!unzip) return t.skip('no unzip');
+    const fx = mkFixture();
+    let out;
+    try {
+      out = extract(await buildBundle(fx.projectsDir, fx.task));
+      const md = out.read('ask-ledger.md');
+      assert.match(md, /# Ask ledger — 2 questions/);
+      assert.match(md, /5\.3 KB/, 'the prompt size of a real ask is in the table');
+      assert.match(md, /2 of 2 within the 16\.0 KB fence ✅/, 'and the verdict is stated, not left to the reader');
+      assert.match(md, /which URL does it POST to\?/, 'rows are identifiable by their question');
+      // the raw transcript rides along too, so the numbers can be re-derived rather than trusted
+      assert.match(out.read('chat.jsonl'), /"promptBytes":5400/);
+    } finally {
+      out?.cleanup();
       fx.cleanup();
     }
   });

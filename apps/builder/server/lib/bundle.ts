@@ -14,6 +14,8 @@ import { join } from 'node:path';
 import { redactSecrets } from './dify-io.js';
 import { zipStore, type ZipEntry } from './zip.js';
 import { buildDossier, buildDossierData } from './dossier.js';
+import { buildAskLedger } from './ask-ledger.js';
+import type { ConsultChatLine } from './ask.js';
 import { parseToolStats, type ToolStats } from './run-transcript.js';
 import { collectBuildInfo } from './build-info.js';
 import { readEvents } from './run-events.js';
@@ -117,6 +119,23 @@ export async function buildBundle(
       const stats = parseToolStats(body);
       if (stats.total) toolStats[phase] = stats;
     }
+  }
+
+  // ── the ask transcript + its ledger ──
+  // The conversation ABOUT a build is part of the record of that build, and until now the bundle carried
+  // none of it. It also carries the only durable evidence that the ask optimisation still holds: each
+  // answer records the prompt it was sent (spec 098 cut that from ~143KB to ~5KB) and what the turn cost.
+  // `ask-ledger.md` renders those rows so the question is answerable by reading, not by re-measuring.
+  const chatRaw = await readText(join(runDir, 'chat.jsonl'));
+  if (chatRaw != null) {
+    text('chat.jsonl', chatRaw);
+    const lines: ConsultChatLine[] = chatRaw
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => { try { return JSON.parse(l) as ConsultChatLine; } catch { return null; } })
+      .filter((l): l is ConsultChatLine => !!l);
+    const ledger = buildAskLedger(lines);
+    if (ledger) text('ask-ledger.md', ledger);
   }
 
   // ── attachments (BINARY, raw, capped) — scan the confined uploads/ dir, never trust a request path ──
