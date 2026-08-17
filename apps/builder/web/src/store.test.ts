@@ -4,10 +4,11 @@
  * `task:update` would clobber it (the UI reverts to an older phase/gate). Each persisted transition now
  * carries a monotonic `rev`; a strictly-older snapshot for the same task is dropped.
  */
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import {
   applyTask,
   applyOutput,
+  applyPhaseCost,
   flushPendingOutput,
   applyAskAnswer,
   applyAskDone,
@@ -538,5 +539,54 @@ describe('a terminal confirm echo does not duplicate the resolved ④ gate', () 
     applyTask({ ...mk('TERM2', 2, 'test'), status: 'running', artifactContents: {} } as unknown as WireTask);
     applyTask({ ...gate, status: 'done', rev: 3, artifactContents: {} } as unknown as WireTask);
     expect(thread.value.filter((i) => i.kind === 'gate').length).toBe(2); // new card for the new run
+  });
+});
+
+// ── the per-RUN cost meter (dev) ────────────────────────────────────────────────────────────────────
+// `task.cost[phase]` is last-write-wins across re-runs, so it cannot say what fix round #1 cost. These
+// pin the two properties that make a per-run number trustworthy: it lands on the run it paid for, and a
+// retry inside one run adds up instead of being replaced by whichever attempt happened to finish last.
+describe('applyPhaseCost — what THIS run cost', () => {
+  beforeEach(() => { thread.value = []; });
+
+  it('lands on the run item currently showing that phase', () => {
+    thread.value = [
+      { id: 'r1', kind: 'run', phase: 'spec', running: false, output: 'older' },
+      { id: 'r2', kind: 'run', phase: 'implement', running: true, output: 'live' },
+    ] as never;
+    applyPhaseCost('implement', { totalCostUsd: 1.25, outputTokens: 900, model: 'claude-opus-5' });
+    const [spec, impl] = thread.value as unknown as { cost?: { totalCostUsd?: number } }[];
+    expect(impl.cost?.totalCostUsd).toBe(1.25);
+    expect(spec.cost).toBeUndefined();
+  });
+
+  it('a retry inside one run ADDS UP — showing only the last attempt would understate the round', () => {
+    thread.value = [{ id: 'r1', kind: 'run', phase: 'implement', running: true, output: '' }] as never;
+    applyPhaseCost('implement', { totalCostUsd: 0.4, outputTokens: 100, numTurns: 3, cacheCreationTokens: 5000 });
+    applyPhaseCost('implement', { totalCostUsd: 1.1, outputTokens: 250, numTurns: 8, cacheCreationTokens: 7000, model: 'claude-opus-5' });
+    const run = thread.value[0] as unknown as { cost: Record<string, number | string> };
+    expect(run.cost.totalCostUsd).toBeCloseTo(1.5, 6);
+    expect(run.cost.outputTokens).toBe(350);
+    expect(run.cost.numTurns).toBe(11);
+    expect(run.cost.cacheCreationTokens).toBe(12000);
+    expect(run.cost.model).toBe('claude-opus-5'); // the latest attempt names the model
+  });
+
+  it('a later fix round gets its OWN number, not the earlier round rewritten', () => {
+    thread.value = [
+      { id: 'r1', kind: 'run', phase: 'implement', running: false, output: 'round 1' },
+    ] as never;
+    applyPhaseCost('implement', { totalCostUsd: 6.6 });
+    // a /reply opens a new run item for the same phase
+    thread.value = [...thread.value, { id: 'r2', kind: 'run', phase: 'implement', running: true, output: 'round 2' }] as never;
+    applyPhaseCost('implement', { totalCostUsd: 0.3 });
+    const [a, b] = thread.value as unknown as { cost?: { totalCostUsd?: number } }[];
+    expect(a.cost?.totalCostUsd).toBe(6.6);
+    expect(b.cost?.totalCostUsd).toBe(0.3);
+  });
+
+  it('a cost with no run to attach it to is dropped, not turned into a phantom run', () => {
+    applyPhaseCost('implement', { totalCostUsd: 2 });
+    expect(thread.value).toEqual([]);
   });
 });

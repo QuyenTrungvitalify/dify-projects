@@ -70,7 +70,9 @@ export interface ThreadAttachment {
 
 export type LiveThreadItem =
   | { id: string; kind: 'user'; text: string; atts?: ThreadAttachment[] }
-  | { id: string; kind: 'run'; phase: WirePhase; running: boolean; output: string; stopped?: boolean }
+  /** `cost` is the DEV read-out for THIS run: what the turn(s) behind this one disclosure cost. Summed
+   *  across attempts, because a run that failed and retried cost you both — see `applyPhaseCost`. */
+  | { id: string; kind: 'run'; phase: WirePhase; running: boolean; output: string; stopped?: boolean; cost?: WirePhaseCost }
   | { id: string; kind: 'gate'; phase: WirePhase; snapshot: WireTask; resolved?: string }
   /** spec 033: a conversational Ask exchange — message↔message, never re-runs the phase. `done` flips
    *  once the backend's `ask:done` settles (streaming stops; the "Answered" chrome renders).
@@ -623,6 +625,49 @@ export function flushPendingOutput(): void {
   if (changed) thread.value = items;
 }
 
+/**
+ * Fold one ATTEMPT's cost onto the run item currently showing that phase.
+ *
+ * Targets the LAST run item of the phase — the same rule `phase:output` uses, so the number lands on the
+ * same disclosure as the text it paid for. A `/reply` fix round opens its own run item (gate → running
+ * pushes a new one), which is what makes per-round numbers possible at all.
+ *
+ * ACCUMULATES rather than replaces: one run item can span an error→retry, and both attempts were billed.
+ * Showing only the retry would understate what the round cost — quietly, which is the worst way to be
+ * wrong about money. Token/price/duration/turn fields add up; `model` takes the latest, since a run that
+ * changed model mid-way is rare and the alternative (a list) is noise on a one-line meter.
+ */
+export function applyPhaseCost(phase: string, cost: WirePhaseCost): void {
+  const items = thread.value.slice();
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.kind !== 'run' || it.phase !== phase) continue;
+    const prev = it.cost;
+    const add = (a: number | undefined, b: number | undefined): number | undefined =>
+      a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
+    items[i] = {
+      ...it,
+      cost: prev
+        ? {
+            ...prev,
+            ...cost,
+            inputTokens: add(prev.inputTokens, cost.inputTokens),
+            outputTokens: add(prev.outputTokens, cost.outputTokens),
+            cacheReadTokens: add(prev.cacheReadTokens, cost.cacheReadTokens),
+            cacheCreationTokens: add(prev.cacheCreationTokens, cost.cacheCreationTokens),
+            totalCostUsd: add(prev.totalCostUsd, cost.totalCostUsd),
+            numTurns: add(prev.numTurns, cost.numTurns),
+            durationMs: add(prev.durationMs, cost.durationMs),
+          }
+        : cost,
+    };
+    thread.value = items;
+    return;
+  }
+  // No run item yet (the cost arrived before `task:update` opened one) — dropping it is right: there is
+  // nothing to attach it to, and inventing an item would put a meter under output nobody has seen.
+}
+
 export function applyOutput(phase: string, text: string): void {
   _pendingOutput.set(phase, (_pendingOutput.get(phase) ?? '') + text);
   if (typeof requestAnimationFrame === 'function') {
@@ -949,6 +994,7 @@ function openStream(taskId: string): void {
     },
     onTaskUpdate: applyTask,
     onPhaseOutput: (d) => applyOutput(d.phase, d.text),
+    onPhaseCost: (d) => applyPhaseCost(d.phase, d.cost),
     onAskAnswer: (d) => applyAskAnswer(d.text),
     // spec 082 S3: insert the YAML report card BEFORE the open qa item (it was emitted before the turn
     // spawned, and should read that way — machine facts first, then the model's take).

@@ -15,7 +15,7 @@
    phase:output. On reconnect the store re-fetches GET /api/tasks/:id
    (AC #22) — wired via onReconnect in the store, not here.
    ============================================================ */
-import type { WireTask } from './types';
+import type { WireTask, WirePhaseCost } from './types';
 
 /** spec 033: the layer-2 restore-anomaly report on an Ask's `ask:done{ok:false}` — one entry per file
  *  the backend detected + already reverted (not just the phase's own gate artifact, FIX-M). */
@@ -37,6 +37,10 @@ export interface SSEHandlers {
   onTaskUpdate: (task: WireTask) => void;
   /** A streamed assistant fragment for the current phase. */
   onPhaseOutput: (data: { phase: string; text: string }) => void;
+  /** What ONE attempt of a phase cost (dev meter). Per attempt, not per phase — `task.cost[phase]` is
+   *  last-write-wins and cannot say what an earlier fix round cost. Optional: a backend older than this
+   *  never sends it, and the FE simply shows no meter. */
+  onPhaseCost?: (data: { phase: string; cost: WirePhaseCost }) => void;
   /** spec 033: a streamed Ask-answer fragment (mirrors onPhaseOutput, high-volume/not buffered). */
   onAskAnswer: (data: { text: string }) => void;
   /** spec 033: the Ask turn's terminal marker — ok, or ok:false + the (already-reverted) anomaly.
@@ -98,6 +102,11 @@ export function connectSSE(taskId: string, handlers: SSEHandlers): () => void {
     eventSource.addEventListener('phase:output', (e: MessageEvent) => {
       if (waitingForInit) return; // symmetry with task:update — don't append a pre-init replayed fragment
       handlers.onPhaseOutput(JSON.parse(e.data));
+    });
+
+    eventSource.addEventListener('phase:cost', (e: MessageEvent) => {
+      if (waitingForInit) return; // symmetry with phase:output — a pre-init replay is stale
+      handlers.onPhaseCost?.(JSON.parse(e.data));
     });
 
     eventSource.addEventListener('ask:answer', (e: MessageEvent) => {

@@ -113,10 +113,13 @@ export function PhaseTrack({ phaseStates, current }: { phaseStates: PhaseStates;
 }
 
 /* ---- disclosure: "Running ① Analyze…" / "Stopped during ① Analyze" / streamed output ---- */
-export function Disclosure({ phaseKey, running, output, stopped, promote }: {
+export function Disclosure({ phaseKey, running, output, stopped, promote, cost }: {
   phaseKey: PhaseKey;
   running: boolean;
   output: string;
+  /** spec 059-shaped cost of the turn(s) behind THIS run — dev-only, and per run rather than per phase,
+   *  so three fix rounds read as three different numbers instead of the newest one three times. */
+  cost?: WirePhaseCost;
   /** the phase's turn was cancelled mid-flight — muted "Stopped during …" + alert icon (design handoff). */
   stopped?: boolean;
   /** spec 052: a `kind:'promote'` task does NOT run the ①②③④ FSM — its single turn is the distillation.
@@ -151,6 +154,10 @@ export function Disclosure({ phaseKey, running, output, stopped, promote }: {
       {open && !html && running && (
         <div className="disc-detail"><div className="dd-line">{tr('working')}</div></div>
       )}
+      {/* Same meter as an answer's, same reasons — but on a build turn, where the money actually is:
+          a single implement round was measured at $6.61, and a per-phase table sums the rounds into one
+          cell where the expensive one disappears. Shown once the run has settled. */}
+      {!running && devMode && askCostLine(cost) && <div className="qa-devcost">{askCostLine(cost)}</div>}
     </div>
   );
 }

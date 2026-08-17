@@ -548,7 +548,16 @@ async function runPhase(
     );
     clearSession(task.taskId);
     // Append this attempt's transcript block (append, never overwrite — an error→retry keeps both, S1).
-    await rec.flush(runDir, { cost: costFromResult(turn.result), note: turn.note });
+    const attemptCost = costFromResult(turn.result);
+    await rec.flush(runDir, { cost: attemptCost, note: turn.note });
+    // …and tell the live view what THIS ATTEMPT cost.
+    //
+    // `task.cost[phase]` cannot answer that question: it is last-write-wins across re-runs of the same
+    // phase (see its own comment below), so after three fix rounds it holds only the third. Painting it
+    // under all three run items would show one round's numbers three times, two of them false — the
+    // exact failure this meter exists to expose. Per-attempt data was already being computed here for
+    // the transcript; this only stops throwing it away.
+    if (attemptCost) ctx.broadcast?.(task.taskId, 'phase:cost', { phase: phaseId, cost: attemptCost });
     // Don't write a `running`-bearing task AFTER a /cancel flipped it (would clobber `cancelled`).
     if (turn.sessionId && !isCancelled(task.taskId)) {
       task.sessionIds[sessKey] = turn.sessionId;
