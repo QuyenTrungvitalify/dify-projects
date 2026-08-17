@@ -302,9 +302,16 @@ nó **không còn nhìn thấy** — sai âm thầm, loại lỗi tệ nhất.
 | mục seed | gửi cái gì | ngưỡng |
 |---|---|---|
 | requirement | nguyên văn | — |
-| `SPEC.md` | nguyên văn; nếu lớn thì **outline heading + đường dẫn** | 16KB (**byte**, không phải ký tự) |
+| `SPEC.md` | nguyên văn nếu nhỏ; lớn hơn thì **đoạn mở đầu + outline heading + đường dẫn** | **4KB** (byte) |
 | `main.yml` | **mục lục** `id \| type \| title \| [inside container]` + mọi cạnh + đường dẫn file | quét hỏng ⇒ file thô nếu ≤8KB, không thì con trỏ tới file |
-| `report.json`, `liveTest` | nguyên văn (đo rồi: nhỏ, và là phần đáng giá nhất khi trả lời) | — |
+| `report.json`, `liveTest` | nguyên văn, trừ `promote_hint`/`timeline` (sổ sách nội bộ, không trả lời được gì) | — |
+
+Ngưỡng SPEC.md là **4KB chứ không phải 16KB** vì một lý do chỉ lộ ra sau khi `main.yml` đã thành map:
+đo lại thì SPEC.md mới là thứ lớn nhất còn lại — **9.9KB và 11.5KB** trên hai build thật, **cả hai đều
+dưới ngưỡng cũ** nên đều được inline nguyên và chiếm ~65% phần code kiểm soát. Số học quyết định:
+inline 10KB thì trả giá ở **mọi** lượt, còn outline thì trả một lần `Read` (model đọc file một lần rồi
+nó nằm trong prefix). Qua lượt thứ hai là outline thắng. Đổi lại, outline **mang theo đoạn mở đầu** —
+danh sách heading nói có những mục gì, không nói workflow để làm gì, mà đó mới là câu người ta hỏi.
 
 Mục lục do `workflow-index.ts` dựng **không có parser YAML** (server chỉ 1 dependency). Nguyên tắc sống
 còn của nó: **sai còn tệ hơn vắng** — không dựng được map thì trả `ok:false` để caller lùi về file thô,

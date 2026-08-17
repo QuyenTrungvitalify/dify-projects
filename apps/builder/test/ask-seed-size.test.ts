@@ -127,7 +127,7 @@ describe('spec 098 — the terminal ask seed', () => {
     assert.ok(prompt.length < 8000, `still ${prompt.length} chars`);
   });
 
-  test('a small SPEC.md is still inlined whole; a big one becomes its outline + path', async () => {
+  test('a small SPEC.md is still inlined whole; a big one becomes its OPENING + outline + path', async () => {
     const small = await seededTask(dir, { yaml: workflowYaml(3), spec: '# Spec\nthe whole body is here' });
     assert.match(await promptFor(dir, small), /the whole body is here/);
 
@@ -137,8 +137,12 @@ describe('spec 098 — the terminal ask seed', () => {
       const big = await seededTask(dir2, { yaml: workflowYaml(3), spec: bigSpec });
       const prompt = await promptFor(dir2, big);
       assert.match(prompt, /## Section 7/, 'the outline keeps every heading');
-      assert.ok(!prompt.includes('y'.repeat(500)), 'the body is not inlined');
+      // The opening rides along — a heading list says what sections exist, not what the thing is for —
+      // but it is BOUNDED. A whole 20KB body coming back must still fail here.
+      assert.ok(prompt.includes('y'.repeat(300)), 'the opening is present');
+      assert.ok(!prompt.includes('y'.repeat(900)), '…and it is an excerpt, not the body');
       assert.match(prompt, /outline only/);
+      assert.ok(Buffer.byteLength(prompt) < 6 * 1024, `a 20KB spec must not cost 20KB: ${Buffer.byteLength(prompt)}B`);
     } finally {
       await rm(dir2, { recursive: true, force: true });
     }
@@ -289,7 +293,7 @@ describe('spec 098 — the terminal ask seed', () => {
     const task = await seededTask(dir, { yaml: workflowYaml(52), spec });
     const prompt = await promptFor(dir, task);
     assert.match(prompt, /outline only/, 'so it must ride as an outline');
-    assert.ok(!prompt.includes('あ'.repeat(200)), 'not as a wall of body text');
+    assert.ok(!prompt.includes('あ'.repeat(400)), 'not as a wall of body text');
     assert.ok(Buffer.byteLength(prompt) < 16 * 1024, `seed is ${Buffer.byteLength(prompt)} bytes`);
   });
 
@@ -323,6 +327,19 @@ describe('spec 098 — the terminal ask seed', () => {
     const prompt = await promptFor(dir, task);
     assert.match(prompt, /… and \d+ more headings \(read the file\)/);
     assert.ok(Buffer.byteLength(prompt) < 16 * 1024, `seed is ${Buffer.byteLength(prompt)} bytes`);
+  });
+
+  /* Measured after `main.yml` became a map: SPEC.md was the biggest thing left — 9.9KB and 11.5KB on two
+     real builds, BOTH under the old 16KB threshold, so both were inlined whole on every question and made
+     up ~65% of the artifact context. A 10KB spec must not be inlined. */
+  test('a typical 10KB spec rides as an outline, not whole', async () => {
+    const spec = ['# Quy trình', ...Array.from({ length: 12 }, (_, i) => `## Bước ${i}\n` + 'chi tiết. '.repeat(80))].join('\n');
+    assert.ok(Buffer.byteLength(spec) > 9_000 && Buffer.byteLength(spec) < 13_000, 'the fixture is a typical spec');
+    const task = await seededTask(dir, { yaml: workflowYaml(3), spec });
+    const prompt = await promptFor(dir, task);
+    assert.match(prompt, /outline only/, 'a 10KB spec is exactly the case that used to slip through');
+    assert.match(prompt, /## Bước 11/, 'every heading survives');
+    assert.ok(Buffer.byteLength(prompt) < 4 * 1024, `seed is ${Buffer.byteLength(prompt)}B — it was ~11KB`);
   });
 
   test('a very long node title cannot make the map unbounded', () => {

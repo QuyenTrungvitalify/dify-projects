@@ -518,9 +518,17 @@ async function tryReadRel(projectsDir: string, rel: string): Promise<string | nu
  * about a workflow it can no longer see, and be confidently wrong. So the seed still goes out every
  * turn; what changed is its SIZE. Details live in the files, whose paths ride along.
  */
-const SPEC_INLINE_MAX = 16 * 1024;
+const SPEC_INLINE_MAX = 4 * 1024;
 /** Raw YAML is inlined only when it is small enough that a map would not pay for itself. */
 const YAML_RAW_MAX = 8 * 1024;
+/**
+ * Why 4KB and not the 16KB this shipped with. Measured across real builds AFTER `main.yml` became a map:
+ * SPEC.md turned out to be the biggest thing left, not the workflow — 9.9KB and 11.5KB on two builds,
+ * both UNDER the old threshold, so both were inlined whole and made up ~65% of everything this code
+ * chooses to send. The arithmetic settles it: inlining 10KB costs that much on EVERY question, while
+ * outlining costs one `Read` at most once per session (measured: the model reads a file once, then it is
+ * in the prefix). Past two questions, the outline wins; past ten it is not close.
+ */
 /** An outline is bounded too: a spec with 400 headings would otherwise be its own wall of text. */
 const OUTLINE_MAX = 4 * 1024;
 /** Every threshold here is in BYTES, not `String.length`. A user writing in Japanese pays 3 bytes per
@@ -560,6 +568,33 @@ async function workflowSeedBody(projectsDir: string, rel: string): Promise<strin
   }
   if (size <= YAML_RAW_MAX) return raw; // small enough to just hand over, map or no map
   return `File: \`${rel}\` (${Math.round(size / 1024)}KB). A node map could not be built from it — read the file directly.`;
+}
+
+/**
+ * `report.json`, minus the parts that answer nothing.
+ *
+ * Spec 098 measured this file and deliberately kept it whole: at ~5KB its two biggest keys — `notes`
+ * (the ④ advisory) and `criteria_check` (did it meet the requirement) — ARE the answer material, and
+ * trimming them would trade real context for a few hundred bytes. That verdict stands.
+ *
+ * What it did not separate is the BOOKKEEPING: `promote_hint` is a nudge aimed at the dev surface, and
+ * `timeline` is phase wall-clock. Neither can answer a question about the workflow, and together they
+ * are ~450 bytes on every question forever. Dropped by name, not by a size rule, so a future key is
+ * kept by default — the risk of losing context is worse than the cost of carrying a small one.
+ *
+ * Unparseable ⇒ handed over untouched: a report we cannot read is still a report the model can.
+ */
+function reportForSeed(raw: string | null): string | null {
+  if (!raw) return raw;
+  try {
+    const j = JSON.parse(raw) as Record<string, unknown>;
+    if (!j || typeof j !== 'object' || Array.isArray(j)) return raw;
+    delete j.promote_hint;
+    delete j.timeline;
+    return JSON.stringify(j, null, 2);
+  } catch {
+    return raw;
+  }
 }
 
 async function gatherTerminalSeed(
@@ -605,6 +640,10 @@ async function gatherTerminalSeed(
       .split('\n')
       .filter((l) => /^#{1,4} /.test(l))
       .map((l) => (l.length > 160 ? `${l.slice(0, 160)}…` : l));
+    // The OPENING travels with the outline. A heading list answers "what sections exist"; it does not
+    // answer "what is this workflow for", which is the question people actually ask — and at 4KB the
+    // outline path is now the common one, not the exception, so it has to carry its weight.
+    const opening = clipBytes(specBody.replace(/^#.*\n+/, '').trimStart(), 700);
     let gist: string;
     if (heads.length) {
       const kept: string[] = [];
@@ -618,7 +657,8 @@ async function gatherTerminalSeed(
         used += bytes(h) + 1;
       }
       const dropped = heads.length - kept.length;
-      gist = kept.join('\n') + (dropped ? `\n… and ${dropped} more heading${dropped > 1 ? 's' : ''} (read the file)` : '');
+      gist = `${opening}\n\n---\n${kept.join('\n')}`
+        + (dropped ? `\n… and ${dropped} more heading${dropped > 1 ? 's' : ''} (read the file)` : '');
     } else {
       // A long spec written without markdown headings has no outline — hand over its opening instead of
       // a bare pointer, so the answer has somewhere to start. (Review: the cap used to run on this branch
@@ -634,7 +674,7 @@ async function gatherTerminalSeed(
   const ymlRel = task.artifacts.implement ?? (dir ? `${dir}/workflows/${task.workflowFile}` : null);
   if (ymlRel) add('main.yml', await workflowSeedBody(projectsDir, ymlRel), 'main.yml');
 
-  add('report.json', await tryReadRel(projectsDir, runArtifactRel(task.taskId, 'report.json')), 'report.json');
+  add('report.json', reportForSeed(await tryReadRel(projectsDir, runArtifactRel(task.taskId, 'report.json'))), 'report.json');
 
   // `task.liveTest` (the judge's per-criterion verdict + run result) lives on the task, NOT in report.json.
   if (task.liveTest) add('Live-test result', JSON.stringify(task.liveTest, null, 2), 'liveTest');
