@@ -22,8 +22,13 @@ pattern, a changed gate. Not for docs-only edits.
   which loop it runs inside, plus every connection, plus the file's path. That is 3–4KB where the file
   is 100KB. Details still live in the file, and the assistant opens it when a question actually needs
   them — once per conversation instead of once per question.
-- A long specification travels the same way: inlined whole when it is small (most builds), as its
-  section outline plus its path when it is not.
+- A long specification travels the same way. Re-measuring after the workflow shrank showed the spec had
+  become the biggest thing left — 10KB and 11KB on two real builds — so it now rides as its opening plus
+  its section headings plus its path, unless it is genuinely small (under 4KB). The report keeps
+  everything that answers a question and drops only its own bookkeeping.
+- Measured per question, on the parts the app chooses to send: 15.2KB → 5.9KB and 16.6KB → 5.7KB on two
+  builds. A build whose spec was already too big to inline pays 300 bytes more, for an opening that
+  makes the outline worth reading — stated here rather than averaged away.
 - Files you attached earlier stay listed with their full paths, but stop being offered up for re-reading
   on every later question. That one standing invitation was making the assistant re-open old
   screenshots — 7 of 15 files were read more than once, at 52k–274k tokens per image. Ask about an
@@ -34,6 +39,29 @@ pattern, a changed gate. Not for docs-only edits.
 - Answers were checked, not assumed: on a workflow the assistant had never seen inlined, it reproduced
   the flow, named the exact model and temperature of all three AI steps, and diffed the current file
   against the one originally attached — all correct.
+
+**An answer no longer disappears when you look at something else**
+- Send a question on a build, switch to another task while it answers, come back — and the answer was
+  gone, the bubble closed as "Answered" with nothing in it. It read exactly like an answer that died
+  mid-sentence. Each exchange is now kept by the backend, so returning finds the finished answer.
+- Every fenced code block gets a **Copy** button. The text is taken from what is on screen, so what you
+  see is what you get, and there is no confirmation tick if the copy was actually refused.
+- A settings menu opened from a scrolled composer could render entirely off-screen. It is now measured
+  against whatever would clip it and flipped only when it genuinely does not fit.
+
+**A long chat about one build stops getting more expensive every time**
+- Asking about the same build over many days made each question dearer, because the whole conversation
+  travelled with it. Measured: a one-line question that cost **$8.86**, almost all of it re-sending a
+  history the answer did not need.
+- Once a conversation grows past its budget, the next question starts a fresh one. Safe here because
+  every question already carries the full build context — and never silent: the assistant is told its
+  earlier turns are gone and says so rather than inventing them, instead of quietly forgetting.
+
+**The export tells you what your questions cost**
+- The downloaded zip now includes the questions asked about a build and a one-page **ask ledger**: what
+  each question sent, which model answered, tokens in and out, and the price — with a plain verdict on
+  whether the context stayed small and where the money actually went.
+- In dev mode (`?dev=1`) the same numbers appear under each answer as a single grey line.
 
 **You can pick the model, and it stops being whatever the machine felt like (spec 096)**
 - A **Model** chip now sits under the composer input: Opus · Sonnet · Haiku · Fable. It applies to a

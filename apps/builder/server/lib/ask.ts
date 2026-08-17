@@ -529,8 +529,15 @@ const YAML_RAW_MAX = 8 * 1024;
  * outlining costs one `Read` at most once per session (measured: the model reads a file once, then it is
  * in the prefix). Past two questions, the outline wins; past ten it is not close.
  */
-/** An outline is bounded too: a spec with 400 headings would otherwise be its own wall of text. */
-const OUTLINE_MAX = 4 * 1024;
+/**
+ * An outline is bounded too: a spec with 400 headings would otherwise be its own wall of text.
+ *
+ * 2KB, not 4KB — and specifically NOT the same number as `SPEC_INLINE_MAX`. When the two were equal, a
+ * document could be refused inlining at 4KB and then hand back up to 4KB of excerpt, which is no saving
+ * at all and reads as a bug even when the arithmetic happens to work out. A real outline is ~750 bytes;
+ * 2KB leaves room without ever approaching what inlining would have cost.
+ */
+const OUTLINE_MAX = 2 * 1024;
 /** Every threshold here is in BYTES, not `String.length`. A user writing in Japanese pays 3 bytes per
  *  character, so a "16KB" cap read as characters silently admitted ~48KB of real text — measured: a real
  *  SPEC.md of 16,398 bytes sailed under a 16,384-CHARACTER cap and got inlined whole. */
