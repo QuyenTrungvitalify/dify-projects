@@ -274,5 +274,11 @@ describe('the dev cost tip — what one answer cost', () => {
     assert.equal(shouldResetAskSession({ inputTokens: 2, cacheReadTokens: 15_600, cacheCreationTokens: 8_100 }), false);
     assert.equal(shouldResetAskSession(undefined), false, 'no data is not a reason to throw away a session');
     assert.equal(shouldResetAskSession({ cacheReadTokens: ASK_RESET_TOKENS }), true, 'the limit is inclusive');
+
+    // A fresh session is not free: measured live, the turn right after a reset still carried 26,837
+    // tokens (the CLI's own preamble + the seed). A threshold under that floor resets EVERY turn —
+    // continuity gone for good, bill unchanged — so the knob refuses to be set there.
+    assert.ok(ASK_RESET_TOKENS >= 50_000, 'the configured limit never lands under the fresh-session floor');
+    assert.equal(shouldResetAskSession({ cacheReadTokens: 26_837 }, 20_000), true, 'an explicit limit is still honoured in-process');
   });
 });

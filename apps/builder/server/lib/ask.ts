@@ -92,7 +92,21 @@ export const ASK_TIMEOUT_MS = Number(process.env.BUILDER_ASK_TIMEOUT_MS) || 8 * 
  * reaches 300k only after tens of questions, so an ordinary follow-up chain is never interrupted. Where
  * it does fire, the next question costs a few cents instead of several dollars.
  */
-export const ASK_RESET_TOKENS = Number(process.env.BUILDER_ASK_RESET_TOKENS) || 300_000;
+export const ASK_RESET_TOKENS = Math.max(
+  50_000,
+  Number(process.env.BUILDER_ASK_RESET_TOKENS) || 300_000,
+);
+
+/**
+ * The floor exists because a FRESH session is not free either.
+ *
+ * Measured live: right after a reset, the very next turn still carried **26,837** tokens — the CLI's own
+ * system prompt and tool schemas, plus the seed. So a threshold set below that floor makes EVERY turn
+ * exceed it, and the session resets forever: continuity is permanently lost while the bill barely moves,
+ * which is the worst of both. 50k leaves room above the observed floor; the default 300k is ten times
+ * clear of it. An env value below the floor is raised rather than obeyed — a knob that can only be set
+ * to something harmful should not accept it silently.
+ */
 
 /**
  * Prompt tokens one turn carried = fresh input + what the cache served + what the cache absorbed.
