@@ -76,10 +76,10 @@ function mkFixture(): { projectsDir: string; task: Task; cleanup: () => void } {
     join(runDir, 'chat.jsonl'),
     [
       { role: 'user', text: 'how many nodes?', at: 1 },
-      { role: 'assistant', text: 'three', at: 2, promptBytes: 5400,
+      { role: 'assistant', text: 'three', at: 2, promptBytes: 5400, contextBytes: 4200,
         cost: { model: 'claude-opus-5', totalCostUsd: 0.103, outputTokens: 508, inputTokens: 2 } },
       { role: 'user', text: 'which URL does it POST to?', at: 3 },
-      { role: 'assistant', text: 'localhost', at: 4, promptBytes: 5600,
+      { role: 'assistant', text: 'localhost', at: 4, promptBytes: 5600, contextBytes: 4400,
         cost: { model: 'claude-opus-5', totalCostUsd: 0.09, outputTokens: 120, inputTokens: 2 } },
     ].map((l) => JSON.stringify(l)).join('\n') + '\n'
   );
@@ -136,6 +136,7 @@ describe('buildBundle (spec 062 S2/S5)', () => {
       const md = out.read('ask-ledger.md');
       assert.match(md, /# Ask ledger — 2 questions/);
       assert.match(md, /5\.3 KB/, 'the prompt size of a real ask is in the table');
+      assert.match(md, /4\.1 KB/, '…beside the artifact context, which is the part the fence judges');
       assert.match(md, /2 of 2 within the 16\.0 KB fence ✅/, 'and the verdict is stated, not left to the reader');
       assert.match(md, /which URL does it POST to\?/, 'rows are identifiable by their question');
       // the raw transcript rides along too, so the numbers can be re-derived rather than trusted

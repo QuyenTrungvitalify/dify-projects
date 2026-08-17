@@ -12,11 +12,12 @@ import { buildAskLedger, SEED_FENCE_BYTES } from '../server/lib/ask-ledger.js';
 import type { ConsultChatLine } from '../server/lib/ask.js';
 
 /** One recorded exchange, shaped exactly as `recordAsk` writes it. */
-function pair(q: string, promptBytes: number, usd: number, extra: Partial<ConsultChatLine['cost']> = {}): ConsultChatLine[] {
+function pair(q: string, promptBytes: number, usd: number, extra: Partial<ConsultChatLine['cost']> = {},
+              contextBytes: number = Math.min(promptBytes, 5_000)): ConsultChatLine[] {
   return [
     { role: 'user', text: q, at: 1 },
     {
-      role: 'assistant', text: 'an answer', at: 2, promptBytes,
+      role: 'assistant', text: 'an answer', at: 2, promptBytes, contextBytes,
       cost: { totalCostUsd: usd, model: 'claude-opus-5', inputTokens: 2, cacheReadTokens: 15_600,
               cacheCreationTokens: 8100, outputTokens: 508, numTurns: 1, durationMs: 41_400, ...extra },
     },
@@ -34,8 +35,18 @@ describe('ask ledger', () => {
     assert.match(md, /\$0\.103/);
   });
 
-  test('a prompt over the fence is flagged on its row AND in the verdict', () => {
-    const md = buildAskLedger([...pair('small', 5000, 0.1), ...pair('huge', 143_000, 0.9)])!;
+  test('the ARTIFACT context is what the fence judges — a long requirement is not a regression', () => {
+    // The case a real QA run produced: 21 KB prompt, of which 11 KB is the user's own requirement.
+    // Fencing the whole prompt called that a regression; it was the optimisation working perfectly.
+    const md = buildAskLedger(pair('a real build', 21_000, 0.5, {}, 4_200))!;
+    assert.match(md, /1 of 1 within the 16\.0 KB fence ✅/, 'judged on the 4.2 KB it controls');
+    assert.ok(!md.includes('⚠'), 'and NOT condemned for the 21 KB it does not');
+    assert.match(md, /neither of which this app may shorten/, 'the difference is explained, not hidden');
+  });
+
+  test('an artifact context over the fence is flagged on its row AND in the verdict', () => {
+    const md = buildAskLedger([...pair('small', 6000, 0.1, {}, 5_000),
+                               ...pair('huge', 150_000, 0.9, {}, 143_000)])!;
     assert.match(md, /139\.6 KB ⚠/, 'the offending row is marked');
     assert.match(md, /\*\*1 over it\*\* ⚠/, 'and counted in the verdict, not left for the reader to spot');
     assert.ok(SEED_FENCE_BYTES === 16 * 1024);
@@ -45,6 +56,21 @@ describe('ask ledger', () => {
     const md = buildAskLedger([...pair('a', 5000, 0.1), ...pair('b', 6000, 0.1)])!;
     assert.match(md, /2 of 2 within the 16\.0 KB fence ✅/);
     assert.ok(!md.includes('⚠'), 'no warning glyph anywhere when nothing is wrong');
+  });
+
+  /* The second thing the QA run exposed: an $8.86 one-line question, 883.7k tokens written to cache.
+     A ledger that only fences the seed would have said "✅" and left the reader none the wiser. */
+  test('a huge cache WRITE is named as the real cost driver, not left under a green tick', () => {
+    const md = buildAskLedger(pair('cheap question', 21_000, 8.861, { cacheCreationTokens: 883_700 }, 4_200))!;
+    assert.match(md, /within the 16\.0 KB fence ✅/, 'the seed verdict still stands');
+    assert.match(md, /Where the money went/, '…but it is not the whole story, and the ledger says so');
+    assert.match(md, /883\.7k/);
+    assert.match(md, /resetting the ask session is the lever/);
+  });
+
+  test('an ordinary cache write is not dramatised', () => {
+    const md = buildAskLedger(pair('q', 6000, 0.1, { cacheCreationTokens: 8_000 }))!;
+    assert.ok(!md.includes('Where the money went'));
   });
 
   // The failure spec 098 fixed was a CURVE: ask #1 cost 74.6k tokens, ask #16 cost 840k. A ledger that

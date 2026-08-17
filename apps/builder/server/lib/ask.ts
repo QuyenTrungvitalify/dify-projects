@@ -504,8 +504,16 @@ async function workflowSeedBody(projectsDir: string, rel: string): Promise<strin
 async function gatherTerminalSeed(
   projectsDir: string,
   task: Task
-): Promise<{ seed: string; seededFrom: string[] }> {
+): Promise<{ seed: string; seededFrom: string[]; contextBytes: number }> {
   const parts: string[] = [];
+  // Bytes of the ARTIFACT context only — the seed minus the user's own requirement.
+  //
+  // This is the number that judges the optimisation, and it took a real QA run to learn why: a build
+  // whose requirement is 10,957 bytes of the user's own writing seeded 21KB, and a fence applied to the
+  // WHOLE prompt called that a regression. It was not. The requirement is the subject of the question
+  // and must travel whole; what this code decides is how much of SPEC.md / main.yml / report.json rides
+  // along — 60KB of artifact on that same build, rendered as ~3KB of map and outline.
+  let contextBytes = 0;
   // `seededFrom` drives the `参照:` caption under the answer, and the tags stay the FILE names even
   // though `main.yml` now travels as a map and a big `SPEC.md` as an outline. Deliberate: the answer
   // really is assembled from those files — the map is derived from `main.yml`, and the file itself is
@@ -514,8 +522,10 @@ async function gatherTerminalSeed(
   const seededFrom: string[] = [];
   const add = (label: string, body: string | null | undefined, tag: string): void => {
     if (body && body.trim()) {
-      parts.push(`## ${label}\n${body.trim()}`);
+      const block = `## ${label}\n${body.trim()}`;
+      parts.push(block);
       seededFrom.push(tag);
+      if (tag !== 'requirement') contextBytes += bytes(block);
     }
   };
 
@@ -568,7 +578,7 @@ async function gatherTerminalSeed(
   // `task.liveTest` (the judge's per-criterion verdict + run result) lives on the task, NOT in report.json.
   if (task.liveTest) add('Live-test result', JSON.stringify(task.liveTest, null, 2), 'liveTest');
 
-  return { seed: parts.join('\n\n'), seededFrom };
+  return { seed: parts.join('\n\n'), seededFrom, contextBytes };
 }
 
 /**
@@ -593,7 +603,7 @@ export async function askTestWithin(
 ): Promise<void> {
   const { projectsDir, settingsPath, log } = ctx;
   try {
-    const { seed, seededFrom } = await gatherTerminalSeed(projectsDir, task);
+    const { seed, seededFrom, contextBytes } = await gatherTerminalSeed(projectsDir, task);
     await noteUserLang(projectsDir, task, text);
     const prompt =
       // Same omission as askWithin's: the ④/terminal Ask had no language directive, so a Vietnamese
@@ -657,14 +667,14 @@ export async function askTestWithin(
       const cause = turn.note ? ` (${turn.note})` : '';
       const canned = `couldn't get an answer for that — try again.${cause}`;
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: canned });
-      await recordAsk(projectsDir, task.taskId, text, canned, false, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'));
+      await recordAsk(projectsDir, task.taskId, text, canned, false, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'), contextBytes);
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
     if (turn.isError) {
       const notice = truncationNotice(turn.note);
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: notice });
-      await recordAsk(projectsDir, task.taskId, text, answer + notice, false, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'));
+      await recordAsk(projectsDir, task.taskId, text, answer + notice, false, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'), contextBytes);
       // `seededFrom` rides along: the answer WAS assembled from those artifacts, and being cut off does
       // not unmake that. applyAskDone folds the caption regardless of `ok`, so dropping it here would
       // strip the "assembled from" line off exactly the answer whose provenance matters most.
@@ -672,7 +682,7 @@ export async function askTestWithin(
       return;
     }
     // No layer-2 (D4) → no anomaly branch → `ask:done` is always ok:true here, carrying `seededFrom` (§2).
-    await recordAsk(projectsDir, task.taskId, text, answer, true, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'));
+    await recordAsk(projectsDir, task.taskId, text, answer, true, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'), contextBytes);
     ctx.broadcast?.(task.taskId, 'ask:done', { ok: true, seededFrom, ...askCost(turn) });
   } catch (e) {
     clearSession(task.taskId); // ensure the /cancel handle is cleared on any throw
@@ -784,6 +794,12 @@ export interface ConsultChatLine {
    *  says whether the optimisation is still holding in real use, months later, in someone else's
    *  session. It rides the transcript so an exported bundle carries the evidence off the machine. */
   promptBytes?: number;
+  /** Of `promptBytes`, the part this CODE decides: the artifact context (SPEC.md / main.yml /
+   *  report.json), i.e. the seed minus the user's own requirement. THIS is what a size fence may judge —
+   *  fencing the whole prompt condemns a build for having a long requirement, which is the user's text,
+   *  is the subject of their question, and must travel whole. Terminal asks only; a gate ask and a
+   *  consult assemble their context differently and record nothing here rather than something wrong. */
+  contextBytes?: number;
   /** What the turn that wrote this answer cost (assistant lines only) — the dev tip's numbers.
    *  On DISK because a consult rebuilds its thread from this file and that rebuild WINS over the
    *  browser's copy: without it, a reload dropped the tip on exactly the surface whose thread is
@@ -799,7 +815,8 @@ async function appendChat(
   files?: ConsultChatLine['files'],
   ok?: boolean,
   cost?: PhaseCost,
-  promptBytes?: number
+  promptBytes?: number,
+  contextBytes?: number
 ): Promise<void> {
   try {
     const line: ConsultChatLine = {
@@ -807,6 +824,7 @@ async function appendChat(
       ...(files && files.length ? { files } : {}),
       ...(ok === false ? { ok: false } : {}),
       ...(promptBytes ? { promptBytes } : {}),
+      ...(contextBytes ? { contextBytes } : {}),
       ...(cost ? { cost } : {}),
     };
     await appendFile(join(taskDir(projectsDir, taskId), 'chat.jsonl'), JSON.stringify(line) + '\n', 'utf8');
@@ -838,11 +856,12 @@ async function recordAsk(
   answer: string,
   ok: boolean,
   cost?: PhaseCost,
-  promptBytes?: number
+  promptBytes?: number,
+  contextBytes?: number
 ): Promise<void> {
   const at = Date.now();
   await appendChat(projectsDir, taskId, 'user', question, at);
-  await appendChat(projectsDir, taskId, 'assistant', answer, at + 1, undefined, ok, cost, promptBytes);
+  await appendChat(projectsDir, taskId, 'assistant', answer, at + 1, undefined, ok, cost, promptBytes, contextBytes);
 }
 
 /** The exchange a reopened build needs to finish an interrupted answer: the LAST assistant line plus the
