@@ -101,6 +101,10 @@ export class ClaudeSession {
   readonly taskId: string;
   readonly workingDir: string;
   readonly log: SessionLogger;
+  /** The session this spawn will `--resume`, or undefined for a fresh one. Readable for the same reason
+   *  `buildSpawnArgs` is exported: "does this spawn continue the old conversation or start a new one" is
+   *  a decision worth pinning, and a caller that decides it must be able to prove what it decided. */
+  readonly resumeSessionId: string | undefined;
 
   private process: ChildProcess | null = null;
   alive = false;
@@ -133,6 +137,7 @@ export class ClaudeSession {
     this.taskId = options.taskId;
     this.workingDir = options.workingDir;
     this.log = options.log;
+    this.resumeSessionId = options.resumeSessionId;
   }
 
   /** Spec 045 D1 — the recent stderr tail (joined lines; '' when the CLI wrote nothing). */

@@ -450,13 +450,15 @@ export function GateActions({ task, busy, onConfirm, onArmChange, onCancel, onRe
 
 /** spec 033 — a conversational Ask exchange's answer bubble (message↔message, no phase re-run). The
  *  question itself is already rendered as a preceding plain user bubble (store.ask() pushes both). */
-export function QaAnswer({ answer, done, seededFrom, cost, onStop }: {
+export function QaAnswer({ answer, done, seededFrom, cost, sessionReset, onStop }: {
   answer: string;
   done: boolean;
   seededFrom?: string[];
   /** spec 059-shaped cost of the turn that produced THIS answer. Rendered only under `devMode`, and
    *  only when the turn reported numbers — see `askCostLine`. */
   cost?: WirePhaseCost;
+  /** dev tip: this turn started a fresh session because the previous one had grown too expensive. */
+  sessionReset?: boolean;
   /**
    * spec 097 — stop THIS answer. Offered on every ask, not just a consult: the top-bar pill was gated
    * `asking && kind === 'consult'`, so an ask on a build (the common case — asking about a finished
@@ -494,7 +496,9 @@ export function QaAnswer({ answer, done, seededFrom, cost, onStop }: {
       {/* Dev-only meter for THIS answer: which model replied and what the turn cost. Deliberately not
           translated and not in the reader's language — the dev panel it belongs to is English, and this
           is instrumentation, not product copy. Absent when the turn reported no numbers. */}
-      {done && devMode && askCostLine(cost) && <div className="qa-devcost">{askCostLine(cost)}</div>}
+      {done && devMode && askCostLine(cost, sessionReset) && (
+        <div className="qa-devcost">{askCostLine(cost, sessionReset)}</div>
+      )}
     </div>
   );
 }

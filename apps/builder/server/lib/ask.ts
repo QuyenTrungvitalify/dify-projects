@@ -76,6 +76,53 @@ export function truncationNotice(note: string | undefined): string {
 export const ASK_TIMEOUT_MS = Number(process.env.BUILDER_ASK_TIMEOUT_MS) || 8 * 60 * 1000;
 
 /**
+ * How large a ④/terminal ask session may grow before the NEXT question starts a fresh one.
+ *
+ * MEASURED, on a real build: a one-line question ("how many nodes?", 622 tokens of answer) cost **$8.86**
+ * because the turn carried a 899k-token prefix and the cache had expired, so all of it was re-written at
+ * 1.25×. The seed itself was 21KB. No amount of shrinking the seed touches that bill — the history is
+ * what costs, and only dropping it helps.
+ *
+ * Resetting is SAFE HERE and nowhere else, for a reason that is easy to lose: this surface re-sends the
+ * whole build context on EVERY question (that is why the seed had to stay small). A fresh session
+ * therefore starts with everything it needs. A consult is the opposite — its conversation IS the
+ * product — so it is deliberately left alone, and so is a gate ask, which resumes its phase session.
+ *
+ * 300k is chosen from the same data: a healthy session's first questions carry 15–20k, and a session
+ * reaches 300k only after tens of questions, so an ordinary follow-up chain is never interrupted. Where
+ * it does fire, the next question costs a few cents instead of several dollars.
+ */
+export const ASK_RESET_TOKENS = Number(process.env.BUILDER_ASK_RESET_TOKENS) || 300_000;
+
+/**
+ * Prompt tokens one turn carried = fresh input + what the cache served + what the cache absorbed.
+ *
+ * All three are the SAME prefix seen from different angles, never additive duplicates: a cold turn shows
+ * it as `cacheCreation` (rows measured at 883.7k written / 15.6k read), the next warm turn shows the same
+ * material as `cacheRead` plus only the new increment written (899.3k read / 10.3k written). Summing is
+ * therefore correct and stable across both — 899.3k then 909.6k on consecutive real turns.
+ */
+export function askSessionTokens(cost: PhaseCost | undefined): number {
+  if (!cost) return 0;
+  const n = (v: number | undefined): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  return n(cost.inputTokens) + n(cost.cacheReadTokens) + n(cost.cacheCreationTokens);
+}
+
+/** Should the NEXT ask start fresh? Reads the LAST answer's cost — no new bookkeeping, and a task with
+ *  nothing recorded (every build from before the meter shipped) simply keeps resuming, as it always did. */
+export function shouldResetAskSession(lastCost: PhaseCost | undefined, limit = ASK_RESET_TOKENS): boolean {
+  return askSessionTokens(lastCost) >= limit;
+}
+
+/** Told to the model when its history was dropped, so it says "I cannot see that" instead of inventing
+ *  continuity. The build context above the note is complete, so the ANSWER is unaffected; only a
+ *  reference to something said earlier in the conversation is. */
+const FRESH_SESSION_NOTE =
+  '\n\n(Note: this conversation was restarted to keep its cost bounded, so earlier questions and answers ' +
+  'in it are NOT visible to you. Everything about the build is included above. If this question refers ' +
+  'back to something said earlier, say plainly that you cannot see it rather than guessing.)';
+
+/**
  * Every answer surface renders Markdown, where a fence closes at the FIRST run of backticks at least as
  * long as the one that opened it. A hand-over block ("copy this whole document") whose content has its
  * own ``` sections therefore cut ITSELF in half: the reader got a code box that stopped mid-document and
@@ -381,7 +428,7 @@ export async function askWithin(
       // errored/produced no text; the restore already happened above (review #4: per-file isolated).
       log.warn({ taskId: task.taskId, files: anomalies.map((a) => `${a.kind}:${a.path}${a.restoreFailed ? '(RESTORE-FAILED)' : ''}`) },
         'ask: layer-2 detected + reverted write(s) — layer 1 was bypassed');
-      await recordAsk(projectsDir, task.taskId, text, answer, false, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'));
+      await recordAsk(projectsDir, task.taskId, text, answer, { ok: false, cost: askCost(turn).cost, promptBytes: Buffer.byteLength(prompt, 'utf8') });
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, anomaly: { files: anomalies }, ...askCost(turn) });
       return;
     }
@@ -399,7 +446,7 @@ export async function askWithin(
       const cause = turn.note ? ` (${turn.note})` : '';
       const canned = `couldn't get an answer for that — try again, or use Request changes to edit the artifact.${cause}`;
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: canned });
-      await recordAsk(projectsDir, task.taskId, text, canned, false, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'));
+      await recordAsk(projectsDir, task.taskId, text, canned, { ok: false, cost: askCost(turn).cost, promptBytes: Buffer.byteLength(prompt, 'utf8') });
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
@@ -410,13 +457,13 @@ export async function askWithin(
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: notice });
       // The notice is part of what the reader saw, so it is part of what gets recorded — a recovered
       // answer must never look more finished than the live one did.
-      await recordAsk(projectsDir, task.taskId, text, answer + notice, false, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'));
+      await recordAsk(projectsDir, task.taskId, text, answer + notice, { ok: false, cost: askCost(turn).cost, promptBytes: Buffer.byteLength(prompt, 'utf8') });
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
 
     // Normal path — no anomaly, an answer streamed (or a clean empty result). FIX-B: ok, no task:update.
-    await recordAsk(projectsDir, task.taskId, text, answer, true, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'));
+    await recordAsk(projectsDir, task.taskId, text, answer, { ok: true, cost: askCost(turn).cost, promptBytes: Buffer.byteLength(prompt, 'utf8') });
     ctx.broadcast?.(task.taskId, 'ask:done', { ok: true, ...askCost(turn) });
   } catch (e) {
     // The never-throw guard (see above): any unexpected error → benign ask:done{ok:false}, gate untouched.
@@ -605,6 +652,13 @@ export async function askTestWithin(
   try {
     const { seed, seededFrom, contextBytes } = await gatherTerminalSeed(projectsDir, task);
     await noteUserLang(projectsDir, task, text);
+    // Drop a session that has grown expensive (see ASK_RESET_TOKENS). Decided from the LAST answer's
+    // recorded cost, before the prompt is built, so the model can be told its history is gone.
+    const resuming = task.sessionIds.askTest;
+    const sessionReset = !!resuming && shouldResetAskSession((await readLastAsk(projectsDir, task.taskId))?.cost);
+    if (sessionReset) {
+      log.info({ taskId: task.taskId, prevSessionId: resuming }, 'askTest: session reset — history grew past the budget');
+    }
     const prompt =
       // Same omission as askWithin's: the ④/terminal Ask had no language directive, so a Vietnamese
       // question about a finished Japanese build came back in Japanese (or English, on a fresh spawn).
@@ -612,6 +666,7 @@ export async function askTestWithin(
       (seed ? `You are answering a question about the following build.\n\n${seed}\n\n---\n\n` : '') +
       `${text}\n\n(Answer conversationally. Do NOT create, modify, or delete any file — this is a ` +
       `question, not a change request.${FENCE_RULE})` +
+      (sessionReset ? FRESH_SESSION_NOTE : '') +
       // Same omission as the consult resume path: this turn accepts files (the ④ gate and a terminal
       // build's chat both offer attach), saved them, and then told the model nothing about them.
       attachmentBlock(task.attachments, newAttachments);
@@ -630,7 +685,7 @@ export async function askTestWithin(
       workingDir: projectsDir,
       settingsPath,
       log,
-      resumeSessionId: task.sessionIds.askTest, // D2: continue the same ④/terminal conversation if any
+      resumeSessionId: sessionReset ? undefined : resuming, // D2: continue the same conversation — unless it grew past the budget
       askMode: true, // D4 layer 1: BUILDER_ASK_MODE — the hook denies every write
       model: task.model, // spec 096 — same start-bound choice as the build phases
     });
@@ -667,23 +722,23 @@ export async function askTestWithin(
       const cause = turn.note ? ` (${turn.note})` : '';
       const canned = `couldn't get an answer for that — try again.${cause}`;
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: canned });
-      await recordAsk(projectsDir, task.taskId, text, canned, false, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'), contextBytes);
+      await recordAsk(projectsDir, task.taskId, text, canned, { ok: false, cost: askCost(turn).cost, promptBytes: Buffer.byteLength(prompt, 'utf8'), contextBytes, sessionReset });
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
     if (turn.isError) {
       const notice = truncationNotice(turn.note);
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: notice });
-      await recordAsk(projectsDir, task.taskId, text, answer + notice, false, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'), contextBytes);
+      await recordAsk(projectsDir, task.taskId, text, answer + notice, { ok: false, cost: askCost(turn).cost, promptBytes: Buffer.byteLength(prompt, 'utf8'), contextBytes, sessionReset });
       // `seededFrom` rides along: the answer WAS assembled from those artifacts, and being cut off does
       // not unmake that. applyAskDone folds the caption regardless of `ok`, so dropping it here would
       // strip the "assembled from" line off exactly the answer whose provenance matters most.
-      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, seededFrom, ...askCost(turn) });
+      ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, seededFrom, ...askCost(turn), ...(sessionReset ? { sessionReset: true } : {}) });
       return;
     }
     // No layer-2 (D4) → no anomaly branch → `ask:done` is always ok:true here, carrying `seededFrom` (§2).
-    await recordAsk(projectsDir, task.taskId, text, answer, true, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'), contextBytes);
-    ctx.broadcast?.(task.taskId, 'ask:done', { ok: true, seededFrom, ...askCost(turn) });
+    await recordAsk(projectsDir, task.taskId, text, answer, { ok: true, cost: askCost(turn).cost, promptBytes: Buffer.byteLength(prompt, 'utf8'), contextBytes, sessionReset });
+    ctx.broadcast?.(task.taskId, 'ask:done', { ok: true, seededFrom, ...askCost(turn), ...(sessionReset ? { sessionReset: true } : {}) });
   } catch (e) {
     clearSession(task.taskId); // ensure the /cancel handle is cleared on any throw
     log.error({ taskId: task.taskId, err: errMsg(e) }, 'askTest: unexpected error — surfaced as ask:done{ok:false}');
@@ -800,12 +855,26 @@ export interface ConsultChatLine {
    *  is the subject of their question, and must travel whole. Terminal asks only; a gate ask and a
    *  consult assemble their context differently and record nothing here rather than something wrong. */
   contextBytes?: number;
+  /** Set when THIS turn started a fresh CLI session because the previous one had grown past the token
+   *  budget (ASK_RESET_TOKENS). Recorded so the effect is auditable in the exported ledger — a reset is
+   *  the difference between a several-dollar question and a few-cent one, and it must not be invisible. */
+  sessionReset?: true;
   /** What the turn that wrote this answer cost (assistant lines only) — the dev tip's numbers.
    *  On DISK because a consult rebuilds its thread from this file and that rebuild WINS over the
    *  browser's copy: without it, a reload dropped the tip on exactly the surface whose thread is
    *  server-authoritative. Absent on every line written before this field existed. */
   cost?: PhaseCost;
 }
+/** What an assistant line records about the turn that produced it. All optional: a shape that predates
+ *  any of these fields still reads correctly, which is the whole reason they are not required. */
+interface AskLineMeta {
+  ok?: boolean;
+  cost?: PhaseCost;
+  promptBytes?: number;
+  contextBytes?: number;
+  sessionReset?: boolean;
+}
+
 async function appendChat(
   projectsDir: string,
   taskId: string,
@@ -813,19 +882,17 @@ async function appendChat(
   text: string,
   at: number,
   files?: ConsultChatLine['files'],
-  ok?: boolean,
-  cost?: PhaseCost,
-  promptBytes?: number,
-  contextBytes?: number
+  meta?: AskLineMeta
 ): Promise<void> {
   try {
     const line: ConsultChatLine = {
       role, text, at,
       ...(files && files.length ? { files } : {}),
-      ...(ok === false ? { ok: false } : {}),
-      ...(promptBytes ? { promptBytes } : {}),
-      ...(contextBytes ? { contextBytes } : {}),
-      ...(cost ? { cost } : {}),
+      ...(meta?.ok === false ? { ok: false } : {}),
+      ...(meta?.promptBytes ? { promptBytes: meta.promptBytes } : {}),
+      ...(meta?.contextBytes ? { contextBytes: meta.contextBytes } : {}),
+      ...(meta?.sessionReset ? { sessionReset: true as const } : {}),
+      ...(meta?.cost ? { cost: meta.cost } : {}),
     };
     await appendFile(join(taskDir(projectsDir, taskId), 'chat.jsonl'), JSON.stringify(line) + '\n', 'utf8');
   } catch {
@@ -854,14 +921,11 @@ async function recordAsk(
   taskId: string,
   question: string,
   answer: string,
-  ok: boolean,
-  cost?: PhaseCost,
-  promptBytes?: number,
-  contextBytes?: number
+  meta: AskLineMeta
 ): Promise<void> {
   const at = Date.now();
   await appendChat(projectsDir, taskId, 'user', question, at);
-  await appendChat(projectsDir, taskId, 'assistant', answer, at + 1, undefined, ok, cost, promptBytes, contextBytes);
+  await appendChat(projectsDir, taskId, 'assistant', answer, at + 1, undefined, meta);
 }
 
 /** The exchange a reopened build needs to finish an interrupted answer: the LAST assistant line plus the
@@ -1008,7 +1072,7 @@ export async function consultWithin(
       const cause = turn.note ? ` (${turn.note})` : '';
       const msg = `couldn't get an answer for that — try again.${cause}`;
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: msg });
-      await appendChat(projectsDir, task.taskId, 'assistant', msg, at + 1, undefined, false, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'));
+      await appendChat(projectsDir, task.taskId, 'assistant', msg, at + 1, undefined, { ok: false, cost: askCost(turn).cost, promptBytes: Buffer.byteLength(prompt, 'utf8') });
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
@@ -1017,11 +1081,11 @@ export async function consultWithin(
       // cut-off answer as a finished one either.
       const notice = truncationNotice(turn.note);
       ctx.broadcast?.(task.taskId, 'ask:answer', { text: notice });
-      await appendChat(projectsDir, task.taskId, 'assistant', answer + notice, at + 1, undefined, false, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'));
+      await appendChat(projectsDir, task.taskId, 'assistant', answer + notice, at + 1, undefined, { ok: false, cost: askCost(turn).cost, promptBytes: Buffer.byteLength(prompt, 'utf8') });
       ctx.broadcast?.(task.taskId, 'ask:done', { ok: false, ...askCost(turn) });
       return;
     }
-    if (gotText) await appendChat(projectsDir, task.taskId, 'assistant', answer, at + 1, undefined, undefined, askCost(turn).cost, Buffer.byteLength(prompt, 'utf8'));
+    if (gotText) await appendChat(projectsDir, task.taskId, 'assistant', answer, at + 1, undefined, { cost: askCost(turn).cost, promptBytes: Buffer.byteLength(prompt, 'utf8') });
     ctx.broadcast?.(task.taskId, 'ask:done', { ok: true, ...askCost(turn) });
   } catch (e) {
     clearSession(task.taskId); // ensure the /cancel handle is cleared on any throw

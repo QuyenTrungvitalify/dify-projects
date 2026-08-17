@@ -16,7 +16,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { askTestWithin, askWithin, readConsultChat, readLastAsk } from '../server/lib/ask.js';
+import { askTestWithin, askWithin, readConsultChat, readLastAsk,
+  askSessionTokens, shouldResetAskSession, ASK_RESET_TOKENS } from '../server/lib/ask.js';
 import { createTask, saveTask, type Task } from '../server/state/task.js';
 import type { ClaudeSession } from '../server/lib/claude-session.js';
 import type { TurnResult } from '../server/lib/turn-runner.js';
@@ -169,5 +170,109 @@ describe('the dev cost tip — what one answer cost', () => {
     await settle(dir, task, { result: null, isError: true });
     const lines = await readConsultChat(dir, task.taskId);
     assert.equal('cost' in lines.at(-1)!, false);
+  });
+
+  /* ── the session reset ──────────────────────────────────────────────────────────────────────────
+     A one-line question on an old build cost $8.86: the turn carried a 899k-token history and the cache
+     had expired, so all of it was re-written at 1.25×. The seed was 21KB — shrinking it further could
+     not have saved a cent. Dropping the history is the only lever, and it is safe HERE precisely because
+     this surface re-sends the whole build context every turn. */
+
+  test('a session that grew past the budget starts fresh, and the model is TOLD its history is gone', async () => {
+    const task = await terminalTask(dir);
+    task.sessionIds.askTest = 'old-session';
+    await saveTask(dir, task);
+    // the previous answer carried a 900k-token prefix — the measured shape
+    await settle(dir, task, {
+      result: { ...RESULT, usage: { input_tokens: 1, cache_read_input_tokens: 899_300, cache_creation_input_tokens: 10_300, output_tokens: 495 } },
+    });
+
+    let prompt = '';
+    let resumed: string | undefined = 'not-observed';
+    const runTurn = async (
+      s: ClaudeSession, p: string, onSid?: (id: string) => void, o?: { onText?: (t: string) => void }
+    ): Promise<TurnResult> => {
+      prompt = p; resumed = s.resumeSessionId; onSid?.('brand-new'); o?.onText?.('ok');
+      return { sessionId: 'brand-new', isError: false, result: RESULT } as unknown as TurnResult;
+    };
+    let done: Done & { sessionReset?: boolean } = { ok: false };
+    await askTestWithin(task, 'and the next one?', {
+      projectsDir: dir, settingsPath: '', log,
+      broadcast: (_i: string, ev: string, pl: unknown) => { if (ev === 'ask:done') done = pl as typeof done; },
+      runners: { runTurn },
+    } as unknown as OrchestratorCtx, []);
+
+    assert.equal(resumed, undefined, 'THE POINT: the expensive history is not resumed');
+    assert.match(prompt, /NOT visible to you/, 'a dropped history must be stated, never left to be guessed at');
+    assert.match(prompt, /say plainly that you cannot see it rather than guessing/);
+    assert.equal(done.sessionReset, true, 'the live view can show it happened');
+    assert.equal(task.sessionIds.askTest, 'brand-new', 'and the new session is the one carried forward');
+
+    const last = await readConsultChat(dir, task.taskId);
+    assert.equal(last.at(-1)!.sessionReset, true, 'recorded, so the exported ledger can show the lever working');
+  });
+
+  test('an ordinary session keeps its continuity — a follow-up chain is never interrupted', async () => {
+    const task = await terminalTask(dir);
+    // the first ask establishes the session (`settle`'s stub reports it as `sid-1`) and records a small
+    // prefix — the ordinary case this must not disturb
+    await settle(dir, task, {
+      result: { ...RESULT, usage: { input_tokens: 2, cache_read_input_tokens: 15_600, cache_creation_input_tokens: 8_100, output_tokens: 500 } },
+    });
+    assert.equal(task.sessionIds.askTest, 'sid-1');
+
+    let prompt = '';
+    let resumed: string | undefined;
+    const runTurn = async (
+      s: ClaudeSession, p: string, onSid?: (id: string) => void, o?: { onText?: (t: string) => void }
+    ): Promise<TurnResult> => {
+      prompt = p; resumed = s.resumeSessionId; onSid?.('sid-1'); o?.onText?.('ok');
+      return { sessionId: 'sid-1', isError: false, result: RESULT } as unknown as TurnResult;
+    };
+    let done: Done & { sessionReset?: boolean } = { ok: false };
+    await askTestWithin(task, 'follow-up', {
+      projectsDir: dir, settingsPath: '', log,
+      broadcast: (_i: string, ev: string, pl: unknown) => { if (ev === 'ask:done') done = pl as typeof done; },
+      runners: { runTurn },
+    } as unknown as OrchestratorCtx, []);
+
+    assert.equal(resumed, 'sid-1', 'THE POINT: an ordinary session is continued, not thrown away');
+    assert.ok(!prompt.includes('NOT visible to you'), 'no note when nothing was dropped');
+    assert.equal(done.sessionReset, undefined);
+    assert.equal((await readConsultChat(dir, task.taskId)).at(-1)!.sessionReset, undefined);
+  });
+
+  test('a build with no recorded history keeps resuming, exactly as before', async () => {
+    const task = await terminalTask(dir);
+    task.sessionIds.askTest = 'legacy';
+    await saveTask(dir, task);
+    let prompt = '';
+    let resumed: string | undefined;
+    const runTurn = async (
+      s: ClaudeSession, p: string, onSid?: (id: string) => void, o?: { onText?: (t: string) => void }
+    ): Promise<TurnResult> => {
+      prompt = p; resumed = s.resumeSessionId; onSid?.('legacy'); o?.onText?.('ok');
+      return { sessionId: 'legacy', isError: false, result: RESULT } as unknown as TurnResult;
+    };
+    await askTestWithin(task, 'q', {
+      projectsDir: dir, settingsPath: '', log, broadcast: () => {}, runners: { runTurn },
+    } as unknown as OrchestratorCtx, []);
+    assert.equal(resumed, 'legacy', 'nothing recorded ⇒ resume exactly as before');
+    assert.ok(!prompt.includes('NOT visible to you'), 'nothing recorded ⇒ nothing to reset');
+  });
+
+  test('the decision itself: three angles on one prefix, summed once', () => {
+    // A COLD turn reports the prefix as `written`; the next WARM turn reports the same material as
+    // `read` plus the new increment. Both must land on the same number, or the reset would fire on one
+    // and not the other for the same session.
+    assert.equal(askSessionTokens({ inputTokens: 2, cacheReadTokens: 15_600, cacheCreationTokens: 883_700 }), 899_302);
+    assert.equal(askSessionTokens({ inputTokens: 1, cacheReadTokens: 899_300, cacheCreationTokens: 10_300 }), 909_601);
+    assert.equal(askSessionTokens(undefined), 0);
+    assert.equal(askSessionTokens({}), 0);
+
+    assert.equal(shouldResetAskSession({ inputTokens: 2, cacheReadTokens: 899_300 }), true);
+    assert.equal(shouldResetAskSession({ inputTokens: 2, cacheReadTokens: 15_600, cacheCreationTokens: 8_100 }), false);
+    assert.equal(shouldResetAskSession(undefined), false, 'no data is not a reason to throw away a session');
+    assert.equal(shouldResetAskSession({ cacheReadTokens: ASK_RESET_TOKENS }), true, 'the limit is inclusive');
   });
 });

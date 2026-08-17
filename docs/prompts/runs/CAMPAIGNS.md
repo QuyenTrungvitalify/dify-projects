@@ -194,9 +194,10 @@ riêng nếu share-inbox/campaign cho thấy tần suất đáng.
 Để ngỏ (098 — chi phí hỏi đáp): ba mảnh **cố ý chưa làm**, cả ba đều độc lập với phần đã ship và chỉ
 đáng mở lại khi số liệu đòi. (a) **Consult** vẫn kê mọi đính kèm kèm lời mời "Read" mỗi lượt — mọi số
 đo của 098 đến từ ask của build, nên mở rộng sang consult là việc riêng, sau khi S2 chạy thật một thời
-gian. (b) **Reset session Ask theo ngưỡng** + **tách model cho làn chat** (trùng S2b của 082): cả hai
-chặn đường cong phình từ hướng khác, nhưng sau 098 đường cong đã đi xuống (147k→127k→102k), nên gate
-mở lại = thấy một session Ask thật vượt ~300k eff/lượt. (c) **Bộ quét không parser** còn một lỗ tồn dư
+gian. (b) **Reset session Ask theo ngưỡng: ĐÃ LÀM (2026-08-17)** — gate "thấy một session Ask thật vượt
+~300k eff/lượt" đã bị chính dữ liệu QA vượt gấp 3: một câu hỏi một dòng mang prefix **899k token**,
+tốn **$8.86**. Nay ≥300k thì lượt sau spawn session mới (`ASK_RESET_TOKENS`), chỉ ở ④/terminal.
+Còn để ngỏ: **tách model cho làn chat** (trùng S2b của 082). (c) **Bộ quét không parser** còn một lỗ tồn dư
 đã ghi tại `workflow-index.ts`: dòng nối của scalar ở cột 0 mà *trông giống khoá* (`Note: x`) vẫn cắt
 cụt im lặng — đóng hẳn cần một dependency YAML, chỉ đổi khi thấy ca thật.
 

@@ -313,6 +313,20 @@ trúc YAML · item cạnh phải rút ra được cặp. Độ chính xác đư�
 `test/workflow-index-calibration.test.ts` (golden sinh từ `python yaml`) — sửa `workflow-index.ts` thì
 **chạy lại** `test/helpers/workflow-index-golden.py` và đọc diff.
 
+**Reset session Ask (④/terminal)**: session Ask được resume mãi thì lịch sử phình vô hạn, và mỗi lượt
+phải trả tiền cho toàn bộ prefix — đo thật: một câu hỏi một dòng tốn **$8.86** vì lượt đó mang prefix
+**899k token** và cache đã hết hạn nên bị ghi lại toàn bộ ở giá 1.25×. Seed lúc đó chỉ 21KB; cắt seed
+thêm nữa **không cứu được một xu nào**.
+
+→ Khi lượt trước mang ≥ `ASK_RESET_TOKENS` (mặc định **300k**, tính bằng `input + cacheRead +
+cacheCreation` của lượt đó) thì lượt sau **spawn session mới**. An toàn ở đây và **chỉ ở đây**, đúng vì
+bề mặt này gửi lại toàn bộ bối cảnh build **mỗi lượt** (§5.1) — session mới không thiếu gì. **Consult
+KHÔNG áp dụng** (hội thoại chính là sản phẩm), ask tại gate cũng không (nó resume session của phase).
+
+Bắt buộc **nói ra**: prompt của lượt reset mang một dòng báo model rằng lịch sử đã mất và phải trả lời
+"tôi không thấy" thay vì đoán; `chat.jsonl` ghi `sessionReset: true` để sổ cái export chứng minh được
+cần gạt đã hoạt động.
+
 **Đính kèm**: `attachmentBlock(paths, newIdx)` — file **của lượt này** giữ lời mời "Read the file(s)
 above"; file cũ vẫn kê **đường dẫn đầy đủ** nhưng bỏ lời mời (chính lời mời đó khiến ảnh cũ bị đọc lại
 mãi). `newIdx === undefined` = "caller không có ý kiến" ⇒ hành vi tiền-098 (phase/reply/consult đi

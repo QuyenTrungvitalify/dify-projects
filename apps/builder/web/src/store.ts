@@ -82,7 +82,7 @@ export type LiveThreadItem =
    *  from — that rebuild wins over localStorage, so without the disk copy a chat lost its tip on every
    *  reload while a build kept it. It is NOT written to `task.json`: an ask has no phase slot, and a
    *  per-message number in the build's cost table would read as a phase's. */
-  | { id: string; kind: 'qa'; question: string; answer: string; done: boolean; seededFrom?: string[]; cost?: WirePhaseCost }
+  | { id: string; kind: 'qa'; question: string; answer: string; done: boolean; seededFrom?: string[]; cost?: WirePhaseCost; sessionReset?: boolean }
   /** spec 082 S3: a YAML report card — the no-LLM machine checks on a consult-attached .yml (lint /
    *  preflight / source-contract; `note` names any tool that could not run — never silently clean). */
   | { id: string; kind: 'card'; file: string; lint: string[]; preflight?: string; contract?: string; note?: string };
@@ -721,6 +721,8 @@ export function applyAskDone(d: {
   seededFrom?: string[];
   /** dev tip only — see the `cost` note on the qa thread item. */
   cost?: WirePhaseCost;
+  /** this turn dropped its session history to keep the cost bounded (terminal ask only). */
+  sessionReset?: boolean;
 }): void {
   flushPendingAsk(); // land any trailing buffered fragment before finalizing (mirrors applyTask's rule)
   asking.value = false;
@@ -745,6 +747,7 @@ export function applyAskDone(d: {
       done: true,
       ...(d.seededFrom && d.seededFrom.length > 0 ? { seededFrom: d.seededFrom } : {}),
       ...(d.cost ? { cost: d.cost } : {}),
+      ...(d.sessionReset ? { sessionReset: true } : {}),
     };
   }
   thread.value = items;
@@ -1724,7 +1727,7 @@ function consultThreadFromChat(chat: NonNullable<WireTask['chat']>): LiveThreadI
       ? // the transcript carries each user message's files (name/mime/idx) — without them a reopened
         // chat would forget every attachment, since this restore WINS over the persisted thread
         { id: uid(), kind: 'user' as const, text: m.text, atts: m.files?.length ? m.files.map((f) => ({ ...f })) : undefined }
-      : { id: uid(), kind: 'qa' as const, question: '', answer: m.text, done: true, ...(m.cost ? { cost: m.cost } : {}) }
+      : { id: uid(), kind: 'qa' as const, question: '', answer: m.text, done: true, ...(m.cost ? { cost: m.cost } : {}), ...(m.sessionReset ? { sessionReset: true } : {}) }
   );
 }
 

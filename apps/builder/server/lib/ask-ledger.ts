@@ -89,8 +89,11 @@ export function buildAskLedger(lines: ConsultChatLine[]): string | null {
     const cb = r.a.contextBytes;
     const size = typeof pb === 'number' ? kb(pb) : '—';
     const ctx = typeof cb === 'number' ? `${kb(cb)}${cb > SEED_FENCE_BYTES ? ' ⚠' : ''}` : '—';
+    // ↺ marks a question that started a fresh session. It belongs on the row because the row AFTER it is
+    // where the saving shows up, and the two are otherwise impossible to connect.
+    const mark = r.a.sessionReset ? ' ↺' : '';
     const q = r.q.replace(/\s+/g, ' ').trim();
-    return `| ${i + 1} | ${size} | ${ctx} | ${shortModel(c?.model)} | ${tok(c?.inputTokens)} | ${tok(c?.cacheReadTokens)} | `
+    return `| ${i + 1}${mark} | ${size} | ${ctx} | ${shortModel(c?.model)} | ${tok(c?.inputTokens)} | ${tok(c?.cacheReadTokens)} | `
       + `${tok(c?.cacheCreationTokens)} | ${tok(c?.outputTokens)} | ${tok(c?.numTurns)} | ${secs(c?.durationMs)} | `
       + `${usd(c?.totalCostUsd)} | ${q.length > 60 ? `${q.slice(0, 60)}…` : q || '—'} |`;
   });
@@ -150,6 +153,16 @@ export function buildAskLedger(lines: ConsultChatLine[]): string | null {
   // tokens WRITTEN to cache — a few-KB prompt cannot produce that. It is the session HISTORY being
   // re-cached after its cache expired, and no amount of seed-shrinking touches it. Saying "the seed is
   // fine ✅" next to that number, and nothing else, would be technically true and practically useless.
+  const resets = rows.filter((r) => r.a.sessionReset).length;
+  if (resets) {
+    verdict.push(
+      '',
+      `**Session resets** — ${resets} question${resets === 1 ? '' : 's'} (marked ↺) started a fresh `
+        + 'session because the previous one had grown past its token budget. That is the lever working: '
+        + 'compare the cost of a ↺ row with the one before it.',
+    );
+  }
+
   const writes = rows
     .map((r) => r.a.cost?.cacheCreationTokens)
     .filter((n): n is number => typeof n === 'number' && Number.isFinite(n));

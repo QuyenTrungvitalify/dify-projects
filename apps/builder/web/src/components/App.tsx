@@ -673,7 +673,7 @@ export function App() {
                     if (item.kind === 'qa')
                       return <div key={item.id} className="msg msg-assistant">
                         <QaAnswer answer={item.answer} done={item.done} seededFrom={item.seededFrom}
-                          cost={item.cost}
+                          cost={item.cost} sessionReset={item.sessionReset}
                           /* spec 097: Stop on EVERY ask, not consult-only. An ask on a build had no
                              escape at all — the wall-clock was it. The /cancel route's ask branch keys
                              on the LANE (`liveKind === 'ask'`), never on task kind, so this was always

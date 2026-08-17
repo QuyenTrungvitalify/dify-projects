@@ -118,6 +118,8 @@ export interface WireTask {
      *  transcript and that rebuild wins over localStorage, so the tip only survives a reload if it
      *  travels here. Absent on anything recorded before this field existed. */
     cost?: WirePhaseCost;
+    /** this answer's turn started a fresh CLI session (the previous one had grown too expensive). */
+    sessionReset?: boolean;
   }[];
   /** The LAST ask exchange on a BUILD, from the backend transcript — the one thing the client cannot
    *  rebuild by itself. `ask:answer` is excluded from the SSE replay buffer and a task switch drops the

@@ -100,4 +100,20 @@ describe('ask ledger', () => {
     assert.equal(buildAskLedger([]), null);
     assert.equal(buildAskLedger([{ role: 'user', text: 'q', at: 1 }] as ConsultChatLine[]), null);
   });
+
+  /* The ledger diagnosed the bill; it must also show the fix operating, or the next reader cannot tell
+     whether the cheap rows are cheap by luck. */
+  test('a reset row is marked ↺ and the verdict points at the row before it', () => {
+    const expensive = pair('the last one on the old session', 21_000, 8.861, { cacheCreationTokens: 883_700 }, 4_200);
+    const fresh = pair('the first one after the reset', 21_000, 0.05, { cacheReadTokens: 15_600 }, 4_200);
+    (fresh[1] as { sessionReset?: true }).sessionReset = true;
+    const md = buildAskLedger([...expensive, ...fresh])!;
+    assert.match(md, /\| 2 ↺ \|/, 'the row that started fresh is marked');
+    assert.match(md, /\*\*Session resets\*\* — 1 question \(marked ↺\)/);
+    assert.match(md, /compare the cost of a ↺ row with the one before it/);
+  });
+
+  test('no resets ⇒ no reset section (nothing to explain)', () => {
+    assert.ok(!buildAskLedger(pair('q', 6000, 0.1))!.includes('Session resets'));
+  });
 });

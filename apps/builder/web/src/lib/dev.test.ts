@@ -156,6 +156,14 @@ describe('askCostLine — the dev tip under an answer', () => {
 
   // A turn that was killed has no result event, so `costFromResult` returns null and no `cost` rides on
   // `ask:done`. Nothing to show is shown as nothing — a tip of em-dashes tells the reader less than none.
+  it('a fresh session is marked, so the cheap row can be connected to the reset that caused it', () => {
+    expect(askCostLine({ outputTokens: 120 }, true)).toBe('out 120 · fresh session ↺');
+    expect(askCostLine({ outputTokens: 120 }, false)).toBe('out 120');
+    // …but a marker with no measurement behind it is still no line at all
+    expect(askCostLine(undefined, true)).toBeNull();
+    expect(askCostLine({}, true)).toBeNull();
+  });
+
   it('is null when there is nothing to say', () => {
     expect(askCostLine(undefined)).toBeNull();
     expect(askCostLine({})).toBeNull();

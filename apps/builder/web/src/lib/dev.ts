@@ -85,7 +85,7 @@ export function shortModel(id: string | undefined): string | null {
  * less than no tip at all, and this line only exists to be glanceable. Every field is independently
  * optional, because `costFromResult` is presence-guarded and a CLI shape drift drops fields silently.
  */
-export function askCostLine(c: WirePhaseCost | undefined): string | null {
+export function askCostLine(c: WirePhaseCost | undefined, sessionReset?: boolean): string | null {
   if (!c) return null;
   const parts: string[] = [];
   const m = shortModel(c.model);
@@ -113,6 +113,9 @@ export function askCostLine(c: WirePhaseCost | undefined): string | null {
   }
   if (typeof c.durationMs === 'number' && Number.isFinite(c.durationMs)) parts.push(`${(c.durationMs / 1000).toFixed(1)}s`);
   if (typeof c.totalCostUsd === 'number' && Number.isFinite(c.totalCostUsd)) parts.push(`$${c.totalCostUsd.toFixed(3)}`);
+  // A reset is the difference between a several-dollar question and a few-cent one; seeing it next to
+  // the price is how the two get connected.
+  if (sessionReset && parts.length) parts.push('fresh session ↺');
   return parts.length ? parts.join(' · ') : null;
 }
 
