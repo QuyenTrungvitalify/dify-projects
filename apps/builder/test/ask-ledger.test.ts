@@ -27,6 +27,7 @@ describe('ask ledger', () => {
   test('renders one row per exchange, with the prompt size leading', () => {
     const md = buildAskLedger([...pair('how many nodes?', 5400, 0.103), ...pair('which URL?', 5600, 0.09)])!;
     assert.match(md, /# Ask ledger — 2 questions/);
+    assert.ok(!md.includes('spec 098'), 'a reader months from now cannot open a deleted spec — state the fact instead');
     assert.match(md, /5\.3 KB/);
     assert.match(md, /opus-5/);
     assert.match(md, /how many nodes\?/, 'the question is quoted so a row can be recognised');
@@ -52,7 +53,7 @@ describe('ask ledger', () => {
     const climbing = buildAskLedger([
       ...pair('a', 5000, 0.05), ...pair('b', 5000, 0.20), ...pair('c', 5000, 0.60),
     ])!;
-    assert.match(climbing, /A climbing curve is exactly the failure/);
+    assert.match(climbing, /A climbing curve is the failure this ledger exists to catch/);
 
     const flat = buildAskLedger([
       ...pair('a', 5000, 0.11), ...pair('b', 5000, 0.10), ...pair('c', 5000, 0.09),

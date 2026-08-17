@@ -68,8 +68,12 @@ export function buildAskLedger(lines: ConsultChatLine[]): string | null {
   const head = [
     `# Ask ledger — ${rows.length} question${rows.length === 1 ? '' : 's'}`,
     '',
-    'Every question re-sends the build context, so its SIZE is the thing to watch: spec 098 cut it from',
-    `~143 KB to ~5 KB, and the suite fences a fixture at ${kb(SEED_FENCE_BYTES)}. These are real asks.`,
+    // No spec number in the RENDERED text: this file is read by a user, months later, possibly on
+    // another machine — and specs here are deleted once shipped, so a citation would point at nothing.
+    // The fact stands on its own; provenance belongs in the source comment above.
+    'Every question re-sends the build context, so its SIZE is what to watch. It used to be the whole',
+    `artifact (~143 KB per question); it is now a map of it (~5 KB), and ${kb(SEED_FENCE_BYTES)} is the`,
+    'line a regression test holds a fixture under. The rows below are real questions asked on this build.',
     '',
     '| # | prompt sent | model | in | cache read | cache write | out | turns | time | cost | question |',
     '|--:|--:|---|--:|--:|--:|--:|--:|--:|--:|---|',
@@ -116,7 +120,7 @@ export function buildAskLedger(lines: ConsultChatLine[]): string | null {
         '',
         `**Trend** — first ${cut} averaged ${usd(first)}, last ${cut} ${usd(last)} (${pct >= 0 ? '+' : ''}${pct}%). `
           + (pct > 50
-            ? 'A climbing curve is exactly the failure spec 098 fixed — worth a look.'
+            ? 'A climbing curve is the failure this ledger exists to catch — worth a look.'
             : 'Flat or falling is what a working optimisation looks like here.'),
       );
     }

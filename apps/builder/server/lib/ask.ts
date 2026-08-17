@@ -112,9 +112,10 @@ export interface AskFileAnomaly {
  * now an ask recorded NONE of that: a phase wrote `task.json.cost.<phase>` and an ask wrote nothing, so
  * the surface that turned out to cost 3.4× the build (spec 098) was the one surface with no meter on it.
  *
- * Rides on the `ask:done` event and nowhere else — this is a live read-out, not a record. It is NOT
- * persisted to `task.json`: an ask has no phase slot to write to, and inventing one would put a
- * per-message number into the build's cost table, where every reader would take it for a phase.
+ * Goes two places: the `ask:done` event (the live tip) and the answer's own line in `chat.jsonl` (so a
+ * reload, a cleared cache, and the exported ledger all still have it). NOT `task.json`: an ask has no
+ * phase slot to write to, and inventing one would put a per-message number into the build's cost table,
+ * where every reader would take it for a phase's.
  *
  * `{}` when the turn reported nothing numeric (a killed turn has no result event), so the payload simply
  * has no `cost` key and the client renders no tip — rather than a tip full of dashes.
