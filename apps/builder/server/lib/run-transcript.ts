@@ -277,6 +277,10 @@ export interface RunAttempt {
 }
 
 export const RUNS_FILE = 'runs.jsonl';
+// NOT bundled into the export zip, deliberately: `transcripts/<phase>.md` already carries the same text
+// in the form a person reads, and shipping both would double the biggest thing in the archive (484KB of
+// transcripts on a real build) to say nothing new. This file exists for the UI to rebuild from, and the
+// UI reads it over the API, not out of a zip.
 
 /**
  * Read the per-attempt records back, newest LAST.

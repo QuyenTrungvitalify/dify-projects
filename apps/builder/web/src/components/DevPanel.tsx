@@ -58,12 +58,19 @@ export function DevPanel({ task }: { task: WireTask }) {
               {/* One row per ATTEMPT when the run timeline has them (durable, survives any browser); the
                   per-phase `cost` map is the fallback for a build that predates the timeline record.
                   The distinction matters on a build with fix rounds: `cost[phase]` holds only the last. */}
-              {(task.runCosts ?? []).map((r, i) => {
+              {(task.runCosts ?? []).map((r, i, all) => {
                 const pct = cachePct(r.cost);
+                // Share of WALL-CLOCK across the attempts shown. A column of em-dashes would have been
+                // honest and useless; this answers the question the column exists for — which round ate
+                // the time — which the per-phase table could never say, since it kept only the last.
+                const total = all.reduce((s, x) => s + (x.cost.durationMs ?? 0), 0);
+                const share = total > 0 && r.cost.durationMs != null
+                  ? Math.round((100 * r.cost.durationMs) / total)
+                  : null;
                 return (
                   <tr key={`rc${i}`}>
                     <td className="dev-ph">{r.phase}</td>
-                    <td>—</td>
+                    <td>{share === null ? '—' : `${share}%`}</td>
                     <td>{fmt(r.cost.numTurns)}</td>
                     <td>{fmt(r.cost.inputTokens)}</td>
                     <td>{fmt(r.cost.outputTokens)}</td>
