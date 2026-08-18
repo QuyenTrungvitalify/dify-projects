@@ -32,6 +32,7 @@ import {
   restoreTargetPhaseFor,
   sanitizeSlug,
   saveTask,
+  taskDir,
   toWireTask,
   type Task,
 } from '../state/task.js';
@@ -51,6 +52,7 @@ import {
 import { askWithin, askTestWithin, consultWithin, readConsultChat, readLastAsk } from '../lib/ask.js';
 import { acquireTurn, buildHolderId, buildTurnBusy, chatHolderId, chatTurnBusy, evictCancelled, isCancelled, liveKind, liveSession, markCancelled, releaseTurn, requestAskCancel, taskTurnRunning, unmarkCancelled, type TurnKind } from '../lib/lock.js';
 import { readArtifactContents } from '../lib/artifacts.js';
+import { readEvents } from '../lib/run-events.js';
 import { MAX_ATTACHMENT_BYTES, saveAttachments, validateAttachments } from '../lib/attachments.js';
 
 export interface TasksRoutesOptions {
@@ -413,10 +415,20 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // lane is a single global slot, so there is never a second one in flight). A consult already ships its
     // full `chat` and rebuilds from it, so adding this there would be pure duplication.
     const lastAsk = task.kind === 'consult' ? undefined : await readLastAsk(projectsDir, id);
+    // Per-ATTEMPT phase costs, read from the run timeline rather than the task.
+    //
+    // `task.cost[phase]` holds only the last re-run of each phase, and the live `phase:cost` event only
+    // reaches a client that was watching — its numbers then live in that browser's localStorage, so they
+    // survive a reload there and nowhere else. This is the copy that outlives the browser: a machine that
+    // never had the task open still gets every round's cost.
+    const runCosts = (await readEvents(taskDir(projectsDir, id)))
+      .filter((e) => e.kind === 'turn_cost' && e.cost)
+      .map((e) => ({ phase: e.phase ?? '', at: e.ts, cost: e.cost! }));
     return {
       ...toWireTask(task), artifactContents,
       ...(chat ? { chat } : {}),
       ...(lastAsk ? { lastAsk } : {}),
+      ...(runCosts.length ? { runCosts } : {}),
     };
   });
 

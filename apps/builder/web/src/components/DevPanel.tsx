@@ -55,7 +55,25 @@ export function DevPanel({ task }: { task: WireTask }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((k) => {
+              {/* One row per ATTEMPT when the run timeline has them (durable, survives any browser); the
+                  per-phase `cost` map is the fallback for a build that predates the timeline record.
+                  The distinction matters on a build with fix rounds: `cost[phase]` holds only the last. */}
+              {(task.runCosts ?? []).map((r, i) => {
+                const pct = cachePct(r.cost);
+                return (
+                  <tr key={`rc${i}`}>
+                    <td className="dev-ph">{r.phase}</td>
+                    <td>—</td>
+                    <td>{fmt(r.cost.numTurns)}</td>
+                    <td>{fmt(r.cost.inputTokens)}</td>
+                    <td>{fmt(r.cost.outputTokens)}</td>
+                    <td>{fmt(r.cost.cacheReadTokens)}</td>
+                    <td>{pct === null ? '—' : `${pct}%`}</td>
+                    <td className={`dev-cause dev-cause--${classify(r.cost)}`}>{classify(r.cost)}</td>
+                  </tr>
+                );
+              })}
+              {(task.runCosts ?? []).length === 0 && rows.map((k) => {
                 const c = cost[k] as WirePhaseCost;
                 const pct = cachePct(c);
                 const cause = classify(c);

@@ -557,7 +557,14 @@ async function runPhase(
     // under all three run items would show one round's numbers three times, two of them false — the
     // exact failure this meter exists to expose. Per-attempt data was already being computed here for
     // the transcript; this only stops throwing it away.
-    if (attemptCost) ctx.broadcast?.(task.taskId, 'phase:cost', { phase: phaseId, cost: attemptCost });
+    if (attemptCost) {
+      ctx.broadcast?.(task.taskId, 'phase:cost', { phase: phaseId, cost: attemptCost });
+      // …and write it where it outlives the browser. The live event only reaches a client that is
+      // watching, and the thread it lands in is localStorage — so on any other machine, or on a run
+      // nobody had open, the number was simply gone. `events.jsonl` already outlives all of that and
+      // already ships inside the exported bundle.
+      await logEvent(runDir, { kind: 'turn_cost', phase: phaseId, cost: attemptCost });
+    }
     // Don't write a `running`-bearing task AFTER a /cancel flipped it (would clobber `cancelled`).
     if (turn.sessionId && !isCancelled(task.taskId)) {
       task.sessionIds[sessKey] = turn.sessionId;

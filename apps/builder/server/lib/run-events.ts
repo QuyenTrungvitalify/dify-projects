@@ -10,6 +10,7 @@
  */
 import { appendFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { PhaseCost } from '../state/task.js';
 
 /** The transition kinds that make up a build's story (S1b). */
 export type RunEventKind =
@@ -23,6 +24,7 @@ export type RunEventKind =
   | 'error' // the phase/turn errored (detail: the reason / triage)
   | 'retry' // a Retry-out-of-error re-ran the phase (detail: the user's text, if any)
   | 'live_test' // a ④ live-test verdict (detail: verdict + reason)
+  | 'turn_cost' // what ONE attempt cost (carried in `cost`, not `detail`)
   | 'artifact_unchanged'; // spec 094 S1 — an ③ turn ended with the artifact's bytes IDENTICAL (detail:
 //                           the workflow file). Emitted only when measured; absent ⇒ the turn changed
 //                           the file, or the build predates 094. Two of the five fix rounds on run
@@ -33,6 +35,17 @@ export interface RunEvent {
   phase?: string;
   kind: RunEventKind;
   detail?: string;
+  /**
+   * `turn_cost` only — what that attempt cost (model, tokens, cache, $).
+   *
+   * On the SERVER because the browser's copy is not a record: the thread lives in localStorage, so the
+   * numbers survive a reload on the same machine and vanish on any other — and a run nobody watched
+   * live never had them at all. This file already outlives all of that and already ships in the export.
+   *
+   * Per ATTEMPT, which `task.cost[phase]` cannot be: that slot is last-write-wins across re-runs, so
+   * after three fix rounds it holds only the third. Here every round keeps its own line.
+   */
+  cost?: PhaseCost;
 }
 
 export const EVENTS_FILE = 'events.jsonl';
@@ -44,11 +57,11 @@ export const EVENTS_FILE = 'events.jsonl';
  */
 export async function logEvent(
   runDir: string,
-  ev: { kind: RunEventKind; phase?: string; detail?: string; nowMs?: number }
+  ev: { kind: RunEventKind; phase?: string; detail?: string; nowMs?: number; cost?: PhaseCost }
 ): Promise<void> {
   try {
     const detail = ev.detail != null ? oneLine(ev.detail).slice(0, 2000) : undefined;
-    const rec: RunEvent = { ts: ev.nowMs ?? Date.now(), phase: ev.phase, kind: ev.kind, detail };
+    const rec: RunEvent = { ts: ev.nowMs ?? Date.now(), phase: ev.phase, kind: ev.kind, detail, ...(ev.cost ? { cost: ev.cost } : {}) };
     await appendFile(join(runDir, EVENTS_FILE), JSON.stringify(rec) + '\n');
   } catch {
     // best-effort: the run timeline must never break a turn.

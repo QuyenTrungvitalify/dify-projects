@@ -121,6 +121,10 @@ export interface WireTask {
     /** this answer's turn started a fresh CLI session (the previous one had grown too expensive). */
     sessionReset?: boolean;
   }[];
+  /** What each ATTEMPT of each phase cost, from the run timeline on disk — so a browser that never had
+   *  this task open (or whose storage was cleared) still gets every round's numbers. `cost[phase]` keeps
+   *  only the last re-run; this keeps them all, oldest first. */
+  runCosts?: { phase: string; at: number; cost: WirePhaseCost }[];
   /** The LAST ask exchange on a BUILD, from the backend transcript — the one thing the client cannot
    *  rebuild by itself. `ask:answer` is excluded from the SSE replay buffer and a task switch drops the
    *  stream, so an answer that lands while the user is looking at another build is gone from the browser;

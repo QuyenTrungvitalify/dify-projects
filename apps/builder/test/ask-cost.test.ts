@@ -282,3 +282,42 @@ describe('the dev cost tip — what one answer cost', () => {
     assert.equal(shouldResetAskSession({ cacheReadTokens: 26_837 }, 20_000), true, 'an explicit limit is still honoured in-process');
   });
 });
+
+/**
+ * Per-attempt phase cost, on DISK.
+ *
+ * The live `phase:cost` event only reaches a client that is watching, and it lands in a thread the
+ * browser keeps in localStorage — so the numbers survive a reload on that machine and nowhere else, and
+ * a run nobody had open never had them at all. `events.jsonl` outlives all of that, already ships in the
+ * exported bundle, and — unlike `task.cost[phase]`, which is last-write-wins across re-runs — keeps one
+ * line per round.
+ */
+describe('phase cost outlives the browser', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'phase-cost-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('every attempt writes its own turn_cost line, oldest first', async () => {
+    const { logEvent, readEvents } = await import('../server/lib/run-events.js');
+    const runDir = join(dir, 'run');
+    await mkdir(runDir, { recursive: true });
+    await logEvent(runDir, { kind: 'turn_cost', phase: 'implement', cost: { totalCostUsd: 6.61, model: 'claude-opus-5' } });
+    await logEvent(runDir, { kind: 'turn_cost', phase: 'implement', cost: { totalCostUsd: 0.3 } });
+
+    const costs = (await readEvents(runDir)).filter((e) => e.kind === 'turn_cost');
+    assert.equal(costs.length, 2, 'a fix round does not overwrite the round before it');
+    assert.equal(costs[0].cost?.totalCostUsd, 6.61);
+    assert.equal(costs[1].cost?.totalCostUsd, 0.3);
+    assert.equal(costs[0].cost?.model, 'claude-opus-5');
+  });
+
+  test('an event with no cost stays exactly as it was — old timelines still parse', async () => {
+    const { logEvent, readEvents } = await import('../server/lib/run-events.js');
+    const runDir = join(dir, 'run2');
+    await mkdir(runDir, { recursive: true });
+    await logEvent(runDir, { kind: 'phase_start', phase: 'spec', detail: 'fresh' });
+    const [e] = await readEvents(runDir);
+    assert.equal(e.kind, 'phase_start');
+    assert.equal('cost' in e, false, 'no phantom key on every other event in the file');
+  });
+});
