@@ -53,6 +53,7 @@ import { askWithin, askTestWithin, consultWithin, readConsultChat, readLastAsk }
 import { acquireTurn, buildHolderId, buildTurnBusy, chatHolderId, chatTurnBusy, evictCancelled, isCancelled, liveKind, liveSession, markCancelled, releaseTurn, requestAskCancel, taskTurnRunning, unmarkCancelled, type TurnKind } from '../lib/lock.js';
 import { readArtifactContents } from '../lib/artifacts.js';
 import { readEvents } from '../lib/run-events.js';
+import { readRunAttempts } from '../lib/run-transcript.js';
 import { MAX_ATTACHMENT_BYTES, saveAttachments, validateAttachments } from '../lib/attachments.js';
 
 export interface TasksRoutesOptions {
@@ -421,6 +422,13 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // reaches a client that was watching — its numbers then live in that browser's localStorage, so they
     // survive a reload there and nowhere else. This is the copy that outlives the browser: a machine that
     // never had the task open still gets every round's cost.
+    // Every phase attempt the client streamed, from disk — so a browser that never had this task open
+    // still gets the reasoning, not just "requirement + current gate". Bounded by the reader (this
+    // snapshot is re-fetched on every reconnect); `runsDropped` says when older attempts were left out
+    // rather than presenting a conversation with an unmarked hole.
+    const { runs, dropped: runsDropped } = task.kind === 'consult'
+      ? { runs: [], dropped: 0 }
+      : await readRunAttempts(taskDir(projectsDir, id));
     const runCosts = (await readEvents(taskDir(projectsDir, id)))
       .filter((e) => e.kind === 'turn_cost' && e.cost)
       .map((e) => ({ phase: e.phase ?? '', at: e.ts, cost: e.cost! }));
@@ -429,6 +437,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       ...(chat ? { chat } : {}),
       ...(lastAsk ? { lastAsk } : {}),
       ...(runCosts.length ? { runCosts } : {}),
+      ...(runs.length ? { runs, ...(runsDropped ? { runsDropped } : {}) } : {}),
     };
   });
 

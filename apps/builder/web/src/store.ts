@@ -1777,6 +1777,33 @@ function consultThreadFromChat(chat: NonNullable<WireTask['chat']>): LiveThreadI
   );
 }
 
+/**
+ * Rebuild a build's thread from the per-attempt records on disk.
+ *
+ * The last resort, and only when there is no client-side history: a browser that never had this task
+ * open (or whose cache was cleared) used to show a finished build as its requirement plus the current
+ * gate, with every phase's reasoning missing — the output had only ever lived in the client.
+ *
+ * Past GATE cards are not reconstructed: their snapshots were never persisted, and inventing them would
+ * put words in the build's mouth. So the thread reads requirement → each phase's output → the live gate
+ * `applyTask` appends. Honest and incomplete beats complete and invented.
+ */
+function buildThreadFromRuns(t: WireTask): LiveThreadItem[] {
+  const head: LiveThreadItem[] = [{ id: uid(), kind: 'user', text: t.requirement }];
+  if (t.runsDropped) {
+    head.push({
+      id: uid(), kind: 'run', phase: t.runs![0].phase, running: false,
+      output: `[… ${t.runsDropped} earlier attempt(s) not shown — see the exported bundle …]`,
+    });
+  }
+  return head.concat(
+    (t.runs ?? []).map((r) => ({
+      id: uid(), kind: 'run' as const, phase: r.phase, running: false, output: r.output,
+      ...(r.cost ? { cost: r.cost } : {}),
+    })),
+  );
+}
+
 /** spec 084 — rebuild a promote task's thread from the persisted distill log when there's no client-side
  *  history (a bg distill opened AFTER it finished): the user bubble + the distill turn's output disclosure.
  *  applyTask then appends the current/terminal gate card below it, so opening reads "report + what the
@@ -1808,7 +1835,8 @@ export async function openTask(taskId: string): Promise<void> {
       t.kind === 'consult' && t.chat && t.chat.length
         ? consultThreadFromChat(t.chat)
         : loadPersistedThread(taskId) ??
-          (t.kind === 'promote' && t.promote?.distillLog ? promoteThreadFromLog(t) : null);
+          (t.kind === 'promote' && t.promote?.distillLog ? promoteThreadFromLog(t) : null) ??
+          (t.runs && t.runs.length ? buildThreadFromRuns(t) : null);
     thread.value = restored ?? [{ id: uid(), kind: 'user', text: t.requirement }];
     task.value = null;
     applyTask(t);

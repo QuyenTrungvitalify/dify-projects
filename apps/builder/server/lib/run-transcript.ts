@@ -10,7 +10,7 @@
  * {{KNOWLEDGE}} / pasted tokens, S5). Caps the assistant output (tail) + prompt (head) so a runaway ③
  * can't bloat the run dir.
  */
-import { appendFile, mkdir } from 'node:fs/promises';
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { redactSecrets } from './dify-io.js';
 import { cachePct, PHASE_NUM } from './cost-cause.js';
@@ -106,6 +106,29 @@ export class AttemptRecorder {
       await appendFile(join(dir, `${this.phase}.md`), block);
     } catch {
       // non-fatal: a transcript write must never fail the turn (AC #2).
+    }
+    // …and the same attempt in a form a machine can read back.
+    //
+    // The markdown above is for a person: prompt framing, a tool table, a result line. Parsing it back
+    // to rebuild the UI would mean writing a parser against a layout that exists to be readable, which
+    // breaks the first time the layout improves. This file is the other half — one JSON line per
+    // attempt, holding exactly what the browser streamed.
+    //
+    // WHY IT EXISTS AT ALL: a phase's output has only ever lived in the client. Watch a build, clear the
+    // cache (or open it on another machine), and every phase's reasoning was gone — the thread rebuilt
+    // to "requirement + current gate" and the work in between simply had never been recorded anywhere
+    // the browser could reach. An ask got its transcript for the same reason; this is the build's.
+    try {
+      const line: RunAttempt = {
+        ts: r.nowMs ?? Date.now(),
+        phase: this.phase,
+        output: this.outputBlock(),
+        ...(r.cost ? { cost: r.cost } : {}),
+        ...(r.note ? { note: oneLine(r.note).slice(0, 500) } : {}),
+      };
+      await appendFile(join(runDir, RUNS_FILE), JSON.stringify(line) + '\n');
+    } catch {
+      // same contract as the markdown: best-effort, never fails a turn.
     }
   }
 
@@ -242,6 +265,58 @@ function resultLine(cost: PhaseCost | null, note?: string): string {
   if (cost?.durationMs != null) parts.push(`duration=${Math.round(cost.durationMs / 1000)}s`);
   if (note) parts.push(oneLine(note));
   return parts.length ? parts.join(' · ') : '(no result — the turn died before a terminal event)';
+}
+
+/** One attempt, as the browser saw it: the streamed assistant text plus what the turn cost. */
+export interface RunAttempt {
+  ts: number;
+  phase: string;
+  output: string;
+  cost?: PhaseCost;
+  note?: string;
+}
+
+export const RUNS_FILE = 'runs.jsonl';
+
+/**
+ * Read the per-attempt records back, newest LAST.
+ *
+ * Bounded on purpose: this feeds `GET /api/tasks/:id`, which the client re-fetches on every reconnect,
+ * and a long build's output would otherwise ride the wire again and again. Keeps the most recent
+ * attempts within a total budget and says how many it dropped, rather than silently returning a
+ * conversation with a hole in the middle.
+ */
+export async function readRunAttempts(
+  runDir: string,
+  opts?: { maxTotalChars?: number; maxPerAttempt?: number }
+): Promise<{ runs: RunAttempt[]; dropped: number }> {
+  const maxTotal = opts?.maxTotalChars ?? 48_000;
+  const maxEach = opts?.maxPerAttempt ?? 6_000;
+  let raw: string;
+  try {
+    raw = await readFile(join(runDir, RUNS_FILE), 'utf8');
+  } catch {
+    return { runs: [], dropped: 0 };
+  }
+  const all: RunAttempt[] = [];
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      all.push(JSON.parse(line) as RunAttempt);
+    } catch {
+      /* a torn last line (a crash mid-append) is skipped, exactly as the event log does */
+    }
+  }
+  const kept: RunAttempt[] = [];
+  let used = 0;
+  for (let i = all.length - 1; i >= 0; i--) {
+    const a = all[i];
+    const out = a.output.length > maxEach ? `[… ${a.output.length - maxEach} chars truncated …]\n${a.output.slice(-maxEach)}` : a.output;
+    if (used + out.length > maxTotal && kept.length) break;
+    kept.unshift({ ...a, output: out });
+    used += out.length;
+  }
+  return { runs: kept, dropped: all.length - kept.length };
 }
 
 /** Keep at most `cap` chars from the START (the prompt's phase framing / change-request lead), marking

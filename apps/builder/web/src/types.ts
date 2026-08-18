@@ -125,6 +125,12 @@ export interface WireTask {
    *  this task open (or whose storage was cleared) still gets every round's numbers. `cost[phase]` keeps
    *  only the last re-run; this keeps them all, oldest first. */
   runCosts?: { phase: string; at: number; cost: WirePhaseCost }[];
+  /** Every phase ATTEMPT this build streamed, oldest first, read from disk. A phase's output used to
+   *  live only in the browser, so a cleared cache or another machine reduced a finished build to
+   *  "requirement + current gate" — the reasoning was gone. Bounded server-side; `runsDropped` counts
+   *  attempts left out rather than leaving an unmarked hole. */
+  runs?: { ts: number; phase: WirePhase; output: string; cost?: WirePhaseCost; note?: string }[];
+  runsDropped?: number;
   /** The LAST ask exchange on a BUILD, from the backend transcript — the one thing the client cannot
    *  rebuild by itself. `ask:answer` is excluded from the SSE replay buffer and a task switch drops the
    *  stream, so an answer that lands while the user is looking at another build is gone from the browser;

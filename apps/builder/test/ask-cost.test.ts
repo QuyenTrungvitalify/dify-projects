@@ -321,3 +321,55 @@ describe('phase cost outlives the browser', () => {
     assert.equal('cost' in e, false, 'no phantom key on every other event in the file');
   });
 });
+
+/**
+ * A phase's OUTPUT on the server.
+ *
+ * It had only ever lived in the browser: watch a build, clear the cache (or open it elsewhere), and a
+ * finished build showed its requirement and the current gate with every phase's reasoning missing. The
+ * markdown transcript beside this is for a person to read; this is the same attempt in a form the UI can
+ * rebuild from, bounded so a long build does not re-ride the wire on every reconnect.
+ */
+describe('phase output outlives the browser', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'runs-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('each attempt is readable back, oldest first, with its cost', async () => {
+    const { AttemptRecorder, readRunAttempts } = await import('../server/lib/run-transcript.js');
+    const r1 = new AttemptRecorder({ phase: 'spec', attempt: 1, resume: false, prompt: 'p' });
+    r1.onText('the spec reasoning');
+    await r1.flush(dir, { cost: { totalCostUsd: 0.09, model: 'claude-haiku-4-5' }, note: undefined });
+    const r2 = new AttemptRecorder({ phase: 'implement', attempt: 1, resume: false, prompt: 'p' });
+    r2.onText('the implement reasoning');
+    await r2.flush(dir, { cost: { totalCostUsd: 6.61 }, note: 'timed out' });
+
+    const { runs, dropped } = await readRunAttempts(dir);
+    assert.equal(dropped, 0);
+    assert.deepEqual(runs.map((r) => r.phase), ['spec', 'implement']);
+    assert.match(runs[0].output, /the spec reasoning/);
+    assert.equal(runs[0].cost?.model, 'claude-haiku-4-5');
+    assert.equal(runs[1].note, 'timed out', 'a turn that died says so where the UI can read it');
+  });
+
+  test('a long build is bounded, and says how many attempts it left out', async () => {
+    const { AttemptRecorder, readRunAttempts } = await import('../server/lib/run-transcript.js');
+    for (let i = 0; i < 12; i++) {
+      const rec = new AttemptRecorder({ phase: 'implement', attempt: i + 1, resume: false, prompt: 'p' });
+      // the marker goes at the END: the recorder keeps the TAIL of a long output on purpose
+      // (a failure shows up last), so a head-anchored label would be the first thing dropped.
+      rec.onText('x'.repeat(9_000) + ` attempt ${i}`);
+      await rec.flush(dir, { cost: null });
+    }
+    const { runs, dropped } = await readRunAttempts(dir, { maxTotalChars: 20_000, maxPerAttempt: 6_000 });
+    assert.ok(runs.length < 12 && runs.length > 0, `kept ${runs.length}`);
+    assert.equal(dropped, 12 - runs.length, 'the count of what is missing is stated, not implied');
+    assert.ok(runs.every((r) => r.output.length <= 6_100), 'each attempt is capped');
+    assert.match(runs.at(-1)!.output, /attempt 11/, 'the newest attempt is the one always kept');
+  });
+
+  test('no records ⇒ nothing, not an empty-looking build', async () => {
+    const { readRunAttempts } = await import('../server/lib/run-transcript.js');
+    assert.deepEqual(await readRunAttempts(dir), { runs: [], dropped: 0 });
+  });
+});
