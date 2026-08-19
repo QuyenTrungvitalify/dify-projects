@@ -1812,7 +1812,11 @@ function buildThreadFromRuns(t: WireTask): LiveThreadItem[] {
   const head: LiveThreadItem[] = [{ id: uid(), kind: 'user', text: t.requirement }];
   if (t.runsDropped) {
     head.push({
-      id: uid(), kind: 'run', phase: t.runs![0].phase, running: false,
+      // `open`: this is a NOTICE, not a phase log. Collapsed it renders as a strip labelled with a phase
+      // number and says nothing until clicked, which is the opposite of what a "some history is missing"
+      // line is for — the reader would have to already suspect the omission to go looking for it. Same
+      // reasoning, and the same flag, as the restored-from-disk marker in `lib/ask-backfill.ts`.
+      id: uid(), kind: 'run', phase: t.runs![0].phase, running: false, open: true,
       output: `[… ${t.runsDropped} earlier attempt(s) not shown — see the exported bundle …]`,
     });
   }

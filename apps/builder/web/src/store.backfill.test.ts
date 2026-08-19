@@ -190,6 +190,30 @@ describe('openTask backfills a build whose localStorage thread is gone (spec 099
     expect(thread.value).toBe(after);
   });
 
+  test('the "earlier attempts not shown" notice opens by itself too — same reasoning, same flag', async () => {
+    // `buildThreadFromRuns` emits its own notice when the server capped the attempt list. It is the same
+    // shape of thing as the restored-from-disk marker — one line whose only job is to be read — and it
+    // had the same defect: collapsed behind a strip labelled with a phase number. Fixed for both, so a
+    // reader never has to already suspect an omission in order to find out about it.
+    getTaskMock.mockResolvedValue(mk('T-dropped', {
+      runs: [{ phase: 'implement', output: 'attempt 4 output' }],
+      runsDropped: 3,
+    } as unknown as Partial<WireTask>));
+    getTaskChatMock.mockResolvedValue({ chat: [] });
+
+    await openTask('T-dropped');
+    await settle();
+
+    const runs = thread.value.filter((i): i is LiveThreadItem & { kind: 'run' } => i.kind === 'run');
+    const notice = runs.find((r) => r.output.includes('earlier attempt(s) not shown'));
+    const realRun = runs.find((r) => r.output === 'attempt 4 output');
+
+    expect(notice, 'the notice is emitted at all').toBeDefined();
+    expect(notice!.open).toBe(true);
+    expect(realRun, 'and the actual phase output is still there').toBeDefined();
+    expect(realRun!.open, '…still collapsed, because it is a log and not a notice').toBeUndefined();
+  });
+
   test('REGRESSION: consult and promote never call the route — they would duplicate every exchange', async () => {
     getTaskMock.mockResolvedValue(mk('C1', { kind: 'consult', chat: [{ role: 'user', text: 'hi' }] } as Partial<WireTask>));
     await openTask('C1');

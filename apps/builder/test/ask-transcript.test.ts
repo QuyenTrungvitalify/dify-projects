@@ -328,6 +328,35 @@ describe('GET /api/tasks/:id/chat — read the transcript back without touching 
     await app.close();
   });
 
+  test('a capped build goes SILENT once the browser holds all it can — no line on every reopen', async () => {
+    // The gap is measured against what this response can SERVE, not against the whole file. With 53 on
+    // disk and a 50-pair window the browser can never reach 53, so comparing to the file total would
+    // find a permanent difference and write a line on EVERY reopen — burying the one occurrence that
+    // actually means something under noise it can do nothing about.
+    const task = await doneBuild(dir);
+    await seedChat(task.taskId, 53);
+    const app = await serve();
+
+    await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=0` });   // first open
+    let gaps = (await timeline(task.taskId)).filter((e) => e.kind === 'history_gap');
+    assert.equal(gaps.length, 1, 'a browser holding nothing IS a gap worth recording');
+    assert.equal(gaps[0].detail, 'disk=53 browser=0', 'and the detail still names the true disk total');
+
+    // …the client restores the 50 it was given, then reopens. And reopens. And reopens.
+    for (let i = 0; i < 3; i++) {
+      await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=50` });
+    }
+    gaps = (await timeline(task.taskId)).filter((e) => e.kind === 'history_gap');
+    assert.equal(gaps.length, 1, 'still ONE — the unreachable 3 are not a gap the browser can close');
+
+    // A browser that really is behind the window still reports.
+    await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=20` });
+    gaps = (await timeline(task.taskId)).filter((e) => e.kind === 'history_gap');
+    assert.equal(gaps.length, 2);
+    assert.equal(gaps[1].detail, 'disk=53 browser=20');
+    await app.close();
+  });
+
   test('a junk ?have is ignored, not trusted — no line, no crash', async () => {
     const task = await doneBuild(dir);
     await seedChat(task.taskId, 5);

@@ -481,7 +481,14 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     const haveRaw = (req.query as { have?: string } | undefined)?.have;
     const have = haveRaw != null && /^\d+$/.test(haveRaw) ? Number(haveRaw) : null;
     const onDisk = countChatPairs(all);
-    if (have != null && have !== onDisk) {
+    // Compare against what this response can actually SERVE, not against the whole file. A build with
+    // more exchanges than the cap can never have them all in the browser — the client restores at most
+    // `servable`, so measuring the gap against `onDisk` would find a permanent difference and write a
+    // line on EVERY reopen, forever. That is precisely the noise this event was defined not to be, and
+    // it would bury the one occurrence that means something. `detail` still reports the true disk total,
+    // because that is the number a reader needs; only the DECISION uses the servable one.
+    const servable = countChatPairs(lines);
+    if (have != null && have !== servable) {
       void logEvent(taskDir(projectsDir, id), {
         kind: 'history_gap',
         detail: `disk=${onDisk} browser=${have}`,

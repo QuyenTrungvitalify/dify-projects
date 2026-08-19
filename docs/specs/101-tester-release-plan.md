@@ -393,15 +393,32 @@ mở. Nghĩa là **nguyên tắc tự khai không được thoả ở tầng gia
 zero-touch nhưng hơi lệch nghĩa… tách ra sau nếu thấy vướng."* Đã vướng. Và dấu mốc `runsDropped` có sẵn
 từ trước cũng bị y hệt — điểm yếu của chính tiền lệ, không phải của bản vá này.
 
-**Vá (5 dòng code):** thêm `open?: boolean` vào biến thể `run` của `LiveThreadItem`, truyền vào state
-khởi tạo của `Disclosure` (`running || !!open`), đặt `open: true` cho dấu mốc. Vắng mặt trên run phase
-thật, nên mọi output phase vẫn thu gọn y như cũ.
+**Vá:** thêm `open?: boolean` vào biến thể `run` của `LiveThreadItem`, truyền vào state khởi tạo của
+`Disclosure` (`running || !!open`), đặt `open: true` cho dấu mốc. Vắng mặt trên run phase thật, nên mọi
+output phase vẫn thu gọn y như cũ. **Áp cho CẢ dấu mốc `runsDropped`** có sẵn từ trước — cùng một hình
+dạng, cùng một khiếm khuyết; để lệch nhau thì người sau sẽ phải đoán vì sao.
 
 **Test đi kèm phải là test RENDER, không phải test cờ.** Một test chỉ assert `note.open === true` sẽ xanh
 ngay cả với renderer hỏng — đó chính là ca vừa xảy ra. `web/src/components/disclosure.test.tsx` (component
 test đầu tiên của app) assert **kết quả render**: có `open` → chữ nằm trong document ngay; không có `open`
 → output phase **vẫn không** được render. Xác minh lại trên browser thật sau khi vá: dấu mốc hiện rõ ngay
 trên khối khôi phục.
+
+#### 🔴 `history_gap` sẽ ghi MÃI MÃI trên build >50 cặp (tìm ra khi review lại, đã vá)
+
+Route so `?have=` với **tổng số cặp trên đĩa**. Nhưng cửa sổ trả về bị cap 50, nên client **không bao giờ
+có thể** đạt 53 — chênh lệch là vĩnh viễn, và dòng `history_gap` được ghi **mỗi lần mở task, mãi mãi**.
+
+Đúng thứ chính tôi viết là không được phép xảy ra: *"ca thường ngày phải im lặng tuyệt đối, nếu không
+timeline thành nhiễu và không ai đọc nữa"*. Nó sẽ chôn vùi đúng một lần xuất hiện thật sự có nghĩa.
+
+**Vá:** so với **số cặp response THỰC SỰ phục vụ được** (`countChatPairs(lines)`), không phải tổng file.
+`detail` **vẫn báo tổng đĩa thật** — đó là con số người đọc cần; chỉ **phép quyết định** dùng số phục vụ
+được. Ba cặp ngoài cửa sổ không phải một khoảng trống mà trình duyệt có thể lấp, nên không phải một
+khoảng trống đáng báo.
+
+Test hồi quy: mở lần đầu (`have=0`) → **1** dòng · mở lại 3 lần với `have=50` → **vẫn 1** · một browser
+thật sự tụt hậu (`have=20`) → dòng thứ 2. Đã chứng minh đỏ khi quay về so với tổng đĩa.
 
 #### Ba thứ tìm ra khi implement 3.1
 
