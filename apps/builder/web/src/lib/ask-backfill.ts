@@ -123,6 +123,11 @@ function marker(count: number, opts: BackfillOpts): LiveThreadItem {
     kind: 'run',
     phase: opts.phase,
     running: false,
+    // Expanded, or it discloses nothing: collapsed it renders as a button labelled with the phase
+    // number and stays silent until clicked. Measured in a real browser before this was set — the text
+    // was not in the document at all. (Spec 099 open question #4 predicted exactly this friction with
+    // reusing the `run` shape for a notice.)
+    open: true,
     output: `[… ${count} exchange(s) below were restored from the transcript on disk; their position relative to the build steps may not be exact.${cut} …]`,
   };
 }

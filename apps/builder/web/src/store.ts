@@ -73,7 +73,12 @@ export type LiveThreadItem =
   | { id: string; kind: 'user'; text: string; atts?: ThreadAttachment[] }
   /** `cost` is the DEV read-out for THIS run: what the turn(s) behind this one disclosure cost. Summed
    *  across attempts, because a run that failed and retried cost you both — see `applyPhaseCost`. */
-  | { id: string; kind: 'run'; phase: WirePhase; running: boolean; output: string; stopped?: boolean; cost?: WirePhaseCost }
+  /** `open`: render the disclosure already expanded. For NOTICES that happen to travel as a `run` item —
+   *  the "restored from disk" line (spec 099 S1), and the "N earlier attempts not shown" line — whose
+   *  whole job is to be read. Collapsed, such a notice is indistinguishable from a phase's output: it
+   *  shows as a button labelled "④ Test" and says nothing until clicked, which is not self-disclosure at
+   *  all. Absent on a real phase run, so those keep collapsing exactly as before. */
+  | { id: string; kind: 'run'; phase: WirePhase; running: boolean; output: string; stopped?: boolean; cost?: WirePhaseCost; open?: boolean }
   | { id: string; kind: 'gate'; phase: WirePhase; snapshot: WireTask; resolved?: string }
   /** spec 033: a conversational Ask exchange — message↔message, never re-runs the phase. `done` flips
    *  once the backend's `ask:done` settles (streaming stops; the "Answered" chrome renders).

@@ -380,6 +380,29 @@ giống hệt `readLastAsk` trước đây, nên không phải hồi quy.
 > đúng vị trí sau này, nhưng nó thêm một field vào `LiveThreadItem` mà bản sửa này không cần. Hoãn có
 > chủ ý, không phải bỏ sót.
 
+#### 🔴 Lỗi CHỈ browser mới lộ — dấu mốc vô hình (tìm ra khi test thực tế, đã vá)
+
+Dấu mốc được tạo **đúng** và nội dung **chính xác** — nhưng nó đi theo hình dạng `run`, nên render thành
+một disclosure **thu gọn nhãn "④ Test"**, không phân biệt được với output của một phase. Đo trên browser
+thật: chuỗi *"restored from the transcript"* **không có trong `document.body.innerText`** cho tới khi bấm
+mở. Nghĩa là **nguyên tắc tự khai không được thoả ở tầng giao diện** — dữ liệu đúng, hiển thị sai.
+
+**Mọi unit test đều xanh.** Đây là lý do bước test thực tế tồn tại.
+
+Đúng thứ [099 Open Q4](099-build-ask-history-survives-the-browser.md) đã tiên đoán: *"tái dụng `run` là
+zero-touch nhưng hơi lệch nghĩa… tách ra sau nếu thấy vướng."* Đã vướng. Và dấu mốc `runsDropped` có sẵn
+từ trước cũng bị y hệt — điểm yếu của chính tiền lệ, không phải của bản vá này.
+
+**Vá (5 dòng code):** thêm `open?: boolean` vào biến thể `run` của `LiveThreadItem`, truyền vào state
+khởi tạo của `Disclosure` (`running || !!open`), đặt `open: true` cho dấu mốc. Vắng mặt trên run phase
+thật, nên mọi output phase vẫn thu gọn y như cũ.
+
+**Test đi kèm phải là test RENDER, không phải test cờ.** Một test chỉ assert `note.open === true` sẽ xanh
+ngay cả với renderer hỏng — đó chính là ca vừa xảy ra. `web/src/components/disclosure.test.tsx` (component
+test đầu tiên của app) assert **kết quả render**: có `open` → chữ nằm trong document ngay; không có `open`
+→ output phase **vẫn không** được render. Xác minh lại trên browser thật sau khi vá: dấu mốc hiện rõ ngay
+trên khối khôi phục.
+
 #### Ba thứ tìm ra khi implement 3.1
 
 **① 💥 OOM vì fixture, không phải vì code.** Test wiring đầu tiên **giết worker, không ra một dòng

@@ -113,10 +113,14 @@ export function PhaseTrack({ phaseStates, current }: { phaseStates: PhaseStates;
 }
 
 /* ---- disclosure: "Running ① Analyze…" / "Stopped during ① Analyze" / streamed output ---- */
-export function Disclosure({ phaseKey, running, output, stopped, promote, cost }: {
+export function Disclosure({ phaseKey, running, output, stopped, promote, cost, open: openInitially }: {
   phaseKey: PhaseKey;
   running: boolean;
   output: string;
+  /** Start expanded. Set by NOTICES that ride the `run` shape (spec 099 S1's "restored from disk" line,
+   *  the "N earlier attempts not shown" line): a notice nobody opens has not disclosed anything, and
+   *  collapsed it is indistinguishable from a phase's own output. Real phase runs leave it unset. */
+  open?: boolean;
   /** spec 059-shaped cost of the turn(s) behind THIS run — dev-only, and per run rather than per phase,
    *  so three fix rounds read as three different numbers instead of the newest one three times. */
   cost?: WirePhaseCost;
@@ -126,7 +130,7 @@ export function Disclosure({ phaseKey, running, output, stopped, promote, cost }
    *  Label it "Distillation", never "④ Test" (promote tasks carry phase:'test' as a default). */
   promote?: boolean;
 }) {
-  const [open, setOpen] = useState(running);
+  const [open, setOpen] = useState(running || !!openInitially);
   useEffect(() => { if (running) setOpen(true); }, [running]);
   const idx = phaseIndex(phaseKey);
   const phLabel = phaseLabel(phaseLabelAt(idx));

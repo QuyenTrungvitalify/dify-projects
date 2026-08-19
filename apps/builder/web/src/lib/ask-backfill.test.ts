@@ -134,6 +134,23 @@ describe('backfillFromTranscript — the marker only appears when something is g
     expect(note.phase).toBe('test'); // stamped with the phase under view
   });
 
+  it('the marker asks to be rendered EXPANDED — a notice nobody opens has disclosed nothing', () => {
+    // Found in a real browser, not in a unit test: collapsed, this item renders as a button labelled
+    // "④ Test", identical to a phase's output, and its text is not in the document at all until clicked.
+    const out = backfillFromTranscript([qa('q1'), qa('q3')], chatOf('q1', 'q2', 'q3'), opts)!;
+    const note = out.find((i) => i.kind === 'run') as LiveThreadItem & { kind: 'run' };
+    expect(note.open).toBe(true);
+  });
+
+  it('REGRESSION: a real phase run leaves `open` unset, so ordinary output keeps collapsing', () => {
+    // The flag exists for notices only. If it leaked onto phase runs, every reopened build would unfurl
+    // every phase log at once.
+    const timeline = [run('analyze output'), qa('q1')];
+    const out = backfillFromTranscript(timeline, chatOf('q1', 'q2'), opts)!;
+    const phaseRun = out.find((i) => i.kind === 'run' && i.output === 'analyze output') as LiveThreadItem & { kind: 'run' };
+    expect(phaseRun.open).toBeUndefined();
+  });
+
   it('a server-side cut ALWAYS says so, even on a clean tail, and states how many are unshown', () => {
     const out = backfillFromTranscript([], chatOf('q1'), { ...opts, dropped: 3 })!;
     const note = out.find((i) => i.kind === 'run') as LiveThreadItem & { kind: 'run' };

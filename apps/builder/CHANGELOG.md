@@ -46,6 +46,9 @@ pattern, a changed gate. Not for docs-only edits.
   separate storage. `localhost` now lands on the canonical address.
 - Storage that fails once no longer fails forever. A single refused write used to convince the app the
   thread was already saved, so it never tried again for the rest of the session.
+- The line explaining a restored block now opens by itself. It was written correctly and shown as a
+  collapsed strip labelled "④ Test", indistinguishable from a phase's output — so the one sentence whose
+  job was to be read said nothing until you happened to click it.
 
 **A report you send in now answers the questions it used to raise**
 - The exported run bundle was missing `runs.jsonl` — the per-attempt record of what each phase did,
