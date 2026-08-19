@@ -65,6 +65,12 @@ function mkFixture(): { projectsDir: string; task: Task; cleanup: () => void } {
   // report.json carries a Bearer token to prove redaction reaches bundled text.
   writeFileSync(join(runDir, 'report.json'), JSON.stringify({ notes: ['ok, but Authorization: Bearer sk-secret999 leaked'] }));
   writeFileSync(join(runDir, 'events.jsonl'), JSON.stringify({ ts: 1, phase: 'implement', kind: 'phase_start', detail: 'fresh' }) + '\n');
+  // The per-attempt phase timeline (spec 062 S1b's machine-readable half). Shipped after RUN_ARTIFACTS
+  // was written, so it was silently missing from every export until spec 101 §2.4.
+  writeFileSync(
+    join(runDir, 'runs.jsonl'),
+    JSON.stringify({ ts: 2, phase: 'implement', output: 'wrote main.yml', cost: { numTurns: 14 } }) + '\n'
+  );
   writeFileSync(
     join(runDir, 'transcripts', 'implement.md'),
     ['## ③ Implement — attempt 1', '### Tool calls', '- Bash  ls -la /nope  ✗', '- Bash  find . -name x  ✗', '- Write  main.yml  ✓', '### Result', 'ok', ''].join('\n')
@@ -115,11 +121,33 @@ describe('buildBundle (spec 062 S2/S5)', () => {
       writeFileSync(zp, zipBuf);
       const listing = execFileSync('unzip', ['-l', zp], { encoding: 'utf8' });
       for (const name of ['summary.md', 'dossier.json', 'build-info.json', 'task.json', 'criteria.json',
-        'report.json', 'events.jsonl', 'SPEC.md', 'workflows/main.yml', 'transcripts/implement.md', 'attachments/note.txt',
+        'report.json', 'events.jsonl', 'runs.jsonl', 'SPEC.md', 'workflows/main.yml', 'transcripts/implement.md', 'attachments/note.txt',
         'chat.jsonl', 'ask-ledger.md']) {
         assert.ok(listing.includes(name), `bundle contains ${name}`);
       }
       assert.doesNotThrow(() => execFileSync('unzip', ['-t', zp], { stdio: 'ignore' }), 'valid archive');
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  /* Spec 101 §2.4. Deliberately NOT folded into the listing test above: that one skips when the `unzip`
+     binary is absent, and a guard that can silently skip is not a guard. The bundle is `zipStore` (STORED,
+     no compression), so the entry name appears verbatim in the local file header — a byte search is
+     enough, and it runs everywhere. Red-when-reverted: drop 'runs.jsonl' from RUN_ARTIFACTS and this
+     fails, with nothing else in the suite noticing. */
+  test('runs.jsonl rides the export — the per-attempt timeline must reach whoever reads the report', async () => {
+    const fx = mkFixture();
+    try {
+      const zipBuf = await buildBundle(fx.projectsDir, fx.task);
+      assert.ok(
+        zipBuf.includes(Buffer.from('runs.jsonl', 'utf8')),
+        'runs.jsonl is missing from the bundle — a tester report would arrive without the phase timeline',
+      );
+      assert.ok(
+        zipBuf.includes(Buffer.from('wrote main.yml', 'utf8')),
+        'and its CONTENT is there, not just an empty entry',
+      );
     } finally {
       fx.cleanup();
     }

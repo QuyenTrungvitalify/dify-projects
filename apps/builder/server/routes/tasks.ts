@@ -25,6 +25,7 @@ import {
   createTask,
   deleteTask,
   DRAFTS_PROJECT,
+  isTaskId,
   isValidWorkflowFile,
   loadTask,
   normalizeConfirmMode,
@@ -49,10 +50,10 @@ import {
   type ConfirmPayload,
   type OrchestratorCtx,
 } from '../lib/orchestrator.js';
-import { askWithin, askTestWithin, consultWithin, readConsultChat, readLastAsk } from '../lib/ask.js';
+import { askWithin, askTestWithin, consultWithin, countChatPairs, readConsultChat, readLastAsk, tailChatPairs } from '../lib/ask.js';
 import { acquireTurn, buildHolderId, buildTurnBusy, chatHolderId, chatTurnBusy, evictCancelled, isCancelled, liveKind, liveSession, markCancelled, releaseTurn, requestAskCancel, taskTurnRunning, unmarkCancelled, type TurnKind } from '../lib/lock.js';
 import { readArtifactContents } from '../lib/artifacts.js';
-import { readEvents } from '../lib/run-events.js';
+import { logEvent, readEvents } from '../lib/run-events.js';
 import { readRunAttempts } from '../lib/run-transcript.js';
 import { MAX_ATTACHMENT_BYTES, saveAttachments, validateAttachments } from '../lib/attachments.js';
 
@@ -157,6 +158,11 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
   });
 
   const idOf = (req: { params: unknown }): string => (req.params as { id: string }).id;
+
+  /** GET /api/tasks/:id/chat returns at most this many exchanges. Sized to cover a real conversation
+   *  (the run that prompted spec 099 had 53) while bounding a runaway one; the remainder is reported as
+   *  `dropped` rather than silently missing. */
+  const CHAT_TAIL_PAIRS = 50;
 
   /** Indices in `task.attachments` of the files THIS request just saved. Returned as `uploads` on the
    *  four file-accepting POSTs so the FE can address each one as `GET /api/tasks/:id/uploads/:idx` and
@@ -439,6 +445,50 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       ...(runCosts.length ? { runCosts } : {}),
       ...(runs.length ? { runs, ...(runsDropped ? { runsDropped } : {}) } : {}),
     };
+  });
+
+  /**
+   * ── GET /api/tasks/:id/chat — the persisted ask transcript, READ-ONLY ──
+   *
+   * Spec 099 S1. A build's Q&A has only ever lived in the browser's localStorage, so any reason that
+   * cache goes away — the 20-thread LRU evicting an older build, a cleared cache, another machine, the
+   * multi-tab clobber — took the conversation with it, while `chat.jsonl` sat on disk beside the run the
+   * whole time with no way to read it back. This is that way back, and nothing more: it adds no write
+   * path, no new file, no new format (`readConsultChat` is the reader consult already uses).
+   *
+   * A SEPARATE route rather than a field on `GET /api/tasks/:id`, deliberately: that snapshot is
+   * re-fetched on EVERY SSE reconnect, and folding a few hundred KB of transcript into it would trade
+   * this bug for a slower one. The client calls this once, when it opens a build.
+   *
+   * `?have=<n>` — how many `qa` bubbles the browser already has. When it disagrees with what is on disk,
+   * ONE line goes to the run timeline. That single number ("browser 87, disk 53") took three wrong
+   * diagnoses and a paste from the user's console to obtain during the 099 investigation; on a tester's
+   * machine it would not have been obtainable at all. Agreement writes nothing — the everyday case has
+   * to stay silent or the timeline becomes noise.
+   */
+  app.get('/api/tasks/:id/chat', async (req, reply) => {
+    const id = idOf(req);
+    // Confinement first: `taskDir` feeds `join`, and this handler both reads and (on a gap) writes.
+    if (!isTaskId(id)) return reply.code(400).send({ error: 'invalid task id' });
+    try {
+      await loadTask(projectsDir, id);
+    } catch {
+      return reply.code(404).send({ error: `no such task: ${id}` });
+    }
+    const all = await readConsultChat(projectsDir, id); // missing/unreadable ⇒ [] by contract
+    const { lines, dropped } = tailChatPairs(all, CHAT_TAIL_PAIRS);
+
+    const haveRaw = (req.query as { have?: string } | undefined)?.have;
+    const have = haveRaw != null && /^\d+$/.test(haveRaw) ? Number(haveRaw) : null;
+    const onDisk = countChatPairs(all);
+    if (have != null && have !== onDisk) {
+      void logEvent(taskDir(projectsDir, id), {
+        kind: 'history_gap',
+        detail: `disk=${onDisk} browser=${have}`,
+      });
+    }
+
+    return { chat: lines, ...(dropped ? { dropped } : {}) };
   });
 
   // ── POST /api/tasks/:id/confirm — advance one boundary (the gate) ──

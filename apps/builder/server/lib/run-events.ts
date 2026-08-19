@@ -25,6 +25,27 @@ export type RunEventKind =
   | 'retry' // a Retry-out-of-error re-ran the phase (detail: the user's text, if any)
   | 'live_test' // a ④ live-test verdict (detail: verdict + reason)
   | 'turn_cost' // what ONE attempt cost (carried in `cost`, not `detail`)
+  // Spec 099 S0 — a browser opened / closed the SSE stream for this task, `detail: 'clients=N'` where N
+  // counts the streams still live ON THIS TASK. It answers exactly one question, and it is the question
+  // that blocked the 099 investigation: HOW MANY TABS were watching this build at once? Two tabs on one
+  // build is a real data-loss scenario (099 S1b), and the old `dev-restart.log` could not answer it — it
+  // recorded every request but NEVER a disconnect, so every stream appeared to "end" when the process
+  // died and any concurrency count from it was fiction.
+  //
+  // Written HERE rather than only to `app.log` because `.runs/dev-restart.log` is process-global, mixes
+  // every task, is not redacted, and therefore can never ride the export bundle. On the author's machine
+  // a log line is enough; on a tester's machine it is unreachable. This file already ships in the bundle.
+  | 'stream_open'
+  | 'stream_close'
+  // Spec 099 S1 — the browser asked for the transcript and its own count DISAGREED with the disk's,
+  // `detail: 'disk=N browser=M'`. Written only on disagreement: the everyday case must stay silent, or
+  // the timeline fills with noise and stops being read.
+  //
+  // This is the measurement the 099 investigation could not get. "87 exchanges in the browser, 53 on
+  // disk" came from asking the user to paste a console dump, after three wrong diagnoses built on
+  // inferring the browser's state from the disk's. On a tester's machine that request is not available
+  // at all — so the number has to record itself, on the one channel the export bundle carries.
+  | 'history_gap'
   | 'artifact_unchanged'; // spec 094 S1 — an ③ turn ended with the artifact's bytes IDENTICAL (detail:
 //                           the workflow file). Emitted only when measured; absent ⇒ the turn changed
 //                           the file, or the build predates 094. Two of the five fix rounds on run

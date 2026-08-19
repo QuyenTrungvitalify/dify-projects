@@ -50,6 +50,11 @@ const persistedRunOutput = (taskId: string): string | undefined => {
 
 afterEach(() => {
   vi.useRealTimers();
+  // Unconditionally, because an inline `spy.mockRestore()` NEVER RUNS when an assertion above it throws
+  // — the mock then leaks into the next test and turns one real failure into a cascade of fake ones.
+  // Observed while proving the §3.2 test red: a leaked setItem stub made an unrelated dedupe assertion
+  // fail too, which is exactly the kind of noise that hides the actual regression.
+  vi.restoreAllMocks();
   resetToNew();
   try {
     localStorage.clear();
@@ -84,5 +89,53 @@ describe('persistThreadImmediately — unload-time flush beats the debounce star
     window.dispatchEvent(new Event('pagehide'));
 
     expect(persistedRunOutput('TFLUSH2')).toContain('pagehide-flushed text');
+  });
+});
+
+/**
+ * Spec 101 §3.2 — a FAILED write must not poison every later one.
+ *
+ * `persistThreadNow` dedupes by comparing the serialized thread to `_lastPersisted`, and it used to set
+ * that marker BEFORE calling `setItem`. So one throw — a full quota, private mode — left the marker
+ * claiming this exact payload was stored when nothing was. Every subsequent attempt then matched the
+ * marker and short-circuited: the thread was never written again for the rest of the session, silently,
+ * because the surrounding catch has always swallowed. Moving the assignment after the write costs
+ * nothing and makes the failure transient instead of terminal.
+ */
+describe('persistThreadNow — a throw does not permanently disable persistence (spec 101 §3.2)', () => {
+  it('setItem throws once → the NEXT flush of the same thread still attempts the write', () => {
+    const t = mk('T-quota', 1);
+    applyTask(t);
+    applyOutput('analyze', 'the phase output');
+
+    const real = localStorage.setItem.bind(localStorage);
+    const spy = vi.spyOn(Storage.prototype, 'setItem');
+    let calls = 0;
+    spy.mockImplementation((k: string, v: string) => {
+      calls++;
+      if (calls === 1) throw new DOMException('QuotaExceededError'); // the thread write fails once
+      real(k, v);
+    });
+
+    persistThreadImmediately(); // attempt 1 — throws
+    persistThreadImmediately(); // attempt 2 — same payload, MUST be retried, not deduped away
+
+    // >1 call for the thread key is the whole assertion: with the old ordering the second flush
+    // short-circuited on `json === _lastPersisted` and never reached setItem at all.
+    const threadWrites = spy.mock.calls.filter((c) => String(c[0]).startsWith('builder.thread.T-quota'));
+    expect(threadWrites.length).toBeGreaterThan(1);
+    expect(persistedRunOutput('T-quota')).toBe('the phase output'); // and it eventually landed
+  });
+
+  it('REGRESSION: with no throw, an unchanged thread is still written only ONCE (dedupe intact)', () => {
+    const t = mk('T-dedupe', 1);
+    applyTask(t);
+    applyOutput('analyze', 'stable');
+    persistThreadImmediately();
+
+    const spy = vi.spyOn(Storage.prototype, 'setItem');
+    persistThreadImmediately(); // nothing changed since the write above
+    const threadWrites = spy.mock.calls.filter((c) => String(c[0]).startsWith('builder.thread.T-dedupe'));
+    expect(threadWrites).toHaveLength(0); // the dedupe must survive the reorder
   });
 });

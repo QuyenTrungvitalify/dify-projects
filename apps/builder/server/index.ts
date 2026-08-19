@@ -28,6 +28,7 @@ import uiRoutes from './routes/ui.js';
 import { BODY_LIMIT_BYTES } from './lib/attachments.js';
 import ssePlugin, { createSSEState } from './plugins/sse.js';
 import { isOriginAllowedForMutation } from './plugins/sse-origin-check.js';
+import { canonicalHostRedirect, CANONICAL_REDIRECT_STATUS } from './plugins/canonical-host.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -122,11 +123,18 @@ app.addHook('onRequest', async (req, reply) => {
   if (mutating && !isOriginAllowedForMutation(req.headers.origin, PORT)) {
     return reply.code(403).send({ error: 'origin not allowed' });
   }
+  // Spec 099 S4 — ONE origin. `localhost:<port>` and `127.0.0.1:<port>` are the same socket but two
+  // browser origins, hence two localStorages, hence two different chat histories for the same build with
+  // nothing on screen saying so. Document navigations only, and 308 (not 301/302, which may turn a POST
+  // into a GET); see canonical-host.ts for why each narrowing is there. Runs AFTER the CSRF check so a
+  // rejected mutation is still rejected, never redirected.
+  const canonical = canonicalHostRedirect(req, PORT);
+  if (canonical) return reply.code(CANONICAL_REDIRECT_STATUS).header('location', canonical).send();
 });
 
 // ── SSE relay state (shared: the plugin serves /stream, the routes broadcast into it) ──
 const sse = createSSEState();
-await app.register(ssePlugin, { sse, port: PORT });
+await app.register(ssePlugin, { sse, port: PORT, projectsDir: DIFY_PROJECTS_DIR });
 
 // The gated surface (Lát 3): POST /api/tasks · GET /api/tasks/:id · POST .../confirm /reply /cancel
 // — run-lock (409), pause/confirm, within-phase reply, cancel, scaffold-at-Spec-gate. Lát 4 wires

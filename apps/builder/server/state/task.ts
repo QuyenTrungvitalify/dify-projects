@@ -572,6 +572,21 @@ export function workflowDir(task: Pick<Task, 'project' | 'workflowSlug'>): strin
 }
 
 const runsRoot = (projectsDir: string): string => join(projectsDir, 'apps/builder/.runs');
+
+/**
+ * Is this a real task id — the 13+ digit ms timestamp `createTask` mints?
+ *
+ * A CONFINEMENT predicate, not a formatting one. `taskDir` feeds its argument straight to `join`, so a
+ * caller that hands it a request parameter containing `../` walks out of `.runs/` and writes wherever
+ * the segments lead. Every route that turns `:id` into a path is expected to pass it through here first
+ * (`routes/ui.ts` keeps a local copy of the same regex; they should converge, but the duplicate is
+ * correct today so this is a note, not a bug).
+ *
+ * Digits only, so there is nothing to normalise and no encoding to get wrong: `..`, `%2e%2e`, a leading
+ * `/`, a NUL — none of them match.
+ */
+export const isTaskId = (id: string): boolean => /^\d{13,}$/.test(id);
+
 export const taskDir = (projectsDir: string, taskId: string): string =>
   join(runsRoot(projectsDir), taskId);
 const taskFile = (projectsDir: string, taskId: string): string =>

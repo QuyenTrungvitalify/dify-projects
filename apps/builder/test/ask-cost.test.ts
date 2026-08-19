@@ -16,8 +16,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { askTestWithin, askWithin, readConsultChat, readLastAsk,
-  askSessionTokens, shouldResetAskSession, ASK_RESET_TOKENS } from '../server/lib/ask.js';
+import { askTestWithin, askWithin, readConsultChat, readLastAsk, readLastAskMeta,
+  askSessionTokens, shouldResetAskSession, askResetSuppressed, ASK_RESET_TOKENS } from '../server/lib/ask.js';
 import { createTask, saveTask, type Task } from '../server/state/task.js';
 import type { ClaudeSession } from '../server/lib/claude-session.js';
 import type { TurnResult } from '../server/lib/turn-runner.js';
@@ -182,9 +182,12 @@ describe('the dev cost tip — what one answer cost', () => {
     const task = await terminalTask(dir);
     task.sessionIds.askTest = 'old-session';
     await saveTask(dir, task);
-    // the previous answer carried a 900k-token prefix — the measured shape
+    // The previous answer carried a prefix past the limit. Spec 100 raised that limit 300k → 1M, so
+    // this fixture moved with it: 899k (the old value) is now BELOW the line on purpose — it was one
+    // expensive QUESTION, not a bloated HISTORY, and the whole point of the new number is to stop
+    // confusing the two. 1.2M is unambiguously a session that has actually grown.
     await settle(dir, task, {
-      result: { ...RESULT, usage: { input_tokens: 1, cache_read_input_tokens: 899_300, cache_creation_input_tokens: 10_300, output_tokens: 495 } },
+      result: { ...RESULT, usage: { input_tokens: 1, cache_read_input_tokens: 1_190_000, cache_creation_input_tokens: 10_300, output_tokens: 495 } },
     });
 
     let prompt = '';
@@ -242,6 +245,108 @@ describe('the dev cost tip — what one answer cost', () => {
     assert.equal((await readConsultChat(dir, task.taskId)).at(-1)!.sessionReset, undefined);
   });
 
+  /* THE DOOM LOOP (spec 100). The static 50k floor guards against a limit under the CLI's own preamble.
+     It cannot guard against a limit under one TURN of a particular build — that number depends on how
+     big the artifacts are, so no constant knows it. Run 1786505684286: turn 110 was a session that had
+     JUST been reset, still carried 442k, still cost $1.02, and still triggered the next reset. Four
+     resets in a day, two of them 8 minutes apart. The signal is exact and already on disk (`sessionReset`
+     on the assistant line), so the fix is to read it rather than to guess a bigger constant. */
+  test('the dynamic floor: a session that was ALREADY reset and still blew the limit is not reset again', async () => {
+    const task = await terminalTask(dir);
+    task.sessionIds.askTest = 'old-session';
+    await saveTask(dir, task);
+    // Build the precondition the way it happens in real life — the flag is decided from the PREVIOUS
+    // turn, so it takes two. Turn 1 records an over-limit cost (nothing before it, so no reset). Turn 2
+    // sees that, resets, and — this is what matters — ITS OWN cost is over the limit too, which is
+    // exactly the shape of the observed loop (run 1786505684286 turn 110: fresh, and still 442k).
+    const heavy = {
+      result: { ...RESULT, usage: { input_tokens: 1, cache_read_input_tokens: 1_190_000, cache_creation_input_tokens: 10_300, output_tokens: 495 } },
+    };
+    await settle(dir, task, heavy);
+    await settle(dir, task, heavy);
+    const seeded = await readConsultChat(dir, task.taskId);
+    assert.equal(seeded.at(-1)!.sessionReset, true, 'precondition: turn 2 IS recorded as a fresh session');
+    assert.ok(
+      askSessionTokens(seeded.at(-1)!.cost) >= ASK_RESET_TOKENS,
+      'precondition: and that fresh turn STILL exceeded the limit — the loop condition',
+    );
+
+    // Turn 2 asks again. The limit fires on turn 1's cost — but resetting would just repeat the loop.
+    let resumed: string | undefined = 'not-observed';
+    let prompt = '';
+    const runTurn = async (
+      s: ClaudeSession, p: string, onSid?: (id: string) => void, o?: { onText?: (t: string) => void }
+    ): Promise<TurnResult> => {
+      resumed = s.resumeSessionId; prompt = p; onSid?.('kept'); o?.onText?.('ok');
+      return { sessionId: 'kept', isError: false, result: RESULT } as unknown as TurnResult;
+    };
+    let done: Done & { sessionReset?: boolean } = { ok: false };
+    const warns: unknown[] = [];
+    await askTestWithin(task, 'and again?', {
+      projectsDir: dir, settingsPath: '',
+      log: { info() {}, warn: (o: unknown) => { warns.push(o); }, error() {} },
+      broadcast: (_i: string, ev: string, pl: unknown) => { if (ev === 'ask:done') done = pl as typeof done; },
+      runners: { runTurn },
+    } as unknown as OrchestratorCtx, []);
+
+    assert.ok(resumed, 'THE POINT: the second reset is DECLINED — continuity is kept, not thrown away twice');
+    assert.equal(done.sessionReset, undefined, 'and nothing claims a reset happened');
+    assert.ok(!prompt.includes('NOT visible to you'), 'no amnesia note when no history was dropped');
+
+    // Declining QUIETLY would read exactly like a healthy session. This is the one line that says the
+    // threshold itself is misconfigured, so it must carry the real numbers.
+    assert.equal(warns.length, 1, 'the declined reset is reported, not swallowed');
+    const w = warns[0] as { tokens: number; limit: number };
+    assert.equal(w.limit, ASK_RESET_TOKENS);
+    assert.ok(w.tokens >= ASK_RESET_TOKENS, `the warn carries the measured number (got ${w.tokens})`);
+  });
+
+  test('readLastAskMeta reads the reset decision inputs WITHOUT widening the wire payload', async () => {
+    // A separate reader from `readLastAsk` on purpose: that one's shape rides GET /api/tasks/:id as
+    // `lastAsk`, and spec 099 holds that payload fixed. This one exists so a server-internal decision
+    // input never has to travel to the browser on every reconnect to be read by nobody.
+    const task = await terminalTask(dir);
+    assert.deepEqual(
+      await readLastAskMeta(dir, task.taskId), { sessionReset: false },
+      'no transcript ⇒ nothing recorded is not a reason to throw a session away',
+    );
+
+    await settle(dir, task, { result: { ...RESULT, usage: { input_tokens: 1, cache_read_input_tokens: 20_000, output_tokens: 5 } } });
+    const ordinary = await readLastAskMeta(dir, task.taskId);
+    assert.equal(ordinary.sessionReset, false, 'an ordinary turn is not a fresh session');
+    assert.equal(askSessionTokens(ordinary.cost), 20_001, 'and its cost comes back for the decision');
+
+    // …and `lastAsk` — the shape that DOES go on the wire — must be unchanged by any of this.
+    const wire = await readLastAsk(dir, task.taskId);
+    assert.deepEqual(
+      Object.keys(wire!).sort(), ['a', 'cost', 'ok', 'q'],
+      'regression: lastAsk gained no fields (spec 099 non-goal)',
+    );
+  });
+
+  test('the dynamic floor is NOT a blanket amnesty: a reset session that came back UNDER the limit still resets later', async () => {
+    // Guards the obvious over-correction — "was reset once ⇒ never reset again". The flag only matters
+    // on the turn that is being judged; once a turn lands under the limit, the next growth is real again.
+    assert.equal(
+      shouldResetAskSession({ cacheReadTokens: 1_190_000 }, ASK_RESET_TOKENS, true), false,
+      'previous turn was fresh AND over → declined',
+    );
+    assert.equal(
+      shouldResetAskSession({ cacheReadTokens: 1_190_000 }, ASK_RESET_TOKENS, false), true,
+      'previous turn was NOT fresh → an ordinary over-limit session still resets',
+    );
+    assert.equal(
+      shouldResetAskSession({ cacheReadTokens: 65_714 }, ASK_RESET_TOKENS, true), false,
+      'under the limit is a no-op either way — the flag never forces a reset',
+    );
+    assert.equal(
+      askResetSuppressed({ cacheReadTokens: 1_190_000 }, ASK_RESET_TOKENS, true), true,
+      'and THAT case is the one worth a log line',
+    );
+    assert.equal(askResetSuppressed({ cacheReadTokens: 65_714 }, ASK_RESET_TOKENS, true), false);
+    assert.equal(askResetSuppressed({ cacheReadTokens: 1_190_000 }, ASK_RESET_TOKENS, false), false);
+  });
+
   test('a build with no recorded history keeps resuming, exactly as before', async () => {
     const task = await terminalTask(dir);
     task.sessionIds.askTest = 'legacy';
@@ -270,10 +375,20 @@ describe('the dev cost tip — what one answer cost', () => {
     assert.equal(askSessionTokens(undefined), 0);
     assert.equal(askSessionTokens({}), 0);
 
-    assert.equal(shouldResetAskSession({ inputTokens: 2, cacheReadTokens: 899_300 }), true);
+    assert.equal(shouldResetAskSession({ inputTokens: 2, cacheReadTokens: 1_190_000 }), true);
     assert.equal(shouldResetAskSession({ inputTokens: 2, cacheReadTokens: 15_600, cacheCreationTokens: 8_100 }), false);
     assert.equal(shouldResetAskSession(undefined), false, 'no data is not a reason to throw away a session');
     assert.equal(shouldResetAskSession({ cacheReadTokens: ASK_RESET_TOKENS }), true, 'the limit is inclusive');
+
+    // 899k USED to reset (the limit was 300k) and deliberately no longer does. That turn was one
+    // expensive QUESTION — a 622-token answer whose prefix had to be re-written because the cache had
+    // expired — not a session that had grown. Resetting there is what spec 100 measured as the doom
+    // loop: reset → the model must re-read main.yml → that turn blows the limit → reset again.
+    assert.equal(
+      shouldResetAskSession({ inputTokens: 2, cacheReadTokens: 899_300 }),
+      false,
+      'spec 100: one heavy turn is no longer mistaken for a bloated session',
+    );
 
     // A fresh session is not free: measured live, the turn right after a reset still carried 26,837
     // tokens (the CLI's own preamble + the seed). A threshold under that floor resets EVERY turn —

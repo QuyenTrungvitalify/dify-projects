@@ -88,13 +88,26 @@ export const ASK_TIMEOUT_MS = Number(process.env.BUILDER_ASK_TIMEOUT_MS) || 8 * 
  * therefore starts with everything it needs. A consult is the opposite — its conversation IS the
  * product — so it is deliberately left alone, and so is a gate ask, which resumes its phase session.
  *
- * 300k is chosen from the same data: a healthy session's first questions carry 15–20k, and a session
- * reaches 300k only after tens of questions, so an ordinary follow-up chain is never interrupted. Where
- * it does fire, the next question costs a few cents instead of several dollars.
+ * WHY THE LIMIT MOVED 300k → 1M (spec 100). The old number rested on "a session reaches 300k only after
+ * tens of questions", and measurement refuted it: on an artifact-heavy build a SINGLE turn carries
+ * 400–475k, because answering means re-reading `main.yml` (142KB) across an internal tool loop of up to
+ * 19 iterations. The threshold therefore sat BELOW the cost of one ordinary turn, and the mechanism ate
+ * itself: reset → the model no longer knows the file → it re-reads it → that turn blows the limit →
+ * reset. Run 1786505684286 reset FOUR times in a day, twice within 8 minutes, and the turn right after a
+ * reset still carried 442k and still cost $1.02 — a reset that bought nothing and cost continuity.
+ *
+ * Measured trajectory on that run: 400,661 → 442,253 (already fresh!) → 118,884 → 65,714 → 475,096.
+ * 1M clears the worst single turn observed anywhere (899k, the $8.86 case above) with headroom, so the
+ * limit now fires on an actually-bloated HISTORY rather than on one expensive QUESTION.
+ *
+ * CAVEAT, so nobody reads more into this number than it holds: `askSessionTokens` sums input +
+ * cacheRead + cacheCreation, and cache reads are roughly an order of magnitude cheaper than fresh input.
+ * A long-lived session therefore shows a BIG number on a SMALL bill, while a just-reset one shows the
+ * reverse. This limit is a rough size fence, NOT a spend budget — see spec 100 Open Q1.
  */
 export const ASK_RESET_TOKENS = Math.max(
   50_000,
-  Number(process.env.BUILDER_ASK_RESET_TOKENS) || 300_000,
+  Number(process.env.BUILDER_ASK_RESET_TOKENS) || 1_000_000,
 );
 
 /**
@@ -122,10 +135,43 @@ export function askSessionTokens(cost: PhaseCost | undefined): number {
   return n(cost.inputTokens) + n(cost.cacheReadTokens) + n(cost.cacheCreationTokens);
 }
 
-/** Should the NEXT ask start fresh? Reads the LAST answer's cost — no new bookkeeping, and a task with
- *  nothing recorded (every build from before the meter shipped) simply keeps resuming, as it always did. */
-export function shouldResetAskSession(lastCost: PhaseCost | undefined, limit = ASK_RESET_TOKENS): boolean {
-  return askSessionTokens(lastCost) >= limit;
+/**
+ * Should the NEXT ask start fresh? Reads the LAST answer's cost — no new bookkeeping, and a task with
+ * nothing recorded (every build from before the meter shipped) simply keeps resuming, as it always did.
+ *
+ * `prevTurnWasFreshSession` is the DYNAMIC FLOOR (spec 100 S1). The static floor above (50k) protects
+ * against a limit set below the CLI's own preamble; this protects against a limit set below what ONE
+ * TURN of this particular build costs — which no constant can know in advance, because it depends on
+ * how big the artifacts are. The signal is exact and already on disk: if the previous turn was itself a
+ * fresh session's first turn AND it still blew the limit, then the session was never the problem, so
+ * resetting again would only repeat the loop with the continuity thrown away for nothing. Observed
+ * directly: run 1786505684286 turn 110 was fresh, carried 442k, and triggered the next reset anyway.
+ *
+ * Deliberately NOT symmetric with the static floor: this one does not raise the limit, it declines a
+ * single reset. Raising it silently would hide a misconfiguration that {@link askResetSuppressed} is
+ * meant to make loud.
+ */
+export function shouldResetAskSession(
+  lastCost: PhaseCost | undefined,
+  limit = ASK_RESET_TOKENS,
+  prevTurnWasFreshSession = false
+): boolean {
+  return askSessionTokens(lastCost) >= limit && !prevTurnWasFreshSession;
+}
+
+/**
+ * The diagnosis behind a declined reset: the limit fired, but on a session that had just been reset —
+ * i.e. **the limit is set below one turn of this build**. Split out from {@link shouldResetAskSession}
+ * so the caller can say so in the log with the real number, instead of silently doing nothing. A quiet
+ * decline would read exactly like a healthy session, and this is the one condition that says the knob
+ * itself is wrong.
+ */
+export function askResetSuppressed(
+  lastCost: PhaseCost | undefined,
+  limit = ASK_RESET_TOKENS,
+  prevTurnWasFreshSession = false
+): boolean {
+  return prevTurnWasFreshSession && askSessionTokens(lastCost) >= limit;
 }
 
 /** Told to the model when its history was dropped, so it says "I cannot see that" instead of inventing
@@ -716,9 +762,22 @@ export async function askTestWithin(
     // Drop a session that has grown expensive (see ASK_RESET_TOKENS). Decided from the LAST answer's
     // recorded cost, before the prompt is built, so the model can be told its history is gone.
     const resuming = task.sessionIds.askTest;
-    const sessionReset = !!resuming && shouldResetAskSession((await readLastAsk(projectsDir, task.taskId))?.cost);
+    const lastMeta = await readLastAskMeta(projectsDir, task.taskId);
+    const sessionReset =
+      !!resuming && shouldResetAskSession(lastMeta.cost, ASK_RESET_TOKENS, lastMeta.sessionReset);
     if (sessionReset) {
       log.info({ taskId: task.taskId, prevSessionId: resuming }, 'askTest: session reset — history grew past the budget');
+    }
+    // The knob is set below one turn of THIS build: the previous turn was already a fresh session and
+    // still blew the limit, so a second reset would buy nothing and cost the conversation again (spec
+    // 100 — the loop that reset four times in a day). Declining is right; declining QUIETLY is not, so
+    // say it with the real number — this is the one line that identifies a misconfigured threshold.
+    else if (!!resuming && askResetSuppressed(lastMeta.cost, ASK_RESET_TOKENS, lastMeta.sessionReset)) {
+      log.warn(
+        { taskId: task.taskId, tokens: askSessionTokens(lastMeta.cost), limit: ASK_RESET_TOKENS },
+        'askTest: reset DECLINED — the previous turn was already a fresh session and still exceeded the limit, ' +
+          'so BUILDER_ASK_RESET_TOKENS is below the cost of one turn on this build'
+      );
     }
     const prompt =
       // Same omission as askWithin's: the ④/terminal Ask had no language directive, so a Vietnamese
@@ -1009,6 +1068,67 @@ export async function readLastAsk(
     return undefined; // an assistant line with no question before it — nothing to match on
   }
   return undefined;
+}
+
+/**
+ * The last `maxPairs` exchanges, cut only at a PAIR boundary, plus how many older pairs were left out.
+ *
+ * Slicing the raw line array by count would be wrong in a way that is easy to miss: it can begin on an
+ * assistant line, and the client pairs adjacent (user, assistant) — so a mid-pair cut shifts every
+ * following pair by one and grafts each answer onto the wrong question. Silently, and plausibly.
+ *
+ * Everything from the first kept pair onward is returned, including a trailing unpaired `user` line (an
+ * interrupted turn), because that is what the file actually says. `dropped` counts PAIRS, which is what
+ * the reader is told about — "3 exchanges not shown" means something; "6 lines" does not.
+ */
+export function tailChatPairs(
+  lines: ConsultChatLine[],
+  maxPairs: number
+): { lines: ConsultChatLine[]; dropped: number } {
+  const starts = pairStarts(lines);
+  if (starts.length <= maxPairs) return { lines, dropped: 0 };
+  return { lines: lines.slice(starts[starts.length - maxPairs]), dropped: starts.length - maxPairs };
+}
+
+/** How many complete (user, assistant) exchanges a transcript holds — the number `?have=` is compared to. */
+export function countChatPairs(lines: ConsultChatLine[]): number {
+  return pairStarts(lines).length;
+}
+
+/** Index of the `user` line opening each complete exchange. One scan, shared by both readers above. */
+function pairStarts(lines: ConsultChatLine[]): number[] {
+  const starts: number[] = [];
+  for (let i = 0; i + 1 < lines.length; i++) {
+    if (lines[i].role === 'user' && lines[i + 1].role === 'assistant') {
+      starts.push(i);
+      i++; // consume the assistant line so a U,A,A run cannot pair the second answer too
+    }
+  }
+  return starts;
+}
+
+/**
+ * What the session-reset decision needs from the last answer: its cost, and whether that turn had itself
+ * started a fresh session (spec 100 S1's dynamic floor).
+ *
+ * A SEPARATE reader rather than two more fields on {@link readLastAsk} — deliberately. `readLastAsk`'s
+ * shape rides `GET /api/tasks/:id` as `lastAsk`, and spec 099 holds that payload fixed (its non-goals:
+ * "không đổi `lastAsk` phía server"). Widening it here would push a server-internal decision input onto
+ * the wire for every reconnect, to be read by nobody. Same single `chat.jsonl` read either way.
+ *
+ * No transcript / no assistant line ⇒ `{ sessionReset: false }`: nothing recorded is not a reason to
+ * throw a session away, which is the same stance `readLastAsk` takes.
+ */
+export async function readLastAskMeta(
+  projectsDir: string,
+  taskId: string
+): Promise<{ cost?: PhaseCost; sessionReset: boolean }> {
+  const lines = await readConsultChat(projectsDir, taskId);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].role !== 'assistant') continue;
+    return { ...(lines[i].cost ? { cost: lines[i].cost } : {}), sessionReset: lines[i].sessionReset === true };
+  }
+  return { sessionReset: false };
 }
 /** Read the persisted consult transcript (GET /api/tasks/:id folds it in for a `kind:'consult'` task). */
 export async function readConsultChat(projectsDir: string, taskId: string): Promise<ConsultChatLine[]> {

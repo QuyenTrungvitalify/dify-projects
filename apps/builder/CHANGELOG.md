@@ -11,6 +11,52 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**The assistant stops forgetting what you just asked it (spec 100)**
+- Mid-conversation, on a build with a large workflow file, answers kept beginning with "this
+  conversation was restarted to keep its cost bounded, so I cannot see your earlier questions". Not
+  once — **four times in a single day on one build, twice within eight minutes**.
+- The restart is deliberate: a conversation that grows without limit gets expensive, and one question
+  had genuinely cost **$8.86**. But the threshold that triggered it sat *below the cost of one ordinary
+  question* on such a build, because answering means re-reading a 142KB workflow file. So it fed
+  itself: restart → the assistant no longer knows the file → it reads it again → that reading trips the
+  threshold → restart. The turn immediately after a restart still carried 442k tokens and still cost
+  $1.02, so the restart had bought nothing at all.
+- The limit is now well above what a single heavy question costs, and it refuses to fire twice in a
+  row: if a conversation that was *just* restarted still exceeds it, the limit is wrong rather than the
+  conversation, and the app says so in its log instead of quietly restarting again.
+- Being honest about the number: it fences the SIZE of a conversation, which turns out to explain very
+  little of the cost. Measured on the same build, a conversation of 1.57M tokens cost **$0.98** while
+  one half that size cost **$7.90** — what actually moves the bill is whether the cached prefix had
+  expired. That is a separate thread to pull; this change stops the forgetting.
+
+**A build's questions and answers survive the browser (spec 099)**
+- Everything you had asked about a build lived only in that browser's storage. Open the build on
+  another machine, clear the cache, or simply start a 21st build — the app keeps 20 — and the whole
+  conversation was gone from the screen, while it sat intact on disk the entire time. Three exchanges
+  were lost that way and prompted this.
+- Reopening a build now reads those exchanges back from disk. Existing history is never replaced, only
+  what is missing gets added, so the phase timeline stays exactly as it was. When the restored block
+  cannot be placed with confidence — a gap in the middle, or more exchanges than fit — it says so
+  instead of quietly implying an order it does not know.
+- Opening the same build in a **second tab** used to destroy the first tab's history: the second tab
+  received the answer, had nowhere to put it, and then wrote its own shorter copy over the good one.
+  It no longer writes anything it did not change.
+- Reaching the app at `localhost` instead of `127.0.0.1` showed a **different conversation for the same
+  build**, with nothing on screen to say why — a browser treats those as two separate sites with
+  separate storage. `localhost` now lands on the canonical address.
+- Storage that fails once no longer fails forever. A single refused write used to convince the app the
+  thread was already saved, so it never tried again for the rest of the session.
+
+**A report you send in now answers the questions it used to raise**
+- The exported run bundle was missing `runs.jsonl` — the per-attempt record of what each phase did,
+  which shipped after the bundle was written. Reports arrived without the newest evidence in them.
+- Connecting and disconnecting a build's live view is recorded on the run timeline, with how many views
+  remain. "Were two tabs open at once?" was unanswerable from an exported report before; it is the
+  question behind a whole class of vanished-history bugs.
+- When the browser and the disk disagree about how many exchanges a build has, that disagreement is
+  written down once, with both numbers. Getting that single fact previously required asking someone to
+  paste a console dump — impossible for anyone but the developer's own machine.
+
 **Asking about a finished build costs a fraction of what it did (spec 098)**
 - Asking questions about a workflow you had already built was costing **3.4× more than building it** —
   measured on real sessions: 60.5M input-equivalent tokens spent answering versus 18.0M spent building.

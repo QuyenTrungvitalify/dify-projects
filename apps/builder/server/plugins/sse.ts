@@ -26,6 +26,8 @@ import type { FastifyInstance } from 'fastify';
 import type { ServerResponse } from 'node:http';
 import { isOriginAllowed } from './sse-origin-check.js';
 import { taskTurnRunning } from '../lib/lock.js';
+import { logEvent } from '../lib/run-events.js';
+import { taskDir, isTaskId } from '../state/task.js';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const MAX_QUEUE_SIZE = parseInt(process.env.SSE_CLIENT_QUEUE_SIZE || '200', 10);
@@ -181,6 +183,17 @@ export interface SSEPluginOptions {
   sse: SSEState;
   /** Builder bind port — the Origin allowlist is keyed off it (spec §J). */
   port: number;
+  /** Spec 099 S0 — where `.runs/<taskId>/events.jsonl` lives, so a connect/disconnect can be recorded
+   *  somewhere the export bundle can carry off the machine. Optional: omitted ⇒ no timeline write, and
+   *  the transport behaves exactly as before (the existing tests construct the plugin without it). */
+  projectsDir?: string;
+}
+
+/** How many streams are live for THIS task — the number the multi-tab question actually asks. */
+export function clientsForTask(sse: SSEState, taskId: string): number {
+  let n = 0;
+  for (const c of sse.clients) if (c.taskId === taskId) n++;
+  return n;
 }
 
 /**
@@ -189,7 +202,25 @@ export interface SSEPluginOptions {
  * `init` event so the store can re-fetch authoritative state (AC #22).
  */
 const ssePlugin = async (app: FastifyInstance, opts: SSEPluginOptions): Promise<void> => {
-  const { sse, port } = opts;
+  const { sse, port, projectsDir } = opts;
+  /** Spec 099 S0 — best-effort, fire-and-forget: `logEvent` swallows its own IO errors, and a stream
+   *  must never fail because a timeline write did. Called from a sync socket handler, hence `void`. */
+  const note = (taskId: string, kind: 'stream_open' | 'stream_close'): void => {
+    if (!projectsDir) return;
+    // CONFINEMENT. This route never validated `:id` because it never needed to — the id was only a Set
+    // key and a broadcast filter, so a junk value was inert. Writing the timeline changes that: it turns
+    // the id into a filesystem path via `taskDir` → `join`, and `join` happily normalises `../` right out
+    // of `.runs/`. So the guard belongs to the WRITE, and it arrived with it.
+    //
+    // MEASURED, not assumed: with this line removed, `GET /api/tasks/..%2F..%2F..%2FESCAPED/stream`
+    // really does append to `<projectsDir>/ESCAPED/events.jsonl` — Fastify decodes `%2F` into a path
+    // separator inside the param. And the SSE GET is deliberately lenient about a missing Origin (a
+    // same-origin EventSource may omit it), so a plain `<img src=…>` on any page reaches it. Low impact
+    // — the attacker controls the path, not the content, which is one JSON line — but it is a
+    // cross-origin write primitive that did not exist before the timeline write did.
+    if (!isTaskId(taskId)) return;
+    void logEvent(taskDir(projectsDir, taskId), { kind, detail: `clients=${clientsForTask(sse, taskId)}` });
+  };
 
   app.get<{ Params: { id: string } }>('/api/tasks/:id/stream', async (request, reply) => {
     // Origin allowlist (spec §J) — fires before hijack so Fastify still owns the response.
@@ -216,16 +247,24 @@ const ssePlugin = async (app: FastifyInstance, opts: SSEPluginOptions): Promise<
     const client: SSEClient = { res: raw, taskId, queue: [], flushing: false, dropped: 0 };
 
     function cleanup(): void {
-      if (!alive) return; // idempotent
+      if (!alive) return; // idempotent — BOTH 'close' and 'error' fire on a destroyed socket, and the
+      //                     guard above is what keeps that one disconnect from being logged twice.
       alive = false;
       clearInterval(heartbeatTimer);
       sse.clients.delete(client);
       if (client.dropped > 0) {
         app.log.warn({ taskId, dropped: client.dropped }, '[SSE] slow client dropped events');
       }
+      // Spec 099 S0. AFTER the delete, so the count is who REMAINS — `clients=1` on a close means one
+      // other tab is still watching this build, which is the answer the 099 investigation could not get.
+      app.log.info({ taskId, clients: clientsForTask(sse, taskId) }, '[SSE] client closed');
+      note(taskId, 'stream_close');
     }
 
     sse.clients.add(client);
+    // AFTER the add, so the count INCLUDES this one: `clients=2` on an open is the multi-tab moment.
+    app.log.info({ taskId, clients: clientsForTask(sse, taskId) }, '[SSE] client connected');
+    note(taskId, 'stream_open');
 
     heartbeatTimer = setInterval(() => {
       if (!alive) return;
