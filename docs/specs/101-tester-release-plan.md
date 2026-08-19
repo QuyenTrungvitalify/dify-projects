@@ -3,6 +3,12 @@
 > Trạng thái: **mở**, chưa implement. Lập 2026-08-19.
 > Gộp và **cắt bớt** hai spec: [099](099-build-ask-history-survives-the-browser.md) (UI mất lịch sử)
 > và [100](100-ask-session-reset-doom-loop.md) (model mất trí nhớ).
+> **ĐÍNH CHÍNH TỪ VỰNG (2026-08-20).** File này dùng chữ "tester" rất nhiều. **Không có mode tester,
+> không có bản build riêng, không có giai đoạn nào cả** — người nhận cài đúng app này và dùng đúng như
+> tác giả. Ở mọi chỗ, đọc "tester" là **"một máy bạn không với tới được"**, không phải một chế độ hay
+> một mức chấp nhận thấp hơn tạm thời. Lập luận không đổi (bạn vẫn mất quyền đọc console của họ), chỉ
+> có cái tên là sai. Hai chỗ từng dựa vào "giai đoạn tester" như một cái cớ hạ chuẩn đã được viết lại.
+>
 > **Ràng buộc chi phối:** *không cần giữ dữ liệu hiện có* — máy tester cài mới, `.runs/` rỗng,
 > localStorage rỗng. Ràng buộc này **xoá bớt việc**, và §1 ghi rõ xoá cái gì, vì sao.
 > Mục tiêu duy nhất: **tester dùng vài tuần đầu không gặp lỗi chặn đường, và mọi lỗi họ gặp đều
@@ -51,7 +57,10 @@ logic nội bộ của 099, giả định chỉ có máy tác giả. File này t
 Sau khi bị đá, mở lại build đó thì hội thoại **tự lành** (Đợt 2), còn timeline phase **xuống cấp**:
 đĩa cho ~8 attempt × 6.000 ký tự thay vì browser giữ 41 × 32.000, và gate card không dựng lại.
 **S5 không sửa được điều đó** — nó chỉ đổi *thread nào bị đá*, không đổi *phục hồi được bao nhiêu*.
-Đây là xuống cấp, không phải mất dữ liệu. Chấp nhận cho giai đoạn tester.
+Đây là **xuống cấp, không phải mất dữ liệu** — hội thoại tự lành, timeline phase mỏng đi chứ không biến
+mất. Chấp nhận được **cho mọi người dùng**, không phải một mức tạm thời cho ai đó: S5 cũng **không sửa
+được** điều này (nó chỉ đổi *thread nào bị đá*, không đổi *phục hồi được bao nhiêu*), nên không có phiên
+bản "đầy đủ hơn" nào đang bị hoãn ở đây.
 
 ### ② Lớp 1 của S1b là ĐỦ để chặn mất dữ liệu — lớp 2 hoãn được
 
@@ -677,7 +686,7 @@ nó trong một file zip.**
 
 ### 8.3 Cái vẫn KHÔNG được sửa, nói thẳng
 
-| Còn lại | Vì sao chấp nhận ở giai đoạn tester |
+| Còn lại | Vì sao chấp nhận được — cho mọi người dùng, không phải một mức tạm |
 |---|---|
 | Tab thụ động không **hiển thị** lượt vừa hỏi (chỉ reload mới thấy) | Không mất dữ liệu nữa. Lớp 2 ở Đợt 3 |
 | Build thứ 21 làm mất **gate card** của build đầu | Xuống cấp, không mất hội thoại. S5 cũng không sửa được (§1①) |
@@ -723,7 +732,7 @@ phép đo. **Nếu M1 trượt thì làm gì:**
 3. Nếu reset vẫn ≥2 lần / 4 câu → chạy spike `[100 S0]`. Ngưỡng đang đo sai thứ (R1), và nâng tiếp
    chỉ đổi tần suất chứ không đổi bản chất.
 
-### R3 · 🟠 Tester xác thực `claude` bằng cách nào? — plan KHÔNG hỏi, và cần hỏi
+### R3 · ✅ ĐÃ TRẢ LỜI 2026-08-20 — **subscription**, và điều đó làm nhẹ rủi ro đi nhiều
 
 `PhaseCost.totalCostUsd` mang chú thích *"may be absent on a **subscription** login"*
 ([task.ts](../../apps/builder/server/state/task.ts)). Nghĩa là hồ sơ rủi ro **khác hẳn** tuỳ cách
@@ -734,19 +743,34 @@ tester đăng nhập:
 | **Subscription** (login cá nhân) | không có hoá đơn — rủi ro là **chạm rate limit**, và `totalCostUsd` vắng nên mọi số tiền trong hồ sơ đều rỗng | chấp nhận; nhưng biết trước rằng dev-tip và ask-ledger sẽ trống |
 | **API key** (nhất là key dùng chung) | trần chi phí **một lượt** được nới lên. Hồ sơ 098 ghi **$8,86** cho một lượt 899k | **phải chốt trước khi phát hành**: ai trả, có trần chưa |
 
-**Đây là câu hỏi phải trả lời trước Đợt 1**, không phải sau. Nó không đổi code, nhưng đổi việc con số
-1.000.000 là an toàn hay liều.
+**Câu trả lời: subscription.** Ba hệ quả, và hệ quả đầu là một đính chính cho chính tôi:
 
-### R4 · 🟠 Trải nghiệm CÀI ĐẶT lần đầu — lỗ lớn nhất, và plan này KHÔNG chạm tới
+1. **Không có hoá đơn nào cả.** `totalCostUsd` vẫn được ghi — kiểm trên run thật: 33/68 lượt có nó, và
+   35 lượt thiếu chỉ vì chúng có trước khi tính năng ghi cost ra đời (lượt cuối không có: 14/08 16:03;
+   lượt đầu có: 17/08 17:35). Nhưng trên subscription, con số đó là thứ CLI **tự tính theo giá niêm
+   yết**, không phải tiền bị trừ. Tổng **$79,56** của task này là **danh nghĩa**, không phải một khoản
+   đã trả. Cách tôi trình bày rủi ro trước đó **nặng hơn thực tế** ở trục tiền.
+2. **Ràng buộc thật là hạn mức dùng**, không phải chi phí. Nâng ngưỡng lên 1M không tạo ra hoá đơn bất
+   ngờ; nó làm cửa sổ hạn mức cạn nhanh hơn *nếu* mỗi lượt nặng hơn.
+3. **Và có lẽ nó làm cạn CHẬM hơn.** Vòng lặp reset đang buộc model đọc lại `main.yml` sau mỗi lần
+   reset — đó là token thật, tiêu vào việc lấy lại thứ nó vừa quên. Trên subscription, thứ bị lãng phí
+   là hạn mức. Nâng ngưỡng cắt được vòng lặp đó, nên nhiều khả năng là **thuần lợi**, không phải đánh đổi.
+
+⇒ **1.000.000 giữ nguyên.** Knob `BUILDER_ASK_RESET_TOKENS` vẫn còn nếu sau này muốn siết.
+Điều đáng theo dõi đổi từ *"hoá đơn"* sang *"có ai chạm trần hạn mức không"* — và đó là thứ chỉ quan sát
+được khi dùng thật, không đo trước được.
+
+### R4 · ✅ ĐÃ CHUYỂN RA NGOÀI 2026-08-20 — sẽ có tài liệu cài đặt riêng
 
 Cả 099, 100 lẫn plan này đều giả định **Builder đã chạy được**. Nhưng với tester, thứ chặn đường đầu
 tiên gần như chắc chắn **không phải** bug nào ở đây, mà là: `claude` CLI đã cài và đăng nhập chưa ·
 Node đủ phiên bản chưa (`engines: >=22.6`) · `DIFY_PROJECTS_DIR` trỏ đúng chưa · quyền chạy
 `scripts/update-and-run.command` · họ cập nhật bằng cách nào khi bạn sửa xong.
 
-**Không có việc nào trong plan này giúp được một tester không mở nổi app.** Nếu chỉ có thời gian cho
-một việc trước khi phát hành, một buổi cài thử **trên máy sạch, không phải máy bạn**, có giá trị cao
-hơn bất kỳ dòng nào ở §2. Ghi ở đây thay vì im lặng, dù nó nằm ngoài phạm vi hai spec.
+**Không có việc nào trong plan này giúp được một người không mở nổi app.** Chủ dự án đã nhận việc này
+và sẽ viết **một tài liệu cài đặt riêng** — nên nó **ra khỏi phạm vi** plan này, không còn là rủi ro để
+ngỏ ở đây. Giữ lại đoạn trên vì nó là **danh sách kiểm** mà tài liệu đó cần phủ, và vì lập luận "thứ
+chặn đường đầu tiên thường không phải bug nào trong plan" vẫn đúng.
 
 ### R5 · 🟡 Ước lượng "dưới một ngày công" của §2 là LẠC QUAN
 
