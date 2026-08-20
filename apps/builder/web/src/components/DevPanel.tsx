@@ -4,9 +4,10 @@
    answerable in-app without the CLI. Pure render off `task.cost`; no store writes, dev-only.
    Also hosts a collapse toggle (the table is tall). The `⟳ rebuild` action now lives in the sidebar
    header (RebuildButton) so it's reachable from any view, not just an open build. */
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import type { WireTask, WirePhaseCost } from '../types';
 import { cachePct, fmt, diagnose, classify, shares, ls } from '../lib/dev';
+import { api } from '../api';
 import { Twist } from './Sidebar'; // the same chevron twisty the sidebar tree-rows use
 
 const PHASES: Array<WirePhase> = ['analyze', 'spec', 'implement', 'test'];
@@ -16,6 +17,24 @@ const COLLAPSED_KEY = 'builder:dev:collapsed'; // remember show/hide across relo
 
 export function DevPanel({ task }: { task: WireTask }) {
   const [collapsed, setCollapsed] = useState(() => ls.get(COLLAPSED_KEY) === '1');
+  /**
+   * Which branch is actually running. Fetched ONCE per mount — it can only change by restarting the
+   * server, and this panel outlives no restart.
+   *
+   * Shown even when it says `main`, deliberately. The failure this exists for is believing you are on a
+   * branch when you are not: the launcher used to switch to main silently, so a whole test session
+   * could be spent on the wrong code with nothing to show for it. A chip that appears only off-main
+   * cannot tell "I am on main" apart from "the chip is not implemented", which is the exact confusion
+   * being fixed. Never blocks render; a failed fetch just leaves it blank.
+   */
+  const [branch, setBranch] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void api.devBuildInfo()
+      .then((b) => { if (live) setBranch(b.gitBranch); })
+      .catch(() => { /* not in dev mode, or git unavailable — the chip simply stays away */ });
+    return () => { live = false; };
+  }, []);
 
   const toggleCollapsed = (): void => {
     setCollapsed((c) => {
@@ -42,6 +61,14 @@ export function DevPanel({ task }: { task: WireTask }) {
         <Twist open={!collapsed} onClick={toggleCollapsed} />
         <span className="dev-tag">dev</span>
         <span className="dev-id" title="taskId — feed to e2e-run.sh time">{task.taskId}</span>
+        {branch && (
+          /* Reuses `dev-tag` (the same pill as “dev”) on purpose — no new CSS, so this cannot collide
+             with styling work in flight. Truncated while collapsed like the id above; the full name is
+             always one hover away. */
+          <span className="dev-tag" title={`git branch: ${branch}`}>
+            {collapsed && branch.length > 14 ? `${branch.slice(0, 13)}…` : branch}
+          </span>
+        )}
         <span className="dev-actions">
           <button className="dev-copy" onClick={copy} title="Copy taskId">copy</button>
         </span>
