@@ -21,7 +21,10 @@
 import type { WireStatus, WireTask } from '../types';
 
 export type ComposerTarget = 'start' | 'reply' | 'ask';
-export type ComposerIntent = 'ask' | 'change';
+/** spec 103 Lane B: 'propose' is a THIRD send — "fix it, but show me the plan first". A sibling of
+ *  'change', never a mode: spec 092's rule is that intent lives on the button pressed, and a proposal
+ *  that could be silently armed would re-create exactly the class of bug that rule exists to prevent. */
+export type ComposerIntent = 'ask' | 'change' | 'propose';
 
 export function composerTarget(
   task: Pick<WireTask, 'status' | 'kind'> | null | undefined,
@@ -32,10 +35,10 @@ export function composerTarget(
   if (task.status === 'done' || task.status === 'cancelled') {
     // A change-intent send is honored at `done` ONLY (the change pill shows there); a cancelled build
     // re-enters through Restore, so its composer stays a question box even if 'change' arrives.
-    return task.status === 'done' && intent === 'change' ? 'reply' : 'ask';
+    return task.status === 'done' && intent !== 'ask' ? 'reply' : 'ask';
   }
   if (task.status === 'error') return 'reply'; // Retry-out-of-error, with or without steering text
-  return intent === 'change' ? 'reply' : 'ask';
+  return intent !== 'ask' ? 'reply' : 'ask';
 }
 
 /**
@@ -50,6 +53,6 @@ export function replyLabel(
   changeLabel: string
 ): string | undefined {
   if (kind === 'promote') return 'Request changes';
-  if (status === 'error' && intent !== 'change') return undefined;
+  if (status === 'error' && intent === 'ask') return undefined;
   return changeLabel;
 }

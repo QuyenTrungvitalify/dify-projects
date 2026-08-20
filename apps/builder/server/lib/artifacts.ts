@@ -27,6 +27,9 @@ export interface ArtifactContents {
   report: unknown | null;
   /** unified-diff text from `.runs/<taskId>/diff.json` (Lát 5 diff producer); null until Implement. */
   diff: string | null;
+  /** spec 103 step 1 — the unified diff of `SPEC.md` for the SAME round; null when there is no
+   *  pre-round spec snapshot (a first build). Rides the `差分` tab beside `diff`. */
+  specDiff: string | null;
 }
 
 /** Resolve the canonical SPEC.md path for a task — scaffolded → workflow subtree, else pre-scaffold run dir. */
@@ -65,9 +68,19 @@ export async function readArtifactContents(
     const p = task.promote;
     let yaml = p?.staged ? await readMaybe(join(projectsDir, p.staged)) : null;
     if (yaml == null && p?.target) yaml = await readMaybe(join(projectsDir, p.target));
-    return { spec: null, yaml, report: null, diff: null };
+    return { spec: null, yaml, report: null, diff: null, specDiff: null };
   }
-  const spec = await readMaybe(specPathFor(projectsDir, task));
+  // Spec 103 Lane B — while a proposal is open the panel shows the DRAFT, not the live spec. The
+  // proposal gate's only "look at it" link opens this tab, and pointing it at the untouched SPEC.md
+  // made that link a lie: the human was asked to approve a plan the UI would not show them. The live
+  // spec is deliberately NOT surfaced here meanwhile — there is exactly one document in play at a
+  // time, and offering both is how someone edits the wrong one. (`bundle.ts` still exports the live
+  // spec: an export is a record of what the build IS, never of what someone is thinking about.)
+  const spec = await readMaybe(
+    task.specRevise
+      ? join(projectsDir, `apps/builder/.runs/${task.taskId}/SPEC.next.md`)
+      : specPathFor(projectsDir, task)
+  );
   const wfPath = workflowPathFor(projectsDir, task);
   const yaml = wfPath ? await readMaybe(wfPath) : null;
   let report: unknown | null = null;
@@ -84,15 +97,20 @@ export async function readArtifactContents(
   // Diff: the producer writes `.runs/<taskId>/diff.json` = { path, diff } after Implement; surface
   // the unified-diff text (the panel renders it via SplitDiffView, else degrades to "no diff yet").
   let diff: string | null = null;
+  let specDiff: string | null = null;
   const diffRaw = await readMaybe(join(projectsDir, `apps/builder/.runs/${task.taskId}/diff.json`));
   if (diffRaw) {
     try {
-      diff = (JSON.parse(diffRaw) as { diff?: string }).diff ?? null;
+      const parsed = JSON.parse(diffRaw) as { diff?: string; specDiff?: string };
+      diff = parsed.diff ?? null;
+      // Spec 103 step 1: absent for a first build (no pre-round spec to compare with) — `null`, which
+      // the panel renders as "no spec section", NOT as "the spec did not change".
+      specDiff = parsed.specDiff ?? null;
     } catch {
       diff = null;
     }
   }
-  return { spec, yaml, report, diff };
+  return { spec, yaml, report, diff, specDiff };
 }
 
 // ───────────────────────────── sidebar tree ─────────────────────────────

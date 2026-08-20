@@ -288,6 +288,13 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
     } catch {
       return reply.code(404).send({ error: `no such task: ${req.params.id}` });
     }
+    // Spec 103 Lane B — refuse while a spec PROPOSAL is open. The panel shows the DRAFT then, and a
+    // write aimed at the live spec would be destroyed moments later by `apply`'s rename: the human
+    // would see "saved", then watch the edit vanish with no message. Silent data loss wearing the
+    // costume of a successful save; a 409 they can act on is strictly better.
+    if (task.specRevise) {
+      return reply.code(409).send({ error: 'a plan is waiting for your decision — settle it before editing the spec' });
+    }
     // Accept the raw markdown body (text/plain) OR a JSON `{content}` envelope.
     const body = req.body;
     const content =

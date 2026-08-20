@@ -242,6 +242,23 @@ sentence — or the sentence should not be written.
      it). `variable` is the field name; for a header, `-` becomes `_`. Copy the working shape from
      `templates/patterns/webhook-per-row-notify.yml`. (`trigger-schedule` has no such field — do not
      add one there.)
+     Two field-level traps on that same list, both observed on a real Chatwork build (2026-08-19):
+     - **`required: true` rejects at the TRIGGER layer** — Dify never creates a run, so there is no
+       log, no error node, and nothing to debug. Mark a field `required: true` ONLY when the source
+       is contractually guaranteed to send it on every call (`_webhook_raw` is; an attachment list is
+       not). Everything else is `required: false` with an in-workflow branch that records WHY it was
+       empty.
+     - **The source may not send the field you expect at all.** Chatwork does not send `file_ids`;
+       an attachment arrives as a tag inside `body` —
+       `[download:<file_id>]<name> (<size>)[/download]` — so the file id must be parsed out of the
+       text. Read one real payload (`_webhook_raw`) before designing around a field name — Chatwork's
+       envelope is nested three deep (`_webhook_raw` → `body` → `webhook_event`), and unwrapping only
+       one level lands on a level carrying `webhook_setting_id` and no message id at all.
+   - **`tool` node config cells accept VARIABLES, not just literals.** Any `tool_parameters` entry
+     may be `{type: mixed, value: '{{#node.field#}}'}` (or `{{#env.NAME#}}`) — the same `{x}` slot the
+     Dify Studio UI shows. Do not add a code node whose only job is to pre-render a string a tool
+     could have read directly. Working shapes: `templates/patterns/scheduled-tool-append.yml`,
+     `templates/patterns/chatwork-1-10-20.yml`.
    - **Code nodes:** `code_language: python3`, `def main(...) -> dict`, stdlib-only, guard
      `None`/`""` from upstream (§4.5).
    - **if-else nodes:** emit BOTH legacy `conditions` AND modern `cases` (§9, validator quirk) —
@@ -283,10 +300,61 @@ sentence — or the sentence should not be written.
    parse error (truncated/corrupt file), **regenerate from the pattern + `SPEC.md`** rather than
    patching the broken file. Do not `git commit`, do not `--no-verify`.
 
+6. **Reconcile `{{PRIOR_ARTIFACT}}` (`SPEC.md`) with the workflow you just produced — spec 103 L0.**
+
+   > On a **fix round** the backend restates this rule in the prompt itself, because a `/reply` resume
+   > carries no skill body — so the two must say the same thing. If you edit one, edit
+   > `SPEC_RECONCILE` in `apps/builder/server/lib/orchestrator.ts` too; `test/spec-reconcile-prompt.test.ts`
+   > pins what the resume prompt must contain.
+
+   `SPEC.md` is not a historical record of the original request; it is **the description of the
+   workflow that exists right now**. Everything downstream reads it that way — the next fix round
+   re-reads it as the source of truth (step 1 above), the client receives it as the handover document,
+   and a person answering *"how does this thing actually work today?"* opens it and nothing else.
+
+   So: after the linters are green, open `SPEC.md` and make it true again.
+
+   - **Hunt down what the change made FALSE, and fix it IN PLACE.** This is the failure that actually
+     happens, and it survives a turn that "updated SPEC.md": on run 1787190372697 the model appended a
+     correctly-written decision (provider is OpenAI) while the sentence it contradicted — "the model is
+     Claude Sonnet 5" — stayed one section above. The file passed every automated check and was a lie.
+     Re-read the whole document, not just the part you were thinking about.
+   - **Describe the CURRENT state. Do not append a patch, and do not open a new section for the
+     change.** If the score threshold is now 0.2, the node table says 0.2 — you do not add a line
+     saying it *changed from* 0.5, and you do not add a "Decisions" block beside the one that is
+     already there. Appending is how a spec rots into a pile of amendments nobody can read in order;
+     one real project drifted so far this way that its user hand-wrote a rival 582-line "current spec"
+     and abandoned the original.
+   - **Touch only what moved.** Edit the sections the workflow change actually affects. If `SPEC.md`
+     already describes what you built — the normal case on a first build, where Phase ② wrote it from
+     the same requirement minutes ago — **change nothing**. A no-op here is a correct outcome, not a
+     skipped step.
+   - **The one place history belongs** is a `変更履歴` (change-log) table as the **last** section of the
+     file. Append exactly **one row** per fix round, and never rewrite an existing row:
+
+     ```
+     ## 変更履歴
+     | 日付 | 変更 | task |
+     |---|---|---|
+     | 2026-08-19 | 中国語の記事を除外する言語フィルタを追加 | 1786966632804 |
+     ```
+
+     Heading and column names follow the same *Output language* rule as the rest of the file (above);
+     the example is Japanese because the requirement was. The `task` column is `{{TASK_ID}}`. The row
+     is an **index**, one line — the substance lives in the body you just corrected.
+   - **Never** delete `SPEC.md`'s Open-questions / review sections, and never translate the file into
+     the chat language. *Output language* governs here exactly as it governs the YAML.
+
+   The backend measures this: it hashes `SPEC.md` before and after a revision round, and a round that
+   changes the workflow while leaving the spec untouched is flagged at the gate. The flag is advisory —
+   it will not fail your build — but it is visible to the user, so a genuinely-nothing-to-change round
+   should be one you can defend.
+
 ## Output
 `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/workflows/{{WORKFLOW_FILE}}`, passing all four linters (or, if it cannot
-pass in 5 passes, the partial file + the last linter error verbatim). The backend computes the
-diff-vs-seed and re-runs the linters itself — you just produce the file.
+pass in 5 passes, the partial file + the last linter error verbatim), **and a `SPEC.md` that describes
+that file** (step 6). The backend computes the diff-vs-seed and re-runs the linters itself — you just
+produce the files.
 
 ## Stop
 Present a short summary (nodes created, lint status, any remaining error), then STOP. Do not

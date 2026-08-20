@@ -15,8 +15,9 @@
  *   - even where git DOES see the file, a `/reply` turn's artifact is already dirty from the previous
  *     turn, so it sits in `baseline` and drops out of the delta — "unchanged" for a round that fixed
  *     something. `alreadyDirty` below pins that case.
- *   - `diff.json` answers a different question entirely (its base is the pre-EDIT state of the FIRST
- *     turn, because snapshotDiffBase is a deliberate no-op on /reply).
+ *   - `diff.json` does not exist yet when this flag is decided — it is written AFTER the verify, from
+ *     the verify's own result — and costs a python spawn besides. (Since spec 103 L0 re-arms the diff
+ *     base per revision round, its emptiness WOULD track an empty round; it still arrives too late.)
  *
  * So: rewire `artifactChanged` to any of those and this file goes red. That is its whole job.
  *

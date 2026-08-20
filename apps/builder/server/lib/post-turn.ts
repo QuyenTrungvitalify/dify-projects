@@ -49,7 +49,41 @@ export interface PostTurnParams {
    * of a round that DID change something — the one failure direction that costs more than no badge.
    */
   artifactHashBefore?: string | null;
+  /**
+   * Spec 103 L0 — {@link artifactHash} of `SPEC.md` captured at the SAME moment as
+   * {@link artifactHashBefore}, `null` when the file did not exist yet.
+   *
+   * Same "not measured" contract: OMITTED (`undefined`) ⇒ {@link PostTurnDetail.specChanged} stays
+   * `undefined`. The orchestrator supplies it ONLY on a revision round (a ③ turn carrying a change
+   * request) — on a FIRST implement ② has just written SPEC.md, so the spec matches the workflow by
+   * construction and measuring there would flag every new build as stale.
+   */
+  specHashBefore?: string | null;
   log: SessionLogger;
+}
+
+/**
+ * Spec 103 L0 — the tripwire's whole logic, as a pure function so it can be pinned by a test instead
+ * of only by an end-to-end run.
+ *
+ * TRUE means: this round moved the workflow and left the document that is supposed to describe it
+ * behind. Both inputs must be measured — `undefined` on either side yields `undefined` ("we did not
+ * look"), never `false`. Reading a missing measurement as "fine" is the one failure direction that
+ * costs more than no signal at all, because it puts a silent all-clear in front of real drift.
+ */
+export function isSpecStale(
+  artifactChanged: boolean | undefined,
+  specChanged: boolean | undefined
+): boolean | undefined {
+  if (artifactChanged === undefined || specChanged === undefined) return undefined;
+  return artifactChanged && !specChanged;
+}
+
+/** Spec 103 L0 — the repo-relative `SPEC.md` of a scaffolded build. ONE resolver, exported so the
+ *  orchestrator's before-hash and this module's after-hash can never disagree about which file they
+ *  measured (the spec 090 S4 lesson: hand the value, don't restate the condition). */
+export function specRelFor(project: string, workflowSlug: string): string {
+  return `projects/${project}/${workflowSlug}/SPEC.md`;
 }
 
 /**
@@ -65,9 +99,11 @@ export interface PostTurnParams {
  *  - **even where git DOES see it**, a `/reply` turn's artifact is already dirty from the previous
  *    turn, so it sits in `baseline` and drops out of `turnTouched` — the flag would read "unchanged"
  *    for a round that really did fix something. The Builder never commits between turns.
- *  - **`diff.json` answers a different question**: `snapshotDiffBase` is a deliberate no-op on `/reply`
- *    (orchestrator), so its base is the pre-EDIT state of the FIRST turn — non-empty even on a round
- *    that changed nothing.
+ *  - **`diff.json` is not available when this is decided.** It is produced AFTER the verify, in the
+ *    same block that consumes this flag (orchestrator: `writeDiffArtifact` runs on the verify result),
+ *    so reading it here is a chicken-and-egg — and it costs a python spawn the hash does not.
+ *    (Spec 103 L0 re-arms the diff base on a revision round, so an empty round's diff.json is now
+ *    empty too — a true signal, just one that arrives a step too late and a spawn too dear.)
  *
  * A hash also gets the honest answer when a turn rewrites the file byte-identically: nothing changed,
  * which is exactly what the user is being told.
@@ -119,6 +155,17 @@ export interface PostTurnDetail {
    * re-imported the same file believing it was new (run 1786089321835, rounds R3 and R5).
    */
   artifactChanged?: boolean;
+  /**
+   * Spec 103 L0 — did THIS turn change `SPEC.md`'s bytes? Same three-state contract as
+   * {@link artifactChanged}: `undefined` = not measured (no {@link PostTurnParams.specHashBefore}),
+   * which every consumer must treat as "don't claim anything".
+   *
+   * Advisory, exactly like its sibling — it never feeds {@link resolveImplementOutcome}. Paired with
+   * `artifactChanged` it answers the one question the fix loop could never answer: the workflow moved,
+   * did the document that is supposed to describe it move too? (Spec 103 §1.2: `main.yml` is supposed
+   * to be a function of `SPEC.md`, and a free-text fix round used to break that silently.)
+   */
+  specChanged?: boolean;
 }
 
 export interface PostTurnResult {
@@ -272,6 +319,15 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
       ? undefined
       : (await artifactHash(p.projectsDir, rel)) !== p.artifactHashBefore;
 
+  // Spec 103 L0 — the same measurement for SPEC.md, gated on its own before-hash so "not measured"
+  // stays distinguishable from "measured, unchanged". Content-hash and NOT git, for the reason spelled
+  // out on `artifactHash` above: `projects/_drafts/` is gitignored wholesale, so a git-derived flag
+  // reads "unchanged" for a file the turn really did rewrite.
+  const specChanged =
+    p.specHashBefore === undefined
+      ? undefined
+      : (await artifactHash(p.projectsDir, specRelFor(p.project, p.workflowSlug))) !== p.specHashBefore;
+
   const detail: PostTurnDetail = {
     artifactOk,
     yamlOk,
@@ -280,6 +336,7 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
     confinementBreaches,
     extraFiles,
     artifactChanged,
+    specChanged,
   };
   const ok = reasons.length === 0;
   return { ok, status: ok ? 'done' : 'error', reasons, detail };

@@ -10,9 +10,10 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import type { VNode } from 'preact';
 import { I } from './Icon';
 import { SplitDiffView } from './SplitDiffView';
+import { specDiffState } from '../lib/diff-parser';
 import { renderMarkdownHtml } from '../lib/markdown';
 import { activeTocIndex, tocSelector, yamlAnchors, type TocEntry } from '../lib/artifact-toc';
-import { t as tr, tf, lang, localizeNotes } from '../lib/i18n';
+import { t as tr, tAction, tf, lang, localizeNotes } from '../lib/i18n';
 import type { ArtifactTab, WireTask, WireArtifacts, FileChange } from '../types';
 
 const EXPANDED_KEY = 'builder.artifactExpanded';
@@ -115,7 +116,16 @@ interface ReportShape {
   notes?: string;
 }
 
-function SpecTab({ task, content, onSave }: { task: WireTask; content: string; onSave: (c: string) => Promise<void> }) {
+/** Spec 103 Lane B — while a proposal is open this tab shows the DRAFT (the backend swaps the content
+ *  in `readArtifactContents`), so it must SAY so and must not offer to save: `PUT /spec` 409s during a
+ *  proposal, and a Save that appeared to work would be destroyed by `apply`'s rename moments later. */
+function SpecTab({ task, content, onSave, onDecide }: {
+  task: WireTask;
+  content: string;
+  onSave: (c: string) => Promise<void>;
+  onDecide?: (id: 'apply_spec' | 'changes' | 'drop_spec') => void;
+}) {
+  const draft = task.specRevise === true;
   const [val, setVal] = useState(content);
   const [saved, setSaved] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -215,13 +225,14 @@ function SpecTab({ task, content, onSave }: { task: WireTask; content: string; o
 
   return (
     <div className="spec-tab">
-      <div className="art-section-title">SPEC.md <span className="ast-line" />
+      <div className="art-section-title">{draft ? tr('specDraftTitle') : 'SPEC.md'} <span className="ast-line" />
         <div className="seg spec-mode">
           {SPEC_MODES.map((m) => (
             <button key={m.key} className={mode === m.key ? 'on' : ''} onClick={() => setMode(m.key)}>{tr(m.labelKey)}</button>
           ))}
         </div>
       </div>
+      {draft && <div className="secret-note" style={{ marginBottom: 8 }}>{tr('specDraftNote')}</div>}
       {content === '' && <div className="secret-note" style={{ marginBottom: 8 }}>{tr('noSpecYet')}</div>}
       {mode !== 'preview' && (
         <div className="spec-toolbar">
@@ -234,14 +245,40 @@ function SpecTab({ task, content, onSave }: { task: WireTask; content: string; o
       {mode === 'split'
         ? <div className="spec-split">{editor}{preview}</div>
         : mode === 'preview' ? preview : editor}
+      {/* Lane B: decide right here. Same three actions as the gate, same ids, same handlers — the gate
+          is not replaced, it is duplicated at the one place the human is actually looking. The order
+          and weighting mirror the gate exactly (approve primary, decline quiet) so the two doors can
+          never teach different things about which button is which. */}
+      {draft && onDecide && (
+        <div className="spec-decide">
+          <button className="btn ok" onClick={() => onDecide('apply_spec')}>
+            <I.check />{tAction('Go with this')}
+          </button>
+          <button className="btn ghost" onClick={() => onDecide('changes')}>
+            <I.message />{tAction('Change the plan')}
+          </button>
+          <button className="btn ghost" onClick={() => onDecide('drop_spec')}>
+            <I.close />{tAction('Never mind')}
+          </button>
+        </div>
+      )}
       <div className="spec-bar">
-        <button className="btn primary" disabled={saved || saving} onClick={save} style={saved ? { opacity: 0.5 } : undefined}>
+        {/* Lane B: no Save on a draft. `PUT /spec` 409s while a proposal is open, and a button that
+            reports success before `apply`'s rename erases the write is worse than no button. */}
+        <button className="btn primary" disabled={draft || saved || saving} onClick={save}
+          title={draft ? tr('specDraftNote') : undefined}
+          style={draft || saved ? { opacity: 0.5 } : undefined}>
           <I.save />{saving ? tr('saving') : tr('saveSpec')}
         </button>
         <span className="sb-status">
-          {saved
-            ? <><I.check style={{ width: 13, height: 13, color: 'var(--ok)' }} />{tr('savedFeedsImplement')}</>
-            : <><span className="dirty-dot" />{tr('unsavedChanges')}</>}
+          {/* Lane B: on a DRAFT the normal status is a lie. 「保存済み・実装に反映」 claims the file is
+              saved and feeding the build — but a proposal is neither: it is not the live spec, and
+              nothing reaches the workflow until the human approves at the gate. Say what is true. */}
+          {draft
+            ? <><span className="dirty-dot" />{tr('specDraftPending')}</>
+            : saved
+              ? <><I.check style={{ width: 13, height: 13, color: 'var(--ok)' }} />{tr('savedFeedsImplement')}</>
+              : <><span className="dirty-dot" />{tr('unsavedChanges')}</>}
         </span>
       </div>
       <div className="secret-note"><I.lock />{tr('tokenRedacted')}</div>
@@ -317,8 +354,17 @@ function YamlTab({ yaml, report, onReveal }: { yaml: string | null; report: Repo
   );
 }
 
-function DiffTab({ diff }: { diff: string | null }) {
-  if (!diff) {
+/**
+ * Spec 103 step 1 — the tab answers ONE question ("what did this round change?") about TWO files.
+ *
+ * `SPEC.md` comes FIRST: after a fix round the human is checking whether the document still describes
+ * the workflow, and the workflow diff is the part they already watched happen. A missing `specDiff`
+ * means "there was no previous spec to compare with" (a first build) — that section is then absent,
+ * which is a different statement from an empty diff ("the spec did not change"), and the two must not
+ * render alike.
+ */
+function DiffTab({ diff, specDiff }: { diff: string | null; specDiff: string | null }) {
+  if (!diff && !specDiff) {
     return (
       <div>
         <div className="art-section-title">{tr('splitDiff')} <span className="ast-line" /></div>
@@ -326,11 +372,23 @@ function DiffTab({ diff }: { diff: string | null }) {
       </div>
     );
   }
-  const file: FileChange = { path: 'main.yml', status: 'modified', additions: 0, deletions: 0, diff };
+  const file: FileChange = { path: 'main.yml', status: 'modified', additions: 0, deletions: 0, diff: diff ?? '' };
+  const specFile: FileChange = { path: 'SPEC.md', status: 'modified', additions: 0, deletions: 0, diff: specDiff ?? '' };
+  const specState = specDiffState(specDiff);
   return (
     <div>
-      <div className="art-section-title">{tr('splitDiff')} <span className="ast-line" /></div>
-      <SplitDiffView file={file} />
+      {specState !== 'absent' && (
+        <>
+          <div className="art-section-title">{tr('diffSpecSection')} <span className="ast-line" /></div>
+          {specState === 'changed'
+            ? <SplitDiffView file={specFile} />
+            : <div className="secret-note">{tr('diffSpecUnchanged')}</div>}
+        </>
+      )}
+      <div className="art-section-title">{tr('diffWorkflowSection')} <span className="ast-line" /></div>
+      {diff && diff.trim()
+        ? <SplitDiffView file={file} />
+        : <div className="secret-note">{tr('diffWorkflowUnchanged')}</div>}
     </div>
   );
 }
@@ -405,7 +463,7 @@ function ReportTab({ report, onReveal }: { report: ReportShape | null; onReveal:
   );
 }
 
-export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpec, onReveal }: {
+export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpec, onReveal, onProposalDecide }: {
   task: WireTask;
   tab: ArtifactTab;
   setTab: (tab: ArtifactTab) => void;
@@ -414,6 +472,19 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
   onSaveSpec: (content: string) => Promise<void>;
   /** Reveal the task's workflow YAML in the OS file manager (Finder). */
   onReveal: () => void;
+  /**
+   * Spec 103 Lane B — decide on a spec proposal from INSIDE the panel.
+   *
+   * The panel is a modal with a scrim, so while it is open the gate's three buttons are physically
+   * unclickable. And the gate's own card tells the human to open it ("SPEC.md を開く") — so the action
+   * the UI encourages blocks the action it requires: read the plan, then hunt for buttons that are
+   * behind what you are reading. Verified by hit-testing: `elementFromPoint` over 「やめる」 returned
+   * the panel body.
+   *
+   * So the decision moves to where the evidence is, which is what spec 103 §3.9 asked for in the first
+   * place. The gate keeps its buttons too — this is a second door, not a relocation.
+   */
+  onProposalDecide?: (id: 'apply_spec' | 'changes' | 'drop_spec') => void;
 }) {
   const art: WireArtifacts = task.artifactContents ?? { spec: null, yaml: null, report: null, diff: null };
   const report = (art.report as ReportShape | null) ?? null;
@@ -631,9 +702,11 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
       {/* The body and the rail scroll as one row so the rail can stay put while the artifact moves. */}
       <div className="artifact-main">
         <div className="artifact-body" ref={bodyRef}>
-          {activeTab === 'spec' && <SpecTab task={task} content={art.spec ?? ''} onSave={onSaveSpec} />}
+          {activeTab === 'spec' && (
+            <SpecTab task={task} content={art.spec ?? ''} onSave={onSaveSpec} onDecide={onProposalDecide} />
+          )}
           {activeTab === 'yaml' && <YamlTab yaml={art.yaml} report={report} onReveal={onReveal} />}
-          {activeTab === 'diff' && <DiffTab diff={art.diff} />}
+          {activeTab === 'diff' && <DiffTab diff={art.diff} specDiff={art.specDiff ?? null} />}
           {activeTab === 'report' && <ReportTab report={report} onReveal={onReveal} />}
         </div>
         {expanded && (

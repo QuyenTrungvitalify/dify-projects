@@ -38,7 +38,9 @@ export interface WireGate {
     | 'promote_distill_failed'
     | 'promote_review'
     | 'promote_share_offer'
-    | 'promote_share_review';
+    | 'promote_share_review'
+    /** spec 103 Lane B: a spec proposal is waiting for a human. `auto` hard-stops here server-side. */
+    | 'spec_proposal';
 }
 
 /** spec 081 — the share-upstream state on a promote task (mirrors server PromoteShare). */
@@ -97,6 +99,10 @@ export interface WireArtifacts {
   yaml: string | null;
   report: unknown | null;
   diff: string | null;
+  /** spec 103 step 1: the unified diff of SPEC.md for the SAME fix round, rendered as a second section
+   *  of the `差分` tab. `null` = no pre-round spec snapshot (a first build), which the panel renders as
+   *  "no spec section" — NOT as "the spec did not change". */
+  specDiff?: string | null;
 }
 
 export interface WireTask {
@@ -154,6 +160,23 @@ export interface WireTask {
   /** spec 094 S1: the last ③ turn left the workflow file byte-identical — a fix round that changed
    *  nothing. `undefined` = not measured (pre-094 build): render nothing, never "unchanged". */
   artifactUnchanged?: boolean;
+  /** spec 103 L0: the last ③ revision round changed the workflow and left SPEC.md untouched — the
+   *  document no longer describes the file. `undefined` = not measured (a first Implement, or a build
+   *  predating 103): render nothing, never "stale". Mutually exclusive with `artifactUnchanged:true`
+   *  by construction — it requires the workflow to have changed. */
+  specStale?: boolean;
+  /** spec 103 step 1: a complete pre-round snapshot pair exists, so the ③ gate may offer to take the
+   *  last fix back. A hint — the server re-checks and 409s rather than half-restoring. */
+  fixUndoable?: boolean;
+  /** spec 103 step 1 follow-up: how many places in SPEC.md the last fix round touched. Absent ⇒ the
+   *  spec did not move (or was not measured) — the card then says nothing about it. */
+  specEdits?: number;
+  /** spec 103 Lane B: a spec proposal is open — `SPEC.next.md` exists and `SPEC.md` is untouched.
+   *  Blocks a second proposal, and tells the composer not to offer one. */
+  specRevise?: boolean;
+  /** spec 103 Lane B: the last proposal found nothing to change in the spec — shown once, at the gate
+   *  the build returned to, so the round trip is explained instead of looking like nothing happened. */
+  specNoop?: boolean;
   /** spec 094 S1: sha256 of the file as of the last ③ verify, and of the file at the last successful
    *  ④ import (+ when). Equal hashes ⇒ the Import button would push what Dify already has. */
   artifactHash?: string | null;

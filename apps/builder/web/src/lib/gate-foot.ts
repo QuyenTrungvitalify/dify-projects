@@ -21,6 +21,36 @@ export function replyButtonKind(
   return action.id === 'retry' && status === 'error' ? 'retry' : 'arm';
 }
 
+/**
+ * Spec 103 step 1 — may the ③ gate offer "take this fix back"?
+ *
+ * Pure, and extracted here for the same reason its neighbours were (spec 035 §S1): every clause below
+ * is a regression waiting to happen, and each one has a reason a reader cannot infer from the code.
+ *
+ *  - `!resolved` — a gate card sitting in the scroll-back is HISTORY. Acting on it would restore files
+ *    from a round that is several rounds old, using snapshots that describe a different one.
+ *  - phase + status — undo is a ③-gate action. At ④ the human has just learned something from the
+ *    report or the live run, and the right move is to fix forward; a rewind there would also strand a
+ *    report describing a file that no longer exists. This also makes the dangerous case impossible by
+ *    construction: an import only happens at ④, so no undo can contradict what is already in Dify.
+ *  - `fixUndoable` — the snapshot PAIR exists. False for a Dify-seed build (`snapshotDiffBase` no-ops
+ *    there), where only half the round could be taken back, which is worse than not offering it.
+ *
+ * The server re-checks all of it and answers 409; this decides whether to render, never whether it is
+ * safe. Both must agree, so both are written from the same list.
+ */
+export function canUndoFix(
+  task: Pick<WireTask, 'phase' | 'status' | 'fixUndoable'>,
+  resolved: boolean
+): boolean {
+  return (
+    !resolved &&
+    task.fixUndoable === true &&
+    task.phase === 'implement' &&
+    task.status === 'awaiting_confirm'
+  );
+}
+
 /** True for the `boundaryAutoAdvances`-autonomous set {auto, spec_only}; a null/corrupt confirmMode fails
  *  safe to NON-autonomous (treated as each_step → excluded from the done-state live action, D5). */
 function isAutonomous(mode: WireTask['confirmMode'] | undefined): boolean {

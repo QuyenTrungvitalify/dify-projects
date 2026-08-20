@@ -420,6 +420,161 @@ giờ đọc).
   chế. Các bản sao hiện khớp nhau vì cùng đọc `task.project`/`task.workflowSlug` — **không** vì có
   gì bắt chúng khớp; không test nào so chúng.
 
+### 8.1 Hai phép đo hash quanh turn ③ — và vì sao là hash chứ không phải git
+
+Hai cờ advisory trên `task.json` được sinh bằng **cùng một cơ chế**, chụp hai lần quanh cùng một turn.
+Đọc chúng như hai phát minh riêng là đọc sai:
+
+| cờ | trả lời | spec |
+|---|---|---|
+| `artifactUnchanged` | turn ③ vừa rồi có đụng `main.yml` không | 094 S1 |
+| `specStale` | `main.yml` đổi **mà** `SPEC.md` không đổi | 103 L0 |
+
+`orchestrator.ts` chụp `artifactHash()` (sha256 nội dung) **trước** khi spawn, `post-turn.ts` chụp lại
+sau, và so. `specRelFor(project, workflowSlug)` là **một** resolver duy nhất cho `SPEC.md`, export ra để
+phía chụp-trước và phía chụp-sau không thể bất đồng về file nào đã được đo.
+
+**Không dùng git**, và đây là ràng buộc chịu lực chứ không phải sở thích: `projects/_drafts/` bị
+`.gitignore` **nguyên khối**, mà build from-scratch mặc định rơi vào đó — nên `git status` mù hoàn toàn
+với cả hai file. Ngay cả ở project được track, artifact của lượt `/reply` đã dirty từ lượt trước nên nó
+nằm trong `baseline` và rụng khỏi delta. Cả hai ca đều báo "không đổi" cho một vòng có sửa thật.
+`test/artifact-changed.test.ts` và `test/spec-stale.test.ts` mỗi file mở đầu bằng một test **calibration**
+khẳng định trực tiếp sự mù đó — nên lý do "vì sao không dùng git" là sự kiện được kiểm, không phải comment.
+
+**Hợp đồng ba trạng thái, giống hệt nhau ở cả hai cờ**: `undefined` = *chưa đo*, và không consumer nào
+được đọc nó thành `true` hay `false`. `isSpecStale(artifactChanged, specChanged)` (`post-turn.ts`, hàm
+thuần) trả `undefined` nếu **một trong hai** phía chưa đo. Hướng sai đắt nhất là `?? false`: nó đặt một
+lời trấn an im lặng lên trước drift thật.
+
+**Chỉ đo `specStale` ở vòng REVISION** (turn ③ mang `replyText`). Lượt Implement đầu tiên không đo: ②
+vừa viết `SPEC.md` từ chính requirement đó vài phút trước, nên tài liệu đã mô tả đúng thứ sắp được build —
+đo ở đó sẽ gắn nhãn stale cho **mọi** build mới.
+
+**Advisory, không chặn.** `specStale` không push reason, không làm `ok=false`, không đổi outcome. Giết
+một `main.yml` đã lint sạch vì một dòng sổ sách đắt hơn thứ nó bảo vệ, và hard-stop ở đây mở lại đúng
+vòng thrash ở ③ mà spec 085 đã trả tiền thật để đóng. Ngưỡng để chuyển từ badge sang chặn phải chốt
+bằng **tỉ lệ đo được sau khi ship**, không bằng phỏng đoán.
+
+**Bên ghi phải đi trên đường RESUME, không phải trong skill body.** Prompt `/reply` là
+`languagePin + CHANGE_REQUEST + lời người dùng` (+ attachment, + facts) và **không chứa thân
+`implement.md`**. Nên một luật chỉ nằm trong skill body sẽ tới **fresh turn** và không tới đâu nữa —
+ngược đúng chiều cần thiết: fresh ③ có `SPEC.md` mà ② vừa viết vài phút trước (không có gì để hoà giải,
+và cũng không đo), còn vòng fix — chỗ duy nhất tài liệu có thể tụt lại, và là chỗ duy nhất
+`specHashBefore` được chụp — thì resume.
+
+Đã ship hụt đúng một lần theo kiểu này, và **mọi check đều xanh**: turn tự ý cập nhật `SPEC.md` nên
+`specStale = false`, trong khi người đọc mở file ra thấy nó **tự mâu thuẫn** — một quyết định mới được
+đắp thêm còn câu bị nó phủ định vẫn nằm nguyên (task `1787190372697`). Vì vậy `SPEC_RECONCILE`
+(`orchestrator.ts`) nối vào prompt resume với **điều kiện y hệt** `specHashBefore`:
+`phaseId === 'implement' && opts?.replyText`. Bất biến cần giữ là **được-đo ⇔ được-dặn**; lệch một bên
+là cờ đi chấm một lượt chưa từng được cho biết luật. `test/spec-reconcile-prompt.test.ts` ghim đúng
+bất biến đó, không ghim chuỗi.
+
+Luật nói gì: **truy tìm những câu vừa bị thay đổi làm cho SAI và sửa TẠI CHỖ** (đây là kiểu hỏng thật,
+và nó sống sót qua một turn "đã cập nhật SPEC.md"), **không mở section mới**, lịch sử đi riêng vào bảng
+change-log append-only ở cuối file. `implement.md` bước 6 là **bản sao** cho đường fresh — hai bên phải
+sửa cùng lúc, đúng khuôn `CHANGE_REQUEST` vốn đã được phát biểu ở cả hai đường.
+Whitelist confinement (`isWhitelisted`, §8) đã phủ `projects/<project>/<workflowSlug>/` nên quyền ghi
+`SPEC.md` từ ③ vốn đã hợp lệ — không có thay đổi quyền nào.
+
+**Đường lùi — bắt buộc, vì L0 tự tay mở một lỗ khi đóng lỗ kia.** Trước L0, ③ không bao giờ đụng
+`SPEC.md`; sau L0 nó ghi đè mỗi vòng fix — mà `projects/_drafts/` gitignore nguyên khối nên **không có
+git history, không có `.bak`, không có gì**. Một lần hoà giải hỏng là mất bản cũ vĩnh viễn.
+
+Nên mỗi vòng fix chụp `SPEC.md` → `.runs/<taskId>/spec-base.md` (`snapshotSpecBase`), cùng điều kiện
+với `specHashBefore` và `SPEC_RECONCILE`: **được dặn ⇔ được đo ⇔ lùi được**, ba thứ một điều kiện.
+
+`undoFixRound` lùi **CẢ VÒNG** — `main.yml` **và** `SPEC.md`, both-or-neither. Lùi một nửa để lại spec
+mô tả một workflow nó không còn khớp, tức là nút Undo **tự tay chế ra** đúng cái drift spec này sinh ra
+để diệt; thiếu một nửa bản chụp thì route trả **409**, không bao giờ restore dở. Build Dify-seed **không
+lùi được** (`snapshotDiffBase` no-op ở đó ⇒ chỉ có nửa spec) và điều đó là cố ý, ghim bằng test.
+
+Ba ràng buộc còn lại, mỗi cái mua bằng một lần suýt sai:
+
+- **Chỉ ở gate ③.** Ở ④ người dùng vừa *học được* điều gì đó từ report / live run — việc đúng là sửa
+  tiếp, không phải tua lại; và vì import chỉ xảy ra ở ④, giới hạn này khiến undo **không thể** mâu thuẫn
+  với thứ đã đẩy lên Dify.
+- **Route giữ turn lock xuyên suốt restore**, không chỉ *kiểm tra* `taskTurnRunning`. Khe hở giữa kiểm và
+  copy đủ cho một `/reply` chen vào, tự chụp đè lên chính bản đang được restore.
+- **RETRY từ lỗi KHÔNG re-arm bản chụp** (`retryFromError`, đọc `task.status` **trước** khi `runPhase`
+  đè nó thành `running`). Vòng chết giữa chừng để lại `main.yml` cụt trên đĩa; re-arm lúc retry sẽ tôn
+  cái xác đó lên làm "trạng thái trước vòng" — và undo, tấm lưới an toàn duy nhất, sẽ khôi phục ra
+  file hỏng. Bản chụp của lần thử ĐẦU của vòng mới là gốc thật. (Retry của lượt Implement đầu tiên:
+  chưa từng arm nên `fixRoundUndoable` giữ false, không mời undo — đúng, vì "trước vòng" là "chưa có
+  file".) Ghim bằng test tích hợp chết-giữa-chừng-rồi-retry trong `spec-reconcile-prompt.test.ts`.
+- **`task.fixUndone`** báo cho lượt ③ kế tiếp rằng file đã bị đổi dưới chân nó — resume không mang skill
+  body nên *"re-read it fresh"* của `implement.md` không tới nơi. Cờ được xoá **SAU** khi turn chạy, không
+  phải trước: xoá trước nghĩa là một spawn chết vẫn ăn mất lời nhắc.
+
+**`snapshotDiffBase(…, { restart })`** đi kèm: vòng revision **chụp lại** base, nên tab `差分` trả lời
+"đợt này đổi gì" thay vì "từ đầu build tới giờ đổi gì". Lượt đầu giữ nguyên hành vi chụp-một-lần.
+Ngoại lệ **cố ý**: build Dify-seed vẫn diff với seed gốc mọi vòng — sửa điều đó phải đổi thứ tự ưu tiên
+của `resolveBase`, và như thế sẽ phá luôn view "so với app Dify tôi bắt đầu từ đó".
+
+### 8.2 Làn B — đề xuất spec trước khi build (spec 103)
+
+Khi người dùng chọn 「先に計画を見せて」, `/reply` mang `mode:'propose'`: backend `cp SPEC.md →
+SPEC.next.md`, ② chạy nhánh revise (`spec-revise.md`) sửa **bản copy**, rồi park ở gate `spec_proposal`.
+**`SPEC.md` byte-identical suốt lúc chờ — vì model không hề được đưa file đó**, không phải vì nó ngoan.
+
+`これで進める` = `rename(SPEC.next.md → SPEC.md)` rồi ③. `やめる` = xoá bản nháp, không đụng gì.
+
+**Sáu ràng buộc, mỗi cái mua bằng một cái bẫy đã suýt ship:**
+
+- **`artifacts.spec` KHÔNG được trỏ vào bản nháp.** Nó là `{{PRIOR_ARTIFACT}}` của ③ và là file Ask
+  trả lời theo. Trỏ nhầm ⇒ build từ bản chưa duyệt, và sau apply/drop thì trỏ vào file không tồn tại.
+  Carve-out nằm ở `runPhase`.
+- **`apply_spec`/`drop_spec` phải đặt TRƯỚC nhánh `spec` chung** trong `confirmAdvance` — nhánh chung
+  scaffold rồi build, tức duyệt xong mà chưa rename thì việc duyệt vô nghĩa.
+- **`drop` KHÔNG phải `CANCEL`.** `CANCEL` kết thúc cả BUILD. Và nó phải khôi phục **đúng** chỗ đã đứng
+  (`specReviseFrom`): Làn B vào được từ gate ③, gate ④, và build `done` — repark cứng về ③ sẽ **biến
+  một build đã xong thành chưa xong**, tức là thay đổi thật, từ đúng cái nút hứa không thay đổi gì.
+- **`apply` phải ARM snapshot undo TRƯỚC khi rename** — rename là mutation đầu tiên của vòng, và ③ sau
+  đó không mang `replyText` nên `runPhase` không tự arm. Thiếu bước này thì nút lùi khôi phục **nhầm
+  vòng, im lặng**.
+- **`apply` phải làm mới `criteria.json`.** Rubric sinh từ `SPEC.md`, mà ② verify — chỗ duy nhất
+  refresh nó — bị **cố ý bỏ qua** ở revise (rubric không được lấy từ bản chưa ai duyệt). Thiếu bước
+  này thì live-test chấm workflow mới bằng tiêu chí của spec cũ: đúng bệnh drift của spec này, dịch
+  sang một artifact khác.
+- **`specStale` sau apply bị chặn TƯỜNG MINH** qua `specApplied`, không dựa vào việc apply *tình cờ*
+  không có `replyText` — ai đó thêm `replyText` vào đường đó là báo động giả 100%. **Tắt cờ ≠ tắt
+  nhiệm vụ**: ③ vẫn nhận chỉ thị "spec này người vừa duyệt, không xây được đúng thế thì phải nói ra"
+  (§H1 — ② chưa từng gặp linter của Dify nên hoàn toàn có thể đề xuất thứ không xây được).
+
+**Bốn thứ một vòng audit đa-góc-nhìn tìm ra sau khi đã ship (2026-08-21), mỗi cái là một cách hệ
+thống lặng lẽ trả sai kết quả:**
+
+- **Bản nháp phải khoá theo TASK, không theo workflow.** Nó từng nằm ở `projects/<p>/<w>/SPEC.next.md`
+  trong khi guard "một đề xuất một lúc" là `!task.specRevise` — một cờ **per-task** không nhìn thấy bản
+  nháp của task khác. Nhiều task dùng chung một workflow là hình dạng bình thường (build edit-existing,
+  build `done` mở lại để fix), và build đang park **không giữ lock** — nên đề xuất của build B `copyFile`
+  đè thẳng lên bản nháp đang chờ của build A. A bấm duyệt kế hoạch nó đã đọc, và hệ thống **triển khai
+  kế hoạch của B**. Đã repro end-to-end. Đưa `taskId` **vào đường dẫn** làm va chạm trở nên bất khả
+  biểu diễn, thay vì chỉ được canh chừng. (Kèm lợi ích: bản nháp bỏ dở không còn nằm lại trong thư mục
+  của người dùng.)
+- **Panel phải hiện BẢN NHÁP khi có đề xuất, và `PUT /spec` phải từ chối.** Link duy nhất ở gate đề
+  xuất mở tab `仕様`, mà tab đó đọc `specPathFor` = spec **sống**: người dùng được yêu cầu duyệt một
+  kế hoạch mà giao diện **không chịu hiện ra**. Tệ hơn, tab đó sửa + lưu được và route không có guard —
+  lưu xong, `apply` rename đè mất, **không một lời báo**. Mất dữ liệu khoác áo "đã lưu thành công".
+- **`やめる` phải là nút phụ (`ghost`).** Cả ba đều `kind:'confirm'` nên render **ba nút xanh giống
+  nhau**, một trong số đó vứt đi kế hoạch vừa tốn một lượt. Đúng luật spec 016 D4 đã đặt ra ở gate
+  import: *"cú đẩy không hoàn tác được không được là trò tung đồng xu giữa hai nút xanh y hệt"*.
+- **Revise không đổi gì thì KHÔNG park thành đề xuất.** `spec-revise.md` cho phép no-op (yêu cầu chỉ
+  đụng cách viết YAML thì không thuộc về tài liệu mô tả hành vi). Park cái đó ở gate tiêu đề "đây là
+  thứ tôi sẽ đổi" là bắt người dùng quyết một quyết định rỗng, và dạy họ rằng cửa duyệt là nhiễu.
+  Outcome `spec_noop` → trả build về chỗ cũ kèm một dòng giải thích.
+
+Kèm: prompt của ③ sau apply là **chỉ thị ngắn**, không phải nguyên thân `implement.md` — resume một
+phiên đã build workflow đó rồi bảo nó "instantiate" là vừa phí token vừa xui nó làm lại từ đầu.
+
+**Hai chốt chặn nhỏ:** `mode:'propose'` bị route từ chối trên build `error` (ở đó `/reply` nghĩa là
+Retry), và `restore` dọn sạch trạng thái revise — nếu không, build hồi sinh sẽ lặng lẽ ghi vào
+`SPEC.next.md` ở lần "Edit spec" kế tiếp.
+
+`ComposerIntent` là `'ask' | 'change' | 'propose'` — intent nằm ở **nút được bấm**, không nằm trong
+state (luật spec 092). Menu là **hai hành động, bấm là gửi**, không phải hai chế độ: bản đầu làm nó
+thành radio picker và người dùng thật bấm dòng inert 10 lần trong 20 giây vì tưởng hỏng.
+
 ## 9. Sống sót qua restart
 
 `turnHolder` **chỉ in-memory** — boot luôn bắt đầu `null`, không gì được giữ xuyên restart; child
@@ -513,6 +668,11 @@ tránh vòng import) và mang seam:
   `/cancel`, nhưng không test nào đâm trúng từng cửa sổ đó — chúng chỉ được đọc-code.
 - **Golden ladder chỉ có một**: `each_step` deploy-none. Ladder `spec_only`, `auto`+fast, và mọi
   ladder ④ live không có golden — đổi thứ tự emit của chúng không làm test nào đỏ.
+- **Không gì chứng minh `SPEC.md` sau vòng fix mô tả ĐÚNG `main.yml`** (§8.1). Máy chỉ biết nó *đã đổi*
+  — `specStale` là dây bẫy cho ca "không đổi gì cả", không phải cho ca "đổi sai". Một `SPEC.md` được viết
+  lại thành vô nghĩa vẫn cho `specChanged === true` và vẫn xanh. Tương tự, không gì bắt được việc ③ **đắp
+  thêm** bản vá thay vì viết lại hiện trạng — chính là bệnh đã sinh ra spec 103. Cả hai thuộc về người
+  đọc / `/report` / campaign.
 - **Không gì gác việc doc env khớp với code đọc env.** `test-mode.test.ts` chứng minh `createTask`
   bỏ qua `input.deploy`, nhưng **không test nào** đối chiếu bảng env trong `README`/`.env.example`/
   `HUONG_DAN.md` với những env code thật sự đọc. Một knob chết nằm lại trong hướng dẫn cài đặt sẽ

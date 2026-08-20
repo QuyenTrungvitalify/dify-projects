@@ -1604,6 +1604,11 @@ export async function confirm(action: WireGateAction, extra?: { slug?: string; n
     // Optimistic: close the gate; SSE opens the next-phase run item (no duplicate "Running").
     optimisticAdvance(await api.confirm(t.taskId, action.id, extra), action.label);
     void loadActive();
+    // Spec 103 Lane B — these two MOVE FILES and then settle without a fresh GET, so the panel would
+    // keep rendering whatever it last fetched. After a drop that is the REJECTED draft, now titled
+    // `SPEC.md` (the draft banner keys on `specRevise`, which is cleared) with Save re-enabled — one
+    // click away from writing the plan the human just declined into the live spec. Re-read from disk.
+    if (action.id === 'drop_spec' || action.id === 'apply_spec') void refreshArtifacts();
   } catch (e) {
     surfaceError(e);
   }
@@ -1612,7 +1617,13 @@ export async function confirm(action: WireGateAction, extra?: { slug?: string; n
 /** Within-phase change request (kind:'reply') or Retry-out-of-error (+ optional images, AC3). `label`
  *  is the chosen reply action's English label (spec 016 D4) so the resolved gate reads true (Edit spec /
  *  Keep trying); the free-form dock reply has no specific action → the generic 'Requested changes'. */
-export async function reply(text: string, label?: string, files?: Attachment[]): Promise<boolean> {
+export async function reply(
+  text: string,
+  label?: string,
+  files?: Attachment[],
+  /** spec 103 Lane B — this send asks for a plan first. Per-send, never stored. */
+  mode?: 'propose'
+): Promise<boolean> {
   const t = task.value;
   if (!t) return false;
   const trimmed = text.trim();
@@ -1626,7 +1637,7 @@ export async function reply(text: string, label?: string, files?: Attachment[]):
   thread.value = items;
   try {
     // Optimistic: close the gate; SSE re-opens the current phase as a fresh run (no duplicate).
-    const res = await api.reply(t.taskId, trimmed, files);
+    const res = await api.reply(t.taskId, trimmed, files, mode);
     stampUploads(userItemId, res.uploads);
     optimisticAdvance(res, label ?? 'Requested changes');
     void loadActive();
@@ -1687,6 +1698,31 @@ export async function cancel(): Promise<void> {
   }
   void loadTree();
   void loadActive();
+}
+
+/**
+ * Spec 103 step 1 — take back the last fix round on the OPEN build: `main.yml` AND `SPEC.md` both go
+ * back to their pre-round snapshots. Costs no turn (two file copies server-side).
+ *
+ * `applyTask` alone, deliberately — no thread surgery like {@link restore} below. The ③ gate card the
+ * human is looking at stays exactly where it is; what changes is the task it renders from (the two
+ * measurements clear, the diff empties), so the card re-renders in place as "this round changed
+ * nothing", which after an undo is the truth.
+ */
+export async function undoFix(): Promise<void> {
+  const t = task.value;
+  if (!t) return;
+  try {
+    applyTask(await api.undoFix(t.taskId));
+    // The panel MUST be re-read from disk. `setTaskValue` carries the previous `artifactContents`
+    // forward whenever a snapshot omits them — correct for a running phase, wrong here: the files
+    // just moved underneath, so the panel would keep showing the post-fix text while the disk holds
+    // the restored one. With Save enabled on top of that, the next click would write the undone
+    // content straight back — an undo that undoes itself.
+    await refreshArtifacts();
+  } catch (e) {
+    surfaceError(e); // 409 → the server refused (not at ③, a turn is running, snapshots incomplete)
+  }
 }
 
 /** Reopen the OPEN cancelled build at the previous phase's gate (undo the Continue that advanced too

@@ -43,6 +43,8 @@ import { difyTargets } from '../lib/dify-io.js';
 import { runLiveTest } from '../lib/live-test.js';
 import { promoteConfirm, promoteReply, resolvePastedPromoteSource, resolvePromoteSource, startPromote, undoPromotion } from '../lib/promote.js';
 import { lintStandaloneYaml } from '../lib/base-import.js';
+import { dropSpecProposal, undoFixRound, writeDiffArtifact } from '../lib/diff.js';
+import { artifactHash } from '../lib/post-turn.js';
 import { resolveRunners } from '../lib/orchestrator-shared.js';
 import {
   confirmAdvance,
@@ -776,7 +778,19 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       dispatch(id, promoteReply(task, text, ctx));
       return reply.send({ ...optimisticRunning(task), uploads });
     }
-    dispatch(id, replyWithin(task, text, ctx));
+    // Spec 103 Lane B — "show me the plan first". Re-derive legality SERVER-SIDE from the same facts
+    // the FE renders the option on; a stale tab or a forged POST must not be able to open a proposal
+    // on a build that has no spec, has no workflow yet, or already has one pending.
+    const wantsPropose =
+      body.mode === 'propose' &&
+      // NOT on an errored build. A `/reply` there is a Retry — the human wants the failed phase to run
+      // again, and quietly turning that into "let me draft you a plan instead" would strand the build
+      // in its error while spending a turn on something nobody asked for.
+      task.status !== 'error' &&
+      !!task.project && !!task.workflowSlug &&
+      !task.specRevise && // one proposal at a time — a second would diff against a spec being replaced
+      existsSync(join(projectsDir, `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`));
+    dispatch(id, replyWithin(task, text, ctx, wantsPropose ? { mode: 'propose' } : undefined));
     return reply.send({ ...optimisticRunning(task), uploads });
   });
 
@@ -957,6 +971,15 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // still null) has NO prior gate → target=null (reopen retryable; Retry re-runs the merged draft),
     // NOT a phantom Analyze gate. A fast build cancelled at 'implement' (slug set by the scaffold)
     // rewinds to the Spec gate normally, where "Edit spec" runs the slug-aware spec.md (not draft.md).
+    // Spec 103 Lane B — a build cancelled with a proposal open carries `specRevise` into its next life.
+    // Without clearing it, the restored build's "Edit spec" would silently write to `SPEC.next.md` and
+    // settle at a proposal gate nobody asked for. Harmless to the live spec (that is the invariant that
+    // holds regardless) but a real surprise, so the revise state dies with the cancellation.
+    if (task.specRevise) {
+      await dropSpecProposal(projectsDir, task);
+      task.specRevise = undefined;
+      task.specReviseFrom = undefined;
+    }
     const target = restoreTargetPhaseFor(task);
     if (target) {
       task.phase = target;

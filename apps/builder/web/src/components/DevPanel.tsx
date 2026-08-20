@@ -1,7 +1,14 @@
-/* DevPanel.tsx — spec 059. A thin strip under the header (only when `?dev=1`) that surfaces the
-   otherwise-hidden taskId (copyable, to feed `e2e-run.sh time <id>`) and the per-phase cost table
-   (tokens / turns / cache%) read straight from the wire — so "where does ③ spend the time" is
-   answerable in-app without the CLI. Pure render off `task.cost`; no store writes, dev-only.
+/* DevPanel.tsx — spec 059. A small floating TIP at the top-right of the chat column (only when
+   `?dev=1`) that surfaces the otherwise-hidden taskId (copyable, to feed `e2e-run.sh time <id>`) and
+   the per-phase cost table (tokens / turns / cache%) read straight from the wire — so "where does ③
+   spend the time" is answerable in-app without the CLI. Pure render off `task.cost`; no store writes,
+   dev-only.
+
+   It used to be a full-width strip in the flow between the header and the thread: it reserved a band
+   of the reading column for a dev-only read-out and shoved every answer down by its height, collapsed
+   or not. It now floats (absolute, out of flow) and is sized to its content — collapsed it is a pill
+   the width of `dev …684286 copy`, dimmed until pointed at, so it costs the page nothing; expanded it
+   is an opaque card that overlays (never displaces) the thread and scrolls inside its own max-height.
    Also hosts a collapse toggle (the table is tall). The `⟳ rebuild` action now lives in the sidebar
    header (RebuildButton) so it's reachable from any view, not just an open build. */
 import { useEffect, useState } from 'preact/hooks';
@@ -60,7 +67,12 @@ export function DevPanel({ task }: { task: WireTask }) {
       <div className="dev-strip-top">
         <Twist open={!collapsed} onClick={toggleCollapsed} />
         <span className="dev-tag">dev</span>
-        <span className="dev-id" title="taskId — feed to e2e-run.sh time">{task.taskId}</span>
+        {/* Collapsed, the id is a TAIL (`…684286`): the pill exists to be glanced at, and 13 digits of
+            epoch is the half nobody reads — the whole id stays one hover (title) or one click (copy)
+            away, and comes back in full, `user-select:all`, the moment the panel opens. */}
+        <span className="dev-id" title={`taskId ${task.taskId} — feed to e2e-run.sh time`}>
+          {collapsed ? `…${task.taskId.slice(-6)}` : task.taskId}
+        </span>
         {branch && (
           /* Reuses `dev-tag` (the same pill as “dev”) on purpose — no new CSS, so this cannot collide
              with styling work in flight. Truncated while collapsed like the id above; the full name is

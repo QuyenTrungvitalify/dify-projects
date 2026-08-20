@@ -159,6 +159,12 @@ function flowLines(events: RunEvent[]): string[] {
       // spec 094 S1 — reads as a sibling of the request_changes line right above it, which is the
       // whole point: "⤺ request-changes" followed by "= no file change" is the empty round, visible.
       case 'artifact_unchanged': out.push(`- ${p} = no file change${d ? ` (${d})` : ''}`); break;
+      // spec 103 L0 — sits in the same column as the line above for the same reason: read down the
+      // timeline and an unreconciled fix round is now visible as a line, not as an absence.
+      case 'spec_proposal_applied': out.push(`- ${p} ✓ spec proposal approved → implement`); break;
+      case 'spec_proposal_dropped': out.push(`- ${p} ✗ spec proposal dropped (nothing changed)`); break;
+      case 'fix_undone': out.push(`- ${p} ↶ fix undone — workflow + SPEC.md restored${d ? ` (${d})` : ''}`); break;
+      case 'spec_stale': out.push(`- ${p} ⚠ workflow changed, SPEC.md did not${d ? ` (${d})` : ''}`); break;
     }
   }
   return out;

@@ -236,6 +236,17 @@ export function App() {
     setFiles((prev) => prev.filter((f) => f.id !== id));
   }
 
+  // spec 103 Lane B — "show me the plan first" is only meaningful once a workflow EXISTS: at ① and ②
+  // the spec is still being written, so there is nothing to plan a change TO. `artifacts.yaml` is set
+  // by the ③ verify, which makes it the honest "there is something to fix" signal. One proposal at a
+  // time. The server re-derives all of it — this only decides whether to render the caret.
+  //
+  // The key is `implement`, NOT `yaml`: `artifacts` is keyed by PHASE ID (runPhase writes
+  // `artifacts[sessKey]`), so `artifacts.yaml` is always undefined and gating on it silently disabled
+  // the entire feature. `artifactContents.yaml` is a different object — that one holds file CONTENT.
+  const canPropose =
+    !!task?.project && !!task?.workflowSlug && !!task?.artifacts?.implement && !task?.specRevise;
+
   function send(text?: string, intent: ComposerIntent = 'ask'): void {
     const msg = (text ?? draft).trim();
     if (!msg) return; // files augment, never replace, the text (spec 012 Q2)
@@ -281,7 +292,13 @@ export function App() {
     }
     // 'reply' — a Request-changes at a parked gate, a Retry out of error, a promote note, or the
     // post-import fix on a DONE build (which reopens it server-side and resumes the implement session).
-    void store.reply(msg, replyLabel(t!.status, t!.kind, intent, armed ?? 'Requested changes'), atts).then(onDone);
+    // spec 103 Lane B: 'propose' rides the SAME /reply route and differs only in the mode flag — the
+    // server decides whether a proposal is legal and falls back to a direct fix if not, so the FE never
+    // has to model the eligibility rules twice.
+    void store
+      .reply(msg, replyLabel(t!.status, t!.kind, intent, armed ?? 'Requested changes'), atts,
+             intent === 'propose' ? 'propose' : undefined)
+      .then(onDone);
   }
   // spec 053: the error gate's one-click "Retry phase" — a text-less re-run of the failed phase that
   // CARRIES any staged composer files (attach is live at an error gate, so dropping them would be silent
@@ -363,6 +380,20 @@ export function App() {
       danger: true,
     });
     if (ok) void store.cancel();
+  }
+
+  // Spec 103 step 1 — take back the last fix round. Confirmed, and DANGER-styled, for one reason: it
+  // throws away a turn the human already paid for (~$0.4–1.0 measured), and redoing it costs that
+  // again. The link itself is small and lives among read-only links, so a misclick is unlikely; this
+  // is the second guard, not the first.
+  async function onUndoFix(): Promise<void> {
+    const ok = await store.askConfirm({
+      title: tr('undoFixTitle'),
+      message: tr('undoFixMsg'),
+      okLabel: tr('undoFix'),
+      danger: true,
+    });
+    if (ok) void store.undoFix();
   }
 
   // spec 062 follow-up: "Export to Drive" — upload the run dossier straight to the team's Drive (exports/).
@@ -692,6 +723,7 @@ export function App() {
                         onCancel={() => void onDiscard()}
                         onRetry={onRetry}
                         onRestore={() => void store.restore()}
+                        onUndoFix={() => void onUndoFix()}
                         /* spec 035: "Edit this workflow" — a done/cancelled gate-foot button that starts a
                            NEW edit-existing build via the SAME newTask({baseWorkflow}) the sidebar "+" uses. */
                         onEditAgain={(project, workflow) => newTask({ baseWorkflow: { project, workflow } })}
@@ -742,6 +774,9 @@ export function App() {
                            mode-row indicator is gone: intent lives on the button pressed, not in state.
                            A promote/error composer keeps its single button (route is reply either way). */
                         canChange={askableGate} changeArmed={!!armed}
+                        /* spec 103 Lane B — a plan can only be drafted against a workflow that exists,
+                           and only one proposal at a time (the server re-checks both). */
+                        canPropose={canPropose}
                         sendGlyph={task.kind === 'promote' ? 'edit' : undefined}
                         /* spec 052: a promote build has no ①②③④ run-settings — omit the Workflow/Confirm/Fast
                            chips (and their confirm_mode PATCH) so the promote-gate composer is a plain reply box. */
@@ -783,6 +818,9 @@ export function App() {
                     // intent; the old mode-arm row is gone since the pill is always visible here).
                       <Composer value={draft} onChange={onDraftChange} onSend={(intent) => send(undefined, intent)}
                         canChange={terminalFixable} changeArmed={!!armed}
+                        /* spec 103 Lane B — a plan can only be drafted against a workflow that exists,
+                           and only one proposal at a time (the server re-checks both). */
+                        canPropose={canPropose}
                         /* spec 096: a finished build still takes follow-up questions, and those Ask
                            turns spawn with `task.model` — so the chip belongs here too. Without it the
                            model was in force but invisible and unchangeable. It is the ONLY chip here:
@@ -813,6 +851,18 @@ export function App() {
               onClose={() => setArtifactOpen(false)}
               onSaveSpec={store.saveSpec}
               onReveal={() => store.revealWorkflow(task.taskId)}
+              /* spec 103 Lane B — the panel is a modal, so while it is open the gate's own buttons are
+                 unclickable; and the gate tells the human to open it. Route the in-panel decision
+                 through the SAME store calls the gate uses (never a parallel path), and close the
+                 panel first so the result lands where the human can see it. `changes` arms the
+                 composer exactly as the gate's reply action does. */
+              onProposalDecide={(id) => {
+                setArtifactOpen(false);
+                const a = task.gate?.actions.find((x) => x.id === id);
+                if (!a) return; // the gate moved on (another tab decided) — the server would 409 anyway
+                if (id === 'changes') { setArmed(a.label); setFocusToken((x) => x + 1); return; }
+                void store.confirm(a);
+              }}
             />
           </>
         )}

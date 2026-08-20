@@ -109,7 +109,10 @@ export interface Gate {
     // `promote_share_review` = the preflight results (leak scan + near-dup) parked for the
     // contributor's explicit confirm — the first human gate; nothing leaves the machine before it.
     | 'promote_share_offer'
-    | 'promote_share_review';
+    | 'promote_share_review'
+    // Spec 103 Lane B: a ② revise settled with a spec proposal on disk and `SPEC.md` untouched.
+    // `auto` HARD-STOPS on it — a plan nobody read is a plan that bought nothing.
+    | 'spec_proposal';
 }
 
 /** Spec 052 — the verbatim `promote_gate.py check --json` verdict (B1 before the turn, B2′ re-gate after).
@@ -359,6 +362,85 @@ export interface Task {
    * five rounds and a re-import of a file the user believed was new.
    */
   artifactUnchanged?: boolean;
+  /**
+   * Spec 103 L0 — the last ③ REVISION round changed `main.yml` but left `SPEC.md` untouched.
+   *
+   * The bad state this names: `main.yml` is supposed to be a function of `SPEC.md` (spec 103 §2.1), so
+   * a fix round that moves one without the other makes the document a lie — silently, and a little
+   * more with every round. One real workflow drifted far enough that the user hand-wrote a rival
+   * 582-line `SPEC-FIX.md` and declared IT the current spec (§1.1).
+   *
+   * Advisory, set/cleared on every measured Implement verify (the `artifactUnchanged` convention).
+   * `undefined` = not measured — a first Implement (② just wrote the spec, so there is nothing to
+   * reconcile) or a build predating 103. Render nothing then; never "stale".
+   */
+  specStale?: boolean;
+  /**
+   * Spec 103 step 1 — the last fix round was UNDONE, and the resumed implement session has not been
+   * told yet. Set by the undo route, consumed (and cleared) by the next ③ reply prompt.
+   *
+   * Why it must exist: undo rewrites `main.yml` and `SPEC.md` under a session that still holds its own
+   * edits in context, and a `/reply` resume carries no skill body — so implement.md's "re-read it
+   * fresh" never reaches it. Without this note the next fix round patches on top of a state that is
+   * gone. Transient by design; never rendered.
+   */
+  fixUndone?: boolean;
+  /**
+   * Spec 103 step 1 — a complete pre-round snapshot pair exists, so the ③ gate may offer "take this
+   * fix back". A HINT for the renderer, recomputed from disk at the start of each fix round; the undo
+   * route re-checks it and answers 409 rather than performing half a restore.
+   *
+   * False for a Dify-seed build: `snapshotDiffBase` no-ops there (the seed IS the diff base), so there
+   * is no pre-round `main.yml` to restore and only half the round could be taken back — which is worse
+   * than not offering it.
+   */
+  fixUndoable?: boolean;
+  /**
+   * Spec 103 Lane B — this ② turn is REVISING an existing spec, not writing a new one, so it edits
+   * `SPEC.next.md` (a copy) and `SPEC.md` stays byte-identical until the human approves.
+   *
+   * Set when a `/reply` chooses the "show me the plan first" send; cleared on apply / drop / error.
+   * Its presence is ALSO the "a proposal is pending" flag — one fact, one field, so the gate, the
+   * routing and the one-proposal-at-a-time guard can never disagree about whether one is open.
+   */
+  specRevise?: boolean;
+  /**
+   * Spec 103 Lane B — the ③ about to run is building a spec a HUMAN just approved.
+   *
+   * Consumed and cleared by that ③. Two effects, and the pair is the point (§H1): the `specStale`
+   * flag is SUPPRESSED (the spec changed by rename BEFORE the turn, so the measurement would raise a
+   * false alarm on every single apply), while the turn is still told it may not silently deviate —
+   * ② has never met Dify's linters, so ③ genuinely may be unable to build what was approved, and that
+   * has to surface as words rather than as a quiet mismatch. Turning off the flag is not turning off
+   * the duty.
+   */
+  specApplied?: boolean;
+  /** Spec 103 Lane B — the last proposal found nothing worth changing in the spec. Rendered once at the
+   *  gate the build returns to, so "I asked for a plan and got sent back" is explained rather than
+   *  mysterious. Cleared by the next fix round. */
+  specNoop?: boolean;
+  /**
+   * Spec 103 Lane B — exactly where the human was standing when they asked for a plan.
+   *
+   * "Nothing has changed" is the promise the proposal gate makes, and dropping a plan has to honour it
+   * to the letter. Lane B is reachable from THREE places — the ③ gate, a ④ gate (awaiting import, a
+   * live-test verdict…), and a finished build — and a drop must return to whichever one it was. An
+   * earlier version reparked everything at ③: it silently un-finished a `done` build and threw away a
+   * ④ gate, which is a change, and a confusing one, from a button that promises none.
+   *
+   * Captured on open, consumed on drop/apply.
+   */
+  specReviseFrom?: { phase: Task['phase']; status: Task['status']; gate?: Task['gate'] };
+  /**
+   * Spec 103 step 1 follow-up — how many places in `SPEC.md` the last fix round touched.
+   *
+   * Exists because every ③ gate card renders the same two lines, so four fix rounds scroll back as four
+   * identical cards and the human cannot tell which one did what (observed, task 1787190372697). This
+   * is the cheapest true thing a card can add about ITS round, and it costs nothing: the diff was
+   * computed anyway. Absent when the spec did not move — the two bad cases (workflow unchanged, spec
+   * left behind) already have their own badge and warning, and a "0 places" line would just be noise.
+   */
+  specEdits?: number;
   /** Spec 094 S1 — sha256 of the artifact as of the last measured ③ verify. Compared with
    *  {@link importedHash} to tell the ④ gate whether the file on disk is the one already imported. */
   artifactHash?: string | null;

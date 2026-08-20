@@ -287,6 +287,91 @@ quả **đúng một cách tình cờ**. Nhưng nhãn đó là chuỗi đông c�
 Nhật, và `serializeThread` ghi nó vào localStorage nên nó sống qua cả reload. Mọi đường khác lưu **tiếng
 Anh** và dịch lúc render.
 
+#### 6.2a Một gốc từ cho một hành động — và vì sao chỉ sửa được ở tiếng Nhật
+
+`修正` là gốc từ **duy nhất** cho "sửa build này" (spec 103 S1). Trước đó, trên một build `done`, nút ở
+chân card đọc 「修正を依頼」 còn pill composer cách đó vài phân đọc 「変更を依頼」 — hai chữ cho một
+việc, **hiển thị cùng lúc trên một màn hình**. Cơ chế thì thật sự khác nhau (nút gate **nạp đạn** qua
+`replyButtonKind → 'arm'`, pill **bóp cò**) nhưng người dùng không đọc được sự phân công đó ra từ hai
+chữ khác nhau.
+
+Đã đổi (JA only): `modeChange` · `ACTION_JA['Request changes']` → 「修正を依頼」;
+`ACTION_JA['Edit spec']` → 「仕様を修正」; `ACTION_JA['Requested changes']` → 「修正を依頼済み」. Ba
+chuỗi **văn xuôi gọi tên nút** cũng phải đi theo, và đó là nhóm dễ sót nhất — `gateAnalyzeSummary2`,
+`promoteDistillFailedSummary`, `askAnomalyMsg`. Rà theo từng key sẽ bỏ lọt cả ba;
+`test/vocab-one-root.test.ts` grep **toàn bộ** `web/src` (trừ `dist/`, là artifact build) nên chúng đỏ.
+
+**Tiếng Anh vẫn còn hai chữ, cố ý.** EN không có tầng map: label gate render **thô** từ `gate.ts`. Muốn
+gộp thì phải đổi chính chuỗi label — mà chuỗi đó **là key** của `ACTION_JA` (§6.2) và còn chảy qua
+`replyLabel`/`armed` ở `App.tsx` + `composer-route.ts`. Đó là đổi kiến trúc, không phải đổi display
+string. Sửa nửa vời (chỉ pill EN) chỉ **dời** chỗ lệch từ cặp pill/foot sang cặp pill/gate, không đóng nó.
+
+**Không bỏ nút nào.** Nút ở chân card vẫn cần cho việc *nhìn thấy là sửa được*; pill vẫn là van an toàn.
+Chỉ bỏ **một chữ**.
+
+#### 6.2b Gate ③ nói gì khi tài liệu tụt lại
+
+`gateView` (`Chat.tsx`, nhánh `implement`) có hai nhánh cảnh báo, xét theo thứ tự:
+
+1. `artifactUnchanged === true` → badge riêng 「ファイル変更なし」 (094 S1).
+2. `specStale === true` → badge **vẫn** 「実装完了」 (build đúng là đã xong), `tone: 'warn'`, dòng
+   `gateSpecStale` **dẫn đầu** summary, và `showSpecLink` bật — nói tài liệu sai mà không cho đường
+   mở nó ra là vô nghĩa.
+
+Hai cờ **không thể cùng true** trên dữ liệu thật (`specStale` đòi workflow phải đã đổi), nhưng renderer
+**không** được dựa vào bất biến đó: nếu cả hai tới, "vòng này không đổi gì" là điều cấp thiết hơn và
+không được bị che. `gate-spec-stale.test.ts` ghim đúng thứ tự đó.
+
+Cả hai nhánh so `=== true`: `undefined` nghĩa là *chưa đo* (lượt Implement đầu không đo `specStale` bao
+giờ) và không bao giờ được render thành một lời buộc tội.
+
+#### 6.2c Undo một vòng fix, và vì sao nó KHÔNG phải một nút
+
+`canUndoFix` (`lib/gate-foot.ts`, thuần) quyết định gate ③ có mời lùi không. Bốn điều kiện, mỗi cái
+chặn một ca khác nhau: `!resolved` (card trong scroll-back là **lịch sử** — bấm nó sẽ restore bằng bản
+chụp của một vòng khác), `phase==='implement' && status==='awaiting_confirm'`, và `fixUndoable === true`
+(bản chụp **đủ cặp**; `undefined` không phải là "có"). Server kiểm lại y hệt và trả 409 — cái này quyết
+**có render không**, không quyết **có an toàn không**.
+
+**Chỗ đặt là quyết định thiết kế, không phải chi tiết CSS.** Link nằm ở hàng `gate-strip` (cùng chỗ với
+`main.yml` / `差分を表示`), **không** ở `gate-foot`. Hàng foot đã có 「ビルドを破棄」, mà 破棄 và 取り消す
+gần đồng nghĩa trong tiếng Nhật trong khi hậu quả lệch một trời (mất cả build vs mất một vòng). Hai nút
+cùng cỡ với hai chữ gần giống nhau chính là §1.5 — bệnh mà spec 103 lập ra để chữa. Khác hàng, khác cỡ,
+khác trọng lượng: đọc là biết cái nào nguy hiểm. Có `askConfirm` danger phía sau làm lớp thứ hai, vì
+lùi là vứt một lượt đã trả tiền.
+
+**Mỗi card phải nói được vòng CỦA NÓ đã làm gì.** Nhánh ③ bình thường trước đây render đúng hai câu cố
+định, nên bốn vòng fix cuộn ngược lại thành bốn card **giống hệt nhau** — quan sát thật trên task
+`1787190372697`: hai yêu cầu khác nhau, không gì trên card phân biệt được. `task.specEdits` (số `@@`
+trong diff của `SPEC.md`, `countHunks`) thêm một dòng 「仕様書も N か所 更新しました」 **sau** dòng lint —
+workflow vẫn là tiêu đề, spec là phần trấn an rằng tài liệu theo kịp — kèm `showSpecLink` để lời khẳng
+định đó cách chỗ kiểm chứng đúng một cú bấm. `0` và `undefined` **đều im lặng**: hai ca xấu (workflow
+không đổi / spec tụt lại) đã có badge và cảnh báo riêng, thêm dòng "0 chỗ" chỉ là nhiễu.
+
+> Card render từ **snapshot** của task lúc gate nổ (persist vào localStorage), không phải từ task sống.
+> Nên một field mới **không hồi tố**: card cũ giữ nguyên, chỉ vòng mới mới có dòng mới. Đây là hành vi
+> đúng (card là lịch sử), nhưng nó làm việc kiểm chứng thủ công dễ nhầm — phải xoá cache thread hoặc
+> chạy một vòng mới mới thấy.
+
+`specDiffState` (`lib/diff-parser.ts`) giữ **ba** trạng thái cho mục 仕様 của tab `差分`: `absent`
+(chưa có bản chụp — build đầu, mục biến mất hẳn) · `unchanged` (có đo, không đổi — một câu khẳng định)
+· `changed`. Gộp hai cái đầu là để một build đầu **âm thầm tuyên bố** spec đã được đối chiếu và giống hệt.
+Cùng hợp đồng ba trạng thái mà `specStale` giữ ở server.
+
+> **Đã gỡ (2026-08-20)** — từng có một caret trên nút 修正を依頼 mở menu, trong đó dòng thứ hai
+> 「仕様の修正案を先に作る」 là một **probe**: chưa chạy được, bấm vào chỉ ghi một event để đếm xem có
+> nên xây Làn B không. Gỡ vì hai lý do, lý do sau nặng hơn:
+>
+> 1. **Phép đo tự đầu độc.** Dòng đó nằm ngang hàng với `すぐ直す` trong một menu chọn — mà một dòng
+>    ngang hàng trong picker thì **hứa rằng bấm được**. Người dùng thật tưởng nút hỏng và bấm **10 lần
+>    trong 20 giây**; log ghi 10 "phiếu". Nó đo sự bực bội, không đo nhu cầu. Nhãn nhỏ không cứu được
+>    một hình dạng nói dối.
+> 2. **Fake door không được ship ra công chúng.** Probe hợp lệ khi một người tự làm tự test. Khi dự án
+>    mở cho người lạ, một nút bấm-không-làm-gì là lời hứa dối — họ không biết đó là thí nghiệm.
+>
+> Bài học giữ lại: **một bề mặt chỉ để đo vẫn là một bề mặt người dùng thật sự dùng.** Nếu phải đo nhu
+> cầu cho tính năng chưa có, đừng đặt nó vào chỗ trông như đã có.
+
 ### 6.3 `localizeNotes(notes)` — dịch theo frame, và đây là hợp đồng chịu lực
 
 `report.json.notes` là **một chuỗi** ráp backend-side từ một tập câu tiếng Anh cố định (`report.ts` +

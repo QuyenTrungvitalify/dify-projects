@@ -35,6 +35,12 @@ const runArtifact = (task: Task, file: string): string =>
  *  `artifact missing`. The backend resolves the condition at render time; the agent gets a value. */
 const specArtifactRel = (task: Task): string => {
   const dir = workflowDir(task);
+  // Spec 103 Lane B — a REVISE writes the draft, never the live spec. This resolver feeds BOTH the
+  // path verify stats AND `{{SPEC_PATH}}`, so the turn is told to write exactly the file the backend
+  // will look for; they cannot drift apart (the 090 S4 rule, one function).
+  // Per-TASK path (diff.ts specNextRel): several tasks can share one workflow, so a per-workflow draft
+  // let one build overwrite another's pending proposal. Kept as one expression with that resolver.
+  if (task.specRevise) return runArtifact(task, 'SPEC.next.md');
   return dir ? `${dir}/SPEC.md` : runArtifact(task, 'SPEC.md');
 };
 
@@ -90,6 +96,10 @@ const vars = (partial: Partial<Record<string, string>>): Record<string, string> 
   // is io-free by contract — so, exactly like KNOWLEDGE above, it stays '' here and the orchestrator
   // (which owns the render seam) fills it for Implement. '' = the pattern covers everything.
   REFERENCES: '',
+  // Spec 103 Lane B — only the ② revise doc uses these; '' everywhere else keeps the
+  // "every known token is always substituted" contract (no stray {{...}} survives a render).
+  CURRENT_SPEC: '',
+  WORKFLOW_PATH: '',
   ...partial,
 });
 
@@ -109,7 +119,10 @@ export const PHASES: PhaseDef[] = [
     kind: 'turn',
     // Spec 028: the fast, PRE-scaffold path (fastMode && !workflowSlug) runs the merged Analyze+Spec
     // `draft.md`; otherwise (standard, OR a post-scaffold fast revise where the slug is set) `spec.md`.
-    promptFile: (t) => (t.fastMode && !t.workflowSlug ? `${SKILL}/draft.md` : `${SKILL}/spec.md`),
+    promptFile: (t) =>
+      t.specRevise ? `${SKILL}/spec-revise.md`
+      : t.fastMode && !t.workflowSlug ? `${SKILL}/draft.md`
+      : `${SKILL}/spec.md`,
     // pre-slug → .runs/<taskId>/SPEC.md; after scaffold → projects/<project>/<workflowSlug>/SPEC.md.
     // Spec 090 S4: ONE resolver (specArtifactRel) feeds both this and {{SPEC_PATH}} below.
     artifactRel: specArtifactRel,
@@ -119,6 +132,10 @@ export const PHASES: PhaseDef[] = [
         PROJECT: t.project ?? '', // empty until ② / scaffold resolves the project (D5: else `_drafts`)
         WORKFLOW_SLUG: t.workflowSlug ?? '', // empty until ② / scaffold proposes one
         SPEC_PATH: specArtifactRel(t), // 090 S4: what verify will stat — handed as a VALUE
+        // Lane B: the CURRENT spec (read-only reference) and the workflow it describes. Both handed as
+        // values for the same reason SPEC_PATH is — a revise that has to guess either one guesses wrong.
+        CURRENT_SPEC: t.specRevise && workflowDir(t) ? `${workflowDir(t)}/SPEC.md` : '',
+        WORKFLOW_PATH: t.specRevise && workflowDir(t) ? `${workflowDir(t)}/workflows/${t.workflowFile}` : '',
         REQUIREMENT: t.requirement,
         // Spec 028: the merged draft turn (fast, pre-scaffold) WRITES analyze.json — it must not be
         // pointed at a not-yet-existing file, so drop PRIOR_ARTIFACT there. A post-scaffold fast revise

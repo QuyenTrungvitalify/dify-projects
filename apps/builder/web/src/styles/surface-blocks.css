@@ -364,19 +364,19 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .tree-task { padding: 6px 10px 6px 37px; }
 
 /* ── ONE text column down the sidebar ────────────────────────────────────────────────────────────
-   `.tree-task`'s indent is a NESTING indent: it says "something above me contains me". The 進行中 /
+   `.tree-task`'s 30px is a NESTING indent: it says "something above me contains me". The 進行中 /
    Chat / 蒸留 sections are flat lists — nothing contains their rows — so they were paying for a
    hierarchy they do not have, and the icon rows paid twice: 30px of phantom nesting plus a 15+8px
    glyph column put their titles 17px to the RIGHT of their own section heading.
 
    Measured from the sidebar's left edge, before: section heading 46 · Build's workflow rows 47 ·
-   Chat/蒸留 63 · 進行中 40 · a build under a workflow 40 · the empty-state lines 15. Build looked
-   right precisely because its top-level rows already landed on the heading's column; nothing else
-   did. Every row now sits on that column, so the eye follows one line the whole way down.
+   Chat/蒸留 63 · 進行中 40. Build looked right precisely because its top-level rows already landed
+   on the heading's column; nothing else did. These two rules put every top-level row on that same
+   column, so the eye follows one line the whole way down.
 
    ONE rule for all three flat sections, because all three fill the lead column with their own icon:
    💬 chat, ✨ distill, and 進行中's clock/spinner. */
-.tree-flat { padding-left: 14px; }            /* 14 + icon 15 + gap 8 → text at 47 */
+.tree-flat { padding-left: 14px; }        /* 14 + icon 15 + gap 8 → text at 47 */
 /* the "nothing here yet" placeholders sit in a section, so they belong on the same column; the ones
    nested INSIDE a workflow (`.tree-children`) are a level deeper and keep their own indent */
 .sb-scroll > .tree-empty { padding: 6px 10px 6px 37px; }
@@ -984,6 +984,40 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* spec 092: the ✎ change pill — the composer's second, deliberate send action (re-runs the phase /
    reopens a done build). Labeled on purpose: the expensive action never hides behind a bare icon. Sits
    left of the round ask button; outline styling keeps the round accent button reading as the default. */
+/* Spec 103 Lane B — the change pill and its caret read as ONE control: glued at the pill's right edge
+   (no gap, shared rounding) so it never looks like a third send button. `flex:none` keeps it out of the
+   `.composer-row` shrink negotiation, which only the workflow chip may lose. Measured cost: 20px, of
+   which 1px comes off that chip. */
+.composer-change-wrap { display: flex; align-items: center; flex: none; }
+.composer-change-wrap .composer-change { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right-color: transparent; }
+.composer-change-caret {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 32px; padding: 0; flex: none; cursor: pointer; font-family: inherit;
+  border: 1px solid var(--border-soft); border-left: none;
+  border-top-right-radius: 9px; border-bottom-right-radius: 9px;
+  background: transparent; color: var(--tx-muted);
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+}
+.composer-change-caret:hover { color: var(--tx-1); background: var(--bg-chip); }
+.composer-change-caret svg { width: 12px; height: 12px; transform: rotate(-90deg); }
+/* The caret follows the pill's ready/armed accent so the pair never reads as two different controls. */
+.composer-change-wrap:has(.composer-change.ready) .composer-change-caret { border-color: var(--accent-line); color: var(--accent-tx); }
+.composer-change-wrap:has(.composer-change.armed) .composer-change-caret { background: var(--accent-dim); border-color: var(--accent-line); color: var(--accent-tx); }
+
+/* Both rows are SENDS. Wider than the prefs menu because each carries a one-line explanation — the
+   choice has to be legible without documentation, since the person making it may not know what a
+   spec is. Icons differ (edit vs doc) so the two are distinguishable at a glance, not just by text. */
+.sendvar-menu { min-width: 250px; }
+.sendvar-row {
+  display: flex; align-items: flex-start; gap: 8px; width: 100%; text-align: left;
+  padding: 8px 9px; border: none; border-radius: 7px; background: transparent;
+  color: var(--tx-1); font-family: inherit; font-size: 12.5px; cursor: pointer;
+}
+.sendvar-row:hover:not(:disabled) { background: var(--bg-chip); }
+.sendvar-row:disabled { opacity: 0.45; cursor: default; }
+.sendvar-row svg { width: 14px; height: 14px; flex: none; margin-top: 2px; color: var(--tx-muted); }
+.sv-sub { display: block; font-size: 11px; color: var(--tx-muted); margin-top: 2px; line-height: 1.45; }
+
 .composer-change {
   display: inline-flex; align-items: center; gap: 5px; flex: none; cursor: pointer;
   height: 32px; padding: 0 11px; border-radius: 9px; font-family: inherit;
@@ -1588,19 +1622,56 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .conn-dot { display: inline-block; margin-right: 0; flex: none; }
 
 /* ── spec 059 dev strip (taskId + per-phase cost; only under ?dev=1) ─────────── */
+/* A FLOATING tip, not a band in the flow. It hangs off `.chat` (position:relative) just under the
+   48px header, sized to its own content — so it never reserves reading width and never pushes the
+   thread down. z-index sits above the thread but BELOW the artifact panel (30) and the background
+   tray (60): a dev read-out must not float over the surfaces a run actually needs. */
 .dev-strip {
-  margin: 6px 16px 0;
-  padding: 6px 10px;
+  position: absolute;
+  top: 54px;
+  right: 14px;
+  z-index: 15;
+  width: max-content;
+  max-width: min(640px, calc(100% - 28px));
+  padding: 5px 9px;
   border: 1px dashed var(--border-soft);
-  border-radius: 8px;
-  background: var(--bg-chip);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  box-shadow: 0 6px 22px var(--bg-overlay);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   color: var(--tx-muted);
-  overflow-x: auto;
+  overflow: auto;
+  /* Expanded, the table can outgrow the viewport — scroll INSIDE the card rather than run off it. */
+  max-height: calc(100vh - 76px);
 }
 .dev-strip-top { display: flex; align-items: center; gap: 8px; }
-.dev-collapsed { padding-bottom: 6px; }
+/* Collapsed = a pill that recedes: it overlays the thread only at narrow widths, and at 0.45 opacity
+   it reads as a corner marker rather than something covering a sentence. Pointing at it (or tabbing
+   into it) brings it back to full. */
+.dev-collapsed {
+  padding: 2px 5px 2px 7px;
+  border-radius: 999px;
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+.dev-collapsed:hover,
+.dev-collapsed:focus-within { opacity: 1; }
+.dev-collapsed .dev-strip-top { gap: 6px; }
+/* At rest the pill is `⟩ DEV …684286` and nothing else — every pixel it doesn't need is a pixel of
+   thread it can't cover. `copy` unfurls on hover (and on keyboard focus, which is why it collapses to
+   zero WIDTH rather than display:none — a hidden button is an unreachable one). */
+.dev-collapsed .dev-copy {
+  flex: none; white-space: nowrap; overflow: hidden;
+  max-width: 0; padding-left: 0; padding-right: 0;
+  border-color: transparent; opacity: 0;
+  transition: max-width 0.15s ease, opacity 0.15s ease, padding 0.15s ease;
+}
+.dev-collapsed:hover .dev-copy,
+.dev-collapsed:focus-within .dev-copy {
+  max-width: 60px; padding-left: 8px; padding-right: 8px;
+  border-color: var(--border); opacity: 1;
+}
 .dev-strip .tw-twist { color: var(--tx-faint); cursor: pointer; }
 .dev-strip .tw-twist:hover { color: var(--tx-strong); }
 .dev-tag {
@@ -1612,8 +1683,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   background: var(--accent-dim);
   color: var(--accent-tx);
 }
-.dev-id { user-select: all; color: var(--tx-strong); }
+.dev-id { user-select: all; color: var(--tx-strong); white-space: nowrap; }
+.dev-collapsed .dev-id { user-select: none; letter-spacing: 0.02em; }
 .dev-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dev-collapsed .dev-actions { margin-left: 2px; }
 .dev-copy {
   padding: 1px 8px;
   border: 1px solid var(--border);
@@ -1674,8 +1747,8 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* Both dev overlays are a fixed head + scrolled column + fixed foot. The scrolled column reserves a
    STABLE gutter for its scrollbar and the head/foot carry the same margin, so the ✕, the buttons, the
    fields and every divider share ONE right edge. Before this they had three: the head/foot ran to the
-   modal's padding, the fields stopped 13px short of it behind the scrollbar, and the intro paragraph
-   stopped 15px short — visible as content hugging the left of a lopsided box.
+   modal's padding (895), the fields stopped 13px short of it behind the scrollbar, and the intro
+   paragraph stopped 15px short — visible as content hugging the left of a lopsided box.
    9px is not a guess: `*::-webkit-scrollbar` above pins every scrollbar in this app to 9px. */
 .shelf-modal, .settings-modal { --sb-gutter: 9px; }
 .shelf-modal {
@@ -1983,3 +2056,12 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
    button is hovered — pure CSS :hover, the adjacent sibling is the bubble itself. */
 .upd-tip { display: none; }
 .sb-rebuild:hover + .upd-tip { display: inline-flex; }
+
+/* Spec 103 Lane B — the in-panel decision row. Sits directly under the draft, above the (disabled)
+   save bar, so the eye lands on it right after finishing the plan. Same order and weighting as the
+   gate foot: approve primary, the other two quiet — two doors to one decision must never disagree
+   about which button is the dangerous one. */
+.spec-decide {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-soft);
+}

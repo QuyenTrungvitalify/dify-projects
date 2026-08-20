@@ -94,7 +94,7 @@ Read, do not restate: [AGENTS.md](../../../AGENTS.md) **§3** (5-step build sequ
 
 `{{TASK_ID}}` `{{PROJECT}}` `{{WORKFLOW_SLUG}}` `{{WORKFLOW_FILE}}` `{{SEED_PATH}}` `{{REQUIREMENT}}`
 `{{PRIOR_ARTIFACT}}` `{{DEPLOY}}` `{{DEPTH}}` `{{KNOWLEDGE}}` `{{SPEC_PATH}}` `{{PATTERN_PATH}}`
-`{{REFERENCES}}` — all 13 always substituted (`""` when unused).
+`{{REFERENCES}}` `{{CURRENT_SPEC}}` `{{WORKFLOW_PATH}}` — all 15 always substituted (`""` when unused).
 
 - `{{PROJECT}}` / `{{WORKFLOW_SLUG}}` — the on-disk hierarchy is `projects/{{PROJECT}}/{{WORKFLOW_SLUG}}/`
   (spec 030). `{{WORKFLOW_SLUG}}` is empty until the Spec gate proposes one (new-workflow path);
@@ -103,6 +103,12 @@ Read, do not restate: [AGENTS.md](../../../AGENTS.md) **§3** (5-step build sequ
 - `{{SEED_PATH}}` = a local YAML to analyze/edit (or empty for a from-scratch build).
 - `{{SPEC_PATH}}` (spec 090) — the RESOLVED path ② must write `SPEC.md` to (the exact path the
   backend verifies). A value, never a condition: ② must not re-derive it from the slug or the disk.
+- `{{CURRENT_SPEC}}` / `{{WORKFLOW_PATH}}` (spec 103 Lane B) — the ② **revise** doc only, `""`
+  everywhere else. When the human asks to see the plan before it is built, ② edits a COPY
+  (`{{SPEC_PATH}}` → `SPEC.next.md`) while `{{CURRENT_SPEC}}` stays the untouched live spec and
+  `{{WORKFLOW_PATH}}` is the workflow it describes. Both are read-only references: writing to
+  `{{CURRENT_SPEC}}` breaks the one guarantee that step exists to give — that nothing changed until
+  the human said yes.
 - `{{PRIOR_ARTIFACT}}` = the previous phase's file path (handed forward; **re-read it fresh**).
 - `{{DEPLOY}}` ∈ `none | selfhost | cloud` — mainly drives Phase ④ (backend).
 - `{{DEPTH}}` ∈ `standard | trivial` — spec 028 fast mode (trivial skips the `find.py` re-pick).

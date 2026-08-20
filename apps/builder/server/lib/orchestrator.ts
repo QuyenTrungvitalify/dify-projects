@@ -17,13 +17,18 @@
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { ClaudeSession } from './claude-session.js';
-import { confinementCheck, gitDirtyPaths, artifactHash, type PostTurnDetail } from './post-turn.js';
+import {
+  confinementCheck, gitDirtyPaths, artifactHash, specRelFor, isSpecStale, type PostTurnDetail,
+} from './post-turn.js';
 import { type TurnResult, isTimeoutNote } from './turn-runner.js';
 import { costFromResult } from './cost.js';
 import { PHASES, renderPrompt, type PhaseDef } from './phases.js';
 import { languagePin } from './language.js';
 import { attachmentBlock } from './attachments.js';
-import { snapshotDiffBase, writeDiffArtifact } from './diff.js';
+import {
+  applySpecProposal, beginSpecProposal, dropSpecProposal, fixRoundUndoable,
+  snapshotDiffBase, snapshotSpecBase, writeDiffArtifact,
+} from './diff.js';
 import { lintClean, type LintCodes } from './linters.js';
 import { computeGate, type GateOutcome } from './gate.js';
 import { buildHolderId, clearSession, isCancelled, setSession } from './lock.js';
@@ -41,7 +46,7 @@ import { checkRunnability, preflightNote, sourceContractNote } from './runnabili
 import { persistCriteria } from './criteria.js';
 import { AttemptRecorder } from './run-transcript.js';
 import { logEvent } from './run-events.js';
-import { noteUserLang, saveTask, taskDir, type Task } from '../state/task.js';
+import { bumpRev, noteUserLang, saveTask, taskDir, type Task } from '../state/task.js';
 
 // L2 (spec 019): the runner seams, ctx types, ConfirmPayload, and emit/errMsg/httpError moved to
 // orchestrator-shared.ts (a leaf the extracted scaffold/import modules can import without a cycle); the
@@ -126,6 +131,23 @@ export async function confirmAdvance(
   // re-run on a WINDOWED path (fabricated codes after a gate edit). routes/ never populates this.
   internal?: { reuseLint?: LintCodes }
 ): Promise<void> {
+  // Spec 103 Lane B — dropping a plan is the ONE confirm that must work from an ERROR too, so it sits
+  // above the awaiting_confirm guard. A ② revise that died (a usage limit, a dropped connection) leaves
+  // the build stranded at phase 'spec' with the draft open, and the error gate otherwise offers only
+  // Retry (another paid turn) or Discard (throw away the whole build). "Forget the plan, put me back"
+  // is free and is what a human wants after a turn dies through no fault of theirs.
+  //
+  // Safe above the guard because it runs NO turn: it deletes a scratch file and restores the state
+  // captured when the proposal opened. Still gated on the gate actually offering it (never trust an
+  // action id off the wire) and on `specRevise` (nothing to drop otherwise).
+  if (actionId === 'drop_spec' && task.specRevise && task.gate?.actions.some((a) => a.id === 'drop_spec')) {
+    await logEvent(taskDir(ctx.projectsDir, task.taskId), { kind: 'gate_action', phase: task.phase, detail: actionId });
+    await dropSpecProposal(ctx.projectsDir, task);
+    task.specRevise = undefined;
+    await logEvent(taskDir(ctx.projectsDir, task.taskId), { kind: 'spec_proposal_dropped', phase: task.phase });
+    await reparkAfterProposal(task, ctx);
+    return;
+  }
   if (task.status !== 'awaiting_confirm') {
     throw httpError(409, `task ${task.taskId} is not awaiting confirmation (status: ${task.status})`);
   }
@@ -142,6 +164,51 @@ export async function confirmAdvance(
   if (cur === 'analyze') {
     await runPhaseAndGate(task, 'spec', ctx);
   } else if (cur === 'spec') {
+    // Spec 103 Lane B — the proposal decisions come FIRST: both are `confirm` actions at a spec gate,
+    // and the generic branch below would scaffold + build without ever applying the draft.
+    // `drop_spec` is handled at the TOP of this function — it must work from an error gate too, which
+    // is above the awaiting_confirm guard. Never a CANCEL/DISCARD either way: those end the BUILD.
+    if (actionId === 'apply_spec') {
+      // ORDER IS LOAD-BEARING. Arm the undo snapshots BEFORE the rename: the rename is this round's
+      // FIRST mutation, so a snapshot taken after it would record the already-changed spec — and the
+      // undo button would then restore the wrong round, silently, which is worse than no undo. The ③
+      // below runs from `confirmAdvance` and therefore carries no `replyText`, so runPhase's own
+      // arming (which is gated on a reply) never fires for this path. This is the only place it can.
+      await snapshotDiffBase(ctx.projectsDir, task, { restart: true });
+      await snapshotSpecBase(ctx.projectsDir, task);
+      task.fixUndoable = fixRoundUndoable(ctx.projectsDir, task);
+      if (!(await applySpecProposal(ctx.projectsDir, task))) {
+        task.status = 'error';
+        task.error = 'the spec proposal is gone — nothing to apply';
+        task.gate = computeGate('spec', { outcome: 'error' }, task.deploy);
+        await emit(task, ctx);
+        return;
+      }
+      task.specRevise = undefined;
+      task.specReviseFrom = undefined; // consumed: the build moves forward from here, not back
+      task.specApplied = true; // consumed by the ③ below: suppress the stale flag, keep the duty (H1)
+      // The acceptance-criteria rubric is derived from SPEC.md, and SPEC.md just changed. It is
+      // normally refreshed by the ② verify — which a revise deliberately skips, because a rubric must
+      // never come from a draft nobody approved. So it has to be refreshed HERE, at the moment the
+      // draft becomes real. Without this the live-test judge grades the new workflow against the OLD
+      // spec's criteria: this spec's own drift disease, one artifact over.
+      // Non-fatal, exactly as at the ② verify — a bad rubric degrades the judge, it must not fail a build.
+      try {
+        await persistCriteria(
+          ctx.projectsDir, task,
+          join(ctx.projectsDir, `projects/${task.project}/${task.workflowSlug}/SPEC.md`)
+        );
+      } catch (e) {
+        ctx.log.warn({ taskId: task.taskId, err: errMsg(e) }, 'criteria refresh after apply failed (non-fatal)');
+      }
+      await logEvent(taskDir(ctx.projectsDir, task.taskId), { kind: 'spec_proposal_applied', phase: 'spec' });
+      // RESUME the implement session, do not start a fresh ③. Lane B is only ever reachable from a
+      // build that already HAS a workflow, and a fresh ③ re-instantiates from the pattern — on a large
+      // workflow that is a rebuild wearing a fix's clothes. The normal ②→③ hop below runs fresh because
+      // there is nothing yet to edit; here there is.
+      await runPhaseAndGate(task, 'implement', ctx, { resumeId: task.sessionIds.implement });
+      return;
+    }
     try {
       await scaffoldAtSpecGate(task, ctx, payload);
     } catch (e) {
@@ -228,7 +295,14 @@ export async function confirmAdvance(
  * path out of `error` (§I). A /reply never auto-advances — it is a human revise, so it always
  * pauses for the next decision (even in `auto`).
  */
-export async function replyWithin(task: Task, text: string, ctx: OrchestratorCtx): Promise<void> {
+export async function replyWithin(
+  task: Task,
+  text: string,
+  ctx: OrchestratorCtx,
+  /** Spec 103 Lane B — 'propose' = the human chose "show me the plan first" on THIS send. Per-send,
+   *  never sticky: a mode that outlives the message that set it is a mode people forget they are in. */
+  opts?: { mode?: 'direct' | 'propose' }
+): Promise<void> {
   // Remember what language the human is writing in, BEFORE any branch below: only some of them carry
   // `text` into the prompt (the ④ static path re-runs the report with no turn at all), and every later
   // Continue carries none. Without this the language would silently revert at the next gate.
@@ -240,6 +314,21 @@ export async function replyWithin(task: Task, text: string, ctx: OrchestratorCtx
     phase: task.phase,
     detail: text,
   });
+  // Spec 103 Lane B — the human wants the plan before the build. Route to ② in revise mode instead of
+  // straight to ③. Deliberately ahead of every other branch: this is the human's explicit choice about
+  // THIS message, and no gate-shape heuristic below should be able to override it.
+  if (opts?.mode === 'propose') {
+    if (await beginSpecProposal(ctx.projectsDir, task)) {
+      // Capture where the human is standing BEFORE the phase moves — this is what a drop restores.
+      task.specReviseFrom = { phase: task.phase, status: task.status, gate: task.gate };
+      task.specRevise = true;
+      await runPhaseAndGate(task, 'spec', ctx, { replyText: text });
+      return;
+    }
+    // No spec on disk to revise — there is nothing to draft against, so fall through to the ordinary
+    // fix path rather than failing the request. (Structurally near-unreachable: Lane B is only offered
+    // on a build that already has a spec.)
+  }
   if (task.phase === 'test') {
     // Spec 041 (generalizes the spec-032→036 fix): a "Request changes" at ANY ④ gate is a REVISION —
     // the human wants the WORKFLOW changed per their feedback. Route it back through the IMPLEMENT phase
@@ -302,7 +391,15 @@ async function gateAfterPhase(task: Task, verify: PhaseVerify, ctx: Orchestrator
   // PURE, so the env probe happens HERE and the targets are passed in. Only computeGate's `implement`
   // branch reads them, so probing at every phase is harmless (analyze/spec/test ignore `targets`).
   const targets = difyTargets();
-  task.gate = computeGate(task.phase, { outcome: verify.outcome }, task.deploy, targets);
+  // Spec 103 Lane B — a no-op revise never reaches a gate of its own: it returns the build to exactly
+  // where the human was standing, with a one-line explanation there. Handled before computeGate
+  // because there IS no ② gate shape for "nothing to decide".
+  if (verify.outcome === 'spec_noop') {
+    await logEvent(taskDir(ctx.projectsDir, task.taskId), { kind: 'spec_proposal_dropped', phase: 'spec', detail: 'no change needed' });
+    await reparkAfterProposal(task, ctx);
+    return;
+  }
+  task.gate = computeGate(task.phase, { outcome: verify.outcome }, task.deploy, targets, { specRevise: task.specRevise });
   if (verify.outcome === 'error') {
     task.status = 'error';
     task.error = verify.reasons.filter(Boolean).join(' | ') || 'phase failed';
@@ -338,6 +435,9 @@ async function maybeAutoAdvance(
 ): Promise<void> {
   if (isCancelled(task.taskId)) return; // a /cancel mutates a separate object — re-check the live flag
   if (task.status !== 'awaiting_confirm') return; // error / done / cancelled never auto-advance
+  // Spec 103 Lane B: the whole point of a proposal is that a HUMAN reads it. An `auto` build that
+  // self-approved its own plan would have paid for the extra ② turn and bought nothing.
+  if (task.gate?.flag === 'spec_proposal') return;
   if (task.gate?.flag === 'still_failing') return; // `auto` HARD-STOPS at still-failing (§D / AC #25)
   if (task.gate?.flag === 'awaiting_import') return; // deploy is ALWAYS an explicit human decision (spec 014 D1)
   if (task.gate?.flag === 'test_result') return; // spec 032 B4: live-test verdict → human decides (auto only parks here on a fail)
@@ -402,11 +502,16 @@ async function runPhase(
   const phase = PHASES.find((p) => p.id === phaseId) as PhaseDef;
   const sessKey = phaseId;
 
+  // Spec 103 step 1 — read BEFORE the overwrite two lines down: a /reply can be a fresh REVISION of a
+  // clean round, or a RETRY of one that ERRORED mid-write. The snapshot logic below must tell them
+  // apart, and after `status = 'running'` nothing can.
+  const retryFromError = task.status === 'error';
   task.phase = phaseId;
   task.status = 'running';
   task.gate = undefined;
   task.error = undefined;
   task.fastReviewNote = undefined; // spec 028: a re-run/reply re-evaluates the §5 guard from scratch
+  task.specNoop = undefined; // spec 103 Lane B: last round's "nothing to change" does not describe this one
   await emit(task, ctx);
   // Spec 062 S1b: record the phase start on the run timeline (non-fatal — logEvent swallows its own IO).
   await logEvent(taskDir(projectsDir, task.taskId), {
@@ -460,6 +565,30 @@ async function runPhase(
   // observed bug where a live-gate "Request changes" re-ran Implement but left main.yml unchanged. Give the
   // resume prompt the SAME header as the fresh path so "revise the artifact" is unambiguous either way.
   const CHANGE_REQUEST = '## Change request (revise the existing artifact; do not restart from scratch)';
+  // Spec 103 L0 — kept short on purpose: it rides EVERY fix round's prompt. Ordered by what goes wrong
+  // most, not by what is easiest to say. Rule 1 is the observed failure; rule 2 is how it happens.
+  //
+  // Two things learned from the first real round that obeyed it (task 1787190372697):
+  //  - NO shouty ALL-CAPS emphasis. The first draft said "made FALSE", and the model transliterated
+  //    the English straight into its Japanese chat prose ("Now SPEC.md の false になった記述を直します").
+  //    Salient English words get quoted back; plain ones do not.
+  //  - The task id is HANDED OVER, never described. The resume path runs no token substitution, so
+  //    "task id" as a phrase left the model to guess — it wrote the workflow slug instead, and the
+  //    change-log row lost the one thing that makes it traceable. Same lesson as spec 090 S4: give
+  //    the agent a value, never a condition (or, here, a name for a value it cannot see).
+  const SPEC_RECONCILE =
+    '## Also bring SPEC.md up to date\n' +
+    'SPEC.md must describe the workflow as it is now — not the request it started from. After the ' +
+    'workflow edit is in place:\n' +
+    '1. Re-read SPEC.md and find every statement this change has made untrue. Correct those ' +
+    'statements where they stand. A new decision written correctly, while the sentence it ' +
+    'contradicts is left in place, is a broken spec — this is the most common way it breaks.\n' +
+    '2. Do not add a new section for the change, and do not append an amendment or decision block. ' +
+    'The change belongs in the section that already covers that topic.\n' +
+    '3. One exception: a change-log table as the last section of the file. Append exactly one row — ' +
+    `date, one line on what changed, and the task id \`${task.taskId}\` verbatim. Never rewrite an ` +
+    'existing row. Heading and column names follow the language of the rest of the file.\n' +
+    'If nothing in the document has become untrue, change nothing — a no-op is a correct outcome.';
   // Layer 1 reply-language guard: a native-language pin prepended at the TOP of every phase prompt (fresh
   // AND /reply) so the model's chat prose follows the HUMAN's language from token one. The single seam
   // covering both prompts, like the attachment block below. All four rungs are passed, and the order
@@ -472,17 +601,94 @@ async function runPhase(
     hint: task.langHint,
     requirement: task.requirement,
   });
+  // Spec 103 Lane B (§H1) — the ③ that follows an APPROVED proposal carries no `replyText`, so the
+  // reconcile tail below is silent for it. It still needs a duty, and a DIFFERENT one: the spec is already
+  // correct and human-approved, so the failure to guard against is not "forgot to update the spec"
+  // but "could not build what was approved, and said nothing". ② has never met Dify's linters.
+  const approvedTail =
+    phaseId === 'implement' && task.specApplied
+      ? '\n\n## The spec you are building was just approved by a human\n' +
+        'Build exactly what SPEC.md now says. If some part of it cannot be built — a node type that ' +
+        'does not exist, a shape the linters reject — do NOT quietly build something else. Say which ' +
+        'part could not be built and why, update SPEC.md to describe what you actually built, and ' +
+        'make the difference explicit in your reply.'
+      : '';
   const freshPrompt =
-    langPin + (opts?.replyText ? `${renderedFresh}\n\n${CHANGE_REQUEST}\n${opts.replyText}` : renderedFresh) + block;
+    langPin + (opts?.replyText ? `${renderedFresh}\n\n${CHANGE_REQUEST}\n${opts.replyText}` : renderedFresh) + block + approvedTail;
   // Spec 037 D6(b): the RESUME prompt skips phases.ts injectVars entirely, so the facts ride the
   // same fresh+resume seam as the attachment block — appended on the replyText branch only (a fresh
   // turn already carries them via the token; appending here too would double them).
   const knowledgeTail = knowledge && opts?.replyText ? `\n\n${knowledge}` : '';
-  const resumePrompt = opts?.replyText ? langPin + `${CHANGE_REQUEST}\n${opts.replyText}${block}${knowledgeTail}` : freshPrompt;
+  // Spec 103 L0 — the reconcile directive rides the SAME resume seam as the facts above, and for the
+  // same reason: a `/reply` prompt is `CHANGE_REQUEST + the user's text` and carries NO skill body, so
+  // anything living only in `implement.md` reaches a FRESH turn and nothing else. That is exactly
+  // inverted for this rule: a fresh ③ has a SPEC.md that ② wrote minutes ago (nothing to reconcile,
+  // and nothing measured), while the fix round — the only place the document can go stale, and the
+  // only place `specHashBefore` is captured — resumes.
+  //
+  // Shipped once WITHOUT this, and the miss was invisible: the turn happened to update SPEC.md on its
+  // own initiative, so `specStale` read false and every check was green. What the human found by
+  // READING the file was a spec contradicting itself — a new decision appended while the sentence it
+  // falsified stood untouched. The directive below names that failure first, because it is the one
+  // that actually happened.
+  //
+  // The gate is deliberately IDENTICAL to `specHashBefore`'s below: the instruction is delivered on
+  // exactly the turns the measurement judges. Duplicated in `implement.md` step 6 for the fresh path,
+  // the same way CHANGE_REQUEST is stated on both paths — see the comment there.
+  const reconcileTail =
+    phaseId === 'implement' && opts?.replyText ? `\n\n${SPEC_RECONCILE}` : '';
+  // Spec 103 step 1 — an undo rewrote the files UNDER a live session. The resumed model still has its
+  // own edits in context and would otherwise patch on top of a state that no longer exists (a resume
+  // prompt carries no skill body, so implement.md's "re-read it fresh" never reaches it). Say so, once,
+  // and clear the flag below so it is not repeated on later rounds.
+  const undoneTail =
+    phaseId === 'implement' && opts?.replyText && task.fixUndone
+      ? '\n\n## Note: your previous edit in this session was UNDONE by the user\n' +
+        'The files on disk are back to the state from before that edit. Re-read `main.yml` and ' +
+        'SPEC.md from disk before changing anything — do not assume your earlier edits are still there.'
+      : '';
+  const resumePrompt = opts?.replyText
+    ? langPin + `${CHANGE_REQUEST}\n${opts.replyText}${block}${knowledgeTail}${reconcileTail}${approvedTail}${undoneTail}`
+    // Spec 103 Lane B — an APPROVED plan resumes ③ with no `replyText`. Falling through to
+    // `freshPrompt` would re-send the whole implement.md body to a session that already built this
+    // workflow, telling it to "instantiate" a file it has been editing for rounds: wasted tokens and,
+    // worse, an instruction to start over. Give it the same shape a fix round gets — a short
+    // instruction against the session's existing context.
+    : task.specApplied && phaseId === 'implement'
+      ? langPin +
+        '## The spec changed — bring the workflow in line with it\n' +
+        'A human just approved a revision of SPEC.md. Re-read it and edit the existing workflow to ' +
+        'match. Do not rebuild from scratch.' +
+        block + knowledgeTail + approvedTail
+      : freshPrompt;
+  // NOT cleared here. Clearing before the spawn means a turn that never started still consumed the
+  // note, and the retry would go in blind onto files it believes it already edited. It is cleared after
+  // the turn has actually run (verifyPhase), which is when the note has demonstrably been delivered.
 
   // Snapshot the pre-edit workflow BEFORE Implement overwrites it, so an edit-existing diff has a
   // real base (idempotent: no-op on a no-seed new build, a Dify-seed, or a /reply re-run, Task 4).
-  if (phaseId === 'implement') await snapshotDiffBase(projectsDir, task);
+  // Spec 103 L0: a REVISION round (`replyText`) re-arms the base so the `差分` tab reads "this round",
+  // not "since the build began". A first Implement keeps the original once-per-task capture.
+  // `!retryFromError` on both arms: a RETRY re-runs a round that DIED MID-WRITE, so the disk may hold
+  // that round's partial edits (a truncated main.yml is exactly the common ③ error). Re-arming here
+  // would enshrine the corpse as the "pre-round state" — and the undo button, the one safety net,
+  // would then restore corruption. The snapshots from the round's FIRST attempt are the true base and
+  // must stand. (First-implement retry: nothing was ever armed, so `fixRoundUndoable` stays false and
+  // no undo is offered — correct, since the true pre-round state is "no file".)
+  if (phaseId === 'implement') {
+    await snapshotDiffBase(projectsDir, task, { restart: !!opts?.replyText && !retryFromError });
+  }
+  // Spec 103 step 1 — and SPEC.md, on fix rounds ONLY. Same gate as `specHashBefore` below and as
+  // SPEC_RECONCILE above, so three things stay one fact: this round is instructed to reconcile the
+  // spec, measured on whether it did, and undoable if it did it wrong.
+  if (phaseId === 'implement' && opts?.replyText) {
+    if (!retryFromError) await snapshotSpecBase(projectsDir, task);
+    // A HINT for the FE, re-checked by the route before it acts (the route is the authority; a
+    // disagreement surfaces as a 409, never as a partial restore). Recomputed from disk rather than
+    // assumed, because `snapshotDiffBase` no-ops for a Dify-seed build — those rounds are genuinely
+    // not undoable, and a flag that claimed otherwise would offer a button that always fails.
+    task.fixUndoable = fixRoundUndoable(projectsDir, task);
+  }
 
   // Confinement baseline for THIS turn (captured just before spawn — after any scaffold).
   const baseline = await gitDirtyPaths(projectsDir);
@@ -493,6 +699,16 @@ async function runPhase(
   // compares correctly against the post-turn hash — that turn WILL read as changed.
   const artifactHashBefore =
     phaseId === 'implement' ? await artifactHash(projectsDir, phase.artifactRel(task)) : undefined;
+
+  // Spec 103 L0 — the SPEC.md hash, same moment, but ONLY on a REVISION round (`replyText`). On a first
+  // Implement ② has just written SPEC.md from the requirement, so the document already describes the
+  // workflow about to be built; measuring there would mark every new build stale on its first turn.
+  // A revision is the case the spec exists for: the workflow moves on a free-text request, and until
+  // now nothing moved the document with it (spec 103 §1.2).
+  const specHashBefore =
+    phaseId === 'implement' && opts?.replyText && task.project && task.workflowSlug
+      ? await artifactHash(projectsDir, specRelFor(task.project, task.workflowSlug))
+      : undefined;
 
   const runDir = taskDir(projectsDir, task.taskId);
   const spawnOnce = async (
@@ -617,7 +833,7 @@ async function runPhase(
     return { outcome: 'error', reasons: ['cancelled by user'] };
   }
 
-  const verify = await verifyPhase(phase, task, ctx, baseline, turn.note, artifactHashBefore, turn.noteAdvisory);
+  const verify = await verifyPhase(phase, task, ctx, baseline, turn.note, artifactHashBefore, specHashBefore, turn.noteAdvisory);
   // verifyPhase awaits python/git subprocesses — a /cancel can land in that window. Re-check (mirrors
   // the guard at the spawn boundary above) so the success save below can't clobber `cancelled`→`running`.
   if (isCancelled(task.taskId)) {
@@ -627,12 +843,21 @@ async function runPhase(
     return { outcome: 'error', reasons: ['cancelled by user'] };
   }
   if (verify.outcome !== 'error') {
-    task.artifacts[sessKey] = phase.artifactRel(task);
+    // Spec 103 Lane B — a REVISE must NOT publish its draft as "the spec". `artifacts.spec` is read by
+    // ③ as `{{PRIOR_ARTIFACT}}` (phases.ts) and by Ask as the spec to answer from; pointing either at
+    // `SPEC.next.md` would make them build from / answer about an UNAPPROVED draft — and, once the
+    // proposal is applied or dropped, from a path that no longer exists.
+    if (!(phaseId === 'spec' && task.specRevise)) task.artifacts[sessKey] = phase.artifactRel(task);
     // Implement produced a (parseable) main.yml → compute + persist the {path,diff} payload now so
     // GET /api/tasks renders the split diff (base per kind: seed / pre-edit snapshot / empty, Task 4).
     if (phaseId === 'implement') {
       try {
-        task.artifacts.diff = await writeDiffArtifact(projectsDir, task);
+        const written = await writeDiffArtifact(projectsDir, task);
+        task.artifacts.diff = written.rel;
+        // Spec 103 step 1 follow-up — how many places in SPEC.md this round touched. Only kept when the
+        // spec actually moved: `0` and `undefined` both mean "nothing to say on the card", and the two
+        // bad cases (workflow unchanged / spec left behind) already have their own badge and warning.
+        task.specEdits = written.specHunks ? written.specHunks : undefined;
       } catch (e) {
         log.warn({ taskId: task.taskId, err: errMsg(e) }, 'diff producer failed (non-fatal)');
       }
@@ -688,6 +913,37 @@ export function resolveImplementOutcome(
   return timedOut ? 'error' : 'still_failing';
 }
 
+/**
+ * Spec 103 Lane B — after a proposal is dropped, put the build back where the human left it.
+ *
+ * A dropped proposal changed NOTHING: no file, no phase progress, no money spent past the ② turn. So
+ * the build must return to the gate it was sitting at when the human asked — not to a spec gate it
+ * never really left, and certainly not forward. `implement` is that gate for every entry point Lane B
+ * has (a fix from the ③ gate, from ④, or from a finished build), because Lane B is only ever reachable
+ * from a build that already HAS a workflow.
+ */
+async function reparkAfterProposal(task: Task, ctx: OrchestratorCtx): Promise<void> {
+  // Restore the EXACT state captured when the proposal opened. Not a recomputed ③ gate: Lane B is
+  // reachable from a ④ gate and from a finished build too, and reparking those at ③ would throw away a
+  // gate / un-finish a `done` build — a real change, from the one button that promises none.
+  const from = task.specReviseFrom;
+  task.specReviseFrom = undefined;
+  task.error = undefined;
+  if (from) {
+    task.phase = from.phase;
+    task.status = from.status;
+    task.gate = from.gate;
+  } else {
+    // Only reachable on a task written before this field existed. ③ is the safe landing: it is where
+    // every Lane B entry point can move forward from, and it never claims a build is finished.
+    task.phase = 'implement';
+    task.status = 'awaiting_confirm';
+    task.gate = computeGate('implement', { outcome: 'success' }, task.deploy, difyTargets());
+  }
+  bumpRev(task);
+  await emit(task, ctx);
+}
+
 /** Post-turn verify → outcome. ③ resolves clean/still-failing/hard-error from the post-turn detail. */
 async function verifyPhase(
   phase: PhaseDef,
@@ -697,6 +953,8 @@ async function verifyPhase(
   turnNote: string | undefined,
   /** spec 094 S1 — the pre-spawn artifact hash (③ only; `undefined` elsewhere ⇒ not measured). */
   artifactHashBefore?: string | null,
+  /** spec 103 L0 — the pre-spawn SPEC.md hash (③ REVISION rounds only; `undefined` ⇒ not measured). */
+  specHashBefore?: string | null,
   /** spec 104 S3 — see resolveImplementOutcome. The note still shows in `reasons`; it just cannot route. */
   noteAdvisory?: boolean
 ): Promise<PhaseVerify> {
@@ -716,6 +974,7 @@ async function verifyPhase(
       taskId: task.taskId,
       baseline,
       artifactHashBefore,
+      specHashBefore,
       log,
     });
     const reasons = [...check.reasons];
@@ -739,6 +998,38 @@ async function verifyPhase(
           detail: task.workflowFile,
         });
       }
+    }
+
+    // Spec 103 L0 — the tripwire. `main.yml` is supposed to be a function of `SPEC.md` (§2.1); a fix
+    // round that moves the workflow WITHOUT moving the document breaks that, and used to break it
+    // silently. Both measurements must be present: `undefined` on either side means "not measured"
+    // (a first Implement does not measure the spec at all), and a missing measurement must never be
+    // read as an assertion — the 094 S1 contract, kept verbatim.
+    //
+    // ADVISORY, deliberately: this is set/cleared on the Task and rendered at the gate, it does NOT
+    // push a reason and does NOT fail the phase. Killing a lint-clean `main.yml` over a bookkeeping
+    // miss costs more than it protects, and a hard stop here would re-open the ③ thrash spec 085 paid
+    // real money to close. Whether the badge should ever become a block is a question for the measured
+    // rate after this ships (spec 103 §3.4 / §7 Q6), not for a guess today.
+    // Spec 103 Lane B (§H1) — an APPROVED plan suppresses the flag EXPLICITLY, not by accident. It
+    // happens not to fire today only because the apply path carries no `replyText` and so captures no
+    // before-hash; the day someone threads the request text through that path, the flag would raise a
+    // false alarm on every single approval. Say it out loud instead of depending on the omission.
+    // The DUTY is not suppressed — `approvedTail` still tells that turn it may not silently deviate.
+    task.specStale = task.specApplied
+      ? undefined
+      : isSpecStale(check.detail.artifactChanged, check.detail.specChanged);
+    task.specApplied = undefined; // consumed by the turn it was set for
+    // Spec 103 step 1 — the undo note rode THIS turn's prompt, so it is delivered; clear it so later
+    // rounds are not told about an undo they had nothing to do with. Cleared even when the turn errored:
+    // the model received the prompt either way, and a note that never expires is a note that lies.
+    task.fixUndone = undefined;
+    if (task.specStale) {
+      await logEvent(taskDir(projectsDir, task.taskId), {
+        kind: 'spec_stale',
+        phase: 'implement',
+        detail: task.workflowFile,
+      });
     }
 
     // Spec 037 S1 — the runnability preflight (D3/D4): recomputed on EVERY implement verify (fresh,
@@ -836,7 +1127,9 @@ async function verifyPhase(
   // Spec 032 A3: persist the Acceptance-Criteria rubric from SPEC.md → criteria.json. NON-FATAL — a
   // parse/write failure never fails Spec; the live-test judge (T3) just degrades to a smoke-test. Runs
   // for every spec verify (standard + fast + /reply) so a human's gate edit to the criteria is captured.
-  if (phase.id === 'spec' && size > 0) {
+  // Spec 103 Lane B: `task.specRevise` skipped — the criteria rubric describes the SHIPPING spec, and
+  // a draft nobody approved must not silently become what the live-test judge grades against.
+  if (phase.id === 'spec' && size > 0 && !task.specRevise) {
     try {
       await persistCriteria(projectsDir, task, abs);
     } catch (e) {
@@ -847,6 +1140,30 @@ async function verifyPhase(
   reasons.push(
     ...(await confinementCheck({ projectsDir, project: task.project, workflowSlug: task.workflowSlug, taskId: task.taskId, baseline, log })).breaches
   );
+  // Spec 103 Lane B — a clean REVISE settles as its own outcome, which is what lets the pure
+  // `computeGate` offer the proposal gate instead of the build gate (an outcome, not a task read).
+  if (!reasons.length && phase.id === 'spec' && task.specRevise) {
+    // Spec 103 Lane B — a revise that (correctly) found nothing to change must NOT park at a gate
+    // headed "here is what I would change". `spec-revise.md` explicitly allows a no-op — a request
+    // that only affects how the YAML is written has no place in a document about behaviour — so this
+    // is a normal outcome, not a failure. Reaching a decision gate with an empty decision wastes the
+    // human's attention and teaches them the gate is noise.
+    const liveAbs = join(projectsDir, `projects/${task.project}/${task.workflowSlug}/SPEC.md`);
+    let identical = false;
+    try {
+      identical = (await readFile(abs, 'utf8')) === (await readFile(liveAbs, 'utf8'));
+    } catch {
+      /* unreadable → treat as a real proposal; the gate is the safe direction */
+    }
+    if (identical) {
+      await dropSpecProposal(projectsDir, task);
+      task.specRevise = undefined;
+      task.specReviseFrom = undefined;
+      task.specNoop = true; // the ③ gate says so, instead of the build silently doing nothing
+      return { outcome: 'spec_noop', reasons: [] };
+    }
+    return { outcome: 'spec_proposal', reasons: [] };
+  }
   return { outcome: reasons.length ? 'error' : 'success', reasons };
 }
 

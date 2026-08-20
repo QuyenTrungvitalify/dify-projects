@@ -230,6 +230,40 @@ const EN: Dict = {
   modelHint: 'Which model runs this task. Each option means the newest of that family your environment can reach. You can change it later — it applies from the next step on, and steps already done keep the model they ran on.',
   gateNoChangeBadge: 'No file change',
   gateNoChangeSummary: 'This round did not change the workflow file — the answer above explains why. If you expected an edit, say what should differ and ask again.',
+  // spec 103 L0 — the sibling of the line above: that one says the round did nothing, this one says the
+  // round did something the spec never learned about. Advisory: the build is fine, the paperwork is not.
+  // States the FACT, conditions the conclusion. The earlier wording asserted the spec was now wrong,
+  // which is false for a lint fix or a cosmetic YAML edit — changes that legitimately touch nothing the
+  // document describes. Worse, SPEC_RECONCILE explicitly tells the turn a no-op is a correct outcome,
+  // so the badge was scolding it for obeying. Advisory means advisory: say what was measured, let the
+  // human judge whether it matters.
+  gateSpecStale: 'The workflow changed but the spec document did not. If this change affects what the workflow does, the spec is now out of date — check it before you rely on it.',
+  // spec 103 step 1 — the undo. Wording says what it takes back (a fix ROUND, both files), never
+  // "revert the spec": restoring one file without the other is the drift this spec exists to remove.
+  // {n} places, because the round's own footprint is the only thing that tells one ③ card from another.
+  gateSpecEdits: 'The spec document was updated too — {n} place{s}.',
+  // spec 103 Lane B — both are SENDS. No "spec" in the labels: the person deciding may not know what
+  // one is, but everyone understands "do it" versus "show me first".
+  sendVariants: 'How to send this fix',
+  sendFixNow: 'Fix it now',
+  sendFixNowSub: 'Makes the change, then shows you the result.',
+  sendPlanFirst: 'Show me the plan first',
+  sendPlanFirstSub: 'Describes what would change, then you decide. One extra run.',
+  gateSpecNoop: 'Nothing in the spec needed changing for that — the workflow was left as it is. Send it as a direct fix if you want the workflow changed anyway.',
+  specDraftPending: 'Waiting for your decision at the gate — not saved, not in the workflow',
+  specDraftTitle: 'SPEC.md — proposed',
+  specDraftNote: 'This is the proposed plan, not the current spec. Nothing is saved until you approve it at the gate.',
+  gateProposalBadge: 'Plan',
+  gateProposalTitle: 'Here is what I would change',
+  gateProposalSummary: 'Nothing has changed yet — the workflow and the spec are untouched until you say go.',
+  undoFix: 'Take this fix back',
+  undoFixTitle: 'Take this fix back?',
+  undoFixMsg: 'The workflow file and the spec document both return to how they were before this fix. The conversation stays. Asking for the fix again costs another run.',
+  // spec 103 step 1 — the 差分 tab answers one question about two files.
+  diffSpecSection: 'Spec (SPEC.md)',
+  diffWorkflowSection: 'Workflow (main.yml)',
+  diffSpecUnchanged: 'This round did not change the spec.',
+  diffWorkflowUnchanged: 'This round did not change the workflow file.',
   gateNoChangeImport: 'The file is byte-for-byte the one imported at {time}, so importing again would send Dify what it already has.',
 
   /* deploy gate — awaiting_import (spec 016 D1) */
@@ -648,7 +682,9 @@ const JA: Dict = {
   intakeDistillSubmit: '蒸留',
   none: 'なし',
   try: '例',
-  phReplyOrDescribe: '返信、または別の変更を入力…',
+  phReplyOrDescribe: '返信、または別の修正を入力…',
+  // 変更 CỐ Ý giữ (spec 103 S1): đây là 'mô tả thay đổi khác để bắt đầu build MỚI' — hành động khác
+  // với 'sửa build này'. Dùng 修正 ở đây sẽ nói dối về việc nút làm gì.
   phDescribeAnother: '別の変更を入力して新しいビルドを開始…',
   openIt: '開く',
   persistQuota: 'このブラウザの保存領域が不足しているため、会話はこの端末に保存されていません。質問と回答はサーバー側に残っており、このビルドを開き直すと復元されます。',
@@ -704,7 +740,7 @@ const JA: Dict = {
   gateAnalyzeBadge: '分析完了',
   gateAnalyzeTitle: '仕様を書く準備ができました',
   gateAnalyzeSummary1: '要件を分析しました。',
-  gateAnalyzeSummary2: '続けて仕様を作成するか、変更を依頼してください。',
+  gateAnalyzeSummary2: '続けて仕様を作成するか、修正を依頼してください。',
   gatePattern: 'パターン: {pattern}',
   gateSpecBadge: '仕様準備完了',
   gateSpecTitle: '仕様を作成しました — ビルド前にご確認ください',
@@ -726,6 +762,27 @@ const JA: Dict = {
   modelHint: 'このタスクを実行するモデル。各項目はご利用環境で使える、その系列の最新版を指します。後から変更できます — 次のステップから反映され、実行済みのステップは当時のモデルのままです。',
   gateNoChangeBadge: 'ファイル変更なし',
   gateNoChangeSummary: 'この回はワークフローファイルを変更していません — 理由は上の回答をご覧ください。修正が入るはずだった場合は、どこが違うべきかを書いてもう一度お伝えください。',
+  gateSpecStale: 'ワークフローは変わりましたが、仕様書は更新されていません。今回の変更が動作に関わるものなら、仕様書は現状と食い違っています — 頼りにする前に確認してください。',
+  gateSpecEdits: '仕様書も {n} か所 更新しました。',
+  sendVariants: '送り方',
+  sendFixNow: 'すぐ直す',
+  sendFixNowSub: '直してから結果を見せます。',
+  sendPlanFirst: '先に計画を見せて',
+  sendPlanFirstSub: '何を変えるか説明してから決められます。実行 +1 回。',
+  gateSpecNoop: '今回は仕様書を変える必要がありませんでした — ワークフローもそのままです。それでも直したい場合は、すぐ直すで送ってください。',
+  specDraftPending: 'ゲートでの決定待ち — 保存もされておらず、ワークフローにも入っていません',
+  specDraftTitle: 'SPEC.md（修正案）',
+  specDraftNote: 'これは修正案です。現在の仕様書ではありません。ゲートで進めるまで、何も保存されません。',
+  gateProposalBadge: '計画',
+  gateProposalTitle: 'こう変えようと思います',
+  gateProposalSummary: 'まだ何も変わっていません — 進めると言うまで、ワークフローも仕様書もそのままです。',
+  undoFix: 'この修正を取り消す',
+  undoFixTitle: 'この修正を取り消しますか？',
+  undoFixMsg: 'ワークフローファイルと仕様書の両方が、この修正の前の状態に戻ります。会話はそのまま残ります。もう一度依頼する場合は実行が 1 回分かかります。',
+  diffSpecSection: '仕様（SPEC.md）',
+  diffWorkflowSection: 'ワークフロー（main.yml）',
+  diffSpecUnchanged: 'この回は仕様書を変更していません。',
+  diffWorkflowUnchanged: 'この回はワークフローファイルを変更していません。',
   gateNoChangeImport: '{time} にインポートしたファイルと1バイトも違いません。もう一度インポートしても、Dify にすでにあるものを送ることになります。',
 
   /* deploy gate — awaiting_import (spec 016 D1) */
@@ -748,11 +805,13 @@ const JA: Dict = {
   sendRerun: '送信して再実行',
 
   /* spec 033/092: the composer's two send actions (ask = Enter/chat button, change = the ✎ pill) */
-  modeChange: '変更を依頼',
-  phAskOrChange: '質問または変更依頼を入力…',
-  phChangeMode: '何を変更しますか？',
+  // spec 103 S1: 修正 is the ONE root word for "change this build". This pill used to lead with 変更
+  // while the button an inch away led with 修正 — two words for one action on one screen (§1.5).
+  modeChange: '修正を依頼',
+  phAskOrChange: '質問または修正依頼を入力…',
+  phChangeMode: '何を修正しますか？',
   sendAskTip: '質問として送信 (Enter)',
-  sendChangeTip: '変更依頼として送信 (⌘Enter / Ctrl+Enter) — 指示に沿ってフェーズを再実行します',
+  sendChangeTip: '修正依頼として送信 (⌘Enter / Ctrl+Enter) — 指示に沿ってフェーズを再実行します',
   sendAskBtn: '質問を送信',
   sendBtn: '送信',
   qaAnswered: '回答済み',
@@ -864,7 +923,7 @@ const JA: Dict = {
   promoteBlockedSummary: 'このビルドは適格性ゲートを通過しませんでした — 蒸留も書き込みも行われていません。',
   promoteDistillFailedBadge: '要修正',
   promoteDistillFailedTitle: '蒸留されたパターンが再チェックに失敗しました',
-  promoteDistillFailedSummary: '蒸留結果がリンターを通過しませんでした — 変更を依頼して再実行するか、破棄してください。',
+  promoteDistillFailedSummary: '蒸留結果がリンターを通過しませんでした — 修正を依頼して再実行するか、破棄してください。',
   promoteReviewBadge: 'レビュー',
   promoteReviewTitle: '昇格前に蒸留されたパターンをレビュー',
   promoteReviewSummary: 'まだ棚には何も入っていません — このパターンを templates/patterns/ に書き込むのは「承認」です。先に内容を確認してください。',
@@ -890,7 +949,7 @@ const JA: Dict = {
   promoteSharePushedLine: '共有しました: ブランチ {branch} を送信 — PR が自動作成され、オーナーがレビューします。',
   promoteShareSentLine: 'チームの棚に共有しました — 管理者がレビューのうえ共有パターンに追加します。',
   askAnomalyTitle: '予期しない書き込みを元に戻しました',
-  askAnomalyMsg: 'ガードにもかかわらず質問ターンが書き込みを試みたため、元に戻しました: {files}。変更は反映されていません — その内容が必要な場合は「変更を依頼」を使ってください。',
+  askAnomalyMsg: 'ガードにもかかわらず質問ターンが書き込みを試みたため、元に戻しました: {files}。変更は反映されていません — その内容が必要な場合は「修正を依頼」を使ってください。',
   askAnomalyOk: 'OK',
   askAnomalyKindModified: '変更を元に戻しました',
   askAnomalyKindCreated: '作成されたため削除しました',
@@ -1034,9 +1093,14 @@ const DICT: Record<Lang, Dict> = { en: EN, ja: JA };
    Unknown labels pass through unchanged. */
 const ACTION_JA: Dict = {
   'Continue to Spec': '仕様へ進む',
-  'Request changes': '変更を依頼',
+  'Request changes': '修正を依頼', // spec 103 S1
   'Implement this spec': 'この仕様で実装',
-  'Edit spec': '仕様を編集',
+  'Edit spec': '仕様を修正', // spec 103 S1
+  // spec 103 Lane B — the proposal gate. Plain words on purpose: the person deciding may not know
+  // what a "spec" is, but everyone understands "go with this" / "change the plan" / "never mind".
+  'Go with this': 'これで進める',
+  'Change the plan': '説明を直す',
+  'Never mind': 'やめる',
   'Continue to Test': 'テストへ進む',
   'Accept anyway': 'このまま承認',
   'Keep trying': '再試行を続ける',
@@ -1069,7 +1133,7 @@ const ACTION_JA: Dict = {
   /* resolved-state labels (store.ts resolveLabel / reply) */
   Cancelled: 'キャンセル済み',
   Continued: '続行済み',
-  'Requested changes': '変更を依頼済み',
+  'Requested changes': '修正を依頼済み', // spec 103 S1
 };
 
 /** Localize a server-provided gate action / resolution label (keyed by its English text). */

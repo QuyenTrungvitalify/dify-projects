@@ -56,7 +56,14 @@ export type GateOutcome =
   | 'awaiting_import'
   // Spec 032 live-test ④ verdicts (produced by runLiveTest, never by the static path):
   | 'test_result' // ran + verified → human confirms/rejects the result (auto hard-stops on fail, B4)
-  | 'infra_degraded'; // couldn't run for an infra reason → degrade-to-static confirm (D1c)
+  | 'infra_degraded' // couldn't run for an infra reason → degrade-to-static confirm (D1c)
+  // Spec 103 Lane B: a ② REVISE settled — a spec proposal is on disk and `SPEC.md` is untouched.
+  // An OUTCOME, not a task field, for the same reason `still_failing` is one: `computeGate` is pure
+  // and keyed on phase, so the only honest way to tell it "this ② was a revise" is through the verify.
+  | 'spec_proposal'
+  // Spec 103 Lane B: the revise found nothing to change. NOT a failure — `spec-revise.md` allows it —
+  // so it must not park at a decision gate with an empty decision.
+  | 'spec_noop';
 export interface GateVerify {
   outcome: GateOutcome;
 }
@@ -182,8 +189,25 @@ export function computePromoteGate(state: PromoteGateState): Gate {
   }
 }
 
-export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy, targets: DifyTargets = {}): Gate {
-  if (verify.outcome === 'error') return { actions: [...ERROR_GATE.actions] };
+export function computeGate(
+  phase: Phase,
+  verify: GateVerify,
+  _deploy: Deploy,
+  targets: DifyTargets = {},
+  /** Spec 103 Lane B — a proposal is open. Only the error gate reads it (see below). */
+  opts: { specRevise?: boolean } = {}
+): Gate {
+  if (verify.outcome === 'error') {
+    // A ② REVISE that died (a usage limit, a network drop) strands the build at phase 'spec' with the
+    // draft still open, and the plain error gate offers only Retry / Discard — retry costs another
+    // turn, discard throws away the whole build. Neither is "forget the plan, I'm back where I was",
+    // which is free and is what a human actually wants after a turn dies. Observed live on task
+    // 1787220388060, where the revise turn hit a usage limit.
+    if (opts.specRevise) {
+      return { actions: [...ERROR_GATE.actions, CONFIRM('drop_spec', 'Never mind')] };
+    }
+    return { actions: [...ERROR_GATE.actions] };
+  }
 
   switch (phase) {
     case 'analyze':
@@ -195,6 +219,19 @@ export function computeGate(phase: Phase, verify: GateVerify, _deploy: Deploy, t
         ],
       };
     case 'spec':
+      // Spec 103 Lane B — a revise settled: the human decides on a PROPOSAL, not on a build.
+      if (verify.outcome === 'spec_proposal') {
+        return {
+          actions: [
+            CONFIRM('apply_spec', 'Go with this'),
+            REPLY('changes', 'Change the plan'),
+            // NOT a CANCEL/DISCARD: those end the BUILD. Dropping a proposal must leave the build
+            // exactly where it was — `SPEC.md` was never opened, so there is nothing to undo either.
+            CONFIRM('drop_spec', 'Never mind'),
+          ],
+          flag: 'spec_proposal', // maybeAutoAdvance HARD-STOPS on it — `auto` must never self-approve
+        };
+      }
       // The /confirm that closes Spec is where the scaffold fires (orchestrator Task 5).
       return {
         actions: [

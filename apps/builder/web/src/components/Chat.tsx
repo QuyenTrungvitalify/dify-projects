@@ -14,7 +14,7 @@ import { I } from './Icon';
 import { Twist } from './Sidebar';
 import { renderMarkdownHtml } from '../lib/markdown';
 import { PHASE_LABELS, phaseIndex, phaseLabelAt } from '../lib/phase';
-import { replyButtonKind, terminalFootActions } from '../lib/gate-foot';
+import { canUndoFix, replyButtonKind, terminalFootActions } from '../lib/gate-foot';
 import type { ComposerIntent } from '../lib/composer-route';
 import { t as tr, tf, phaseLabel, tAction, localizeNotes } from '../lib/i18n';
 import {
@@ -358,6 +358,12 @@ export function gateView(t: WireTask): GateView {
       return { tone: '', badge: tr('gateAnalyzeBadge'), title: tr('gateAnalyzeTitle'), meta, summary: lines };
     }
     case 'spec': {
+      // Spec 103 Lane B — a proposal gate. The reassurance leads: the single thing a person needs to
+      // know before reading a plan is that reading it costs them nothing and commits them to nothing.
+      if (t.gate?.flag === 'spec_proposal') {
+        return { tone: '', badge: tr('gateProposalBadge'), title: tr('gateProposalTitle'), meta,
+          summary: [tr('gateProposalSummary')], showSpecLink: true };
+      }
       // spec 028 §5: a fast build's auto+guard hard-stop surfaces its review note leading the summary,
       // so the human sees "non-trivial shape — review" before confirming the (possibly under-built) spec.
       const lines = [tr('gateSpecSummary1')];
@@ -376,6 +382,31 @@ export function gateView(t: WireTask): GateView {
       if (t.artifactUnchanged === true) {
         return { tone: 'warn', badge: tr('gateNoChangeBadge'), title: tr('gateImplTitle'), meta,
           summary: [tr('gateNoChangeSummary'), ...implLines], showDiffLink: true };
+      }
+      // Spec 103 L0: the workflow moved and SPEC.md did not — the build is fine, the document is now a
+      // lie. Warn tone and the line LEADS, same treatment as its 094 sibling above; the ordinary badge
+      // stays, because "Implemented" is still what happened. `=== true` on purpose: `undefined` means
+      // not measured (a first Implement measures nothing here), and must never render as a claim.
+      if (t.specStale === true) {
+        return { tone: 'warn', badge: tr('gateImplBadge'), title: tr('gateImplTitle'), meta,
+          summary: [tr('gateSpecStale'), ...implLines], showDiffLink: true, showSpecLink: true };
+      }
+      // Spec 103 step 1 follow-up — say that the spec moved, and how much. Without this every ③ card
+      // in a four-round scroll-back reads identically, and the human cannot tell which round did what
+      // (observed on task 1787190372697: two different requests, two indistinguishable cards). It goes
+      // AFTER the lint line, not before: the workflow is still the headline; the spec is the reassurance
+      // that the document kept up. `showSpecLink` so the claim is one click from being checked.
+      // Spec 103 Lane B — "I asked for a plan and landed back here" must be explained, not mysterious.
+      if (t.specNoop === true) {
+        return { tone: '', badge: tr('gateImplBadge'), title: tr('gateImplTitle'), meta,
+          summary: [tr('gateSpecNoop'), ...implLines], showDiffLink: true, showSpecLink: true };
+      }
+      if (t.specEdits) {
+        return { tone: '', badge: tr('gateImplBadge'), title: tr('gateImplTitle'), meta,
+          // `{s}` is a caller-supplied plural param, not magic — tf() substitutes only what it is
+          // given, so omitting it renders a literal "{s}" (shipped that way once; only JA was eyeballed).
+          summary: [...implLines, tf('gateSpecEdits', { n: t.specEdits, s: t.specEdits === 1 ? '' : 's' })],
+          showDiffLink: true, showSpecLink: true };
       }
       return { tone: '', badge: tr('gateImplBadge'), title: tr('gateImplTitle'), meta,
         summary: implLines, showDiffLink: true };
@@ -412,6 +443,10 @@ export function GateActions({ task, busy, onConfirm, onArmChange, onCancel, onRe
     // D4 (spec 016): at the deploy gate, Import is the one primary (green) button; Skip is a quiet
     // secondary so the irreversible push isn't a coin-flip between two identical green buttons.
     if (task.gate?.flag === 'awaiting_import' && a.id === 'skip_import') return 'ghost';
+    // Spec 103 Lane B, same rule one gate over: "Go with this" is the primary, "Never mind" is a quiet
+    // secondary. Both are `confirm` kind, so without this they render as two identical green buttons —
+    // and one of them throws away a plan the human paid a turn for.
+    if (task.gate?.flag === 'spec_proposal' && a.id === 'drop_spec') return 'ghost';
     return 'ok';
   };
 
@@ -451,7 +486,13 @@ export function GateActions({ task, busy, onConfirm, onArmChange, onCancel, onRe
         }
         return (
           <button key={a.id} className={'btn ' + btnClass(a)} disabled={busy} onClick={() => onConfirm(a)}>
-            {task.gate?.flag === 'awaiting_import' && a.id === 'import' ? <I.external /> : <I.check />}{tAction(a.label)}
+            {/* The icon is part of the sentence. A ✓ means "yes, this one" — putting it on an action
+                that DECLINES contradicts the label beside it, and the icon wins because it is read
+                first. `drop_spec` is a confirm only because dropping needs a POST, not because it is
+                an approval. (spec 103 Lane B; the import gate's external-link icon is the same idea.) */}
+            {task.gate?.flag === 'awaiting_import' && a.id === 'import' ? <I.external />
+              : a.id === 'drop_spec' ? <I.close />
+              : <I.check />}{tAction(a.label)}
           </button>
         );
       })}
@@ -514,7 +555,7 @@ export function QaAnswer({ answer, done, seededFrom, cost, sessionReset, onStop 
   );
 }
 
-export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCancel, onRetry, onRestore, onEditAgain, onRunTest, onRequestFix, onOpenArtifact }: {
+export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCancel, onRetry, onRestore, onEditAgain, onRunTest, onRequestFix, onUndoFix, onOpenArtifact }: {
   task: WireTask;
   resolved?: string;
   busy?: boolean;
@@ -537,9 +578,13 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
    *  typed into THIS conversation (→ POST /reply, which resumes the implement session) instead of
    *  starting a new build. Contrast with `onEditAgain`, which deliberately opens a NEW conversation. */
   onRequestFix?: () => void;
+  /** spec 103 step 1 — take back the last fix round (both files). Absent ⇒ the link never renders. */
+  onUndoFix?: () => void;
   onOpenArtifact: (tab: ArtifactTab) => void;
 }) {
   const v = gateView(task);
+  // Spec 103 step 1 — pure, in gate-foot.ts with its neighbours (and its regression tests).
+  const showUndoFix = !!onUndoFix && canUndoFix(task, !!resolved);
   const actions = task.gate?.actions ?? [];
   const tone = v.tone ? ' tone-' + v.tone : '';
   const badgeIcon = v.tone === 'error' ? <I.alert /> : v.tone === 'warn' ? <I.warn />
@@ -583,7 +628,7 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
         </div>
       )}
 
-      {(v.showSpecLink || v.showReportLink || v.showDiffLink || v.showYamlLink) && (
+      {(v.showSpecLink || v.showReportLink || v.showDiffLink || v.showYamlLink || showUndoFix) && (
         <div className="gate-strip" style={{ background: 'transparent', border: 'none', paddingTop: 0 }}>
           {v.showSpecLink && (
             <button className="gs-link" style={{ marginLeft: 0 }} onClick={() => onOpenArtifact('spec')}><I.doc />{tr('openSpec')}</button>
@@ -599,6 +644,15 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
           )}
           {v.showReportLink && (
             <button className="gs-link" style={{ marginLeft: 0 }} onClick={() => onOpenArtifact('report')}><I.report />{tr('openReport')}</button>
+          )}
+          {/* Spec 103 step 1 — "take this fix back". It belongs HERE, in the small read-only link row,
+              and NOT in the action foot below: the foot already carries 「ビルドを破棄」, and 破棄 vs
+              取り消す are near-synonyms in Japanese whose consequences are a whole build apart. Two
+              same-weight buttons with near-identical words is exactly the confusion spec 103 §1.5
+              exists to remove — putting one back would be repeating the mistake this spec documents.
+              Different row, smaller type, less visual weight: you can read which one is dangerous. */}
+          {showUndoFix && (
+            <button className="gs-link" onClick={onUndoFix}><I.undo />{tr('undoFix')}</button>
           )}
         </div>
       )}
@@ -777,7 +831,82 @@ export function MsgAttachments({ atts, taskId }: { atts: ThreadAttachment[]; tas
   );
 }
 
-export function Composer({ value, onChange, onSend, settings, onSettings, model, onModel, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, onMode, canChange, changeArmed, sendGlyph }: {
+/**
+ * Spec 103 Lane B — the send-variant menu on the change pill.
+ *
+ * BOTH rows are ACTIONS: clicking either SENDS. That is the whole design, and it is a correction of a
+ * shape that shipped and confused a real user. The first version made this a radio picker (a ✓ column,
+ * one row inert) — and a row in a picker promises it can be picked, so the user clicked the inert one
+ * ten times in twenty seconds believing it was broken. A menu hung off a send button is Gmail's
+ * "Send / Schedule send", not a settings panel: every row does something, immediately.
+ *
+ * Per-send, never sticky. Spec 092's rule is that intent lives on the button pressed, never in state —
+ * a proposal mode that outlived its message would be exactly the silent-mode bug that rule prevents.
+ *
+ * Labels avoid the word "spec": whoever is deciding may not know what one is, but everyone understands
+ * "fix it now" versus "show me what you'll change first".
+ */
+function SendVariants({ ready, onPick }: { ready: boolean; onPick: (intent: 'change' | 'propose') => void }): VNode {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ bottom: number; right: number } | null>(null);
+
+  // Opens UPWARD: the composer sits at the bottom of the viewport. Fixed + measured for the reason
+  // PrefsMenu is — an absolutely positioned child gets clipped by an overflow ancestor.
+  const place = (): void => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ bottom: window.innerHeight - r.top + 6, right: window.innerWidth - r.right });
+  };
+  const toggle = (): void => setOpen((o) => { if (!o) place(); return !o; });
+  const pick = (intent: 'change' | 'propose'): void => {
+    setOpen(false);
+    if (ready) onPick(intent);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      btnRef.current?.focus(); // focus stranded on <body> makes the next Tab restart from the top
+    };
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button ref={btnRef} className="composer-change-caret" type="button" onClick={toggle}
+        aria-haspopup="menu" aria-expanded={open} aria-label={tr('sendVariants')} title={tr('sendVariants')}>
+        <I.chevron />
+      </button>
+      {open && (
+        <>
+          <div className="menu-scrim" onClick={() => setOpen(false)} />
+          <div className="prefs-menu sendvar-menu" role="menu"
+            style={pos ? { position: 'fixed', bottom: pos.bottom, right: pos.right, top: 'auto', left: 'auto' } : undefined}>
+            <button className="sendvar-row" role="menuitem" disabled={!ready} onClick={() => pick('change')}>
+              <I.edit />
+              <span>{tr('sendFixNow')}<span className="sv-sub">{tr('sendFixNowSub')}</span></span>
+            </button>
+            <button className="sendvar-row" role="menuitem" disabled={!ready} onClick={() => pick('propose')}>
+              <I.doc />
+              <span>{tr('sendPlanFirst')}<span className="sv-sub">{tr('sendPlanFirstSub')}</span></span>
+            </button>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+export function Composer({ value, onChange, onSend, settings, onSettings, model, onModel, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, onMode, canChange, changeArmed, sendGlyph, canPropose }: {
   value: string;
   onChange: (value: string) => void;
   /** spec 092: intent is PER-MESSAGE — 'ask' from Enter / the chat button, 'change' from the labeled
@@ -817,6 +946,9 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
   /** spec 033 FIX-J: bump this (any changing value) to focus the textarea — used when arming the
    *  composer's change-mode from a gate's reply-kind action, so typing the change starts immediately. */
   focusToken?: number;
+  /** spec 103 Lane B — offer the "show me the plan first" send. Absent ⇒ no caret at all, so a build
+   *  that has no workflow to plan against grows no surface. */
+  canPropose?: boolean;
   /** spec 082 §4.5: the entry-mode chip (`モード: 相談|ビルド`) — EMPTY VIEW ONLY (inside a task the kind
    *  is fixed, so conversation composers omit both). Renders FIRST in the row, same chip style as the
    *  others; while mode==='consult' the build chips (workflow/confirm/fast) are hidden — they are
@@ -1016,15 +1148,19 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
             phase / reopens a done build). Sits LEFT of the ask button so the rightmost position — the
             old single-send spot, where muscle memory clicks — stays the cheap default. */}
         {canChange && (
-          <button className={'composer-change' + (ready ? ' ready' : '') + (changeArmed ? ' armed' : '')}
-            type="button" onClick={() => { if (ready) onSend('change'); }} disabled={!ready}
-            title={tr('sendChangeTip')}>
-            <I.edit /><span className="cc-label">{tr('modeChange')}</span>
-          </button>
+          <span className="composer-change-wrap">
+            <button className={'composer-change' + (ready ? ' ready' : '') + (changeArmed ? ' armed' : '')}
+              type="button" onClick={() => { if (ready) onSend('change'); }} disabled={!ready}
+              title={tr('sendChangeTip')}>
+              <I.edit /><span className="cc-label">{tr('modeChange')}</span>
+            </button>
+            {canPropose && <SendVariants ready={ready} onPick={onSend} />}
+          </span>
         )}
         {/* Labeled like its sibling pill so the pair reads as two SENDS, not toggle+send. Next to the
             change pill the label says WHAT it sends (質問を送信) — a bare 送信 there would re-create the
-            old trap: click 変更を依頼 expecting a mode, type, press "送信", message leaves as a question. */}
+            old trap: click the change pill expecting a mode, type, press "送信", message leaves as a
+            question. */}
         <button className={'composer-send' + (ready ? ' ready' : '')}
           onClick={() => { if (ready) onSend('ask'); }} disabled={!ready}
           title={canChange ? tr('sendAskTip') : undefined}>

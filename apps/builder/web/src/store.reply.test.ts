@@ -59,7 +59,7 @@ describe('store.reply — Retry-out-of-error empty-text carve-out (spec 053)', (
 
     expect(ok).toBe(true);
     expect(replyMock).toHaveBeenCalledTimes(1);
-    expect(replyMock).toHaveBeenCalledWith('T1', '', undefined);
+    expect(replyMock).toHaveBeenCalledWith('T1', '', undefined, undefined); // 4th = spec 103 Lane B mode, absent on a retry
     expect(userBubbles()).toBe(0); // no empty user bubble pushed
     const gate = thread.value.find((i) => i.kind === 'gate') as { resolved?: string };
     expect(gate.resolved).toBe('Retry phase');
@@ -87,7 +87,7 @@ describe('store.reply — Retry-out-of-error empty-text carve-out (spec 053)', (
     const ok = await reply('', 'Retry phase', files);
 
     expect(ok).toBe(true);
-    expect(replyMock).toHaveBeenCalledWith('T1', '', files);
+    expect(replyMock).toHaveBeenCalledWith('T1', '', files, undefined);
   });
 
   test("a STEERED reply (non-empty) still adds the user bubble — carve-out doesn't change it", async () => {
@@ -99,7 +99,7 @@ describe('store.reply — Retry-out-of-error empty-text carve-out (spec 053)', (
     const ok = await reply('simplify the spec', 'Retry phase');
 
     expect(ok).toBe(true);
-    expect(replyMock).toHaveBeenCalledWith('T1', 'simplify the spec', undefined);
+    expect(replyMock).toHaveBeenCalledWith('T1', 'simplify the spec', undefined, undefined);
     expect(userBubbles()).toBe(1); // the typed message IS shown
   });
 });

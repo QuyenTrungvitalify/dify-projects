@@ -310,3 +310,22 @@ export function computeWordDiff(
 
   return { left, right };
 }
+
+/**
+ * Spec 103 step 1 — how the `差分` tab should present the spec side of a round.
+ *
+ * Three states, and collapsing any two of them tells the reader something false:
+ *
+ *  - `absent`   — no pre-round spec snapshot exists. A first build: ② wrote SPEC.md minutes ago, so
+ *                 there is no "before". The section is omitted entirely.
+ *  - `unchanged`— there WAS a before, and this round left the spec alone. After spec 103 L0 that is a
+ *                 fact worth stating, not a blank.
+ *  - `changed`  — render the diff.
+ *
+ * `absent` vs `unchanged` is the pair that matters: "we could not look" must never render like "we
+ * looked and nothing moved". Same three-state contract the `specStale` measurement keeps server-side.
+ */
+export function specDiffState(specDiff: string | null | undefined): 'absent' | 'unchanged' | 'changed' {
+  if (specDiff === null || specDiff === undefined) return 'absent';
+  return specDiff.trim() ? 'changed' : 'unchanged';
+}

@@ -122,10 +122,13 @@ export const api = {
   confirm: (id: string, actionId: string, extra?: { slug?: string; name?: string; keepCurrent?: boolean }): Promise<WireTask> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/confirm`, { actionId, ...extra }),
   /** POST /api/tasks/:id/reply → within-phase change request / Retry-out-of-error (+ optional files, AC3). */
-  reply: (id: string, text: string, files?: Attachment[]): Promise<WireTask & UploadIdx> =>
+  /** `mode:'propose'` (spec 103 Lane B) asks for a spec proposal instead of a direct build. Per-send;
+   *  the server re-derives whether it is legal and silently falls back to a direct fix if not. */
+  reply: (id: string, text: string, files?: Attachment[], mode?: 'propose'): Promise<WireTask & UploadIdx> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/reply`, {
       text,
       ...(files && files.length ? { files } : {}),
+      ...(mode ? { mode } : {}),
     }),
   /** spec 033: POST /api/tasks/:id/ask → conversational Q&A at a parked gate — no phase re-run, no
    *  gate/status change. Responds `{ok:true}` immediately; the answer streams over SSE (ask:answer/done).
@@ -159,6 +162,13 @@ export const api = {
   /** POST /api/tasks/:id/restore → reopen a cancelled build at the previous phase's gate (undo Continue). */
   restore: (id: string): Promise<WireTask> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/restore`),
+
+  /** spec 103 step 1: POST /api/tasks/:id/undo-fix → take back the last fix round, restoring BOTH
+   *  `main.yml` and `SPEC.md` from their pre-round snapshots. Costs no turn. 409 when the build is not
+   *  at the ③ gate, a turn is running, or the snapshot pair is incomplete. */
+  undoFix: (id: string): Promise<WireTask> =>
+    request('POST', `/api/tasks/${encodeURIComponent(id)}/undo-fix`),
+
   /** spec 084 S2: POST /api/tasks/:id/undo-promote → gỡ an auto-approved pattern (unlink + rebuild index,
    *  no git). Idempotent — a missing file responds `{ok:true, removed:false}`. */
   undoPromote: (id: string): Promise<{ ok: boolean; removed: boolean }> =>

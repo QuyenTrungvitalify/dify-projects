@@ -62,10 +62,21 @@ export type RunEventKind =
   // next build it opens. Hence `task=` in the detail — without it the line names the wrong build. And
   // the flag is cleared once reported, so one incident writes one line, not one per reopen.
   | 'persist_failed'
-  | 'artifact_unchanged'; // spec 094 S1 — an ③ turn ended with the artifact's bytes IDENTICAL (detail:
+  | 'artifact_unchanged' // spec 094 S1 — an ③ turn ended with the artifact's bytes IDENTICAL (detail:
 //                           the workflow file). Emitted only when measured; absent ⇒ the turn changed
 //                           the file, or the build predates 094. Two of the five fix rounds on run
 //                           1786089321835 were this, and nothing in the timeline said so.
+  | 'fix_undone' // spec 103 step 1 — the human undid a fix round: main.yml AND SPEC.md were restored
+//                    from their pre-round snapshots (detail: the workflow file). Reads in the timeline
+//                    as the counterweight to the `request_changes` line above it.
+  | 'spec_proposal_applied' // spec 103 Lane B — the human approved a spec proposal; the draft became
+//                              SPEC.md by rename and ③ ran from it.
+  | 'spec_proposal_dropped' // spec 103 Lane B — the human dropped it. Nothing changed on disk, which
+//                             is the point: reading the plan and saying no costs one ② turn, not a build.
+  | 'spec_stale'; // spec 103 L0 — an ③ REVISION round changed the workflow and left SPEC.md untouched
+//                   (detail: the workflow file). The sibling of the line above: one says the round did
+//                   nothing, this one says the round did something the document never learned about.
+//                   Emitted only when BOTH sides were measured; a first Implement measures neither.
 
 export interface RunEvent {
   ts: number;
