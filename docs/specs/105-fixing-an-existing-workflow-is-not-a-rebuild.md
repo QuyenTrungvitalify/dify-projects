@@ -9,6 +9,10 @@
 > route `undo-fix` · ba spec đang mở. (Một `tsconfig.audit.json` scratch lọt vào commit qua một
 > `git add` theo thư mục, đã gỡ bằng commit riêng — **bài học: stage theo Ý ĐỊNH, không theo thư mục**.)
 >
+> **S3 landed** — `snapshotDiffBase` khoá theo `seedAppId` thay vì `seedPath`: Undo giờ có mặt trên
+> đúng ca nó sinh ra để phục vụ. Phần predicate của S3 **bị bỏ** — kiểm chứng cho thấy nó gây báo
+> động giả trên **mọi** build edit-existing (§4.4.1); nó thuộc LOẠI 2, không thuộc đây.
+>
 > **S2b landed — NHƯNG chỉ MỘT NỬA**, và nửa kia bị gỡ sau một vòng soát (§4.3.1a). Hard-stop
 > `artifactUnchanged` đã ship, kiểm đỏ-khi-revert **qua đường sản phẩm thật** (build edit-existing,
 > phép đo tự suy từ đĩa). Hard-stop `specStale` **BẤT KHẢ ĐẠT** hôm nay ⇒ đã gỡ, chuyển vào **S2c**.
@@ -414,7 +418,41 @@ lượt ③ **resume**. Nhưng LOẠI 1 ca "0 build" và cả LOẠI 2 đều t�
 > không ai kiểm nó có làm không, và làm sai thì không lùi được. Đó mới là lỗ, và nó hẹp hơn — nhưng
 > nguy hiểm hơn: một chỉ thị không được đo là một chỉ thị **giả định** là đã tuân thủ.
 
-#### 4.4.1 Tiêu chí đúng là **`main.yml` đã tồn tại**, không phải `SPEC.md`
+#### 4.4.1 ~~Tiêu chí đúng là `main.yml` đã tồn tại~~ — **SAI, ĐÃ BỎ**
+
+> **`[ĐO code]` Toàn bộ mục này (bản 2026-08-21) là một chẩn đoán SAI.** Một vòng kiểm chứng đã
+> **implement thử** predicate `workflowExistedBefore` rồi chạy suite: **2 test đỏ**, và lý do quan
+> trọng hơn con số.
+>
+> Comment của `specHashBefore` nói: *"On a **first** Implement ② has just written SPEC.md from the
+> requirement, so the document already describes the workflow about to be built"*. Tôi đọc câu đó
+> như thể nó nói về build **từ đầu**. Nó nói về **mọi ③ đầu tiên** — kể cả edit-existing.
+>
+> ```
+> build edit-existing hôm nay:
+>   ① đọc seed → ② VIẾT SPEC.md mô tả thay đổi sắp làm → ③ sửa main.yml cho khớp
+>                                                          │
+>   main.yml đã tồn tại → predicate của tôi BẬT phép đo ───┘
+>   nhưng SPEC.md ĐÚNG rồi nên ③ không cần sửa nó → specChanged = false
+>   ⇒ isSpecStale(true, false) = TRUE ⇒ BÁO ĐỘNG GIẢ trên MỌI build edit-existing
+> ```
+>
+> **Tiêu chí đúng không phải "file đã tồn tại", mà là "② có vừa viết `SPEC.md` cho CHÍNH vòng này
+> không".** Hôm nay hai thứ đó trùng nhau ở đúng một biểu thức: `opts?.replyText`. Tức **cổng hiện
+> tại ĐANG ĐÚNG**, và khoảng trống chỉ mở ra khi ② bị **bỏ qua** — tức `startPhase='implement'`,
+> tức **LOẠI 2**.
+>
+> ⇒ Phần (a) của S3 **chuyển sang LOẠI 2** (S4/S5), với predicate đúng:
+> `opts?.replyText || task.startPhase === 'implement'`.
+>
+> Và một bất biến phải giữ khi làm: `reconcileTail` (chỉ thị), `specHashBefore` (phép đo) và
+> `snapshotSpecBase` (undo) **phải dùng CHUNG một biểu thức cổng** — comment tại chỗ nói thẳng
+> *"the instruction is delivered on exactly the turns the measurement judges"*. Đổi lệch nhau là
+> tự sinh ra báo động giả.
+
+<details><summary>Bản gốc của §4.4.1 (giữ để thấy lập luận sai ở đâu)</summary>
+
+##### Tiêu chí ~~đúng~~ đã đề xuất: `main.yml` đã tồn tại
 
 Bản trước của §4.4(a) đề xuất `editsExistingSpec = existsSync(SPEC.md)`. **Sai, và sai theo hướng
 nguy hiểm** — nó sẽ bật phép đo trên **mọi build mới**:
@@ -455,6 +493,8 @@ predicate mới thì tắt. Đúng: lúc đó chưa có gì để hoà giải, v
 
 **Hệ quả cho QA**: build mới **không cần** đọc `SPEC.md` (② vừa viết nó, ③ không được phép sửa nó).
 Chỉ **vòng fix trên một build đã có** mới cần — QA-1 §6.9.
+
+</details>
 
 `[ĐO code]` **Một lỗ cùng họ đã được VÁ** — bản trước của spec này ghi nhầm: `SPEC.next.md` **là
 per-TASK** (`apps/builder/.runs/<taskId>/SPEC.next.md`), và JSDoc của `specNextRel` nói thẳng nó từng
@@ -703,8 +743,8 @@ song song) — typecheck + 13 test undo xanh nên commit riêng, không bỏ rơ
 |---|---|---|
 | **S2** | **Loại trừ hai chiều** 自動 ↔ 提案: `canPropose` thêm mệnh đề `confirmMode !== 'auto'`; `PATCH` 409 + chip ẩn 自動 khi `specRevise`. §4.3 | XS |
 | ~~**S2b**~~ ✅ | ~~Hai~~ **MỘT** hard-stop — `artifactUnchanged` — trong `maybeAutoAdvance`. **ĐÃ SHIP 2026-08-21** (`bf6e598` + sửa `f554493`). Ba test qua **đường sản phẩm thật** (build edit-existing), đã kiểm đỏ-khi-revert. `specStale` **chuyển sang S2c** vì bất khả đạt — §4.3.1a | XS |
-| **S2c** | **`maybeAutoAdvance` ở HAI chỗ** (nhánh `phase==='test'` + đuôi `replyWithin`), kẹp `phase==='implement'`; và ở nhánh `apply_spec`. **CỘNG hard-stop `specStale`** (chuyển từ S2b — §4.3.1a: chỉ ở đây nó mới đạt được, vì vòng fix có `replyText`). Vẫn **CHỜ S3** cho lượt ③ tươi. §4.3.2 | S |
-| **S3** | **Hai** lỗ im lặng: predicate `workflowExistedBefore` thay `replyText` (3 chỗ, §4.4.1) · `snapshotDiffBase` `seedPath`→`seedAppId` (§4.4b). *(Lỗ thứ ba — guard `PUT /spec` — đã có sẵn, không phải làm)* | S |
+| **S2c** | **`maybeAutoAdvance` ở HAI chỗ** (nhánh `phase==='test'` + đuôi `replyWithin`), kẹp `phase==='implement'`; và ở nhánh `apply_spec`. **CỘNG hard-stop `specStale`** (chuyển từ S2b — §4.3.1a: chỉ ở đây nó mới đạt được, vì vòng fix có `replyText`). **KHÔNG còn chờ gì** — S3 đã ship, và phần predicate hoá ra không thuộc LOẠI 1. §4.3.2 | S |
+| ~~**S3**~~ ✅ | **MỘT** lỗ: `snapshotDiffBase` `seedPath`→`seedAppId` (§4.4b) — **ĐÃ SHIP 2026-08-21** (`6576020`), 4 test đỏ-khi-revert cả hai chiều. *(Phần predicate **chuyển sang LOẠI 2** — §4.4.1 giải thích vì sao nó SAI. Guard `PUT /spec` đã có sẵn.)* | XS |
 
 **AC S3 (đỏ-khi-revert bắt buộc)**: (a) một lượt ③ **tươi** trên workflow **đã có `main.yml`** →
 `specStale` được đo + nút Undo **hiện**; (b) lượt ③ **đầu tiên của build mới** → **KHÔNG** đo (§4.4.1);
