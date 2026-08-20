@@ -60,7 +60,9 @@
 # GOTCHA: both iterations use error_handle_mode: continue-on-error so ONE unreadable image / one
 #   inaccessible article is skipped and the run finishes; the shape-code after each iteration drops the
 #   empty ({}) results those skips produce.
-# GOTCHA: compute JST from UTC INSIDE the code (utcnow + 9h), never trust the sandbox timezone.
+# GOTCHA: compute JST INSIDE the code with a tz-aware object, never trust the sandbox timezone —
+#   `datetime.now(timezone(timedelta(hours=9)))`. NOT `utcnow()`: it is deprecated in Python 3.12,
+#   and the sandbox fails a node on ANY stderr output, so the warning alone kills the run.
 # GOTCHA: Dify schedule triggers default to UTC — an "8:00 AM" JST job fires at 17:00 JST unless
 #   `timezone: Asia/Tokyo` is set. And publishing is not enough: the trigger must also be ENABLED in
 #   Dify Studio before it fires.
@@ -355,11 +357,12 @@ workflow:
               sheet_range = "Sheet1!A:F"         # destination range (date/title/url/media/summary/body)
               url_col_index = 2                  # 0-based index of the existing-URL column (C = 2)
               # ────────────────────────────────────────────────
-              # サンドボックスのTZに依存せず UTC 起点で JST を算出
-              now_utc = datetime.datetime.utcnow()
-              now_jst = now_utc + datetime.timedelta(hours=9)
-              epoch = datetime.datetime(1970, 1, 1)
-              now_ts = int((now_utc - epoch).total_seconds())
+              # サンドボックスのTZに依存せず、tz-aware で JST を算出。
+              # utcnow() は使わない: Python 3.12 で非推奨になり、その DeprecationWarning が
+              # stderr に出るだけで Dify のコード実行ノードは「失敗」と判定する。
+              JST = datetime.timezone(datetime.timedelta(hours=9))
+              now_jst = datetime.datetime.now(JST)
+              now_ts = int(now_jst.timestamp())
               since_ts = now_ts - 24 * 60 * 60
               return {
                   "room_id": room_id,

@@ -26,6 +26,13 @@
 #      the node keeps ONE `source` edge and, on failure, emits the canned `default_value` outputs so
 #      the flow continues straight through. Use it when the downstream shape matters more than the
 #      failure; use fail-branch when the operator must be TOLD.
+#      WARNING (observed 2026-08-19, real Chatwork build): `default-value` on a step that FETCHES
+#      something turns a misconfiguration into a GREEN node. A wrong API token / room id produced a
+#      successful-looking run that pushed empty data downstream, and the real fault surfaced several
+#      nodes later as nonsense output. On any node whose job is to OBTAIN data (auth'd HTTP, file
+#      download, credential-bearing tool call), prefer fail-branch — or no strategy at all — so the
+#      node goes red where the mistake actually is. `default-value` is for steps whose failure is
+#      genuinely tolerable (an optional probe, an enrichment lookup).
 #   6. `default_value` rows must mirror the node's OUTPUT contract exactly. For `http-request` that is
 #      three rows and only three — `body` (string), `status_code` (number), `headers` (object) — the
 #      same list Dify's own editor writes (web/…/error-handle/utils.ts, `getDefaultValue`). For `llm`
