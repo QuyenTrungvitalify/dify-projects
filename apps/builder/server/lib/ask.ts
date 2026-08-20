@@ -138,10 +138,10 @@ export function askSessionTokens(cost: PhaseCost | undefined): number {
 /**
  * What the session was actually CARRYING — {@link askSessionTokens} divided by the turn's request count.
  *
- * `usage` on the CLI's terminal `result` event is a TURN TOTAL, summed over every API request the tool
- * loop made (see cost.ts, which reads it next to `num_turns`). One request per turn ⇒ the sum IS the
- * context. Many requests ⇒ the same growing prefix is counted once per request, so the sum overstates
- * the context by roughly `numTurns`, and it overstates it hardest on exactly the turns that read files.
+ * `usage` on the CLI's terminal `result` event is a TURN TOTAL over the tool loop, not a single
+ * request's prompt (see cost.ts, which reads it next to `num_turns`). One request per turn ⇒ the sum IS
+ * the context. Many requests ⇒ the same growing prefix is counted repeatedly, so the sum overstates the
+ * context by roughly `numTurns` — and it overstates it hardest on exactly the turns that read files.
  *
  * `[ĐO 2026-08-20]` 60 assistant turns across 7 runs in `.runs/`: 28 % carried `numTurns > 1`, up to 22.
  * Run 1786505684286 turn 110 — the very turn spec 100 §1 cites as its nail-in-the-coffin — summed
@@ -151,11 +151,28 @@ export function askSessionTokens(cost: PhaseCost | undefined): number {
  * spec 100 describes had one more link than its diagnosis said — reset → re-read files → MORE REQUESTS
  * → sum multiplied → reset.
  *
- * LIMITS, so nobody reads this as the real number either: `num_turns` is documented as tool-loop
- * iterations and is not guaranteed to equal the request count (the corroboration is circumstantial — a
- * `nT=2, sum=1.57M → 785k` turn sits directly beside `nT=1, sum≈800k` neighbours). And within one turn
- * the prompt GROWS with each tool result, so the mean sits below the peak. The truth is between the sum
- * and this mean, nearer this mean. It is an estimate — a much better one, not a measurement.
+ * `[ĐO 2026-08-20]` THE QUOTIENT IS VALIDATED; ITS TWO HALVES ARE NOT. Seven ask turns were aligned by
+ * timestamp against the CLI's own session transcript (`~/.claude/projects/<cwd>/<session>.jsonl`, where
+ * every assistant message carries the `usage` of one real API request):
+ *
+ * | real requests | real total | real mean | `numTurns` | recorded total | quotient | error |
+ * |---|---|---|---|---|---|---|
+ * | 11 | 484,475 |  44,043 | 7 | 298,320 |  42,617 | −3.2 % |
+ * |  5 | 398,841 |  79,768 | 3 | 240,113 |  80,038 | +0.3 % |
+ * |  4 | 417,738 | 104,434 | 2 | 208,869 | 104,434 |  0.0 % |
+ * |  6 | 801,322 | 133,554 | 3 | 400,661 | 133,554 |  0.0 % |
+ * |  4 | 622,906 | 155,726 | 2 | 311,453 | 155,726 |  0.0 % |
+ * |  3 | 535,748 | 178,583 | 2 | 356,646 | 178,323 | −0.1 % |
+ * |  2 | 400,060 | 200,030 | 1 | 200,030 | 200,030 |  0.0 % |
+ *
+ * Read the two middle columns before trusting either alone: the recorded total is **33–50 % BELOW** the
+ * real one, and `numTurns` under-counts the real requests by the same factor. Neither is what its name
+ * suggests — but the two errors are the SAME error, so they cancel, and the quotient lands within 3.2 %
+ * of the true per-request prompt (exactly on it in four of seven). That is why this function divides
+ * rather than trying to reconstruct a total: the ratio is the part the CLI reports consistently.
+ *
+ * Still an estimate, not a measurement: within one turn the prompt GROWS with each tool result, so this
+ * mean sits below the turn's PEAK context. It is a good floor, not a ceiling.
  */
 export function askContextTokens(cost: PhaseCost | undefined): number {
   const total = askSessionTokens(cost);

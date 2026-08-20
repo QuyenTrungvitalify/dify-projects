@@ -184,14 +184,29 @@ vì tổng thô. `numTurns` đã được ghi từ spec 059 ([task.ts:207](../..
 
 **Không** hook, **không** endpoint, **không** thêm plumbing. Một biểu thức.
 
-**Giới hạn phải nói ra — đây là ước lượng, không phải số thật:**
+**`[ĐO 2026-08-20, kiểm sau khi ship]` THƯƠNG SỐ ĐÚNG — NHƯNG HAI VẾ CỦA NÓ THÌ KHÔNG.** Ghép 7 lượt
+ask theo dấu thời gian với chính transcript session của CLI
+(`~/.claude/projects/<cwd>/<session>.jsonl`, mỗi message assistant mang `usage` của **một** API request
+thật):
 
-- `num_turns` được tài liệu mô tả là *tool-loop iterations*, **không đảm bảo** bằng đúng số API
-  request. Bằng chứng gián tiếp rất khớp (lượt `nT=2, tổng=1,57M → 785k` nằm ngay cạnh các lượt
-  `nT=1, tổng≈800k`), nhưng là suy luận.
-- Trong một lượt, prompt **lớn dần** theo từng tool result, nên **trung bình thấp hơn đỉnh**. Tổng
-  thô cao hơn ngữ cảnh khoảng `numTurns` lần; trung bình thấp hơn đỉnh. Sự thật nằm giữa, và **gần
-  trung bình hơn**.
+| request thật | tổng thật | TB thật | `numTurns` | tổng ghi nhận | thương số | sai số |
+|---:|---:|---:|---:|---:|---:|---:|
+| 11 | 484.475 | 44.043 | 7 | 298.320 | 42.617 | −3,2 % |
+| 5 | 398.841 | 79.768 | 3 | 240.113 | 80.038 | +0,3 % |
+| 4 | 417.738 | 104.434 | 2 | 208.869 | 104.434 | 0,0 % |
+| 6 | 801.322 | 133.554 | 3 | 400.661 | 133.554 | 0,0 % |
+| 4 | 622.906 | 155.726 | 2 | 311.453 | 155.726 | 0,0 % |
+| 3 | 535.748 | 178.583 | 2 | 356.646 | 178.323 | −0,1 % |
+| 2 | 400.060 | 200.030 | 1 | 200.030 | 200.030 | 0,0 % |
+
+Tổng mà CLI ghi nhận **thấp hơn tổng thật 33–50 %**, và `numTurns` đếm thiếu số request **đúng cùng hệ
+số đó**. Không vế nào đúng như tên gọi của nó — nhưng hai sai số là **một** sai số, nên chúng triệt
+tiêu, và thương số rơi trong **3,2 %** của prompt-mỗi-request thật (trúng chính xác ở 4/7 lượt).
+
+**Giới hạn còn lại:**
+
+- Trong một lượt prompt **lớn dần** theo từng tool result, nên thương số là **trung bình**, nằm dưới
+  **đỉnh**. Nó là cận dưới tốt, không phải cận trên.
 - Vì vậy S0′ **không** đòi giữ nguyên ngưỡng 1M. Ngưỡng phải được đọc lại trên thang mới —
   xem Open Q2, nay là câu hỏi có nghĩa hơn hẳn.
 
