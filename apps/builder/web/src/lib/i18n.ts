@@ -149,6 +149,10 @@ const EN: Dict = {
   phReplyOrDescribe: 'Reply, or describe another change…',
   phDescribeAnother: 'Describe another change to start a new build…',
   openIt: 'Open it',
+  /* spec 099 S2′ — this browser stopped keeping the conversation. Only truthful because S1 (backfill
+     from the server transcript) shipped first: the exchanges really do come back on reopen. */
+  persistQuota: 'This browser is out of storage, so the conversation is no longer being saved here. Your questions and answers are safe on the server and come back when you reopen this build.',
+  persistFailed: 'The conversation could not be saved in this browser. Your questions and answers are safe on the server and come back when you reopen this build.',
 
   /* stop-build confirm (shared App + Sidebar) */
   stopBuildTitle: 'Stop this build?',
@@ -644,6 +648,8 @@ const JA: Dict = {
   phReplyOrDescribe: '返信、または別の変更を入力…',
   phDescribeAnother: '別の変更を入力して新しいビルドを開始…',
   openIt: '開く',
+  persistQuota: 'このブラウザの保存領域が不足しているため、会話はこの端末に保存されていません。質問と回答はサーバー側に残っており、このビルドを開き直すと復元されます。',
+  persistFailed: 'この会話をブラウザに保存できませんでした。質問と回答はサーバー側に残っており、このビルドを開き直すと復元されます。',
 
   /* stop-build confirm */
   stopBuildTitle: 'このビルドを停止しますか？',

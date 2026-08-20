@@ -844,12 +844,91 @@ function threadIndex(): string[] {
   }
 }
 
+/**
+ * Spec 099 S2′ — a storage failure that nobody can see is a data loss nobody can diagnose.
+ *
+ * `persistDegraded` is TRUE while the thread cannot be written to localStorage. Two channels hang off
+ * it, and they answer different questions: a banner (App.tsx) tells the person at the keyboard, right
+ * now, that this browser is no longer keeping their conversation — and `PERSIST_FAILED_KEY` survives a
+ * reload so the next request can tell the run timeline, which is the only channel that reaches a
+ * machine nobody can log into.
+ *
+ * NOT a thread item, and that is not a style choice: every item appended to `thread` wakes the persist
+ * effect — i.e. the very write that just failed — which would fail again and, if the notice were added
+ * per failure, append again. The one shape of notice this codebase already uses (the backfill marker,
+ * `runsDropped`) is exactly the shape that must not be used here.
+ */
+export const persistDegraded = signal<{ reason: 'quota' | 'other'; chars: number } | null>(null);
+const PERSIST_FAILED_KEY = 'builder.persistFailed';
+
+/** Quota, across browsers. Safari's private mode throws the same way, and for the user it means the
+ *  same thing — the conversation is not being kept — so the two are deliberately not separated. */
+function isQuotaError(e: unknown): boolean {
+  if (!(e instanceof DOMException)) return false;
+  return (
+    e.name === 'QuotaExceededError' ||
+    e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+    e.code === 22 ||
+    e.code === 1014
+  );
+}
+
+/**
+ * Remember one failure for the next request to report.
+ *
+ * `chars`, NOT bytes, and the distinction is the whole value of the number: browsers bill localStorage
+ * in UTF-16 code units, so `json.length` is the quantity the quota was actually measured against — but
+ * a Vietnamese or Japanese conversation is worth up to three UTF-8 bytes per unit, so a reader who took
+ * this for a byte count would be off by 2–3× on exactly the threads most likely to fill a cache.
+ *
+ * Its own try/catch: if even ~100 characters cannot be written, the in-memory signal still covers this
+ * session — losing the record is not worth a throw.
+ */
+function rememberPersistFailure(taskId: string, chars: number, reason: 'quota' | 'other'): void {
+  try {
+    localStorage.setItem(PERSIST_FAILED_KEY, JSON.stringify({ at: Date.now(), taskId, chars, reason }));
+  } catch {
+    /* the quota that caused this may also block the note about it — the banner still shows */
+  }
+}
+
+/** The pending report, if any — read by `backfillAskHistory` on the next build opened. */
+export function readPersistFailure():
+  { at: number; taskId: string; chars: number; reason: 'quota' | 'other' } | null {
+  try {
+    const raw = localStorage.getItem(PERSIST_FAILED_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof v?.chars !== 'number' || !Number.isFinite(v.chars)) return null;
+    return {
+      at: typeof v.at === 'number' && Number.isFinite(v.at) ? v.at : 0,
+      taskId: typeof v.taskId === 'string' ? v.taskId : '',
+      chars: v.chars,
+      reason: v.reason === 'quota' ? 'quota' : 'other',
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Reported ⇒ forget it. Without this, one incident writes a timeline line on EVERY later reopen —
+ *  the "log that never shuts up" this project has already had to dig out once. */
+export function clearPersistFailure(): void {
+  try {
+    localStorage.removeItem(PERSIST_FAILED_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Write the current thread for the open task (deduped + LRU-bounded). Best-effort — quota/private-mode safe. */
 function persistThreadNow(): void {
   const t = task.value;
   if (!t) return;
+  let chars = 0; // UTF-16 units — the unit browsers actually bill localStorage in; see rememberPersistFailure
   try {
     const json = serializeThread(thread.value);
+    chars = json.length;
     if (json === _lastPersisted) return; // unchanged slim payload (re-render with no thread change) → skip
     localStorage.setItem(THREAD_KEY(t.taskId), json);
     // Marked persisted only AFTER the write actually landed. It used to be set FIRST, which turned any
@@ -865,8 +944,16 @@ function persistThreadNow(): void {
       if (evict) localStorage.removeItem(THREAD_KEY(evict));
     }
     localStorage.setItem(THREAD_INDEX, JSON.stringify(idx));
-  } catch {
-    /* storage disabled / quota exceeded — persistence is best-effort, never blocks the UI */
+    // Cleared only after a write actually lands, so the banner tracks the CURRENT state rather than
+    // "something went wrong once". Assigning unconditionally would publish a signal write on every
+    // successful persist — cheap, but it would wake every subscriber for nothing.
+    if (persistDegraded.value) persistDegraded.value = null;
+  } catch (e) {
+    // Still swallowed: storage is best-effort and must never block the UI (spec 033 D6). What changed
+    // is that it is no longer INVISIBLE — see `persistDegraded`.
+    const reason = isQuotaError(e) ? 'quota' : 'other';
+    persistDegraded.value = { reason, chars };
+    rememberPersistFailure(t.taskId, chars, reason);
   }
 }
 
@@ -1894,7 +1981,12 @@ async function backfillAskHistory(taskId: string, t: WireTask): Promise<void> {
   if (t.kind === 'consult' || t.kind === 'promote') return;
   try {
     const have = thread.value.filter((i) => i.kind === 'qa').length;
-    const { chat, dropped } = await api.getTaskChat(taskId, have);
+    // Spec 099 S2′: a pending "could not persist" note rides along. Cleared only on a response, so a
+    // failed/offline request keeps the report for the next attempt — and a delivered one is forgotten,
+    // which is what keeps a single incident from writing a timeline line on every future reopen.
+    const report = readPersistFailure() ?? undefined;
+    const { chat, dropped } = await api.getTaskChat(taskId, have, report);
+    if (report) clearPersistFailure();
     if (!chat?.length) return;
     if (task.value?.taskId !== taskId) return; // guard 2 — the view moved on while we were waiting
     const merged = backfillFromTranscript(thread.value, chat, {

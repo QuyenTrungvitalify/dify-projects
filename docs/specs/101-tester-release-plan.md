@@ -530,14 +530,53 @@ Không lên lịch trước. Xếp lại theo những gì hồ sơ tester thực
 |---|---|
 | `[100 S2]` chèn N cặp cuối vào seed phiên reset | bundle cho thấy `sessionReset` vẫn xảy ra sau 2.1 |
 | `[100 S3]` `sessionHistory` trong `task.json` | cần khôi phục một phiên bị bỏ |
-| `[099 S1b lớp 2]` tab thụ động **hiển thị** lượt vừa lỡ | tester báo "tab kia không thấy câu tôi vừa hỏi" |
-| `[099 S3]` bóc gọn `gate.snapshot` | localStorage một máy tester chạm ~4 MB |
+| `[099 S1b lớp 2]` tab thụ động **hiển thị** lượt vừa lỡ | tester báo "tab kia không thấy câu tôi vừa hỏi" — ⚠ bẫy `history_gap`, xem ghi chú |
+| **`[099 S2′]` bộ đo quota** (chặn cửa cho S3) | **không chờ ai** — làm được ngay |
+| `[099 S3]` bóc gọn `gate.snapshot` | `[099 S2′]` có tiếng — ⚠ điều kiện cũ *"chạm ~4 MB"* không quan sát được, xem ghi chú |
 
-**Spike riêng, ngoài đường găng: `[100 S0]` đo `context_window` qua `PreCompact`/`PostCompact`.**
-`[CHƯA KIỂM]` — chưa xác nhận CLI có bắn hook đó ở chế độ headless Builder dùng hay không. Phép kiểm
-rẻ: thêm hai hook vào `apps/builder/headless-settings.json` (file này **đã** có `hooks.PreToolUse`)
-ghi ra một file tạm, chạy một ask dài tới lúc compact, xem có dòng nào không. **Không đưa lên lịch
-tới khi câu hỏi đó có câu trả lời**, và 2.1 cố ý **không** phụ thuộc nó.
+> **`[ĐO 2026-08-20]` `[099 S1b lớp 2]` có một tác dụng phụ dễ bỏ sót.** Cách đúng là gọi lại
+> `backfillAskHistory` ở đường `ask:done` (dùng lại route + phép multiset + hai guard đã ship). Nhưng
+> tab thụ động khi đó gửi `?have=` **thấp hơn `servable` đúng 1**, và
+> [`routes/tasks.ts:491`](../../apps/builder/server/routes/tasks.ts:491) ghi một dòng `history_gap`
+> **mỗi lượt hỏi** — trong tình huống hai-tab hoàn toàn bình thường. Đó chính là con "log không bao
+> giờ im" mà commit `362ba81` vừa dập, và nó làm ô nhiễm đúng kênh bằng chứng dựng lên để chẩn đoán
+> máy ở xa. **Đường live phải không gửi `have` (hoặc gắn cờ) để route đừng ghi.** Ngoài ra chỗ nối là
+> lambda `onAskDone` ở `store.ts:1029`, **không** phải trong thân `applyAskDone` — hàm đó còn được
+> gọi từ đường reconnect (`store.ts:998`).
+
+> **`[ĐO 2026-08-20]` `[099 S3]` có một tiền đề gãy: không ai biết khi nào nó được kích hoạt.**
+> Mọi `localStorage.setItem` trong `store.ts` đều nuốt lỗi trong `try/catch` (dòng 159, 181, 201,
+> 243, và effect persist), localStorage **không** nằm trong bundle export, và không có telemetry.
+> Nên *"chạm ~4 MB"* là một điều kiện **không máy nào ở xa báo về được**: hoặc S3 không bao giờ được
+> kích hoạt, hoặc nó được kích hoạt **sau khi** người dùng đã mất thread — đúng con lỗi 099 sinh ra
+> để dập. **Việc phải làm trước là một BỘ ĐO**, không phải bóc gọn — và bộ đo đó **đã được đặc tả**:
+> **[`099 S2′`](099-build-ask-history-survives-the-browser.md)** (hồi sinh phần `persistDegraded` bị
+> drop ở §5, thu hẹp còn đo-và-kể). Bốn mảnh: phân loại lỗi quota · signal + banner nhìn thấy được ·
+> khoá cờ sống qua reload · báo về `events.jsonl` qua `&persistFailed=` trên **route đã có**
+> `GET /api/tasks/:id/chat` (không mở route mới). Rẻ, và biến S3 từ suy đoán thành có bằng chứng.
+>
+> Và khi làm S3 thật: tập field tối thiểu phải suy từ **`gateView`**, không từ chữ ký `GateCard`.
+> Bề mặt render thật của một gate card đã `resolved` là hợp của `gateView` (**18** field trên
+> `WireTask`: `analysisPattern, artifactHash, artifactUnchanged, error, fastReviewNote, gate,
+> importAppId, importedAt, importedHash, kind, liveTest, patternAdvisory, phase, preflightNote,
+> slugNote, status, workflow, workflowFile`) ∪ `GateCard` (`appId, gate, kind, phase, project,
+> status, testApps, workflowSlug`) ∪ `GateActions` ∪ `gate-foot.ts` (`confirmMode, project, status,
+> workflowSlug`) — **≈22 field**, vài cái là object sâu (`liveTest.judge.criteria`, `gate.actions`,
+> `promote`). Whitelist theo 9 prop destructure ở `Chat.tsx:517` sẽ làm **trắng** tiêu đề gate
+> deploy, verdict live-test và các dòng lỗi — âm thầm, chỉ lộ sau reload.
+
+~~**Spike riêng, ngoài đường găng: `[100 S0]` đo `context_window` qua `PreCompact`/`PostCompact`.**~~
+**HUỶ 2026-08-20 — spike không cần chạy nữa, xem [100 §3 S0](100-ask-session-reset-doom-loop.md).**
+Hai lý do: (1) tài liệu hook xác nhận cả hai event **có thật** và hook **có** chạy ở headless, nhưng
+payload **không mang** `context_window` — đúng con số spike đi tìm; (2) một ước lượng tốt hơn đã nằm
+sẵn trên đĩa: `numTurns` trong `PhaseCost`. Thay bằng **`[100 S0′]` chia cho `numTurns`** — một biểu
+thức trong `shouldResetAskSession`, không hook, không endpoint.
+
+> **`[ĐO 2026-08-20]` Vì sao đáng làm dù 2.1 đã nâng ngưỡng lên 1M.** `askSessionTokens` cộng dồn qua
+> từng API request của một lượt (28 % số lượt có `numTurns > 1`, cao nhất **22**). Lượt 110 của run
+> `1786505684286`: tổng 442.253 / `numTurns=12` → ngữ cảnh thật **~37k**, mà ngưỡng 300k vẫn bắn.
+> Nâng lên 1M có tác dụng **một phần do may** (cao đến mức phép nhân hiếm với tới); phép chia mới là
+> thứ chữa gốc. Vẫn **không** nằm trên đường găng — 2.1 đã dập triệu chứng.
 
 ---
 
@@ -546,7 +585,7 @@ tới khi câu hỏi đó có câu trả lời**, và 2.1 cố ý **không** ph�
 | Bỏ | Lý do một dòng |
 |---|---|
 | **099 S5** mục 1, 2, 3 | Máy sạch ⇒ **20/20** build có `runs.jsonl` ⇒ không còn tín hiệu để xếp hạng, cảnh báo không bao giờ đúng, ca "build đời cũ" không thể tồn tại |
-| **099 S2** phần retry/giảm-tải/`persistDegraded` | Quota đã bị bác bỏ; máy sạch còn xa hơn |
+| ~~**099 S2** phần retry/giảm-tải/`persistDegraded`~~ | ~~Quota đã bị bác bỏ; máy sạch còn xa hơn~~ → **SỬA 2026-08-20: `persistDegraded` HỒI SINH** thành `[099 S2′]` (bộ đo), vì `[099 S3]` không có điều kiện kích hoạt quan sát được nếu thiếu nó. Phần **retry/giảm-tải vẫn drop**. |
 | **099 §6 Q6** cứu ~34 ask tiền-transcript | Data cũ không còn liên quan |
 | Đồng bộ đa tab (BroadcastChannel) | Đã là non-goal của 099 — và khi nào Builder chuyển sang server-authoritative thì bài toán **tự biến mất** |
 
@@ -708,8 +747,12 @@ một bậc**. Nên một phiên sống lâu (đúng thứ 2.1 tạo ra) sẽ ch
 phiên vừa reset cho con số nhỏ mà hoá đơn to, vì mọi thứ phải đọc lại thành `cacheCreation`.
 
 ⇒ Ngưỡng đang **đo sai thứ**. Nâng 300k → 1M vẫn **đúng hướng** (nó nới cho phiên sống lâu, tức
-hướng rẻ hơn), nhưng đừng tưởng con số đó là "ngân sách tiền". Đây chính là [100 Open Q1](100-ask-session-reset-doom-loop.md),
-và là lý do `[100 S0]` (đo `context_window` thật) đáng làm dù S1 đã dập được triệu chứng.
+hướng rẻ hơn), nhưng đừng tưởng con số đó là "ngân sách tiền". Đây chính là [100 Open Q1](100-ask-session-reset-doom-loop.md).
+
+> **CẬP NHẬT 2026-08-20 — Open Q1 đã có lời giải, và nó không phải hook.** `[100 S0]` **huỷ**; thay
+> bằng `[100 S0′]`: chia `askSessionTokens` cho `numTurns`. Ngoài chuyện "cache-read rẻ hơn" ở trên,
+> con số còn sai một hệ số nữa — nó là **tổng qua từng API request** của một lượt, nên lượt 110
+> (`numTurns=12`, tổng 442.253) thật ra chỉ mang **~37k** ngữ cảnh mà vẫn kích hoạt ngưỡng 300k.
 
 **Không hành động ở Đợt 1** — chỉ đừng suy diễn từ con số đó.
 
@@ -729,8 +772,9 @@ phép đo. **Nếu M1 trượt thì làm gì:**
 2. Nếu reset xảy ra **≤1 lần / 4 câu** và **không hai lần liên tiếp** → **coi như ĐẠT cho tester**, và
    kéo `[100 S2]` (chèn transcript vào seed) từ Đợt 3 lên Đợt 2 — nó biến một lần quên thành một lần
    "nhớ 3 lượt gần nhất".
-3. Nếu reset vẫn ≥2 lần / 4 câu → chạy spike `[100 S0]`. Ngưỡng đang đo sai thứ (R1), và nâng tiếp
-   chỉ đổi tần suất chứ không đổi bản chất.
+3. Nếu reset vẫn ≥2 lần / 4 câu → làm `[100 S0′]` (chia cho `numTurns`), **không** phải nâng ngưỡng
+   lần nữa và **không** phải spike hook (đã huỷ). Ngưỡng đang đo sai thứ (R1), và nâng tiếp chỉ đổi
+   tần suất chứ không đổi bản chất.
 
 ### R3 · ✅ ĐÃ TRẢ LỜI 2026-08-20 — **subscription**, và điều đó làm nhẹ rủi ro đi nhiều
 

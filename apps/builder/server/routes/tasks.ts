@@ -495,6 +495,31 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       });
     }
 
+    // Spec 099 S2′ — the browser reporting that IT could not persist. Rides this request rather than a
+    // route of its own: this handler already validates `:id` before touching the filesystem, already
+    // loads the task, and already writes to the timeline, so carrying one more flag adds no write
+    // surface (099 "Luật #5"). The client sets these once per incident and clears them on a 200, so an
+    // ongoing quota problem writes one line per incident — not one per reopen, which is the noise
+    // `history_gap` was carefully defined not to be.
+    //
+    // Every field is validated to a fixed shape before it reaches `detail`: these are the only values
+    // on this route that come from the client and end up in a file, so none of them is trusted to be
+    // what it claims. Anything malformed is dropped, and a report with no size is not a report.
+    const q = (req.query as Record<string, string | undefined> | undefined) ?? {};
+    // CHARACTERS (UTF-16 units), not UTF-8 bytes: that is the unit the browser's quota is measured in,
+    // and a Vietnamese/Japanese thread is worth 2–3 UTF-8 bytes per unit — so calling it `bytes` would
+    // misreport exactly the threads most likely to have filled the cache.
+    const pfChars = q.persistFailed != null && /^\d{1,12}$/.test(q.persistFailed) ? Number(q.persistFailed) : null;
+    if (pfChars != null) {
+      const pfTask = q.pfTask && isTaskId(q.pfTask) ? q.pfTask : 'unknown';
+      const pfReason = q.pfReason === 'quota' || q.pfReason === 'other' ? q.pfReason : 'other';
+      const pfAt = q.pfAt != null && /^\d{1,15}$/.test(q.pfAt) ? Number(q.pfAt) : null;
+      void logEvent(taskDir(projectsDir, id), {
+        kind: 'persist_failed',
+        detail: `reason=${pfReason} chars=${pfChars} task=${pfTask}${pfAt != null ? ` at=${pfAt}` : ''}`,
+      });
+    }
+
     return { chat: lines, ...(dropped ? { dropped } : {}) };
   });
 

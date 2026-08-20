@@ -17,7 +17,8 @@ import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify from 'fastify';
-import { askWithin, askTestWithin, readLastAsk } from '../server/lib/ask.js';
+import { askWithin, askTestWithin, readLastAsk, recentExchanges,
+  RESET_CARRYOVER_BYTES, RESET_CARRYOVER_PAIRS } from '../server/lib/ask.js';
 import tasksRoutes, { type TasksRoutesOptions } from '../server/routes/tasks.js';
 import { chatTurnBusy } from '../server/lib/lock.js';
 import { createTask, saveTask, type Task } from '../server/state/task.js';
@@ -392,6 +393,79 @@ describe('GET /api/tasks/:id/chat — read the transcript back without touching 
     await app.close();
   });
 
+  /**
+   * Spec 099 S2′ — the browser reporting that IT could not persist.
+   *
+   * It rides this route because the route already validates the id, already loads the task and already
+   * writes to the timeline: no new write surface for a diagnostic. The awkward part is inherent — the
+   * browser can only speak on its NEXT request, i.e. about a different build than the one that failed —
+   * which is why the failing task id travels in the detail rather than being inferred from the URL.
+   */
+  const persistLines = async (taskId: string, want: number): Promise<Array<{ kind: string; detail?: string }>> => {
+    const deadline = Date.now() + 2000;
+    for (;;) {
+      const rows = (await timeline(taskId)).filter((e) => e.kind === 'persist_failed');
+      if (rows.length >= want || Date.now() > deadline) return rows;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  };
+
+  test('a persist-failure flag writes ONE timeline line, naming the build that actually failed', async () => {
+    const opened = await doneBuild(dir);
+    await seedChat(opened.taskId, 1);
+    const app = await serve();
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/tasks/${opened.taskId}/chat?have=1&persistFailed=4194304&pfReason=quota&pfTask=1786505684286&pfAt=1755000000000`,
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().chat.length, 2, 'the transcript still comes back — the flag is a passenger');
+
+    const rows = await persistLines(opened.taskId, 1);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].detail, 'reason=quota chars=4194304 task=1786505684286 at=1755000000000');
+  });
+
+  test('no flag ⇒ no line: the everyday request stays exactly as silent as before', async () => {
+    const task = await doneBuild(dir);
+    await seedChat(task.taskId, 1);
+    const app = await serve();
+    await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=1` });
+    assert.deepEqual(
+      (await settled(task.taskId)).filter((e) => e.kind === 'persist_failed'), [],
+      'a healthy browser must not write to the timeline',
+    );
+    await app.close();
+  });
+
+  test('every reported field is validated, never echoed — a junk flag is dropped, not logged', async () => {
+    const task = await doneBuild(dir);
+    await seedChat(task.taskId, 1);
+    const app = await serve();
+
+    // A byte count that is not a plain number is not a report at all.
+    for (const q of ['persistFailed=abc', 'persistFailed=-5', 'persistFailed=1e9', 'persistFailed=']) {
+      const res = await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?${q}` });
+      assert.equal(res.statusCode, 200, q);
+    }
+    assert.deepEqual(
+      (await settled(task.taskId)).filter((e) => e.kind === 'persist_failed'), [],
+      'nothing unparseable reaches the file',
+    );
+
+    // A well-formed count with hostile companions: the count is honoured, the companions are replaced
+    // by fixed values rather than written through.
+    await app.inject({
+      method: 'GET',
+      url: `/api/tasks/${task.taskId}/chat?persistFailed=99&pfReason=${encodeURIComponent('quota chars=0 task=../../etc')}&pfTask=${encodeURIComponent('../../escape')}&pfAt=nope`,
+    });
+    const rows = await persistLines(task.taskId, 1);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].detail, 'reason=other chars=99 task=unknown', 'a bad reason/task/at is normalised away');
+    await app.close();
+  });
+
   test('CONFINEMENT: a traversal id is rejected before anything touches the filesystem', async () => {
     const app = await serve();
     for (const id of ['..%2F..%2FESCAPED', 'abc', '...']) {
@@ -401,5 +475,184 @@ describe('GET /api/tasks/:id/chat — read the transcript back without touching 
     const res = await app.inject({ method: 'GET', url: '/api/tasks/1786505684286/chat' });
     assert.equal(res.statusCode, 404, 'a well-shaped id for a task that does not exist is a 404, not a 400');
     await app.close();
+  });
+});
+
+/**
+ * Spec 100 S2 — a reset must not blind the model next to its own transcript.
+ *
+ * The reset path used to hand the new session the artifacts plus a note saying the history was gone,
+ * while `chat.jsonl` sat complete in the same directory. The model then spent ~400k tokens re-reading
+ * `main.yml` to recover what it had just been told to forget. These tests pin that the tail of the
+ * conversation now travels with the reset, that it is BOUNDED, and — the regression that matters — that
+ * an ordinary resuming turn's prompt is untouched.
+ */
+describe('a reset carries the tail of the conversation with it', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'ask-carry-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  /** Write a transcript whose LAST answer carries `cost` — that is what the reset decision reads. */
+  async function seedTranscript(
+    taskId: string, pairs: Array<{ q: string; a: string }>, cost: Record<string, number>
+  ): Promise<void> {
+    const runDir = join(dir, `apps/builder/.runs/${taskId}`);
+    await mkdir(runDir, { recursive: true });
+    const lines: string[] = [];
+    pairs.forEach(({ q, a }, i) => {
+      lines.push(JSON.stringify({ role: 'user', text: q }));
+      lines.push(JSON.stringify({ role: 'assistant', text: a, ...(i === pairs.length - 1 ? { cost } : {}) }));
+    });
+    await writeFile(join(runDir, 'chat.jsonl'), lines.join('\n') + '\n');
+  }
+
+  /**
+   * Ask one question on a finished build that already holds a session.
+   *
+   * `resumed` is the session the turn asked to CONTINUE — `undefined` means it reset. The task's own
+   * `sessionIds.askTest` cannot answer that: every turn stamps it with whatever session actually ran,
+   * so it reads the same either way once the turn is over.
+   */
+  async function promptOf(
+    task: Task, question = 'and now?'
+  ): Promise<{ prompt: string; resumed: string | undefined }> {
+    let prompt = '';
+    let resumed: string | undefined;
+    const runTurn = async (
+      s: ClaudeSession, p: string, onSid?: (id: string) => void, o?: { onText?: (t: string) => void }
+    ): Promise<TurnResult> => {
+      prompt = p;
+      resumed = s.resumeSessionId;
+      onSid?.('fresh');
+      o?.onText?.('ok');
+      return { sessionId: 'fresh', isError: false, result: { type: 'result', is_error: false } } as unknown as TurnResult;
+    };
+    await askTestWithin(task, question, {
+      projectsDir: dir, settingsPath: '', log, broadcast: () => {}, runners: { runTurn },
+    } as unknown as OrchestratorCtx, []);
+    return { prompt, resumed };
+  }
+
+  /** A cost big enough to reset: 1.2M carried by ONE request (spec 100 S0′ divides by `numTurns`). */
+  const OVER = { inputTokens: 1, cacheReadTokens: 1_200_000, numTurns: 1 };
+  const UNDER = { inputTokens: 1, cacheReadTokens: 20_000, numTurns: 1 };
+
+  test('the last exchanges ride into the fresh session, oldest first, newest nearest the question', async () => {
+    const task = await doneBuild(dir);
+    task.sessionIds.askTest = 'old-session';
+    await saveTask(dir, task);
+    await seedTranscript(task.taskId, [
+      { q: 'q-oldest', a: 'a-oldest' }, { q: 'q-mid', a: 'a-mid' },
+      { q: 'q-newer', a: 'a-newer' }, { q: 'q-newest', a: 'a-newest' },
+    ], OVER);
+
+    const { prompt, resumed } = await promptOf(task);
+    assert.equal(resumed, undefined, 'precondition: this turn DID reset');
+
+    assert.match(prompt, /The last 3 exchange\(s\) of this conversation/);
+    for (const s of ['q-mid', 'a-mid', 'q-newer', 'a-newer', 'q-newest', 'a-newest']) {
+      assert.ok(prompt.includes(s), `${s} must travel with the reset`);
+    }
+    assert.ok(!prompt.includes('q-oldest'), 'the window is the TAIL — a 4th exchange is out of it');
+    assert.match(prompt, /1 earlier exchange\(s\) are NOT included/, 'and the cut says so, inside the block');
+
+    // Chronological, and the whole block sits ABOVE the question being asked.
+    assert.ok(prompt.indexOf('q-mid') < prompt.indexOf('q-newest'), 'oldest first');
+    assert.ok(prompt.indexOf('a-newest') < prompt.indexOf('and now?'), 'the carried tail precedes the question');
+  });
+
+  test('the note stops lying: it names what WAS carried instead of denying everything', async () => {
+    const task = await doneBuild(dir);
+    task.sessionIds.askTest = 'old-session';
+    await saveTask(dir, task);
+    await seedTranscript(task.taskId, [{ q: 'q1', a: 'a1' }], OVER);
+
+    const { prompt } = await promptOf(task);
+    assert.match(prompt, /The last 1 exchange\(s\) are reproduced above/);
+    assert.match(prompt, /anything EARLIER in it is NOT visible to you/);
+    assert.ok(
+      !prompt.includes('earlier questions and answers in it are NOT visible to you'),
+      'the blanket denial would contradict the transcript printed a few lines above it',
+    );
+  });
+
+  test('REGRESSION: an ordinary resuming turn is untouched — no block, no note', async () => {
+    const task = await doneBuild(dir);
+    task.sessionIds.askTest = 'old-session';
+    await saveTask(dir, task);
+    await seedTranscript(task.taskId, [{ q: 'q1', a: 'a1' }, { q: 'q2', a: 'a2' }], UNDER);
+
+    const { prompt, resumed } = await promptOf(task);
+    assert.equal(resumed, 'old-session', 'precondition: this turn did NOT reset — it resumed');
+    assert.ok(!prompt.includes('of this conversation'), 'no carry-over block on a turn that kept its history');
+    assert.ok(!prompt.includes('restarted to keep its cost bounded'), 'and no reset note');
+    assert.ok(!prompt.includes('a1'), 'the transcript is not smuggled in by another route either');
+  });
+
+  test('nothing recorded ⇒ nothing reset and nothing carried — a build from before the meter is untouched', async () => {
+    const task = await doneBuild(dir);
+    task.sessionIds.askTest = 'old-session';
+    await saveTask(dir, task);
+    // No `chat.jsonl` at all: the decision reads no cost, so it resumes exactly as it always did. This
+    // is the every-build-from-before-the-meter case, and it must stay byte-identical to today.
+    const { prompt, resumed } = await promptOf(task);
+    assert.ok(!prompt.includes('of this conversation'), 'nothing to carry ⇒ no block');
+    assert.equal(resumed, 'old-session', 'and with nothing recorded, nothing is reset');
+  });
+});
+
+describe('recentExchanges — the pure carry-over, bounded and honest about it', () => {
+  const pair = (q: string, a: string) => [
+    { role: 'user' as const, text: q }, { role: 'assistant' as const, text: a },
+  ];
+
+  test('takes the tail, in order, and reports nothing when there is nothing to report', () => {
+    const lines = [...pair('q1', 'a1'), ...pair('q2', 'a2'), ...pair('q3', 'a3'), ...pair('q4', 'a4')];
+    const r = recentExchanges(lines, { maxPairs: 2 });
+    assert.equal(r.pairs, 2);
+    assert.equal(r.dropped, 2);
+    assert.ok(r.block.indexOf('q3') < r.block.indexOf('q4'), 'chronological');
+    assert.ok(!r.block.includes('q2'), 'outside the window');
+    assert.match(r.block, /2 earlier exchange\(s\) are NOT included/);
+
+    const all = recentExchanges(lines, { maxPairs: 9 });
+    assert.equal(all.dropped, 0);
+    assert.ok(!all.block.includes('NOT included'), 'nothing was cut ⇒ nothing is claimed');
+  });
+
+  test('empty / unpaired transcripts produce no block at all, never a half one', () => {
+    assert.equal(recentExchanges([]).block, '');
+    assert.equal(recentExchanges([]).pairs, 0);
+    assert.equal(recentExchanges([{ role: 'user', text: 'q' }]).pairs, 0, 'a question with no answer is not an exchange');
+    assert.equal(recentExchanges([{ role: 'assistant', text: 'a' }]).pairs, 0);
+  });
+
+  test('the byte budget drops the OLDEST first — the newest exchange is the one that must survive', () => {
+    const big = 'x'.repeat(800);
+    const lines = [...pair('q-old', big), ...pair('q-new', big)];
+    const r = recentExchanges(lines, { maxPairs: 3, maxBytes: 1_000 });
+    assert.equal(r.pairs, 1);
+    assert.ok(r.block.includes('q-new'), 'the newest exchange is kept');
+    assert.ok(!r.block.includes('q-old'), 'the older one is what the budget spends');
+    assert.match(r.block, /1 earlier exchange\(s\) are NOT included/);
+    assert.ok(Buffer.byteLength(r.block, 'utf8') <= 1_000 + 200, 'the block stays near its budget');
+  });
+
+  test('one oversized exchange is clipped rather than dropped, and the clip is stated', () => {
+    const r = recentExchanges([...pair('q', 'y'.repeat(5_000))], { maxBytes: 500 });
+    assert.equal(r.pairs, 1, 'something is better than nothing');
+    assert.match(r.block, /cut short here by \d+ bytes/, 'a truncation nobody is told about is a lie');
+    // The budget covers the Q/A text; the two header lines ride outside it (measured worst case: +178 B
+    // on the shipped 4 KB budget). Pinned here so the overshoot stays a known constant, not a surprise.
+    assert.ok(
+      Buffer.byteLength(r.block, 'utf8') < 500 + 250,
+      `block was ${Buffer.byteLength(r.block, 'utf8')}B — the header overhead grew`,
+    );
+    assert.ok(r.block.includes('y'.repeat(100)), 'the HEAD is kept — an answer opens with its conclusion');
+  });
+
+  test('the shipped budget is the one spec 098 can afford', () => {
+    assert.equal(RESET_CARRYOVER_BYTES, 4 * 1024, '12KB would be ~3/4 of a seed 098 pressed under 16k chars');
+    assert.equal(RESET_CARRYOVER_PAIRS, 3);
   });
 });

@@ -136,6 +136,35 @@ export function askSessionTokens(cost: PhaseCost | undefined): number {
 }
 
 /**
+ * What the session was actually CARRYING — {@link askSessionTokens} divided by the turn's request count.
+ *
+ * `usage` on the CLI's terminal `result` event is a TURN TOTAL, summed over every API request the tool
+ * loop made (see cost.ts, which reads it next to `num_turns`). One request per turn ⇒ the sum IS the
+ * context. Many requests ⇒ the same growing prefix is counted once per request, so the sum overstates
+ * the context by roughly `numTurns`, and it overstates it hardest on exactly the turns that read files.
+ *
+ * `[ĐO 2026-08-20]` 60 assistant turns across 7 runs in `.runs/`: 28 % carried `numTurns > 1`, up to 22.
+ * Run 1786505684286 turn 110 — the very turn spec 100 §1 cites as its nail-in-the-coffin — summed
+ * 442,253 across `numTurns: 12`, i.e. **~37k of actual context**, and the 300k limit fired on it. The
+ * genuinely expensive turns ($8.59, cache-miss) ran ONE request and the sum never flagged them. So the
+ * old measure was not merely rough: in the regime that mattered it pointed the wrong way, and the loop
+ * spec 100 describes had one more link than its diagnosis said — reset → re-read files → MORE REQUESTS
+ * → sum multiplied → reset.
+ *
+ * LIMITS, so nobody reads this as the real number either: `num_turns` is documented as tool-loop
+ * iterations and is not guaranteed to equal the request count (the corroboration is circumstantial — a
+ * `nT=2, sum=1.57M → 785k` turn sits directly beside `nT=1, sum≈800k` neighbours). And within one turn
+ * the prompt GROWS with each tool result, so the mean sits below the peak. The truth is between the sum
+ * and this mean, nearer this mean. It is an estimate — a much better one, not a measurement.
+ */
+export function askContextTokens(cost: PhaseCost | undefined): number {
+  const total = askSessionTokens(cost);
+  const turns = cost?.numTurns;
+  const n = typeof turns === 'number' && Number.isFinite(turns) && turns >= 1 ? turns : 1;
+  return Math.round(total / n);
+}
+
+/**
  * Should the NEXT ask start fresh? Reads the LAST answer's cost — no new bookkeeping, and a task with
  * nothing recorded (every build from before the meter shipped) simply keeps resuming, as it always did.
  *
@@ -156,7 +185,7 @@ export function shouldResetAskSession(
   limit = ASK_RESET_TOKENS,
   prevTurnWasFreshSession = false
 ): boolean {
-  return askSessionTokens(lastCost) >= limit && !prevTurnWasFreshSession;
+  return askContextTokens(lastCost) >= limit && !prevTurnWasFreshSession;
 }
 
 /**
@@ -171,7 +200,10 @@ export function askResetSuppressed(
   limit = ASK_RESET_TOKENS,
   prevTurnWasFreshSession = false
 ): boolean {
-  return prevTurnWasFreshSession && askSessionTokens(lastCost) >= limit;
+  // Same scale as {@link shouldResetAskSession}, deliberately. These two are one decision read from two
+  // sides; measuring them differently would make the warning below fire on turns that were never going
+  // to reset, and stay silent on the misconfiguration it exists to name.
+  return prevTurnWasFreshSession && askContextTokens(lastCost) >= limit;
 }
 
 /** Told to the model when its history was dropped, so it says "I cannot see that" instead of inventing
@@ -181,6 +213,27 @@ const FRESH_SESSION_NOTE =
   '\n\n(Note: this conversation was restarted to keep its cost bounded, so earlier questions and answers ' +
   'in it are NOT visible to you. Everything about the build is included above. If this question refers ' +
   'back to something said earlier, say plainly that you cannot see it rather than guessing.)';
+
+/**
+ * The same note, told truthfully once some of the conversation IS carried over (spec 100 S2).
+ *
+ * Inserting the transcript without rewriting this would make the prompt contradict itself — the note
+ * would insist earlier turns are invisible while several of them sit a few lines above. A model that
+ * believes the note over its own context answers "I cannot see that" about material it can see.
+ *
+ * The two phrases the callers pin ("NOT visible to you", "say plainly that you cannot see it rather
+ * than guessing") are kept deliberately: they are still exactly true, just now scoped to what was NOT
+ * carried.
+ */
+function freshSessionNote(carriedPairs: number): string {
+  if (carriedPairs <= 0) return FRESH_SESSION_NOTE;
+  return (
+    '\n\n(Note: this conversation was restarted to keep its cost bounded. The last ' +
+    `${carriedPairs} exchange(s) are reproduced above; anything EARLIER in it is NOT visible to you. ` +
+    'Everything about the build is included above too. If this question refers back to something older ' +
+    'than those exchanges, say plainly that you cannot see it rather than guessing.)'
+  );
+}
 
 /**
  * Every answer surface renders Markdown, where a fence closes at the FIRST run of backticks at least as
@@ -766,7 +819,20 @@ export async function askTestWithin(
     const sessionReset =
       !!resuming && shouldResetAskSession(lastMeta.cost, ASK_RESET_TOKENS, lastMeta.sessionReset);
     if (sessionReset) {
-      log.info({ taskId: task.taskId, prevSessionId: resuming }, 'askTest: session reset — history grew past the budget');
+      // Both numbers, because they differ and the difference is the whole point: `context` is what the
+      // decision used, `total` is the raw turn sum the old code compared. A line carrying only one of
+      // them cannot be checked against the threshold that produced it.
+      log.info(
+        {
+          taskId: task.taskId,
+          prevSessionId: resuming,
+          context: askContextTokens(lastMeta.cost),
+          total: askSessionTokens(lastMeta.cost),
+          numTurns: lastMeta.cost?.numTurns,
+          limit: ASK_RESET_TOKENS,
+        },
+        'askTest: session reset — history grew past the budget'
+      );
     }
     // The knob is set below one turn of THIS build: the previous turn was already a fresh session and
     // still blew the limit, so a second reset would buy nothing and cost the conversation again (spec
@@ -774,19 +840,34 @@ export async function askTestWithin(
     // say it with the real number — this is the one line that identifies a misconfigured threshold.
     else if (!!resuming && askResetSuppressed(lastMeta.cost, ASK_RESET_TOKENS, lastMeta.sessionReset)) {
       log.warn(
-        { taskId: task.taskId, tokens: askSessionTokens(lastMeta.cost), limit: ASK_RESET_TOKENS },
+        {
+          taskId: task.taskId,
+          // `tokens` is the number the DECISION used (the per-request estimate). `total`/`numTurns`
+          // ride along so a reader can see where it came from — a bare 400k next to a 1M limit reads
+          // like a bug until you know it was 1.2M over three requests.
+          tokens: askContextTokens(lastMeta.cost),
+          total: askSessionTokens(lastMeta.cost),
+          numTurns: lastMeta.cost?.numTurns,
+          limit: ASK_RESET_TOKENS,
+        },
         'askTest: reset DECLINED — the previous turn was already a fresh session and still exceeded the limit, ' +
           'so BUILDER_ASK_RESET_TOKENS is below the cost of one turn on this build'
       );
     }
+    // Spec 100 S2: a reset drops the conversation while its transcript sits in the same directory. Carry
+    // the tail of it into the new session's seed — bounded, and only on the turn that actually resets, so
+    // an ordinary resuming turn's prompt is unchanged to the byte. `lines` is already in hand from the
+    // read above; no second file read.
+    const carried = sessionReset ? recentExchanges(lastMeta.lines) : { block: '', pairs: 0, dropped: 0 };
     const prompt =
       // Same omission as askWithin's: the ④/terminal Ask had no language directive, so a Vietnamese
       // question about a finished Japanese build came back in Japanese (or English, on a fresh spawn).
       languagePin({ chatLang: task.chatLang, latest: text, hint: task.langHint, requirement: task.requirement }) +
       (seed ? `You are answering a question about the following build.\n\n${seed}\n\n---\n\n` : '') +
+      (carried.block ? `${carried.block}\n\n---\n\n` : '') +
       `${text}\n\n(Answer conversationally. Do NOT create, modify, or delete any file — this is a ` +
       `question, not a change request.${FENCE_RULE})` +
-      (sessionReset ? FRESH_SESSION_NOTE : '') +
+      (sessionReset ? freshSessionNote(carried.pairs) : '') +
       // Same omission as the consult resume path: this turn accepts files (the ④ gate and a terminal
       // build's chat both offer attach), saved them, and then told the model nothing about them.
       attachmentBlock(task.attachments, newAttachments);
@@ -1095,6 +1176,92 @@ export function countChatPairs(lines: ConsultChatLine[]): number {
   return pairStarts(lines).length;
 }
 
+/** How much of the seed the carried-over EXCHANGES may occupy (spec 100 S2).
+ *
+ *  The budget covers the Q/A text only; the two header lines that introduce it sit outside it, so the
+ *  rendered block runs over by their length — `[ĐO]` **178 bytes** on the worst measured case (one
+ *  oversized answer, clipped: block 4,274 B against a 4,096 B budget). Said plainly because a "4 KB
+ *  budget" that silently produces 4.3 KB is the kind of small lie a later size assertion trips over.
+ *
+ *  4 KB, the same order as {@link SPEC_INLINE_MAX}, and that alignment is the whole justification. Spec
+ *  098 pressed the ENTIRE seed under ~16k chars — a budget pinned by test (ask-seed-size.test.ts) — so
+ *  the 12 KB this slice was first drafted with would have been three times the whole SPEC.md outline and
+ *  roughly three quarters of the prompt: handing back exactly the bytes 098 had just cut. Against the
+ *  ~400k the model currently spends re-reading `main.yml` after a reset, 4 KB is still nothing. */
+export const RESET_CARRYOVER_BYTES = 4 * 1024;
+/** How many exchanges to carry at most, before the byte budget has its say. */
+export const RESET_CARRYOVER_PAIRS = 3;
+
+/**
+ * The tail of the conversation, rendered for the seed of a session that is about to start fresh.
+ *
+ * WHY THIS EXISTS (spec 100 S2). A reset hands the new session the artifacts and a note saying the
+ * history is gone — while `chat.jsonl`, complete, sits in the same directory. The model was blinded
+ * next to its own transcript, and then spent ~400k tokens re-reading `main.yml` to recover what it had
+ * just been told to forget.
+ *
+ * PAIR BOUNDARIES, via the same {@link pairStarts} scan {@link tailChatPairs} uses. Slicing raw lines
+ * by count can begin on an assistant line, which grafts every answer onto the wrong question —
+ * silently, and plausibly enough to survive review. (`tailChatPairs` itself is not reused here: it
+ * returns LINES for the wire, and this needs the pairs to render and to budget one at a time.)
+ *
+ * DROPPING FROM THE OLDEST, and saying so inside the block. A budget that silently ate the newest
+ * exchange would be worse than no carry-over at all: the model would answer "what did I just say?" from
+ * material that stops one turn short.
+ *
+ * CLIPPING KEEPS THE HEAD, unlike `run.output`'s tail-keeping cap in thread-persist.ts. Different data:
+ * a streamed phase log puts its result last, an answer opens with its conclusion. Do not unify them.
+ */
+export function recentExchanges(
+  lines: ConsultChatLine[],
+  opts: { maxPairs?: number; maxBytes?: number } = {}
+): { block: string; pairs: number; dropped: number } {
+  const maxPairs = opts.maxPairs ?? RESET_CARRYOVER_PAIRS;
+  const maxBytes = opts.maxBytes ?? RESET_CARRYOVER_BYTES;
+  const starts = pairStarts(lines);
+  const inWindow = starts.slice(-maxPairs);
+  if (inWindow.length === 0 || maxBytes <= 0) return { block: '', pairs: 0, dropped: 0 };
+
+  const render = (q: string, a: string): string => `Q: ${q.trim()}\nA: ${a.trim()}`;
+  const entries = inWindow.map((i) => ({ q: lines[i].text ?? '', a: lines[i + 1].text ?? '' }));
+
+  // Newest-first, so the budget spends itself on the most recent exchange before any older one.
+  const kept: string[] = [];
+  let used = 0;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const text = render(entries[i].q, entries[i].a);
+    const cost = bytes(text) + 2; // the blank line that will join it to its neighbour
+    if (used + cost > maxBytes) break;
+    kept.unshift(text);
+    used += cost;
+  }
+
+  let clippedNote = '';
+  if (kept.length === 0) {
+    // Even the newest exchange alone is over budget. Carry it anyway, clipped — a truncated answer is
+    // still worth more than nothing, and the omission is stated below so the model does not read the
+    // stump as the whole thing.
+    const { q, a } = entries[entries.length - 1];
+    const head = `Q: ${clipBytes(q.trim(), Math.floor(maxBytes / 4))}\nA: `;
+    // Budgeted against the PAIR text only, exactly like the loop above — the two header lines are
+    // outside the budget in both branches, so the two behave the same way instead of one of them
+    // quietly reserving slack for something the other does not.
+    const room = Math.max(0, maxBytes - bytes(head));
+    const body = clipBytes(a.trim(), room);
+    const cut = bytes(a.trim()) - bytes(body);
+    kept.push(head + body);
+    clippedNote = cut > 0 ? ` The last answer is cut short here by ${cut} bytes.` : '';
+  }
+
+  const dropped = starts.length - kept.length;
+  const older = dropped > 0 ? ` ${dropped} earlier exchange(s) are NOT included.` : '';
+  const block =
+    `## The last ${kept.length} exchange(s) of this conversation\n` +
+    `(Restored from this build's transcript because the conversation was restarted.${older}${clippedNote})\n\n` +
+    kept.join('\n\n');
+  return { block, pairs: kept.length, dropped };
+}
+
 /** Index of the `user` line opening each complete exchange. One scan, shared by both readers above. */
 function pairStarts(lines: ConsultChatLine[]): number[] {
   const starts: number[] = [];
@@ -1122,13 +1289,16 @@ function pairStarts(lines: ConsultChatLine[]): number[] {
 export async function readLastAskMeta(
   projectsDir: string,
   taskId: string
-): Promise<{ cost?: PhaseCost; sessionReset: boolean }> {
+): Promise<{ cost?: PhaseCost; sessionReset: boolean; lines: ConsultChatLine[] }> {
   const lines = await readConsultChat(projectsDir, taskId);
   for (let i = lines.length - 1; i >= 0; i--) {
     if (lines[i].role !== 'assistant') continue;
-    return { ...(lines[i].cost ? { cost: lines[i].cost } : {}), sessionReset: lines[i].sessionReset === true };
+    return { ...(lines[i].cost ? { cost: lines[i].cost } : {}), sessionReset: lines[i].sessionReset === true, lines };
   }
-  return { sessionReset: false };
+  // `lines` rides along even here (spec 100 S2 hands it to {@link recentExchanges}) — the file was read
+  // to make the decision either way, so passing it back costs nothing and saves a second read. Still not
+  // on the wire: this reader is server-internal, which is exactly why it was split from `readLastAsk`.
+  return { sessionReset: false, lines };
 }
 /** Read the persisted consult transcript (GET /api/tasks/:id folds it in for a `kind:'consult'` task). */
 export async function readConsultChat(projectsDir: string, taskId: string): Promise<ConsultChatLine[]> {

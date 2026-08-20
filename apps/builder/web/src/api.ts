@@ -97,9 +97,26 @@ export const api = {
    *  localStorage thread is gone: LRU eviction, a cleared cache, another machine. SEPARATE from getTask
    *  on purpose — that snapshot is re-fetched on every SSE reconnect and must stay light. `have` = how
    *  many `qa` bubbles this browser already holds; a disagreement with disk records ONE diagnostic line
-   *  server-side, which is the measurement the 099 investigation had to beg from a console paste. */
-  getTaskChat: (id: string, have: number): Promise<{ chat: TranscriptLine[]; dropped?: number }> =>
-    request('GET', `/api/tasks/${encodeURIComponent(id)}/chat?have=${have}`),
+   *  server-side, which is the measurement the 099 investigation had to beg from a console paste.
+   *
+   *  `report` (spec 099 S2′) piggybacks a "this browser could not persist" note onto that same one
+   *  request — no extra round trip, and no new write route. */
+  getTaskChat: (
+    id: string,
+    have: number,
+    report?: { at: number; taskId: string; chars: number; reason: string }
+  ): Promise<{ chat: TranscriptLine[]; dropped?: number }> => {
+    const q = new URLSearchParams({ have: String(have) });
+    if (report) {
+      // `persistFailed` carries CHARACTERS (UTF-16 units), the unit the browser's own quota is measured
+      // in — not UTF-8 bytes. The server names it `chars=` in the timeline for the same reason.
+      q.set('persistFailed', String(Math.max(0, Math.round(report.chars))));
+      q.set('pfReason', report.reason === 'quota' ? 'quota' : 'other');
+      q.set('pfAt', String(Math.max(0, Math.round(report.at))));
+      if (report.taskId) q.set('pfTask', report.taskId);
+    }
+    return request('GET', `/api/tasks/${encodeURIComponent(id)}/chat?${q}`);
+  },
   /** POST /api/tasks/:id/confirm → advance the gate (carries the chosen action id, + slug/name at ②, or
    *  spec 036 `keepCurrent` on a `cleanup_apps` delete — delete only OLD test apps vs all). */
   confirm: (id: string, actionId: string, extra?: { slug?: string; name?: string; keepCurrent?: boolean }): Promise<WireTask> =>

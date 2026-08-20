@@ -85,7 +85,9 @@ describe('openTask backfills a build whose localStorage thread is gone (spec 099
     await settle();
 
     expect(questions()).toEqual(['q1', 'q2']);
-    expect(getTaskChatMock).toHaveBeenCalledWith('T1', 0);
+    // The third argument is the spec 099 S2′ persist-failure report — `undefined` here because nothing
+    // failed, which is also the assertion that a healthy browser sends no such report.
+    expect(getTaskChatMock).toHaveBeenCalledWith('T1', 0, undefined);
   });
 
   test('`have` carries the count this browser already holds — the number the gap line is measured against', async () => {
@@ -100,7 +102,7 @@ describe('openTask backfills a build whose localStorage thread is gone (spec 099
     await openTask('T2');
     await settle();
 
-    expect(getTaskChatMock).toHaveBeenCalledWith('T2', 1);
+    expect(getTaskChatMock).toHaveBeenCalledWith('T2', 1, undefined);
     expect(questions()).toEqual(['q1', 'q2']);
     const kept = thread.value.find((i) => i.kind === 'qa') as LiveThreadItem & { kind: 'qa' };
     expect(kept.answer).toBe('kept'); // the cached copy wins; the transcript never overwrites

@@ -14,6 +14,9 @@ import {
   persistThreadImmediately,
   thread,
   resetToNew,
+  persistDegraded,
+  readPersistFailure,
+  clearPersistFailure,
 } from './store';
 import type { WireTask, WirePhase } from './types';
 
@@ -56,6 +59,9 @@ afterEach(() => {
   // fail too, which is exactly the kind of noise that hides the actual regression.
   vi.restoreAllMocks();
   resetToNew();
+  // Module-level signal: it outlives `resetToNew` (a degraded CACHE is not a property of the open task),
+  // so a test that left it set would hand the next one a passing assertion it never earned.
+  persistDegraded.value = null;
   try {
     localStorage.clear();
   } catch {
@@ -137,5 +143,104 @@ describe('persistThreadNow — a throw does not permanently disable persistence 
     persistThreadImmediately(); // nothing changed since the write above
     const threadWrites = spy.mock.calls.filter((c) => String(c[0]).startsWith('builder.thread.T-dedupe'));
     expect(threadWrites).toHaveLength(0); // the dedupe must survive the reorder
+  });
+});
+
+/**
+ * Spec 099 S2′ — a storage failure nobody can see is a data loss nobody can diagnose.
+ *
+ * Every `setItem` in the store swallows its failure by design, localStorage never rides the export
+ * bundle, and there is no telemetry — so on a machine nobody can reach, a full quota looks exactly like
+ * a healthy session right up until the history is gone. These pin the two channels that fix that: a
+ * banner for the person at the keyboard, and a flag the next request carries to the run timeline.
+ */
+describe('persistThreadNow — a failed write is visible and reportable (spec 099 S2′)', () => {
+  const throwOnThreadWrite = (err: unknown) => {
+    const real = localStorage.setItem.bind(localStorage);
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation((k: string, v: string) => {
+      if (k.startsWith('builder.thread.')) throw err;
+      real(k, v);
+    });
+  };
+
+  it('a quota failure raises the banner state AND leaves a report for the next request', () => {
+    applyTask(mk('T-degraded', 1));
+    applyOutput('analyze', 'output that will not fit');
+    throwOnThreadWrite(new DOMException('quota', 'QuotaExceededError'));
+
+    persistThreadImmediately();
+
+    expect(persistDegraded.value?.reason).toBe('quota');
+    expect(persistDegraded.value!.chars).toBeGreaterThan(0);
+    const report = readPersistFailure();
+    expect(report?.reason).toBe('quota');
+    expect(report?.taskId).toBe('T-degraded');
+    expect(report!.chars).toBeGreaterThan(0);
+  });
+
+  it('a NON-quota failure still reports — it just does not claim to know why', () => {
+    applyTask(mk('T-other', 1));
+    applyOutput('analyze', 'x');
+    throwOnThreadWrite(new Error('storage is disabled'));
+
+    persistThreadImmediately();
+
+    expect(persistDegraded.value?.reason).toBe('other');
+    expect(readPersistFailure()?.reason).toBe('other');
+  });
+
+  it('THE TRAP: the notice never becomes a thread item — that would re-trigger its own cause', () => {
+    applyTask(mk('T-noloop', 1));
+    applyOutput('analyze', 'x');
+    const before = thread.value.length;
+    throwOnThreadWrite(new DOMException('quota', 'QuotaExceededError'));
+
+    persistThreadImmediately();
+    persistThreadImmediately();
+    persistThreadImmediately();
+
+    // Any item appended here would wake the persist effect — i.e. the write that just failed — and a
+    // per-failure notice would then append again, and again.
+    expect(thread.value.length).toBe(before);
+  });
+
+  it('a write that lands again clears the banner — it tracks the state, not the history', () => {
+    applyTask(mk('T-recover', 1));
+    applyOutput('analyze', 'first');
+    throwOnThreadWrite(new DOMException('quota', 'QuotaExceededError'));
+    persistThreadImmediately();
+    expect(persistDegraded.value).not.toBeNull();
+
+    vi.restoreAllMocks();
+    applyOutput('analyze', ' second'); // change the payload so the dedupe does not skip the write
+    persistThreadImmediately();
+
+    expect(persistDegraded.value).toBeNull();
+  });
+
+  it('the report survives a reload and is forgotten once delivered — one incident, one line', () => {
+    applyTask(mk('T-once', 1));
+    applyOutput('analyze', 'x');
+    throwOnThreadWrite(new DOMException('quota', 'QuotaExceededError'));
+    persistThreadImmediately();
+    vi.restoreAllMocks();
+
+    // It lives in localStorage, so a reload still finds it — that is the point of not keeping it in
+    // memory only.
+    expect(readPersistFailure()).not.toBeNull();
+
+    clearPersistFailure();
+    expect(readPersistFailure()).toBeNull();
+  });
+
+  it('a corrupt or half-written flag reads as no report, never as a crash', () => {
+    localStorage.setItem('builder.persistFailed', 'not json');
+    expect(readPersistFailure()).toBeNull();
+    localStorage.setItem('builder.persistFailed', JSON.stringify({ taskId: 'T', reason: 'quota' }));
+    expect(readPersistFailure()).toBeNull(); // no size ⇒ nothing worth reporting
+    // And a flag written by an older build of the app, when the field was called `bytes`: unreadable
+    // rather than silently reported under the wrong unit.
+    localStorage.setItem('builder.persistFailed', JSON.stringify({ taskId: 'T', reason: 'quota', bytes: 10 }));
+    expect(readPersistFailure()).toBeNull();
   });
 });

@@ -1,14 +1,19 @@
 # 100 — Reset phiên Ask tự nuôi chính nó: vòng lặp quên–đọc lại–quên
 
-> Trạng thái: **mở**, chưa implement. Phát hiện 2026-08-19 từ run `1786505684286`.
+> Trạng thái: **S1 ĐÃ SHIP**; S2/S3 hoãn; **S0 ĐÓNG (không làm) 2026-08-20**, thay bằng **S0′**
+> (chưa implement). Phát hiện 2026-08-19 từ run `1786505684286`.
+>
+> **Cập nhật 2026-08-20 — đọc §3 S0/S0′ trước khi động vào ngưỡng.** `askSessionTokens` cộng dồn qua
+> **từng API request** trong một lượt, nên nó phóng đại ngữ cảnh khoảng `numTurns` lần: ngưỡng 300k
+> đã từng bắn vào một phiên đang mang **~37k** token. Phép chia cho `numTurns` — số đã có sẵn trong
+> `PhaseCost` — là lời giải, và nó **thay thế** spike hook S0.
 > **Muốn IMPLEMENT thì đọc [`101-tester-release-plan.md`](101-tester-release-plan.md)** — plan gộp
 > 099 + 100, cắt bớt dưới ràng buộc "không cần giữ data hiện có", và chốt thứ tự ship. File này giữ
 > **bằng chứng và lập luận**.
 >
 > **S1 của spec này là việc số MỘT của cả hai spec** — đau nhất, thường xuyên nhất, rẻ nhất
 > (một hằng số + một điều kiện). Nó **phải ship trước 099 S1** (ràng buộc cứng, [101 §6](101-tester-release-plan.md));
-> đính chính ở §7. S2/S3 đã **hoãn sang Đợt 3** của plan; S0 là **spike ngoài đường găng**
-> (`[CHƯA KIỂM]`).
+> đính chính ở §7. S2/S3 đã **hoãn sang Đợt 3** của plan; S0 **đã đóng**, S0′ là mảnh chữa gốc còn lại.
 > Khác tầng với [099](099-build-ask-history-survives-the-browser.md): 099 lo **UI mất hiển thị**,
 > spec này lo **model mất trí nhớ**. Hai lỗi độc lập, chỉ giống nhau ở kết luận cuối: *dữ liệu nằm
 > trên đĩa nhưng không có đường đọc lại.*
@@ -101,6 +106,12 @@ ngữ cảnh và các lượt sau rẻ dần — đúng cái mà reset không ch
 `[GIẢ THUYẾT]` Ngưỡng 300k **chưa từng** phù hợp với task nặng artifact; nó chỉ không lộ ra ở các
 task nhỏ. Chưa kiểm trên n≥2 task khác nhau — xem `[REPRO]` §5.
 
+> **CẬP NHẬT 2026-08-20 — chẩn đoán trên đúng, nhưng còn thiếu một hệ số.** `askSessionTokens` không
+> chỉ *bao gồm* công đọc file của một lượt; nó **cộng dồn qua từng API request** trong lượt đó, nên
+> nó phóng đại ngữ cảnh khoảng `numTurns` lần. Lượt 110 (`numTurns=12`, tổng 442.253) thật ra mang
+> **~37k**. Nghĩa là ngưỡng 300k đã bắn vào phiên **nhỏ nhất**, không phải phiên phình. Số đo + hệ quả
+> ở **§3 S0′**; đó cũng là lời giải cho **Open Q1 (§6)**.
+
 ---
 
 ## 2. Nguyên tắc thiết kế
@@ -119,43 +130,101 @@ task nhỏ. Chưa kiểm trên n≥2 task khác nhau — xem `[REPRO]` §5.
 
 ## 3. Slices
 
-### S0 — Đo `context_window` THẬT thay vì suy từ `cost` của lượt trước `[CHƯA KIỂM]`
+### S0 — ĐÓNG 2026-08-20, KHÔNG LÀM. Câu hỏi thật đã có lời giải rẻ hơn nhiều
 
-> **Nguồn: đối chiếu claude-nexus 2026-08-19.** Nexus **không có** cơ chế reset nào — grep
-> `sessionReset|resetSession|dropHistory|freshSession` trên toàn `src/server` cho **rỗng**; `/reply`
-> luôn `--resume` phiên gần nhất trong chuỗi và giao việc nén cho CLI. Thay vì **can thiệp**, nexus
-> **quan sát**: hook `PreCompact`/`PostCompact` POST về `/internal/tasks/compaction-event`, ghi
-> `context_window` + tính `freed_tokens` (delta pre→post) vào bảng `compaction_events`, hiện thành
-> badge trên UI.
+> **Nội dung cũ giữ ở git history.** Ý định cũ: thêm hook `PreCompact`/`PostCompact` vào
+> `headless-settings.json`, ghi `context_window` trước/sau vào `events.jsonl`, rồi cho
+> `shouldResetAskSession` ưu tiên số thật. Nguồn tham chiếu là claude-nexus (nó **quan sát** thay vì
+> **can thiệp**: không có cơ chế reset nào, `/reply` luôn `--resume` và giao việc nén cho CLI).
 
-Đây là mảnh còn thiếu của chính chẩn đoán ở §1. `shouldResetAskSession` đọc `cost` của lượt trước —
-tổng `input + cacheRead + cacheCreation` của **toàn bộ vòng lặp agent nội bộ MỘT lượt** (`numTurns`
-có lượt tới 19). Đó là **đại lượng thế thân**: một lượt nặng bị nhầm thành một phiên phình. Lượt 110
-là bằng chứng đóng đinh — phiên **mới tinh**, vẫn 442k, vẫn kích hoạt reset.
+**Hai sự kiện đóng nó lại.**
 
-Nói theo đúng "Luật rút ra" của spec 099: **đang đo bản thế thân thay vì đo chính hiện vật.** CLI
-biết kích thước ngữ cảnh thật; code đang đoán nó từ hoá đơn của một lượt.
+`[ĐO 2026-08-20]` **Payload của hook không mang con số S0 cần.** Tài liệu hook của Claude Code liệt
+kê 31 event — `PreCompact` và `PostCompact` **đều có thật**, và hook **có** chạy ở chế độ headless
+(*"Hooks run wherever Claude Code runs"*), nên phép kiểm chặn cửa `[CHƯA KIỂM]` cũ coi như đã trả
+lời **CÓ**. Nhưng common fields chỉ gồm `session_id`, `transcript_path`, `cwd`, `permission_mode`,
+`hook_event_name`; `PreCompact` thêm `trigger` (`manual`/`auto`) + `custom_instructions`, `PostCompact`
+thêm `compact_summary`. **Không có `context_window`, không có token count.** Muốn con số vẫn phải tự
+đọc `transcript_path` — tức là đúng khối plumbing mà S0 nói là để tránh.
 
-**Việc:**
+`[ĐO 2026-08-20]` **Ước lượng tốt hơn đã nằm sẵn trong `PhaseCost`: `numTurns`.** Đây là **số đo mà
+Open Q1 (§6) đòi trước khi thiết kế** — nay có. Đo 60 lượt assistant có `cost`, 7 run trong `.runs/`:
 
-1. Thêm `PreCompact` + `PostCompact` vào `apps/builder/headless-settings.json` (file này **đã** có
-   `hooks.PreToolUse`, và mọi turn đã chạy với `--settings` trỏ vào nó — đường ống có sẵn).
-2. Hook ghi thẳng một dòng `events.jsonl` của task (`kind: 'context_compacted'`, `detail` mang
-   `context_window` trước/sau). **Không** endpoint mới — khác nexus, vì Builder không có DB và
-   `events.jsonl` đã nằm trong bundle export (nguyên tắc 6 của spec 099).
-3. Khi có số thật, `shouldResetAskSession` ưu tiên nó; `cost` của lượt trước tụt xuống làm **fallback**
-   cho môi trường không bắn hook.
+| | |
+|---|---|
+| Lượt có `numTurns > 1` | **17/60 (28 %)**, cao nhất **22** |
+| Lượt vượt ngưỡng CŨ 300k ở tổng thô **nhưng** `tổng/numTurns < 300k` | **7** |
+| Lượt vượt ngưỡng MỚI 1M ở tổng thô **nhưng** `tổng/numTurns < 1M` | **5** |
 
-**`[CHƯA KIỂM]` — kiểm trước khi lên lịch, đừng xây trên giả định:** chưa xác nhận CLI có bắn
-`PreCompact`/`PostCompact` ở chế độ headless (`-p` / `--output-format stream-json`) mà Builder dùng
-hay không. Phép kiểm rẻ: thêm hai hook ghi ra một file tạm, chạy một ask dài tới lúc compact, xem
-file có dòng nào không. **Nếu KHÔNG bắn thì S0 chết** và S1 (nâng ngưỡng) là đường duy nhất — nên
-**S1 không được phụ thuộc S0**, và nó không phụ thuộc thật: hai slice độc lập.
+Lượt 110 — bằng chứng đóng đinh của §1 — đọc lại bằng phép chia:
 
-**Vì sao S0 đáng làm dù S1 đã đủ dập triệu chứng.** S1 chỉ dịch một con số đoán được từ 300k lên
-1M — vẫn là đoán, chỉ đoán an toàn hơn. S0 đổi câu hỏi từ *"đặt ngưỡng bao nhiêu?"* thành *"CLI nói
-phiên đang bao nhiêu?"*. Và nó **không** vi phạm non-goal "không bỏ reset": reset vẫn còn, chỉ là
-quyết định bằng số thật.
+| lượt | `numTurns` | tổng (= metric hiện tại) | tổng/`numTurns` | $ |
+|---|---|---|---|---|
+| 110 | **12** | 442.253 | **36.854** | 1,02 |
+| kế | 5 | 475.096 | 95.019 | 0,89 |
+| (phiên dài, 1 request) | 1 | ~800.000 | ~800.000 | 0,55 |
+| (cache-miss) | 1 | 864.321 | 864.321 | **8,59** |
+
+Đọc thẳng: **ngưỡng 300k đã bắn vào một phiên đang mang ~37k token**, còn lượt thật sự đắt ($8,59 —
+cache-miss, một request) thì metric không thấy. Vòng lặp §1 do đó có một vế nữa, cụ thể hơn cả chẩn
+đoán cũ: reset → đọc lại file → **nhiều request hơn** → tổng bị **nhân lên theo số request** → vượt
+ngưỡng → reset. Metric không chỉ đo sai; nó **anti-tương quan** với thứ nó khai là đang đo, đúng
+trong vùng quan trọng nhất.
+
+Hệ quả cho S1 (đã ship): nâng 300k → 1M **có tác dụng, nhưng một phần là do may** — ngưỡng cao đến
+mức phép nhân hiếm khi với tới. 5 lượt vẫn vượt 1M ở tổng thô (những lượt này ngữ cảnh thật cũng
+550–880k nên reset không sai lắm). Sàn động `prevTurnWasFreshSession` đang **che triệu chứng** của
+phép nhân này, không chữa nó.
+
+### S0′ — Chia cho `numTurns` (thay thế S0) `[CHƯA IMPLEMENT]`
+
+**Việc:** `shouldResetAskSession` so ngưỡng với `askSessionTokens(cost) / (cost.numTurns ?? 1)` thay
+vì tổng thô. `numTurns` đã được ghi từ spec 059 ([task.ts:207](../../apps/builder/server/state/task.ts:207)),
+đã có mặt trên **60/60** lượt đo được, và vắng nó thì `?? 1` cho lại đúng hành vi hôm nay.
+
+**Không** hook, **không** endpoint, **không** thêm plumbing. Một biểu thức.
+
+**Giới hạn phải nói ra — đây là ước lượng, không phải số thật:**
+
+- `num_turns` được tài liệu mô tả là *tool-loop iterations*, **không đảm bảo** bằng đúng số API
+  request. Bằng chứng gián tiếp rất khớp (lượt `nT=2, tổng=1,57M → 785k` nằm ngay cạnh các lượt
+  `nT=1, tổng≈800k`), nhưng là suy luận.
+- Trong một lượt, prompt **lớn dần** theo từng tool result, nên **trung bình thấp hơn đỉnh**. Tổng
+  thô cao hơn ngữ cảnh khoảng `numTurns` lần; trung bình thấp hơn đỉnh. Sự thật nằm giữa, và **gần
+  trung bình hơn**.
+- Vì vậy S0′ **không** đòi giữ nguyên ngưỡng 1M. Ngưỡng phải được đọc lại trên thang mới —
+  xem Open Q2, nay là câu hỏi có nghĩa hơn hẳn.
+
+**`[ĐO 2026-08-20]` Bán kính vụ nổ — đã CHẠY THẬT, không suy.** Vá thử hai biểu thức, chạy toàn bộ
+suite server, rồi revert: **1081 test, 1079 pass, 2 fail** — cả hai ở `test/ask-cost.test.ts`, cả hai
+vì **cùng một nguyên nhân**: fixture `RESULT` của file đó mang `num_turns: 3`
+([ask-cost.test.ts:33](../../apps/builder/test/ask-cost.test.ts:33)), nên `1.200.301 / 3 = 400.100`
+tụt xuống dưới 1M và reset **không** xảy ra:
+
+| test | vỡ ở đâu |
+|---|---|
+| *"a session that grew past the budget starts fresh…"* | `resumed` là `'sid-1'` thay vì `undefined` — phiên đắt **được resume** |
+| *"the dynamic floor: a session that was ALREADY reset…"* | precondition `sessionReset === true` thành `undefined` — lượt 1 không còn reset nên sàn động không có gì để kiểm |
+
+**Đây là hai test ĐÚNG đang kêu, không phải hai test hỏng.** Fixture đang mô tả *"1,2M trong 3
+request"* — trên thang mới đó là 400k/request, và 400k thì **không đáng reset**. Người implement phải
+**đặt lại fixture cho khớp ý định**, chọn một trong hai:
+- `num_turns: 1` cho ca đó ⇒ "1,2M trong MỘT request" = một phiên thật sự phình; hoặc
+- nhân token lên ~×3 (≈3,6M) và giữ `num_turns: 3`.
+
+Cách một sát ý định gốc hơn (*"lịch sử phình"*, không phải *"một lượt nhiều request"*). **Đừng nới
+ngưỡng để test xanh lại** — đó là đúng cái sai mà S1 vừa sửa.
+
+**Một trap nữa, cùng nhịp:** `askResetSuppressed` gọi `askSessionTokens` **độc lập**
+([ask.ts:171](../../apps/builder/server/lib/ask.ts:171)). Sửa mỗi `shouldResetAskSession` thì hai vị
+từ dùng hai thang khác nhau → dòng `log.warn` *"BUILDER_ASK_RESET_TOKENS quá thấp"* sẽ bắn sai. **Sửa
+cả hai, và dòng log phải in con số ĐÃ CHIA** (kèm `numTurns`), nếu không log tự mâu thuẫn với quyết
+định nó đang giải thích.
+
+**Lập luận ngược mà Open Q1 đã nêu, nay kiểm được:** *"tool result thật sự nằm lại trong lịch sử, nên
+một lượt đọc nhiều file CÓ làm phiên phình thật."* **Đúng, nhưng nhỏ**: sau lượt `nT=13`, trung bình
+mỗi request các lượt kế tiếp là 42k → 80k → 104k → 133k — tăng thật, ở mức **hàng chục nghìn**, không
+phải 400k. Tổng thô đang phóng đại độ phình đó khoảng một bậc.
 
 ### S1 — Ngưỡng phải ở trên tải một lượt, và phải tự biết mình sai
 
@@ -183,6 +252,24 @@ trao đổi cũ hơn thì không").
   câu trả lời 8.000 ký tự không được ăn hết seed.
 - Cắt thì phải **nói ra** trong chính khối chèn, đúng nguyên tắc "không bịa sự đầy đủ".
 - Rẻ hơn nhiều so với hiện trạng: 12 KB ≈ 3–4k token, so với 400k mà model đang tiêu để đọc lại file.
+
+> **`[ĐO 2026-08-20]` NGÂN SÁCH 12 KB LÀ SAI THANG — sửa trước khi implement.** Spec 098 đã ép **cả
+> seed** xuống dưới **16.000 ký tự**, và con số đó đang được **ghim bằng test**
+> ([ask-seed-size.test.ts:90](../../apps/builder/test/ask-seed-size.test.ts:90); hai ca khác ghim
+> `< 8.000` và `< 6 KB`). Trong cùng ngân sách đó, `SPEC_INLINE_MAX` là **4 KB** và `OUTLINE_MAX` là
+> **2 KB**. Chèn một khối transcript **12 KB** nghĩa là khối lịch sử **to gấp ba cả bản outline của
+> SPEC.md** và chiếm ~¾ toàn bộ prompt — tức là trả lại đúng số byte mà 098 vừa cắt đi.
+>
+> **Đề xuất: 3–4 KB, và N=2–3 cặp**, cùng bậc với `SPEC_INLINE_MAX`. Con số đúng thì đo bằng Open Q3
+> (đếm số lần model vẫn phải nói *"tôi không thấy"*), đừng chốt bằng trực giác.
+>
+> Test hiện có **không** vỡ vì `promptFor` dựng task chưa có phiên ⇒ `sessionReset` false ⇒ không chèn
+> gì. Nghĩa là ngân sách sai sẽ **không bị suite bắt** — càng phải chốt bằng một test riêng cho nhánh
+> `sessionReset = true`.
+
+> **`[ĐO 2026-08-20]` `test/ask-transcript.test.ts` ĐÃ TỒN TẠI** — 405 dòng, 18 test (spec 099 S1 viết
+> nó). Test của S2 phải **append** vào file đó. `Write` đè lên nó sẽ xoá mất 18 test mà suite vẫn
+> **xanh** và tổng số test vẫn tăng — đúng cái bẫy "Luật làm việc #4" mô tả.
 
 ### S3 — Phiên bị bỏ phải có đường quay lại
 
@@ -257,9 +344,10 @@ Mỗi slice phải có ít nhất một dòng; slice không có dòng nào là s
 
 | # | Slice | Test | Ở đâu |
 |---|---|---|---|
-| **0a** | **S0** | `[CHƯA KIỂM]` **Phép kiểm chặn cửa, chạy TRƯỚC khi lên lịch S0**: hook `PreCompact`/`PostCompact` có bắn ở chế độ headless Builder dùng không? Không bắn → **S0 chết**, ghi lại kết quả vào spec | thủ công |
-| **0b** | **S0** | Hook bắn → một dòng `events.jsonl` `context_compacted` kèm `context_window` trước/sau, **đúng task** | `test/ask.test.ts` |
-| **0c** | **S0** | Có số thật → `shouldResetAskSession` dùng nó; **không** có (môi trường không bắn hook) → rơi về `cost` lượt trước, hành vi y hệt hôm nay | `test/ask-cost.test.ts` |
+| ~~0a–0c~~ | ~~S0~~ | **ĐÓNG 2026-08-20 — S0 không làm** (§3). Phép kiểm chặn cửa đã trả lời: hook **có** bắn ở headless, nhưng payload **không** mang `context_window`. | — |
+| **0a′** | **S0′** | `shouldResetAskSession` so ngưỡng với `tổng / numTurns`, **không** với tổng thô | `test/ask-cost.test.ts` |
+| **0b′** | **S0′** | `numTurns` vắng/0 → `?? 1` → **hành vi y hệt hôm nay** (regression) | như trên |
+| **0c′** | **S0′** | Ca đo được: `tổng=442.253, numTurns=12` ở ngưỡng 300k → **không** reset (hôm nay: reset) | như trên |
 | 1 | S1 | `shouldResetAskSession` trả `false` khi lượt trước là **lượt đầu của phiên mới** dù vượt ngưỡng (chống vòng lặp) | `test/ask-cost.test.ts` |
 | 2 | S1 | Ca đó phát ra `log.warn` kèm con số thật | như trên |
 | 3 | S1 | Ngưỡng mặc định mới; env dưới sàn vẫn bị nâng như hiện nay | như trên |
@@ -276,13 +364,15 @@ Mỗi slice phải có ít nhất một dòng; slice không có dòng nào là s
 
 ## 6. Open questions
 
-1. **Có nên tách "kích thước lịch sử" khỏi "công đọc file của một lượt" không?** Nghe hợp lý, nhưng
-   `PhaseCost` chỉ có tổng của cả lượt (`inputTokens`/`cacheRead`/`cacheCreation`/`numTurns`) —
-   **không có** phân rã theo từng call, nên chưa rõ đo tách bằng cách nào mà không thêm plumbing.
-   Và có một lập luận ngược đáng cân nhắc: tool result *thật sự* nằm lại trong lịch sử phiên, nên
-   một lượt đọc nhiều file **có** làm phiên phình lên thật. Cần số đo trước khi thiết kế. **Không
-   slice nào ở trên xây trên câu hỏi này.**
-2. **Con số ngưỡng cuối cùng là bao nhiêu?** 1.000.000 là đề xuất từ hai điểm dữ liệu (475k quan sát
+1. ~~**Có nên tách "kích thước lịch sử" khỏi "công đọc file của một lượt" không?**~~
+   **ĐÃ TRẢ LỜI `[ĐO 2026-08-20]` → thành S0′ (§3).** Câu hỏi này parked chờ *"số đo trước khi thiết
+   kế"*; số đo nay có. **Có**, và không cần plumbing: `numTurns` đã nằm trong `PhaseCost`, phép chia
+   là đủ. Lập luận ngược ("tool result *thật sự* làm phiên phình") **đúng nhưng nhỏ** — độ phình thật
+   là hàng chục nghìn token/lượt, còn tổng thô phóng đại nó khoảng `numTurns` lần. Chi tiết + giới
+   hạn của ước lượng: §3 S0′.
+2. **Con số ngưỡng cuối cùng là bao nhiêu?** ⚠ **Câu hỏi này đổi thang nếu S0′ ship** — 1M được chọn
+   trên tổng thô; trên `tổng/numTurns` nó là một ngưỡng khác hẳn và phải đọc lại từ đầu.
+   1.000.000 là đề xuất từ hai điểm dữ liệu (475k quan sát
    được, 899k trong hồ sơ 098). Cần phân bố thật qua vài task nặng khác nhau — REPRO §5 cho đúng số
    đó. Đánh đổi phải nói rõ: ngưỡng cao hơn = lượt đắt hơn nhưng ít quên hơn; người dùng đang trả
    giá bằng cả hai.

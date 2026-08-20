@@ -723,6 +723,8 @@ export function App() {
               <StartErrorBanner startError={startError} busyHolder={busyHolder}
                 onOpen={(id) => { setArmed(null); void store.openTask(id); }} />
 
+              <PersistDegradedBanner />
+
               {/* spec 033 D7/FIX-J: the docked action bar — pinned above the composer while parked at
                   an analyze/spec/implement gate, so the phase's next-step actions stay reachable through
                   any amount of Ask chat. Disabled during a live Ask OR a live Reply (FIX-H). */}
@@ -885,6 +887,27 @@ function StartErrorBanner({ startError, busyHolder, onOpen = (id) => void store.
           {tr('openIt')}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * Spec 099 S2′ — "this browser is no longer keeping your conversation."
+ *
+ * A banner, NOT a thread item. Every item pushed into `thread` wakes the persistence effect, which is
+ * precisely the write that just failed — a notice rendered that way would re-trigger its own cause.
+ *
+ * The wording is only honest because 099 S1 shipped first: the exchanges really are on the server and
+ * really do come back on reopen. Before backfill existed this sentence would have been a comforting
+ * lie, which is why S2 was ordered after S1 rather than beside it.
+ */
+function PersistDegradedBanner() {
+  const state = store.persistDegraded.value;
+  if (!state) return null;
+  return (
+    <div className="start-error" role="status">
+      <I.alert />
+      <span>{state.reason === 'quota' ? tr('persistQuota') : tr('persistFailed')}</span>
     </div>
   );
 }

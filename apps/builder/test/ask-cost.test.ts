@@ -17,7 +17,7 @@ import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { askTestWithin, askWithin, readConsultChat, readLastAsk, readLastAskMeta,
-  askSessionTokens, shouldResetAskSession, askResetSuppressed, ASK_RESET_TOKENS } from '../server/lib/ask.js';
+  askSessionTokens, askContextTokens, shouldResetAskSession, askResetSuppressed, ASK_RESET_TOKENS } from '../server/lib/ask.js';
 import { createTask, saveTask, type Task } from '../server/state/task.js';
 import type { ClaudeSession } from '../server/lib/claude-session.js';
 import type { TurnResult } from '../server/lib/turn-runner.js';
@@ -186,8 +186,13 @@ describe('the dev cost tip — what one answer cost', () => {
     // this fixture moved with it: 899k (the old value) is now BELOW the line on purpose — it was one
     // expensive QUESTION, not a bloated HISTORY, and the whole point of the new number is to stop
     // confusing the two. 1.2M is unambiguously a session that has actually grown.
+    //
+    // `num_turns: 1` is load-bearing, not decoration (spec 100 S0′). The decision divides the turn sum
+    // by the request count, so "1.2M" only means a bloated session if it rode ONE request. Left at the
+    // shared fixture's `num_turns: 3` this reads as 400k per request — an ordinary turn that reads a
+    // few files, exactly the case S0′ exists to STOP resetting.
     await settle(dir, task, {
-      result: { ...RESULT, usage: { input_tokens: 1, cache_read_input_tokens: 1_190_000, cache_creation_input_tokens: 10_300, output_tokens: 495 } },
+      result: { ...RESULT, num_turns: 1, usage: { input_tokens: 1, cache_read_input_tokens: 1_190_000, cache_creation_input_tokens: 10_300, output_tokens: 495 } },
     });
 
     let prompt = '';
@@ -259,15 +264,18 @@ describe('the dev cost tip — what one answer cost', () => {
     // turn, so it takes two. Turn 1 records an over-limit cost (nothing before it, so no reset). Turn 2
     // sees that, resets, and — this is what matters — ITS OWN cost is over the limit too, which is
     // exactly the shape of the observed loop (run 1786505684286 turn 110: fresh, and still 442k).
+    // `num_turns: 1` for the same reason as the fixture above (spec 100 S0′): the loop being pinned
+    // here is "a session that is genuinely bloated", which on the per-request scale means one request
+    // carrying 1.2M — not three requests carrying 400k each.
     const heavy = {
-      result: { ...RESULT, usage: { input_tokens: 1, cache_read_input_tokens: 1_190_000, cache_creation_input_tokens: 10_300, output_tokens: 495 } },
+      result: { ...RESULT, num_turns: 1, usage: { input_tokens: 1, cache_read_input_tokens: 1_190_000, cache_creation_input_tokens: 10_300, output_tokens: 495 } },
     };
     await settle(dir, task, heavy);
     await settle(dir, task, heavy);
     const seeded = await readConsultChat(dir, task.taskId);
     assert.equal(seeded.at(-1)!.sessionReset, true, 'precondition: turn 2 IS recorded as a fresh session');
     assert.ok(
-      askSessionTokens(seeded.at(-1)!.cost) >= ASK_RESET_TOKENS,
+      askContextTokens(seeded.at(-1)!.cost) >= ASK_RESET_TOKENS,
       'precondition: and that fresh turn STILL exceeded the limit — the loop condition',
     );
 
@@ -307,7 +315,7 @@ describe('the dev cost tip — what one answer cost', () => {
     // input never has to travel to the browser on every reconnect to be read by nobody.
     const task = await terminalTask(dir);
     assert.deepEqual(
-      await readLastAskMeta(dir, task.taskId), { sessionReset: false },
+      await readLastAskMeta(dir, task.taskId), { sessionReset: false, lines: [] },
       'no transcript ⇒ nothing recorded is not a reason to throw a session away',
     );
 
@@ -395,6 +403,54 @@ describe('the dev cost tip — what one answer cost', () => {
     // continuity gone for good, bill unchanged — so the knob refuses to be set there.
     assert.ok(ASK_RESET_TOKENS >= 50_000, 'the configured limit never lands under the fresh-session floor');
     assert.equal(shouldResetAskSession({ cacheReadTokens: 26_837 }, 20_000), true, 'an explicit limit is still honoured in-process');
+  });
+
+  test('spec 100 S0′: a turn sum is divided by its request count before it meets the limit', () => {
+    // `usage` on the terminal `result` event is a TURN TOTAL over every API request the tool loop made.
+    // The same growing prefix is therefore counted once per request, so a file-reading turn reports a
+    // number `numTurns` times larger than the context it actually carried.
+    assert.equal(askContextTokens({ cacheReadTokens: 900_000, numTurns: 3 }), 300_000);
+    assert.equal(askContextTokens({ cacheReadTokens: 900_000, numTurns: 1 }), 900_000);
+
+    // The measured case, and the reason this exists. Run 1786505684286 turn 110 — the turn spec 100 §1
+    // calls its nail in the coffin — summed 442,253 across TWELVE requests. It was carrying ~37k, and
+    // the 300k limit fired on it: a session was thrown away for being small.
+    const turn110 = { inputTokens: 1, cacheReadTokens: 430_000, cacheCreationTokens: 12_252, numTurns: 12 };
+    assert.equal(askSessionTokens(turn110), 442_253, 'the raw sum is unchanged — it is still a real quantity');
+    assert.equal(askContextTokens(turn110), 36_854);
+    assert.equal(
+      shouldResetAskSession(turn110, 300_000),
+      false,
+      'THE POINT: at the OLD 300k limit this turn no longer triggers a reset',
+    );
+
+    // …and the division must not become an amnesty. One request carrying 1.2M is a session that really
+    // has grown, and it still resets.
+    assert.equal(shouldResetAskSession({ cacheReadTokens: 1_200_000, numTurns: 1 }, 300_000), true);
+    assert.equal(shouldResetAskSession({ cacheReadTokens: 1_200_000, numTurns: 12 }, 300_000), false);
+
+    // Absent / junk `numTurns` ⇒ divide by one ⇒ every build recorded before spec 059 wrote the field,
+    // and any future shape drift, behaves exactly as it does today.
+    assert.equal(askContextTokens({ cacheReadTokens: 900_000 }), 900_000, 'absent ⇒ unchanged');
+    assert.equal(askContextTokens({ cacheReadTokens: 900_000, numTurns: 0 }), 900_000, 'zero never divides');
+    assert.equal(askContextTokens({ cacheReadTokens: 900_000, numTurns: -3 }), 900_000, 'nor does a negative');
+    assert.equal(askContextTokens({ cacheReadTokens: 900_000, numTurns: Number.NaN }), 900_000, 'nor NaN');
+    assert.equal(askContextTokens(undefined), 0);
+
+    // Both predicates read the SAME scale. Split them and the warning fires on turns that were never
+    // going to reset, while the misconfiguration it names goes unsaid.
+    const heavyMulti = { cacheReadTokens: 1_200_000, numTurns: 3 };
+    assert.equal(shouldResetAskSession(heavyMulti, 300_000, true), false);
+    assert.equal(
+      askResetSuppressed(heavyMulti, 300_000, true),
+      true,
+      '400k per request over a 300k limit on an already-fresh session: still the "knob is too low" case',
+    );
+    assert.equal(
+      askResetSuppressed({ cacheReadTokens: 1_200_000, numTurns: 12 }, 300_000, true),
+      false,
+      '100k per request is under the limit — nothing to complain about',
+    );
   });
 });
 

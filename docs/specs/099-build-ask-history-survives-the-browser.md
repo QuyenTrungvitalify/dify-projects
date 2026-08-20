@@ -558,6 +558,78 @@ Trong `persistThreadNow` ([store.ts:833](../../apps/builder/web/src/store.ts:833
 `catch` vẫn không được ném ra ngoài: lưu trữ hỏng vẫn không bao giờ chặn UI. Chỉ khác là nó không
 còn vô hình.
 
+#### S2′ — HỒI SINH 2026-08-20 phần bị drop, **thu hẹp lại thành BỘ ĐO** `[CHƯA IMPLEMENT]`
+
+> **Vì sao mở lại một mục đã drop.** [101 §5](101-tester-release-plan.md) bỏ phần
+> retry/giảm-tải/`persistDegraded` với lý do *"quota đã bị bác bỏ; máy sạch còn xa hơn"* — **đúng về
+> xác suất, nhưng trả lời nhầm câu hỏi.** Lý do giữ lại không phải *"quota có khả năng xảy ra"*, mà là
+> **S3 không có điều kiện kích hoạt nào quan sát được nếu thiếu nó**: mọi `localStorage.setItem` trong
+> `store.ts` nuốt lỗi trong `try/catch` (dòng 159, 181, 201, 243, và `persistThreadNow`), localStorage
+> **không** nằm trong bundle export, không có telemetry. Điều kiện của S3 (*"chạm ~4 MB"*) do đó là một
+> điều kiện **không máy nào ở xa báo về được**: hoặc S3 không bao giờ chạy, hoặc nó chạy **sau khi**
+> người dùng đã mất thread — đúng con lỗi spec này sinh ra để dập.
+>
+> **Thu hẹp:** S2′ chỉ **đo và kể**. Phần *giảm tải rồi thử lại* (S2 mục 2) **vẫn drop** — đó là bản
+> vá, không phải phép đo, và trộn hai thứ vào một slice làm cả hai khó kiểm. S2 mục 1 (`_lastPersisted`
+> sau `setItem`) **đã ship** ([101 §3.2](101-tester-release-plan.md)).
+
+**Bốn mảnh, theo thứ tự phụ thuộc:**
+
+1. **Phân loại lỗi trong `catch` của `persistThreadNow`**
+   ([store.ts](../../apps/builder/web/src/store.ts)). Quota nhận diện bằng
+   `e instanceof DOMException && (name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED'
+   || code === 22 || code === 1014)` — Safari private-mode cũng ném đúng nhóm này, và với người dùng
+   thì hai ca **cùng một hậu quả**, nên gộp là đúng. Lỗi khác → `reason: 'other'`.
+   `catch` **vẫn không được ném ra ngoài**: lưu trữ hỏng vẫn không bao giờ chặn UI.
+
+2. **Signal `persistDegraded` → một cảnh báo NHÌN THẤY ĐƯỢC** (S2 mục 3, câu chữ nay đã đúng vì S1 đã
+   ship): *"không lưu được lịch sử hội thoại vào trình duyệt — nội dung vẫn an toàn trên máy chủ và sẽ
+   được khôi phục khi mở lại."* Ghi thành công trở lại → tắt signal.
+
+   > **⚠ BẪY, phải viết ra vì nó tự đá vào chân mình:** cảnh báo này **KHÔNG được là một item trong
+   > `thread`**. Mọi item thêm vào thread đều đánh thức chính `persistThreadNow` vừa hỏng → hỏng tiếp →
+   > thêm item → vòng lặp. Nó phải là một **banner riêng** đọc từ signal, ngoài `thread`. (Khác với
+   > marker của backfill và `runsDropped` — hai cái đó là item thread, và đúng như vậy.)
+
+3. **Một khoá cờ nhỏ để sự việc sống qua reload.** `builder.persistFailed` =
+   `{ at, bytes, taskId, reason }` (~80 byte). Ghi trong `catch`, **trong try/catch riêng của nó**: nếu
+   ngay cả 80 byte cũng không ghi được thì bỏ qua — signal trong bộ nhớ vẫn lo phiên này. (Thực tế
+   thường ghi được: cái vừa hỏng là bản ghi lớn.)
+
+4. **Kênh bundle — dùng lại route đã có, KHÔNG mở route mới.**
+   `GET /api/tasks/:id/chat` nhận thêm `&persistFailed=<bytes>`; thấy nó thì ghi **một** dòng
+   `logEvent({ kind: 'persist_failed', detail: 'bytes=… task=… reason=…' })`.
+
+   Vì sao chỗ này chứ không phải endpoint mới: route đó **đã** validate `:id` bằng `isTaskId` trước khi
+   chạm filesystem (có test CONFINEMENT), **đã** `loadTask` (404 nếu không có), và **đã** gọi `logEvent`
+   cho `history_gap`. ⇒ Không thêm bề mặt ghi nào mới — đúng **Luật làm việc #5**. Client đã gọi route
+   này ở mọi `openTask` build (qua `backfillAskHistory`), nên không cần thêm request.
+
+   - **Task báo cáo ≠ task bị hỏng.** Cờ được gửi ở lần mở build **kế tiếp**, nên `taskId` của lần
+     hỏng phải nằm trong `detail`; nếu không, dòng log trỏ nhầm build.
+   - **Xoá cờ sau khi báo thành công** ⇒ **một dòng cho một sự việc**, không phải một dòng mỗi lần mở.
+     Thiếu điều này là tái sinh đúng con "log không bao giờ im" của commit `362ba81`.
+   - Giá trị rác → bỏ qua, không tin (soi theo đúng cách `?have=` đang làm).
+
+**Giới hạn đã biết, chấp nhận:** báo cáo **trễ** tới lần mở build kế tiếp; người dùng không mở build
+nào nữa thì không có dòng nào. Chấp nhận được — đây là phép đo, không phải chuông báo; kênh tức thời
+là cảnh báo ở mảnh 2.
+
+**Nghiệm thu (đỏ-khi-revert):**
+
+| # | Test | Ở đâu |
+|---|---|---|
+| a | `setItem` ném `QuotaExceededError` → `persistDegraded` bật **và** khoá cờ được ghi | `web/src/store.persistFlush.test.ts` (file đã có, đã mock `setItem` ném — **append**) |
+| b | Ghi lại thành công → `persistDegraded` tắt | như trên |
+| c | Cảnh báo **không** tạo item nào trong `thread` (chống vòng lặp mảnh 2) | như trên |
+| d | `?persistFailed=` → **đúng một** dòng `persist_failed`, `detail` mang `taskId` của lần hỏng | `test/ask-transcript.test.ts` (**append**) |
+| e | Không có cờ → **không** dòng nào; giá trị rác → bỏ qua, không crash | như trên |
+| f | Báo xong → cờ bị xoá ⇒ lần mở sau **im lặng** | `web/src/store.persistFlush.test.ts` |
+
+> **Ghi chú cho tương lai, không thuộc slice này:** S2 mục 2 (đá LRU rồi thử lại) bị drop khi **S1 chưa
+> ship**, lúc đó đá một thread đi là **mất thật**. Sau S1, một build bị đá **lấy lại được từ đĩa** — nên
+> lập luận drop đã đổi. Nếu bao giờ mở lại, mở bằng lý do mới đó, đừng chép lại lý do cũ.
+
 ### S3 — Kỷ luật dung lượng **(chỉ sau khi S1 ship)**
 
 > **Điều kiện cũ "giả thuyết quota được xác nhận" ĐÃ BỎ** (lượt 2): quota bị bác bỏ, nên điều kiện đó

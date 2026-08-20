@@ -46,6 +46,22 @@ export type RunEventKind =
   // inferring the browser's state from the disk's. On a tester's machine that request is not available
   // at all — so the number has to record itself, on the one channel the export bundle carries.
   | 'history_gap'
+  // Spec 099 S2′ — the BROWSER could not write the thread to localStorage, `detail:
+  // 'reason=quota chars=N task=T at=<epoch>'`. `chars` is UTF-16 units — the unit a browser's
+  // localStorage quota is actually measured in, NOT UTF-8 bytes, which a JA/VI thread inflates 2–3×.
+  //
+  // The one event on this timeline whose subject is the client, and it is here for the same reason
+  // `history_gap` is: it is otherwise unobservable.
+  //
+  // Every `localStorage.setItem` in store.ts swallows its failure by design (a dead cache must never
+  // break the app), localStorage never rides the export bundle, and there is no telemetry — so on a
+  // machine nobody can reach, a full quota looks EXACTLY like a healthy session right up until the
+  // history is gone. That is the failure spec 099 exists to close, arriving through the back door.
+  //
+  // Reported LATE and about ANOTHER task: the browser can only speak on its next request, which is the
+  // next build it opens. Hence `task=` in the detail — without it the line names the wrong build. And
+  // the flag is cleared once reported, so one incident writes one line, not one per reopen.
+  | 'persist_failed'
   | 'artifact_unchanged'; // spec 094 S1 — an ③ turn ended with the artifact's bytes IDENTICAL (detail:
 //                           the workflow file). Emitted only when measured; absent ⇒ the turn changed
 //                           the file, or the build predates 094. Two of the five fix rounds on run
