@@ -10,6 +10,7 @@ import { runBuild, scheduleRestart } from '../lib/dev-rebuild.js';
 import { fetchShelfStats } from '../lib/shelf-stats.js';
 import { resolveSettings, saveLocalSettings } from '../lib/settings.js';
 import { loadTrackedShare } from '../lib/share.js';
+import { collectBuildInfo } from '../lib/build-info.js';
 import { runPython } from '../lib/shell.js';
 
 export interface DevRoutesOpts {
@@ -19,6 +20,16 @@ export interface DevRoutesOpts {
 }
 
 const devRoutes: FastifyPluginAsync<DevRoutesOpts> = async (app, opts) => {
+  /**
+   * GET /api/dev/build-info — which code is actually running (dev panel, BUILDER_DEV only).
+   *
+   * Exists for one question: "am I testing the branch I think I am?" That question had no answer in
+   * the app, and getting it wrong is expensive — you rebuild, you test, and every conclusion is about
+   * some other code. Reuses `collectBuildInfo` (the same stamp the export bundle carries), so there is
+   * no second place that shells git.
+   */
+  app.get('/api/dev/build-info', async () => collectBuildInfo(opts.projectsDir, [], Date.now()));
+
   app.post('/api/dev/rebuild', async (_req, reply) => {
     // Refuse while ANY turn is live (either lane, 082) — restarting kills every running `claude` child.
     if (buildTurnBusy() || chatTurnBusy()) {

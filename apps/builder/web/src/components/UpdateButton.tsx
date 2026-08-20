@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { I } from './Icon';
 import { api, ApiError } from '../api';
 import { ls } from '../lib/dev';
-import { t as tr } from '../lib/i18n';
+import { t as tr, tf } from '../lib/i18n';
 import { askConfirm } from '../store';
 import { waitForRestart } from './RebuildButton';
 
@@ -66,10 +66,11 @@ export function UpdateButton({ collapsed = false }: { collapsed?: boolean }) {
       if (!r.ok) {
         setUpdating(false);
         const lines = (r.log ?? '').split('\n').filter(Boolean);
-        if (r.step === 'checkout') {
-          // git already names the offending files ("Your local changes… would be overwritten") — keep
-          // the whole tail, it's the only clue the user (or the admin they call) gets.
-          setMsg(`${tr('updateCheckoutFailed')}${lines.length ? `\n${lines.join('\n')}` : ''}`);
+        if (r.step === 'branch') {
+          // NOT a failure — the update declined on purpose because HEAD is not main, and `log` carries
+          // the branch name. Naming it is the whole point: the previous behaviour switched to main
+          // silently, so someone testing a branch ended up testing main with nothing to show for it.
+          setMsg(tf('updateOnBranch', { branch: (r.log ?? '').trim() || '?' }));
           return;
         }
         const lastLine = lines.slice(-1)[0] ?? '';

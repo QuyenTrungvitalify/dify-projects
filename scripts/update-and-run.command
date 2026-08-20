@@ -19,21 +19,30 @@ lsof -ti:4123 | xargs kill 2>/dev/null || true
 
 echo ""
 echo "▶ 2/4  最新コードを取得します (git pull)…"
-# main 以外のブランチにいるときだけ main に切り替えます（失敗したときだけエラー）。
+# main にいるときだけ更新します。
+#
+# 以前はここで無条件に `git checkout main` していました。作業ツリーがきれいだと成功してしまうため、
+# ブランチを取り出して動作確認していた人は「黙って main に戻され、main をビルドして、main をテスト
+# していた」ことになります — 画面には何も出ないまま。テストの結論そのものが無意味になる壊れ方でした。
+#
+# いまは切り替えません。main 以外にいる場合は更新をスキップし、その理由を表示して、いま出ている
+# ブランチのままビルド・起動します。ふつうの利用者は常に main にいるので、この行より下の動作は
+# まったく変わりません。うっかり別ブランチにいる場合も、勝手に戻さず画面に表示するので、
+# 「気づかないまま古いコードが動き続ける」ことはありません。
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')"
-if [ "$BRANCH" != "main" ] && ! git checkout main; then
+if [ "$BRANCH" = "main" ]; then
+  if ! git pull --ff-only origin main; then
+    echo ""
+    echo "❌ git pull に失敗しました（競合や接続の問題の可能性）。"
+    echo "   担当者に連絡してください。ウィンドウを閉じるには Enter キー。"
+    read -r _
+    exit 1
+  fi
+else
   echo ""
-  echo "❌ main ブランチに切り替えられませんでした（ローカルで変更されたファイルがある可能性）。"
-  echo "   上記のファイルを元に戻すか、担当者に連絡してください。Enter キーで閉じます。"
-  read -r _
-  exit 1
-fi
-if ! git pull --ff-only origin main; then
-  echo ""
-  echo "❌ git pull に失敗しました（競合や接続の問題の可能性）。"
-  echo "   担当者に連絡してください。ウィンドウを閉じるには Enter キー。"
-  read -r _
-  exit 1
+  echo "⚠ いま main ではなく「${BRANCH:-(不明)}」ブランチにいます。"
+  echo "   更新（git pull）はスキップし、このブランチのままビルドして起動します。"
+  echo "   最新版に戻すには:  git checkout main  を実行してから、もう一度このファイルを開いてください。"
 fi
 
 echo ""

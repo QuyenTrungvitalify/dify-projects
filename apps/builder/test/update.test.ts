@@ -2,11 +2,14 @@
  * POST /api/update — the user-facing update & restart (in-app update-and-run.command).
  *
  * Route-level via Fastify `inject` with the runStep/schedule/busy seams faked (no real git/npm/kill):
- * asserts the step order + cwd contract (branch probe → [checkout main] → git pull --ff-only origin
- * main at the repo root → setup-node.sh), that HEAD already on main SKIPS the checkout, that a
- * failing checkout stops with step:'checkout' + git's reason and never pulls, that a failed step
- * reports {ok:false, step, log} WITHOUT scheduling the restart, that a clean run schedules the
- * restart with (builderDir, port), and both 409 guards.
+ * asserts the step order + cwd contract (branch probe → git pull --ff-only origin main at the repo
+ * root → setup-node.sh), that a failed step reports {ok:false, step, log} WITHOUT scheduling the
+ * restart, that a clean run schedules the restart with (builderDir, port), and both 409 guards.
+ *
+ * And the rule this rests on: it only ever runs on `main`. Off main it REFUSES — probe, then nothing.
+ * It used to `git checkout main` first, which succeeds SILENTLY on a clean tree, so a branch someone
+ * had checked out to try was rebuilt as main and tested as main, with nothing on screen to say so.
+ * A refusal is visible; a switch was not.
  */
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -67,32 +70,35 @@ describe('POST /api/update', () => {
     await app.close();
   });
 
-  test('on another branch → checkout main first, then the normal update', async () => {
-    head = 'feature/x';
+  test('on another branch → REFUSES: nothing runs, the checkout is left exactly as it was', async () => {
+    // Used to `git checkout main` first. On a clean tree that succeeds SILENTLY, so anyone who had
+    // checked out a branch to try it was moved back, rebuilt main, and tested main — with nothing on
+    // screen to say so, and no way to tell afterwards. The conclusions from such a session are
+    // worthless. Refusing is visible; switching was not.
+    head = 'fix/some-branch';
     const app = await build();
     const res = await app.inject({ method: 'POST', url: '/api/update' });
-    assert.deepEqual(res.json(), { ok: true, restarting: true });
-    assert.deepEqual(calls.map((c) => [c.cmd, ...c.args]), [
-      ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
-      ['git', 'checkout', 'main'],
-      ['git', 'pull', '--ff-only', 'origin', 'main'],
-      ['bash', 'scripts/setup-node.sh'],
-    ]);
+    assert.equal(res.statusCode, 200, 'a decline is not an HTTP error — the FE reads {step, log}');
+    const body = res.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.step, 'branch');
+    assert.equal(body.log, 'fix/some-branch', 'the branch is NAMED, so the UI can say which one');
+    assert.deepEqual(
+      calls.map((c) => [c.cmd, ...c.args]),
+      [['git', 'rev-parse', '--abbrev-ref', 'HEAD']],
+      'the probe and NOTHING else — no checkout, no pull, no build',
+    );
+    assert.equal(scheduled.length, 0, 'and no restart');
     await app.close();
   });
 
-  test('checkout main fails (local edits) → step:checkout + git reason, NO pull, NO restart', async () => {
-    head = 'feature/x';
-    failAt = 'checkout';
+  test('detached HEAD → same refusal, with a name a human can read', async () => {
+    head = 'HEAD'; // what git prints when detached
     const app = await build();
-    const res = await app.inject({ method: 'POST', url: '/api/update' });
-    assert.equal(res.statusCode, 200);
-    const body = res.json();
-    assert.equal(body.ok, false);
-    assert.equal(body.step, 'checkout');
-    assert.match(body.log, /checkout exploded/);
-    assert.equal(calls.length, 2, 'stops at the checkout — the pull never runs');
-    assert.equal(scheduled.length, 0);
+    const body = (await app.inject({ method: 'POST', url: '/api/update' })).json();
+    assert.equal(body.step, 'branch');
+    assert.equal(body.log, 'HEAD');
+    assert.equal(calls.length, 1);
     await app.close();
   });
 

@@ -192,7 +192,16 @@ export const api = {
     request('POST', '/api/dev/rebuild', {}),
   /** user-facing update & restart (git pull + install/build + restart) — mounted for every run,
    *  409 {reason:'turn_running'|'update_running'} when blocked. */
-  update: (): Promise<{ ok: boolean; restarting?: boolean; step?: 'checkout' | 'pull' | 'setup'; log?: string }> =>
+  /** `step:'branch'` is a DECLINE, not a failure: HEAD is not main, so nothing ran and `log` holds the
+   *  branch name. (It replaced `'checkout'` — the update no longer switches branches; switching on a
+   *  clean tree was silent, so a branch under test was rebuilt as main with nothing to show for it.) */
+  /** GET /api/dev/build-info — which code is running (BUILDER_DEV only; 404 otherwise). Answers the
+   *  one question a dev panel can answer and a terminal cannot do from inside the app: am I testing
+   *  the branch I think I am? */
+  devBuildInfo: (): Promise<{ gitBranch: string | null; gitSha: string | null; builderVersion: string | null }> =>
+    request('GET', '/api/dev/build-info'),
+
+  update: (): Promise<{ ok: boolean; restarting?: boolean; step?: 'branch' | 'pull' | 'setup'; log?: string }> =>
     request('POST', '/api/update', {}),
   /** spec 080 dev-only (BUILDER_DEV=1): the shelf dashboard feed — `catalog.py stats --json`
    *  passthrough. Throws ApiError(404) when the server runs without BUILDER_DEV. */
