@@ -1001,6 +1001,74 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     return reply.send(task);
   });
 
+  // ── POST /api/tasks/:id/undo-fix — spec 103 step 1: take back the last fix round ──
+  //
+  // Why a route and not a turn: the undo costs NOTHING. Both pre-round snapshots are already on disk
+  // (`snapshotDiffBase` + `snapshotSpecBase` run before every fix round), so taking a round back is two
+  // file copies. This is the whole argument for "no gate before, an undo after": a review gate costs a
+  // turn every time, this costs a turn never.
+  //
+  // Scoped to the ③ gate ON PURPOSE. At ④ the human has just LEARNED something from the report or the
+  // live run, and the right move is to fix forward, not to rewind — a rewind there would also strand a
+  // report describing a file that no longer exists. Restricting to ③ also makes the dangerous case
+  // impossible by construction: an import only happens at ④, so no undo can ever contradict what was
+  // already pushed to Dify.
+  app.post('/api/tasks/:id/undo-fix', async (req, reply) => {
+    const id = idOf(req);
+    let task;
+    try {
+      task = await loadTask(projectsDir, id);
+    } catch {
+      return reply.code(404).send({ error: `no such task: ${id}` });
+    }
+    // Re-check the SAME predicate the FE renders the link on — never trust the client (a stale tab, a
+    // forged POST). The FE hides it in these cases too; this is the authority.
+    if (task.phase !== 'implement' || task.status !== 'awaiting_confirm') {
+      return reply.code(409).send({ error: 'undo is only available at the Implement gate' });
+    }
+    // HOLD the turn lock across the restore, do not merely check it. A bare `taskTurnRunning` check
+    // leaves a window: a `/reply` arriving between the check and the copies would take its own pre-round
+    // snapshot (overwriting the one being restored FROM) and then run a turn onto files changing under
+    // it. Acquiring is the same guard every turn-bearing route uses, and it is what makes "restore" an
+    // operation the build cannot be in the middle of.
+    if (!acquireTurn(id)) { // the 'phase' lane — the one a /reply fix round would take
+      return reply.code(409).send({ error: 'a turn is running for this task' });
+    }
+    try {
+      if (!(await undoFixRound(projectsDir, task))) {
+        // Both snapshots must exist; restoring one without the other would leave SPEC.md describing a
+        // main.yml it no longer matches — Undo manufacturing the very drift spec 103 exists to prevent.
+        return reply.code(409).send({ error: 'no complete snapshot of the last fix round' });
+      }
+      // The two measurements described the round that no longer exists. Clearing them is not cosmetic:
+      // `undefined` is this codebase's "not measured", and a stale `specStale` would put a warning on a
+      // file the human just restored (094 S1's three-state contract, kept).
+      task.specStale = undefined;
+      task.artifactUnchanged = undefined;
+      task.artifactHash = await artifactHash(
+        projectsDir,
+        `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`
+      );
+      // The live implement session still holds its own edits in context; the next /reply must be told.
+      task.fixUndone = true;
+      task.fixUndoable = false; // the snapshots still exist on disk, but this round is already taken back
+      try {
+        const written = await writeDiffArtifact(projectsDir, task); // now an empty round-diff — true
+        task.artifacts.diff = written.rel;
+        task.specEdits = undefined; // the round it counted was just taken back
+      } catch {
+        /* non-fatal, exactly as at the ③ verify */
+      }
+      await logEvent(taskDir(projectsDir, id), { kind: 'fix_undone', phase: 'implement', detail: task.workflowFile });
+      bumpRev(task); // direct broadcast bypasses emit — bump so a stale same-rev GET can't resurrect the undone state
+      await saveTask(projectsDir, task);
+      broadcast?.(id, 'task:update', task);
+      return reply.send(task);
+    } finally {
+      releaseTurn(id);
+    }
+  });
+
   // ── POST /api/tasks/:id/live-test — run a LIVE workflow test from a terminal `done` build (spec 036 D5) ──
   // `done` is NOT awaiting_confirm, so this CANNOT go through /confirm (confirmAdvance hard-guards
   // status==='awaiting_confirm' → 409, and a done build has no gate.actions to match). Dedicated route,
