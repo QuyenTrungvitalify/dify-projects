@@ -27,7 +27,8 @@ import { PHASES } from '../server/lib/phases.js';
 import { applyInitFake } from './helpers/scaffold-fake.js';
 import type { ClaudeSession, SessionLogger } from '../server/lib/claude-session.js';
 import type { TurnResult } from '../server/lib/turn-runner.js';
-import { artifactHash } from '../server/lib/post-turn.js';
+import { artifactHash, specRelFor } from '../server/lib/post-turn.js';
+import { LINTERS } from '../server/lib/linters.js';
 import type { PostTurnParams, PostTurnResult } from '../server/lib/post-turn.js';
 import type { ReportResult, ReportOpts } from '../server/lib/report.js';
 import type { ShellResult } from '../server/lib/shell.js';
@@ -124,31 +125,44 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
   const postTurnCheck = async (p: PostTurnParams): Promise<PostTurnResult> => {
     calls.postTurnCheck++;
     lastPostTurn.push({ artifactHashBefore: p.artifactHashBefore, specHashBefore: p.specHashBefore });
-    const lintCodes: LintCodes = o.lintCodes ?? { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 };
-    const clean = lintCodes.validate === 0 && lintCodes.lint_refs === 0 && lintCodes.lint_plugin_hashes === 0;
-    const reasons = clean ? [] : ['lint≠0 (cap-5 reached)'];
-    // spec 105 — MEASURE, do not accept an answer. The real check hashes the file on disk and compares
-    // with the before-hash it was handed, reporting `undefined` only when no before-hash was supplied
-    // (post-turn.ts, the "not measured" contract). This fake does the same thing against the same files.
+    // Every verdict below is DERIVED from the same files and the same helpers production uses. The
+    // fake used to declare `artifactOk`/`yamlOk` true and compute "clean" from three of the four
+    // linters — both let a test build a state the system cannot: a turn that writes nothing came back
+    // `success` here while the real check reports `artifact missing`, and `lint_node_bodies: 1` came
+    // back `ok` here while `resolveImplementOutcome` reads it as `still_failing` with no reasons.
     //
-    // It matters that this is not a knob: an earlier version of this harness let a test declare
-    // `artifactChanged: false`, which pinned a state production cannot produce (a from-scratch build
-    // always has before-hash `null` against a freshly written file) and would have let a dead branch
-    // carry a green test. A stub that can assert what the system cannot do is worse than no stub.
-    const hashNow = (rel: string): Promise<string | null> => artifactHash(dir, rel);
-    const wfRel = `projects/${p.project}/${p.workflowSlug}/workflows/${p.workflowFile}`;
+    // Paths come from the exported resolvers, never from a second copy of the formula: a fake that
+    // restates a path keeps measuring the old location after a layout change, with its assertions
+    // still green (`specRelFor` exists for exactly this reason).
+    const wfRel = PHASES.find((x) => x.id === 'implement')!.artifactRel(
+      { project: p.project, workflowSlug: p.workflowSlug, workflowFile: p.workflowFile } as Task
+    );
+    const specRel = p.project && p.workflowSlug ? specRelFor(p.project, p.workflowSlug) : null;
+    const afterHash = await artifactHash(dir, wfRel);
+    const artifactOk = afterHash !== null; // real: `size > 0`
+    // The linters only run on a non-empty artifact; `null` is what the real check reports otherwise,
+    // and `lintClean(null)` is false — the distinction the ③ outcome turns on.
+    const lintCodes: LintCodes | null = artifactOk
+      ? (o.lintCodes ?? { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 })
+      : null;
+    const reasons: string[] = [];
+    if (!artifactOk) reasons.push(`artifact missing: ${wfRel}`);
+    else for (const l of LINTERS) {
+      const code = lintCodes![l.key];
+      if (code !== 0) reasons.push(`${l.name} exit ${code}`);
+    }
     const artifactChanged =
-      p.artifactHashBefore === undefined ? undefined : p.artifactHashBefore !== (await hashNow(wfRel));
+      p.artifactHashBefore === undefined ? undefined : p.artifactHashBefore !== afterHash;
     const specChanged =
-      p.specHashBefore === undefined
+      p.specHashBefore === undefined || !specRel
         ? undefined
-        : p.specHashBefore !== (await hashNow(`projects/${p.project}/${p.workflowSlug}/SPEC.md`));
+        : p.specHashBefore !== (await artifactHash(dir, specRel));
     return {
-      ok: clean,
-      status: clean ? 'done' : 'error',
+      ok: reasons.length === 0,
+      status: reasons.length === 0 ? 'done' : 'error',
       reasons,
       detail: {
-        artifactOk: true, yamlOk: true, lintCodes, idsOk: true, confinementBreaches: [], extraFiles: [],
+        artifactOk, yamlOk: artifactOk, lintCodes, idsOk: true, confinementBreaches: [], extraFiles: [],
         ...(artifactChanged === undefined ? {} : { artifactChanged }),
         ...(specChanged === undefined ? {} : { specChanged }),
       },
@@ -237,6 +251,43 @@ describe('advance-loop integration (013 D3)', () => {
     // a workflow was scaffolded for the derived slug
     assert.ok(task.workflowSlug, 'workflowSlug derived at the spec gate');
     assert.ok(task.project, 'project resolved at the spec gate (_drafts by default)');
+  });
+
+  // ── calibration: the harness itself ───────────────────────────────────────────────────────────
+  // This suite's fake `postTurnCheck` has twice been the reason a wrong thing looked right, so it is
+  // now checked the way any instrument is: reproduce a case with a known positive answer, and decline
+  // a case known to be noise. If these two go red, every verdict in this file is suspect.
+
+  test('calibration — a turn that writes nothing is an ERROR here, exactly as in production', async () => {
+    // The real check reports `artifact missing` when the file is empty/absent, and that is a HARD
+    // error. A fake that declared `artifactOk: true` would call this a clean success — the shape that
+    // let a no-op round look like a finished one.
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'x', confirmMode: 'each_step', deploy: 'none' });
+    const h = harness(dir, task, { implementNoOp: true });
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));            // ① parks
+    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // ② parks
+    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // ③ writes nothing
+
+    assert.equal(task.status, 'error', 'no artifact ⇒ hard error, not success');
+    assert.match(task.error ?? '', /artifact missing/, 'and it says which file');
+  });
+
+  test('calibration — the FOURTH linter counts, exactly as in production', async () => {
+    // `lintClean` requires all four exit codes to be 0. A fake that checked only three would return
+    // `ok: true` while `resolveImplementOutcome` read the same codes as `still_failing` — a gate with
+    // a failure flag and an empty reason list, which production cannot build.
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'x', confirmMode: 'auto', deploy: 'none' });
+    const h = harness(dir, task, {
+      lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 1 },
+    });
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    assert.notEqual(task.status, 'done', 'a dirty fourth linter cannot finish a build');
+    assert.equal(h.calls.runReport, 0, '④ never ran');
   });
 
   // ── spec 105: the measured fault an autonomous build must not sail past ───────────────────────
