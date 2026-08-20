@@ -252,6 +252,29 @@ describe('GET /api/tasks/:id/chat — read the transcript back without touching 
     await writeFile(join(runDir, 'chat.jsonl'), lines.join('\n') + '\n');
   }
 
+  /**
+   * The route writes the gap line FIRE-AND-FORGET (`void logEvent(...)`), so it answers before the
+   * append has landed. Reading straight after `inject` is a race — it passed most runs and failed
+   * roughly one in three, which is worse than failing always: a suite that is usually green teaches
+   * people to re-run instead of to look.
+   *
+   * `gapsAfter` waits for the expected count; `settled` is for the opposite claim (nothing was
+   * written), where waiting cannot prove anything and a bounded pause is the honest best.
+   */
+  const gapsAfter = async (taskId: string, want: number): Promise<Array<{ kind: string; detail?: string }>> => {
+    const deadline = Date.now() + 2000;
+    for (;;) {
+      const gaps = (await timeline(taskId)).filter((e) => e.kind === 'history_gap');
+      if (gaps.length >= want || Date.now() > deadline) return gaps;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  };
+  /** Give a would-be write time to land, THEN look — the only honest way to assert "nothing happened". */
+  const settled = async (taskId: string): Promise<Array<{ kind: string; detail?: string }>> => {
+    await new Promise((r) => setTimeout(r, 150));
+    return timeline(taskId);
+  };
+
   const timeline = async (taskId: string): Promise<Array<{ kind: string; detail?: string }>> => {
     try {
       const raw = await readFile(join(dir, `apps/builder/.runs/${taskId}/events.jsonl`), 'utf8');
@@ -316,15 +339,15 @@ describe('GET /api/tasks/:id/chat — read the transcript back without touching 
     const app = await serve();
 
     await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=5` });
-    assert.deepEqual(await timeline(task.taskId), [], 'the everyday case is SILENT — else the timeline is noise');
+    assert.deepEqual(await settled(task.taskId), [], 'the everyday case is SILENT — else the timeline is noise');
 
     await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=2` });
-    const gaps = (await timeline(task.taskId)).filter((e) => e.kind === 'history_gap');
+    const gaps = await gapsAfter(task.taskId, 1);
     assert.equal(gaps.length, 1);
     assert.equal(gaps[0].detail, 'disk=5 browser=2', 'the number three wrong diagnoses were built for lack of');
 
     await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat` }); // no ?have at all
-    assert.equal((await timeline(task.taskId)).filter((e) => e.kind === 'history_gap').length, 1, 'absent ?have infers nothing');
+    assert.equal((await settled(task.taskId)).filter((e) => e.kind === 'history_gap').length, 1, 'absent ?have infers nothing');
     await app.close();
   });
 
@@ -338,7 +361,7 @@ describe('GET /api/tasks/:id/chat — read the transcript back without touching 
     const app = await serve();
 
     await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=0` });   // first open
-    let gaps = (await timeline(task.taskId)).filter((e) => e.kind === 'history_gap');
+    let gaps = await gapsAfter(task.taskId, 1);
     assert.equal(gaps.length, 1, 'a browser holding nothing IS a gap worth recording');
     assert.equal(gaps[0].detail, 'disk=53 browser=0', 'and the detail still names the true disk total');
 
@@ -346,12 +369,12 @@ describe('GET /api/tasks/:id/chat — read the transcript back without touching 
     for (let i = 0; i < 3; i++) {
       await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=50` });
     }
-    gaps = (await timeline(task.taskId)).filter((e) => e.kind === 'history_gap');
+    gaps = (await settled(task.taskId)).filter((e) => e.kind === 'history_gap');
     assert.equal(gaps.length, 1, 'still ONE — the unreachable 3 are not a gap the browser can close');
 
     // A browser that really is behind the window still reports.
     await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=20` });
-    gaps = (await timeline(task.taskId)).filter((e) => e.kind === 'history_gap');
+    gaps = await gapsAfter(task.taskId, 2);
     assert.equal(gaps.length, 2);
     assert.equal(gaps[1].detail, 'disk=53 browser=20');
     await app.close();
@@ -365,7 +388,7 @@ describe('GET /api/tasks/:id/chat — read the transcript back without touching 
       const res = await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?${q}` });
       assert.equal(res.statusCode, 200, q);
     }
-    assert.deepEqual(await timeline(task.taskId), [], 'an unparseable count is not a disagreement');
+    assert.deepEqual(await settled(task.taskId), [], 'an unparseable count is not a disagreement');
     await app.close();
   });
 
