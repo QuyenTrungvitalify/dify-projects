@@ -217,3 +217,166 @@ describe('a build ask is recorded, so a reopened task can finish it', () => {
     assert.equal(await readLastAsk(dir, task.taskId), undefined, 'no record, but the answer was delivered');
   });
 });
+
+/**
+ * Spec 099 S1 / 101 §3.1 — GET /api/tasks/:id/chat, the read-back path.
+ *
+ * A build's Q&A lived only in localStorage, so any reason that cache went away took the conversation
+ * with it while `chat.jsonl` sat on disk beside the run. This route is the way back. What the tests
+ * below actually guard is the pair of things that make it safe rather than merely present: the hot
+ * `GET /api/tasks/:id` must not gain a byte, and the tail cut must never land mid-exchange.
+ */
+describe('GET /api/tasks/:id/chat — read the transcript back without touching the hot snapshot', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'chat-route-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  async function serve() {
+    const app = Fastify();
+    await app.register(tasksRoutes, {
+      projectsDir: dir, settingsPath: '', broadcast: () => {},
+      runners: { runTurn: seam(['ok']), runPython: async () => ({ code: 0, stdout: '', stderr: '' }) },
+    } as TasksRoutesOptions);
+    return app;
+  }
+
+  /** Write `n` exchanges straight to the transcript — no turns, so the test stays fast and hermetic. */
+  async function seedChat(taskId: string, n: number): Promise<void> {
+    const runDir = join(dir, `apps/builder/.runs/${taskId}`);
+    await mkdir(runDir, { recursive: true });
+    const lines: string[] = [];
+    for (let i = 1; i <= n; i++) {
+      lines.push(JSON.stringify({ role: 'user', text: `q${i}`, at: i * 2 }));
+      lines.push(JSON.stringify({ role: 'assistant', text: `a${i}`, at: i * 2 + 1 }));
+    }
+    await writeFile(join(runDir, 'chat.jsonl'), lines.join('\n') + '\n');
+  }
+
+  const timeline = async (taskId: string): Promise<Array<{ kind: string; detail?: string }>> => {
+    try {
+      const raw = await readFile(join(dir, `apps/builder/.runs/${taskId}/events.jsonl`), 'utf8');
+      return raw.split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    } catch {
+      return [];
+    }
+  };
+
+  test('returns every exchange for a build that has them, oldest first', async () => {
+    const task = await doneBuild(dir);
+    await seedChat(task.taskId, 3);
+    const app = await serve();
+    const res = await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat` });
+    assert.equal(res.statusCode, 200);
+    const body = res.json();
+    assert.equal(body.chat.length, 6);
+    assert.deepEqual(body.chat.map((l: { text: string }) => l.text), ['q1', 'a1', 'q2', 'a2', 'q3', 'a3']);
+    assert.equal(body.dropped, undefined, 'nothing was cut, so nothing is claimed to be');
+    await app.close();
+  });
+
+  test('a build with no transcript → an empty array, not a 404 or a null', async () => {
+    const task = await doneBuild(dir);
+    const app = await serve();
+    const res = await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat` });
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.json(), { chat: [] }, 'the caller must be able to treat "never asked" as ordinary');
+    await app.close();
+  });
+
+  test('the cap keeps the LAST 50 exchanges and reports the rest — cut on a pair boundary, never inside one', async () => {
+    const task = await doneBuild(dir);
+    await seedChat(task.taskId, 53); // the size of the run that prompted spec 099
+    const app = await serve();
+    const body = (await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat` })).json();
+
+    assert.equal(body.dropped, 3, 'the omission is stated, never silent');
+    assert.equal(body.chat.length, 100);
+    assert.equal(body.chat[0].role, 'user', 'THE POINT: a mid-pair cut would graft each answer onto the wrong question');
+    assert.equal(body.chat[0].text, 'q4');
+    assert.equal(body.chat.at(-1).text, 'a53');
+    for (let i = 0; i < body.chat.length; i += 2) {
+      assert.equal(body.chat[i].role, 'user', `line ${i} opens an exchange`);
+      assert.equal(body.chat[i + 1].role, 'assistant', `line ${i + 1} answers it`);
+    }
+    await app.close();
+  });
+
+  test('REGRESSION: the hot GET /api/tasks/:id is unchanged — no `chat` on a build, no matter what is on disk', async () => {
+    const task = await doneBuild(dir);
+    await seedChat(task.taskId, 5);
+    const app = await serve();
+    const snap = (await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}` })).json();
+    assert.equal(snap.chat, undefined, 'this snapshot is re-fetched on EVERY reconnect — it must stay light');
+    await app.close();
+  });
+
+  test('?have= disagreeing with disk writes ONE history_gap line; agreeing writes nothing', async () => {
+    const task = await doneBuild(dir);
+    await seedChat(task.taskId, 5);
+    const app = await serve();
+
+    await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=5` });
+    assert.deepEqual(await timeline(task.taskId), [], 'the everyday case is SILENT — else the timeline is noise');
+
+    await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=2` });
+    const gaps = (await timeline(task.taskId)).filter((e) => e.kind === 'history_gap');
+    assert.equal(gaps.length, 1);
+    assert.equal(gaps[0].detail, 'disk=5 browser=2', 'the number three wrong diagnoses were built for lack of');
+
+    await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat` }); // no ?have at all
+    assert.equal((await timeline(task.taskId)).filter((e) => e.kind === 'history_gap').length, 1, 'absent ?have infers nothing');
+    await app.close();
+  });
+
+  test('a capped build goes SILENT once the browser holds all it can — no line on every reopen', async () => {
+    // The gap is measured against what this response can SERVE, not against the whole file. With 53 on
+    // disk and a 50-pair window the browser can never reach 53, so comparing to the file total would
+    // find a permanent difference and write a line on EVERY reopen — burying the one occurrence that
+    // actually means something under noise it can do nothing about.
+    const task = await doneBuild(dir);
+    await seedChat(task.taskId, 53);
+    const app = await serve();
+
+    await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=0` });   // first open
+    let gaps = (await timeline(task.taskId)).filter((e) => e.kind === 'history_gap');
+    assert.equal(gaps.length, 1, 'a browser holding nothing IS a gap worth recording');
+    assert.equal(gaps[0].detail, 'disk=53 browser=0', 'and the detail still names the true disk total');
+
+    // …the client restores the 50 it was given, then reopens. And reopens. And reopens.
+    for (let i = 0; i < 3; i++) {
+      await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=50` });
+    }
+    gaps = (await timeline(task.taskId)).filter((e) => e.kind === 'history_gap');
+    assert.equal(gaps.length, 1, 'still ONE — the unreachable 3 are not a gap the browser can close');
+
+    // A browser that really is behind the window still reports.
+    await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?have=20` });
+    gaps = (await timeline(task.taskId)).filter((e) => e.kind === 'history_gap');
+    assert.equal(gaps.length, 2);
+    assert.equal(gaps[1].detail, 'disk=53 browser=20');
+    await app.close();
+  });
+
+  test('a junk ?have is ignored, not trusted — no line, no crash', async () => {
+    const task = await doneBuild(dir);
+    await seedChat(task.taskId, 5);
+    const app = await serve();
+    for (const q of ['have=abc', 'have=-1', 'have=', 'have=1e9']) {
+      const res = await app.inject({ method: 'GET', url: `/api/tasks/${task.taskId}/chat?${q}` });
+      assert.equal(res.statusCode, 200, q);
+    }
+    assert.deepEqual(await timeline(task.taskId), [], 'an unparseable count is not a disagreement');
+    await app.close();
+  });
+
+  test('CONFINEMENT: a traversal id is rejected before anything touches the filesystem', async () => {
+    const app = await serve();
+    for (const id of ['..%2F..%2FESCAPED', 'abc', '...']) {
+      const res = await app.inject({ method: 'GET', url: `/api/tasks/${id}/chat?have=1` });
+      assert.equal(res.statusCode, 400, `${id} must not reach loadTask or logEvent`);
+    }
+    const res = await app.inject({ method: 'GET', url: '/api/tasks/1786505684286/chat' });
+    assert.equal(res.statusCode, 404, 'a well-shaped id for a task that does not exist is a 404, not a 400');
+    await app.close();
+  });
+});

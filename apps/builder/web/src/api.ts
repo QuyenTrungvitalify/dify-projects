@@ -7,6 +7,7 @@
    ============================================================ */
 import type { WireTask, WireTreeProject, WireTreeTask, Seed, WireConfirmMode } from './types';
 import type { ShelfResponse } from './lib/shelf';
+import type { TranscriptLine } from './lib/ask-backfill';
 
 /** Thrown on a non-2xx response; carries the HTTP status so callers can branch (e.g. 409 busy), the
  *  `holder` taskId from a turn-collision 409 body (offer "open the running build"), and `existing` from
@@ -92,6 +93,13 @@ export const api = {
   createTask: (body: CreateTaskBody): Promise<WireTask & UploadIdx> => request('POST', '/api/tasks', body),
   /** GET /api/tasks/:id → authoritative state + artifact contents (the reconnect re-fetch, AC #22). */
   getTask: (id: string): Promise<WireTask> => request('GET', `/api/tasks/${encodeURIComponent(id)}`),
+  /** GET /api/tasks/:id/chat → the persisted ask transcript (spec 099 S1), read back when a build's
+   *  localStorage thread is gone: LRU eviction, a cleared cache, another machine. SEPARATE from getTask
+   *  on purpose — that snapshot is re-fetched on every SSE reconnect and must stay light. `have` = how
+   *  many `qa` bubbles this browser already holds; a disagreement with disk records ONE diagnostic line
+   *  server-side, which is the measurement the 099 investigation had to beg from a console paste. */
+  getTaskChat: (id: string, have: number): Promise<{ chat: TranscriptLine[]; dropped?: number }> =>
+    request('GET', `/api/tasks/${encodeURIComponent(id)}/chat?have=${have}`),
   /** POST /api/tasks/:id/confirm → advance the gate (carries the chosen action id, + slug/name at ②, or
    *  spec 036 `keepCurrent` on a `cleanup_apps` delete — delete only OLD test apps vs all). */
   confirm: (id: string, actionId: string, extra?: { slug?: string; name?: string; keepCurrent?: boolean }): Promise<WireTask> =>

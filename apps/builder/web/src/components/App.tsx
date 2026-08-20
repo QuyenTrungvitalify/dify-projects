@@ -668,7 +668,7 @@ export function App() {
                       </div>;
                     if (item.kind === 'run')
                       return <div key={item.id} className="msg msg-assistant">
-                        <Disclosure phaseKey={item.phase} running={item.running} output={item.output} stopped={item.stopped} cost={item.cost} promote={task?.kind === 'promote'} />
+                        <Disclosure phaseKey={item.phase} running={item.running} output={item.output} stopped={item.stopped} cost={item.cost} open={item.open} promote={task?.kind === 'promote'} />
                       </div>;
                     if (item.kind === 'qa')
                       return <div key={item.id} className="msg msg-assistant">

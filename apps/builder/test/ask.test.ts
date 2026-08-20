@@ -636,3 +636,104 @@ describe('askTestWithin — spec 034: fresh-seeded ④/terminal Ask', () => {
     assert.equal(resumeSeen, 'prior-sess', 'the 2nd Ask --resumes the persisted askTest session (D2)');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// GUARD (spec 099 S1b lớp 1). A BUILD ask must never broadcast `task:update`.
+//
+// This is not a style rule — a client fix depends on it. Two tabs on one build: tab B asks, tab A is
+// merely watching. Tab A receives `ask:answer` (dropped — no open bubble) and `ask:done`, and the
+// client's `applyAskDone` now publishes `thread.value` ONLY when it actually closed a bubble, so tab A
+// stays silent and cannot overwrite tab B's longer thread in localStorage.
+//
+// `task:update` would defeat that: the client's `applyTask` refreshes the open gate card's snapshot and
+// then assigns `thread.value` UNCONDITIONALLY, and its freshness guard admits an equal `rev` (`>=`).
+// So one `task:update` reaching a passive tab mid-ask re-opens the exact data loss spec 099 documents —
+// three exchanges gone, silently.
+//
+// The existing "no task:update on the normal path" assertion above is FIX-B's, and covers only
+// askWithin's clean path. This pins the property across BOTH build-ask entry points and BOTH outcomes,
+// so the guarantee cannot be eroded one branch at a time.
+describe('build ask paths never broadcast task:update (spec 099 S1b — a passive tab must stay silent)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await tmp();
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  /** A turn stub that either answers or fails, without spawning anything. */
+  const stubTurn =
+    (isError: boolean): OrchestratorRunners['runTurn'] =>
+    async (_s: ClaudeSession, _p: string, onSid?: (id: string) => void, o?: { onText?: (t: string) => void }) => {
+      onSid?.('sid-guard');
+      if (!isError) o?.onText?.('an answer');
+      return { sessionId: 'sid-guard', result: { type: 'result', is_error: isError }, isError } as TurnResult;
+    };
+
+  const assertNoTaskUpdate = (events: Broadcasted[], where: string): void => {
+    const kinds = [...new Set(events.map((e) => e.event))].join(', ');
+    assert.equal(
+      events.some((e) => e.event === 'task:update'),
+      false,
+      `${where}: a build ask must emit only ask:* events — got [${kinds}]. ` +
+        'Adding task:update here re-opens the spec 099 multi-tab clobber (see the comment above).',
+    );
+    assert.ok(events.some((e) => e.event === 'ask:done'), `${where}: the turn must still settle`);
+  };
+
+  /** A gate ask (③/②): askWithin, parked at a phase gate. */
+  async function gateTask() {
+    const task = await createTask(dir, { requirement: 'r', confirmMode: 'each_step' });
+    task.phase = 'spec';
+    task.status = 'awaiting_confirm';
+    await saveTask(dir, task);
+    const runDir = join(dir, `apps/builder/.runs/${task.taskId}`);
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, 'SPEC.md'), '# Spec\n');
+    return task;
+  }
+
+  /** A ④/terminal ask: askTestWithin, on a finished build. */
+  async function terminalTask() {
+    const task = await createTask(dir, { requirement: 'r', confirmMode: 'auto' });
+    task.phase = 'test';
+    task.status = 'done';
+    task.project = '_drafts';
+    task.workflowSlug = 'w';
+    await saveTask(dir, task);
+    await mkdir(join(dir, 'projects/_drafts/w/workflows'), { recursive: true });
+    await writeFile(join(dir, 'projects/_drafts/w/SPEC.md'), '# s');
+    await writeFile(join(dir, 'projects/_drafts/w/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    await mkdir(join(dir, `apps/builder/.runs/${task.taskId}`), { recursive: true });
+    return task;
+  }
+
+  for (const failed of [false, true]) {
+    const outcome = failed ? 'a FAILED turn' : 'a clean turn';
+
+    test(`askWithin (gate ask) — ${outcome} emits no task:update`, async () => {
+      const task = await gateTask();
+      const { ctx, events } = ctxWith(dir, stubTurn(failed));
+      assert.ok(acquireTurn(task.taskId, 'ask'));
+      try {
+        await askWithin(task, 'what does this do?', ctx);
+      } finally {
+        releaseTurn(task.taskId);
+      }
+      assertNoTaskUpdate(events, `askWithin / ${outcome}`);
+    });
+
+    test(`askTestWithin (④/terminal ask) — ${outcome} emits no task:update`, async () => {
+      const task = await terminalTask();
+      const { ctx, events } = ctxWith(dir, stubTurn(failed));
+      assert.ok(acquireTurn(task.taskId, 'ask'));
+      try {
+        await askTestWithin(task, 'what does this do?', ctx, []);
+      } finally {
+        releaseTurn(task.taskId);
+      }
+      assertNoTaskUpdate(events, `askTestWithin / ${outcome}`);
+    });
+  }
+});

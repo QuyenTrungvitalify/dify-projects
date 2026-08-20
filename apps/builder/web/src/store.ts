@@ -11,6 +11,7 @@ import { signal, computed, effect } from '@preact/signals';
 import { api, confirmModeWire, ApiError, type Attachment } from './api';
 import { serializeThread, parseThread, hydrateForReopen } from './lib/thread-persist';
 import { recoverOpenAsk } from './lib/ask-recovery';
+import { backfillFromTranscript } from './lib/ask-backfill';
 import { connectSSE, type AskAnomalyFile } from './sse-client';
 import { t as tr, tf } from './lib/i18n';
 import { notifyTransition, notifyAskDone, maybeNudge } from './lib/notify';
@@ -72,7 +73,12 @@ export type LiveThreadItem =
   | { id: string; kind: 'user'; text: string; atts?: ThreadAttachment[] }
   /** `cost` is the DEV read-out for THIS run: what the turn(s) behind this one disclosure cost. Summed
    *  across attempts, because a run that failed and retried cost you both — see `applyPhaseCost`. */
-  | { id: string; kind: 'run'; phase: WirePhase; running: boolean; output: string; stopped?: boolean; cost?: WirePhaseCost }
+  /** `open`: render the disclosure already expanded. For NOTICES that happen to travel as a `run` item —
+   *  the "restored from disk" line (spec 099 S1), and the "N earlier attempts not shown" line — whose
+   *  whole job is to be read. Collapsed, such a notice is indistinguishable from a phase's output: it
+   *  shows as a button labelled "④ Test" and says nothing until clicked, which is not self-disclosure at
+   *  all. Absent on a real phase run, so those keep collapsing exactly as before. */
+  | { id: string; kind: 'run'; phase: WirePhase; running: boolean; output: string; stopped?: boolean; cost?: WirePhaseCost; open?: boolean }
   | { id: string; kind: 'gate'; phase: WirePhase; snapshot: WireTask; resolved?: string }
   /** spec 033: a conversational Ask exchange — message↔message, never re-runs the phase. `done` flips
    *  once the backend's `ask:done` settles (streaming stops; the "Answered" chrome renders).
@@ -783,6 +789,15 @@ export function applyAskDone(d: {
       if (answer) graduateDraft.value = answer;
     }
   }
+  // Publish ONLY when there was a bubble to close. With `idx === -1` nothing below touched `items`, so
+  // assigning it would hand out a new array identity for an unchanged thread — and that is not cosmetic:
+  // the persist effect subscribes to `thread.value`, so the assignment woke it up and a tab that merely
+  // WATCHED this turn wrote its own thread to localStorage. Spec 099: two tabs on one build — tab B asks,
+  // tab A drops every `ask:answer` chunk (flushPendingAsk has nothing to land on) and then, at `ask:done`,
+  // wrote that shorter thread OVER tab B's complete one. Three exchanges were lost exactly that way.
+  //
+  // The guard must be `idx !== -1`, NOT a before/after comparison of the array: `flushPendingAsk()` above
+  // may legitimately have changed `thread.value` already, and a comparison would swallow that.
   if (idx !== -1) {
     // spec 034 §2: fold `seededFrom` onto the qa item so QaAnswer can caption a ④/terminal answer with
     // the sources it was assembled from (absent → a 033 phase Ask, no caption).
@@ -794,8 +809,8 @@ export function applyAskDone(d: {
       ...(d.cost ? { cost: d.cost } : {}),
       ...(d.sessionReset ? { sessionReset: true } : {}),
     };
+    thread.value = items;
   }
-  thread.value = items;
   // D3 layer 2 (FIX-M): layer 1 should make this unreachable — surface it verbatim via the EXISTING
   // ConfirmModal/askConfirm pattern (no new dialog component). Both buttons dismiss identically (D1):
   // there is no "keep this change" affordance — the restore already happened before this notice shows.
@@ -836,8 +851,13 @@ function persistThreadNow(): void {
   try {
     const json = serializeThread(thread.value);
     if (json === _lastPersisted) return; // unchanged slim payload (re-render with no thread change) → skip
-    _lastPersisted = json;
     localStorage.setItem(THREAD_KEY(t.taskId), json);
+    // Marked persisted only AFTER the write actually landed. It used to be set FIRST, which turned any
+    // single failure — a full quota, a private-mode block — into a PERMANENT one: the dedupe above then
+    // believed this exact payload was already stored, so every later attempt short-circuited and the
+    // thread was never written again for the rest of the session. Silently, since the catch below has
+    // always swallowed. One write may still fail; it just no longer poisons the next.
+    _lastPersisted = json;
     const idx = threadIndex().filter((x) => x !== t.taskId);
     idx.push(t.taskId);
     while (idx.length > THREAD_MAX) {
@@ -1792,7 +1812,11 @@ function buildThreadFromRuns(t: WireTask): LiveThreadItem[] {
   const head: LiveThreadItem[] = [{ id: uid(), kind: 'user', text: t.requirement }];
   if (t.runsDropped) {
     head.push({
-      id: uid(), kind: 'run', phase: t.runs![0].phase, running: false,
+      // `open`: this is a NOTICE, not a phase log. Collapsed it renders as a strip labelled with a phase
+      // number and says nothing until clicked, which is the opposite of what a "some history is missing"
+      // line is for — the reader would have to already suspect the omission to go looking for it. Same
+      // reasoning, and the same flag, as the restored-from-disk marker in `lib/ask-backfill.ts`.
+      id: uid(), kind: 'run', phase: t.runs![0].phase, running: false, open: true,
       output: `[… ${t.runsDropped} earlier attempt(s) not shown — see the exported bundle …]`,
     });
   }
@@ -1841,8 +1865,50 @@ export async function openTask(taskId: string): Promise<void> {
     task.value = null;
     applyTask(t);
     openStream(taskId);
+    void backfillAskHistory(taskId, t); // spec 099 S1 — never awaited; see the function's own notes
   } catch (e) {
     surfaceError(e);
+  }
+}
+
+/**
+ * Spec 099 S1 — put a build's lost Q&A back, from the transcript on disk.
+ *
+ * Deliberately NOT awaited by `openTask`: this is an additive repair, and the task must open at the same
+ * speed whether the request succeeds, fails, or hangs. Every failure path is a silent no-op, which is
+ * exactly today's behaviour.
+ *
+ * TWO GUARDS, both about the fact that this resolves LATER than the code that called it:
+ *
+ *  1. It reads `thread.value` at the moment it lands, never the `restored` array `openTask` computed.
+ *     By then `applyTask` has usually pushed the live gate card in; merging onto the stale array would
+ *     silently drop it.
+ *  2. It re-checks that the task under view is still the one it fetched for. Without that, switching
+ *     builds while the request is in flight staples one build's conversation onto another — data loss
+ *     worse than the bug being fixed, and invisible, because the appended bubbles look perfectly real.
+ *
+ * Consult and promote are excluded: a consult already rebuilds from this same transcript through its own
+ * path, and running both would duplicate every exchange.
+ */
+async function backfillAskHistory(taskId: string, t: WireTask): Promise<void> {
+  if (t.kind === 'consult' || t.kind === 'promote') return;
+  try {
+    const have = thread.value.filter((i) => i.kind === 'qa').length;
+    const { chat, dropped } = await api.getTaskChat(taskId, have);
+    if (!chat?.length) return;
+    if (task.value?.taskId !== taskId) return; // guard 2 — the view moved on while we were waiting
+    const merged = backfillFromTranscript(thread.value, chat, {
+      // guard 1 — the CURRENT thread
+      dropped,
+      phase: task.value.phase,
+      uid,
+    });
+    // `null` = nothing was missing. Assigning an equal array would publish a signal write for an
+    // unchanged thread and wake the persistence effect — the very shape of the multi-tab clobber that
+    // spec 099 S1b just closed. Not repeating it one layer up.
+    if (merged) thread.value = merged;
+  } catch {
+    /* offline, 404, malformed — the thread stays exactly as it was, which is today's behaviour */
   }
 }
 

@@ -397,6 +397,77 @@ describe('applyAskDone — finalizes the qa item, flips `asking`, no anomaly on 
   });
 });
 
+describe('applyAskDone — a PASSIVE tab must not republish an unchanged thread (spec 099 S1b lớp 1)', () => {
+  // THE BUG: two tabs on one build. Tab B asks; tab A also receives `ask:answer` on its own stream but
+  // has no open qa to land the chunks on (flushPendingAsk drops them), then `ask:done` arrives there too.
+  // applyAskDone used to assign `thread.value = items` UNCONDITIONALLY — a fresh array identity for a
+  // thread nothing had touched. The persist effect subscribes to `thread.value`, so that assignment woke
+  // it and tab A wrote its own SHORTER thread over tab B's complete one. Three exchanges were lost.
+  //
+  // The observable that matters is IDENTITY, not contents: the persist effect fires on the signal write,
+  // and `serializeThread` would then dedupe only if the payload happened to be byte-identical. Asserting
+  // `toBe` (same reference) is asserting the effect never ran.
+  afterEach(() => {
+    asking.value = false;
+  });
+
+  it('no open qa → thread.value keeps the SAME array reference (persist effect never wakes)', () => {
+    // A passive tab's thread: a user bubble and an ALREADY-SETTLED exchange. Nothing is open.
+    const before: LiveThreadItem[] = [
+      { id: 'u1', kind: 'user', text: 'build me a thing' },
+      qaItem('q-old', 'answered earlier', true),
+    ];
+    thread.value = before;
+
+    applyAskDone({ ok: true, cost: { inputTokens: 1 } as never, seededFrom: ['SPEC.md'] });
+
+    expect(thread.value).toBe(before); // reference identity — the whole point
+    expect(thread.value).toHaveLength(2);
+    expect((thread.value[1] as LiveThreadItem & { kind: 'qa' }).answer).toBe('answered earlier');
+  });
+
+  it('empty thread (nothing to close at all) → still the same reference', () => {
+    const before: LiveThreadItem[] = [];
+    thread.value = before;
+    applyAskDone({ ok: false });
+    expect(thread.value).toBe(before);
+  });
+
+  it('REGRESSION: an ACTIVE tab (open qa) still publishes, and still folds cost/seededFrom/sessionReset', () => {
+    const before: LiveThreadItem[] = [qaItem('q-live', 'the answer')];
+    thread.value = before;
+    asking.value = true;
+
+    applyAskDone({
+      ok: true,
+      cost: { inputTokens: 42 } as never,
+      seededFrom: ['SPEC.md', 'main.yml'],
+      sessionReset: true,
+    });
+
+    expect(thread.value).not.toBe(before); // the active tab MUST publish
+    const last = thread.value[thread.value.length - 1] as LiveThreadItem & { kind: 'qa' };
+    expect(last.done).toBe(true);
+    expect(last.cost).toEqual({ inputTokens: 42 });
+    expect(last.seededFrom).toEqual(['SPEC.md', 'main.yml']);
+    expect(last.sessionReset).toBe(true);
+    expect(asking.value).toBe(false);
+  });
+
+  it('REGRESSION: a buffered chunk with no open qa is still DROPPED (the guard adds no new swallowing)', () => {
+    // applyAskDone flushes first. With nothing open, flushPendingAsk clears the buffer and lands nothing —
+    // behaviour that predates this fix and must survive it, or a later real answer would inherit the text.
+    thread.value = [qaItem('q-settled', 'done already', true)];
+    applyAskAnswer('a straggler from the other tab');
+    applyAskDone({ ok: true });
+
+    // Buffer must be empty now: arm a genuinely open bubble and flush — nothing may land on it.
+    thread.value = [qaItem('q-next')];
+    flushPendingAsk();
+    expect((thread.value[0] as LiveThreadItem & { kind: 'qa' }).answer).toBe('');
+  });
+});
+
 describe('describeAnomalyFiles (FIX-M) — a multi-file report, not just the phase artifact', () => {
   it('renders one <c>path</c> (kind) chip per file, comma-joined', () => {
     const out = describeAnomalyFiles([

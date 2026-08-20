@@ -34,6 +34,13 @@ const RUN_ARTIFACTS = [
   'preflight.json',
   'workspace.json',
   'events.jsonl',
+  // Spec 101 §2.4: `runs.jsonl` shipped (27f0fc0) AFTER this list was written, so the dossier had been
+  // going out WITHOUT the per-attempt phase timeline — the newest evidence source, and the one that
+  // backs the "disk is a recoverable copy of the thread" claim. On the author's own machine the gap is
+  // invisible (the run dir is right there); on a tester's machine it is the difference between a
+  // diagnosable report and a guess. Same reason `events.jsonl` is here: both are machine-readable
+  // timelines, both are already redaction-safe text, neither is rendered for a human in summary.md.
+  'runs.jsonl',
 ] as const;
 
 async function readText(abs: string): Promise<string | null> {
