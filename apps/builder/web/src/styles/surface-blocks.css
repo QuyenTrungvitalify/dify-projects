@@ -1638,6 +1638,13 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* The modal is a FIXED flex column: head never moves, only .shelf-scroll scrolls. (v1: the whole
    modal scrolled + a sticky head — content slid through the modal's top-padding zone and bled
    over the title.) */
+/* Both dev overlays are a fixed head + scrolled column + fixed foot. The scrolled column reserves a
+   STABLE gutter for its scrollbar and the head/foot carry the same margin, so the ✕, the buttons, the
+   fields and every divider share ONE right edge. Before this they had three: the head/foot ran to the
+   modal's padding, the fields stopped 13px short of it behind the scrollbar, and the intro paragraph
+   stopped 15px short — visible as content hugging the left of a lopsided box.
+   9px is not a guess: `*::-webkit-scrollbar` above pins every scrollbar in this app to 9px. */
+.shelf-modal, .settings-modal { --sb-gutter: 9px; }
 .shelf-modal {
   width: min(780px, 94vw);
   max-height: 86vh;
@@ -1645,8 +1652,8 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   flex-direction: column;
   overflow: hidden;
 }
-.shelf-modal .modal-head { flex: none; gap: 8px; margin-bottom: 12px; }
-.shelf-scroll { overflow-y: auto; min-height: 0; padding-right: 4px; }
+.shelf-modal .modal-head { flex: none; gap: 8px; margin: 0 var(--sb-gutter) 12px 0; }
+.shelf-scroll { overflow-y: auto; min-height: 0; scrollbar-gutter: stable; }
 
 /* spec 083 — the dev Settings modal (same fixed-column shell as the shelf overlay). */
 .settings-modal {
@@ -1656,9 +1663,9 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   flex-direction: column;
   overflow: hidden;
 }
-.settings-modal .modal-head { flex: none; gap: 8px; margin-bottom: 12px; }
-.settings-scroll { overflow-y: auto; min-height: 0; padding-right: 4px; }
-.settings-intro { font-size: 12.5px; color: var(--tx-muted); margin: 0 2px 14px; line-height: 1.6; }
+.settings-modal .modal-head { flex: none; gap: 8px; margin: 0 var(--sb-gutter) 12px 0; }
+.settings-scroll { overflow-y: auto; min-height: 0; scrollbar-gutter: stable; }
+.settings-intro { font-size: 12.5px; color: var(--tx-muted); margin: 0 0 14px; line-height: 1.6; }
 .settings-section { margin-bottom: 18px; }
 .settings-sec-title {
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
@@ -1671,6 +1678,8 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   border-radius: 10px; padding: 9px 12px; color: var(--tx-1);
   font-family: var(--sans); font-size: 13.5px;
 }
+/* a number field holds 1–3 digits — a full-width box for "5" makes the form look mis-set */
+.settings-input[type=number] { max-width: 130px; }
 .settings-input::placeholder { color: var(--tx-faint); }
 .settings-input:focus { outline: none; border-color: var(--border-strong); }
 .settings-input:disabled { opacity: 0.5; }
@@ -1682,10 +1691,12 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .settings-foot {
   flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 10px;
-  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft);
+  margin: 14px var(--sb-gutter) 0 0; padding-top: 12px; border-top: 1px solid var(--border-soft);
 }
 .settings-saved { margin-right: auto; font-size: 12.5px; color: var(--ok); }
-.shelf-body { font-size: 12.5px; color: var(--tx-muted); padding: 2px 2px 6px; }
+/* no horizontal padding: the stray 2px pushed every tile/row 2px inside the head's ✕ and the
+   section rules, which is exactly the kind of near-miss that reads as "slightly broken" */
+.shelf-body { font-size: 12.5px; color: var(--tx-muted); padding: 2px 0 6px; }
 .shelf-loading { padding: 24px; color: var(--tx-faint); }
 .shelf-tiles { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .shelf-tile {
@@ -1830,7 +1841,12 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* spec 084 (DEV) — the Test-distill switch row in the ⚙ Settings "Local UI" section. */
 .settings-toggle-row { display: flex; align-items: center; gap: 8px; }
 .settings-toggle-row .settings-label { margin: 0; }
-.settings-toggle input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--warn); cursor: pointer; }
+/* line the help up under the LABEL (checkbox 15px + the row's 8px gap) — flush left it read as a
+   caption for the whole section rather than for the one checkbox above it */
+.settings-toggle .settings-help { padding-left: 23px; }
+/* margin:0 — the UA's own ~3px checkbox margin made the label's left edge unpredictable, and the
+   help text below is aligned to it by a fixed 23px (15px box + the row's 8px gap) */
+.settings-toggle input[type=checkbox] { width: 15px; height: 15px; margin: 0; accent-color: var(--warn); cursor: pointer; }
 
 /* spec 062 follow-up — the "Export" pill dropdown (Download / Export to Drive). */
 .export-menu-wrap { position: relative; display: inline-flex; }
