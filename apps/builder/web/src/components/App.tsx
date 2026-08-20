@@ -13,10 +13,11 @@ import { ArtifactPanel } from './ArtifactPanel';
 import { CreateProjectModal, IntakeYamlModal, ConfirmModal } from './Modal';
 import { BgTray } from './BgTray';
 import { DevPanel } from './DevPanel';
+import { PrefsMenu } from './PrefsMenu';
 import { devMode } from '../lib/dev';
 import { I } from './Icon';
 import { suggestions } from '../data';
-import { t as tr, tf, lang, toggleLang } from '../lib/i18n';
+import { t as tr, tf, lang } from '../lib/i18n';
 import { notifyOn, notifyBlocked, toggleNotify, notifyNudge, dismissNudge } from '../lib/notify';
 import * as store from '../store';
 import { type ComposerAttachment, MAX_ATTACHMENTS, isAcceptedFile, fileToDataUrl, toWire } from '../lib/attachments';
@@ -69,7 +70,6 @@ export function App() {
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem('theme', theme); } catch { /* ignore */ }
   }, [theme]);
-  const toggleTheme = (): void => setTheme((t) => (t === 'light' ? 'dark' : 'light'));
   const [draft, setDraft] = useState('');
   // spec 012/025: files attached in the composer (shared empty + dock — the two views are exclusive).
   const [files, setFiles] = useState<ComposerAttachment[]>([]);
@@ -598,8 +598,8 @@ export function App() {
                 <span className="conn-dot" title={connected ? tr('live') : tr('reconnecting')}
                   style={{ width: 2, height: 20, borderRadius: 3, background: connected ? 'var(--ok)' : 'var(--tx-faint)' }} />
               )}
-              {/* Language + light/dark are global SETTINGS, not run actions — parked at the far-right
-                  end of the header so the run's action pills (Artifact/Export/Edit/Promote) lead. */}
+              {/* Notifications + the ⚙ settings menu are global, not run actions — parked at the
+                  far-right end so the run's action pills (Artifact/Export/Edit/Promote) lead. */}
               {/* spec 088: phase-completion notification bell — enabling runs inside this click (the
                   user gesture requestPermission wants). Denied → tooltip explains the browser block.
                   While OFF (and still askable), a tiny always-on chat-bubble callout hangs under the
@@ -615,25 +615,10 @@ export function App() {
                     style={{ top: tipPos.top, right: tipPos.right }}>{tr('notifyTip')}</span>
                 )}
               </span>
-              <button className="ghost-pill" onClick={toggleLang}
-                title={lang.value === 'ja' ? tr('switchToEnglish') : tr('switchToJapanese')}
-                aria-label={tr('changeLanguage')}>
-                <I.globe />{lang.value === 'ja' ? '日本語' : 'EN'}
-              </button>
-              {/* The language the MODEL answers in — deliberately a SEPARATE pill from the 🌐 chrome
-                  toggle beside it: the two are independent (Japanese chrome + Vietnamese replies is a
-                  real combination here). Cycles auto → vi → ja; the pick is remembered forever, so a
-                  Vietnamese user sets it once. Never a composer chip — that row must stay nowrap. */}
-              <button className="ghost-pill" onClick={() => store.setChatLang(store.nextChatLang(settings.chatLang))}
-                title={tf('chatLangHint', { name: store.CHAT_LANG_NAME[settings.chatLang] || tr('chatLangAutoName') })}
-                aria-label={tf('chatLangHint', { name: store.CHAT_LANG_NAME[settings.chatLang] || tr('chatLangAutoName') })}>
-                <I.message />{settings.chatLang === 'auto' ? tr('chatLangAuto') : store.CHAT_LANG_NAME[settings.chatLang]}
-              </button>
-              <button className="ghost-pill" onClick={toggleTheme}
-                title={theme === 'light' ? tr('switchToDark') : tr('switchToLight')}
-                aria-label={theme === 'light' ? tr('switchToDark') : tr('switchToLight')}>
-                {theme === 'light' ? <I.sun /> : <I.moon />}
-              </button>
+              {/* One ⚙ dropdown in place of three pills — UI language, reply language and light/dark
+                  are all global SETTINGS, and three always-on pills crowded the run's own actions
+                  off the header. See PrefsMenu.tsx. */}
+              <PrefsMenu theme={theme} onTheme={setTheme} />
             </div>
           </div>
 

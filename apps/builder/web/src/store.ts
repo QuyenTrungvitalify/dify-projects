@@ -127,11 +127,6 @@ export type ChatLang = 'auto' | 'vi' | 'ja';
  *  i18n keys. 'auto' has no endonym; it renders from a translated label instead. */
 export const CHAT_LANG_NAME: Record<ChatLang, string> = { auto: '', vi: 'Tiếng Việt', ja: '日本語' };
 
-/** The header pill cycles through the three values in this order. */
-export function nextChatLang(cur: ChatLang): ChatLang {
-  return cur === 'auto' ? 'vi' : cur === 'vi' ? 'ja' : 'auto';
-}
-
 /** Attach the chat-language setting to an outgoing create-a-task body. Omitted while 'auto', so a user
  *  who never picks a language sends the exact same request they always did (the server reads a missing
  *  field as 'auto'). Every door that mints a task goes through here — build, chat, and distill. */

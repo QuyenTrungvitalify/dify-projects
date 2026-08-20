@@ -40,10 +40,6 @@ export function setLang(l: Lang): void {
   }
 }
 
-export function toggleLang(): void {
-  setLang(lang.value === 'ja' ? 'en' : 'ja');
-}
-
 type Dict = Record<string, string>;
 
 const EN: Dict = {
@@ -69,8 +65,13 @@ const EN: Dict = {
   exportNoDriveTitle: 'Downloaded instead',
   exportNoDriveMsg: 'No team Drive is configured (set the drop URL/secret in ⚙ Settings › Share) — the dossier zip was downloaded to this machine instead.',
   gotIt: 'Got it',
-  switchToDark: 'Switch to dark theme',
-  switchToLight: 'Switch to light theme',
+  /* the ⚙ header menu (PrefsMenu) — UI language, reply language and theme in one dropdown */
+  prefs: 'Settings',
+  prefsUiLang: 'Interface',
+  prefsReplyLang: 'Reply language',
+  prefsTheme: 'Theme',
+  themeLight: 'Light',
+  themeDark: 'Dark',
   /* spec 088 — phase-completion notifications (header bell + tab badge) */
   notifyToggle: 'Phase-completion notifications',
   notifyEnableHint: 'Notify when a phase finishes (browser notification while this tab is hidden)',
@@ -96,9 +97,6 @@ const EN: Dict = {
   updateBuildFailed: 'Build failed — contact the admin.',
   updateBusy: 'A build is running — cancel it first, then update.',
   updateTip: 'Update to the latest here',
-  switchToEnglish: 'Switch to English',
-  switchToJapanese: '日本語に切り替え',
-  changeLanguage: 'Change language',
   /* The language the MODEL answers in — distinct from the toggle above, which is the UI chrome's own
      language. Kept apart on purpose: a Japanese-chrome user may still want replies in Vietnamese. */
   chatLangAuto: 'Auto',
@@ -571,8 +569,13 @@ const JA: Dict = {
   exportNoDriveTitle: '代わりにダウンロードしました',
   exportNoDriveMsg: 'チームDriveが未設定です（⚙設定 › 共有 でドロップURL/シークレットを設定）— ダイジェストzipをこの端末にダウンロードしました。',
   gotIt: 'OK',
-  switchToDark: 'ダークテーマに切り替え',
-  switchToLight: 'ライトテーマに切り替え',
+  /* the ⚙ header menu (PrefsMenu) */
+  prefs: '設定',
+  prefsUiLang: '表示言語',
+  prefsReplyLang: '返答の言語',
+  prefsTheme: 'テーマ',
+  themeLight: 'ライト',
+  themeDark: 'ダーク',
   /* spec 088 — phase-completion notifications */
   notifyToggle: 'フェーズ完了通知',
   notifyEnableHint: 'フェーズ完了時に通知する(タブが非表示のときにブラウザ通知)',
@@ -597,9 +600,6 @@ const JA: Dict = {
   updateBuildFailed: 'ビルドに失敗しました — 管理者に連絡してください。',
   updateBusy: 'ビルド実行中です — 先にキャンセルしてから更新してください。',
   updateTip: 'ここから最新版に更新',
-  switchToEnglish: 'Switch to English',
-  switchToJapanese: '日本語に切り替え',
-  changeLanguage: '言語を変更',
   chatLangAuto: '自動',
   chatLangHint: '返答の言語: {name}（ワークフロー自体は要件の言語のまま）',
   chatLangAutoName: '入力した言語に合わせる',
