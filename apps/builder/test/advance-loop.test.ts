@@ -27,6 +27,7 @@ import { PHASES } from '../server/lib/phases.js';
 import { applyInitFake } from './helpers/scaffold-fake.js';
 import type { ClaudeSession, SessionLogger } from '../server/lib/claude-session.js';
 import type { TurnResult } from '../server/lib/turn-runner.js';
+import { artifactHash } from '../server/lib/post-turn.js';
 import type { PostTurnParams, PostTurnResult } from '../server/lib/post-turn.js';
 import type { ReportResult, ReportOpts } from '../server/lib/report.js';
 import type { ShellResult } from '../server/lib/shell.js';
@@ -41,11 +42,6 @@ interface Overrides {
   reportLintClean?: boolean;
   /** when set, the runTurn stub calls markCancelled() while running THIS phase (simulates a /cancel). */
   cancelDuringTurn?: Task['phase'];
-  /** spec 105 — what the ③ post-turn check MEASURED about the round. Left undefined by default, which
-   *  is the real "not measured" state a first Implement produces; every pre-existing test relies on
-   *  that default, so the two auto hard-stops below cannot fire in them. */
-  artifactChanged?: boolean;
-  specChanged?: boolean;
 }
 
 interface Harness {
@@ -56,6 +52,9 @@ interface Harness {
   /** spec 036 AC #9: the `task.deploy` the (stubbed) report SAW on each call — proves the Import/Skip
    *  re-report labels `selfhost` after the static→park deploy stamp (D4 Rev-A). */
   reportDeploys: string[];
+  /** spec 105: what the orchestrator asked the ③ check to measure, per call. A test asserting on a
+   *  hard-stop can then prove the measurement was REQUESTED, not merely injected. */
+  lastPostTurn: Array<{ artifactHashBefore?: string | null; specHashBefore?: string | null }>;
 }
 
 /** Spec 036: set the self-host console env for the (async) body, then restore it (node --test = one
@@ -89,6 +88,7 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
   const calls = { runTurn: 0, runReport: 0, runPython: 0, postTurnCheck: 0 };
   const events: Harness['events'] = [];
   const reportDeploys: string[] = [];
+  const lastPostTurn: Harness['lastPostTurn'] = [];
 
   const runTurn = async (
     _session: ClaudeSession,
@@ -112,20 +112,36 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
     return { code: 0, stdout: '', stderr: '' };
   };
 
-  const postTurnCheck = async (_p: PostTurnParams): Promise<PostTurnResult> => {
+  const postTurnCheck = async (p: PostTurnParams): Promise<PostTurnResult> => {
     calls.postTurnCheck++;
+    lastPostTurn.push({ artifactHashBefore: p.artifactHashBefore, specHashBefore: p.specHashBefore });
     const lintCodes: LintCodes = o.lintCodes ?? { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 };
     const clean = lintCodes.validate === 0 && lintCodes.lint_refs === 0 && lintCodes.lint_plugin_hashes === 0;
     const reasons = clean ? [] : ['lint≠0 (cap-5 reached)'];
+    // spec 105 — MEASURE, do not accept an answer. The real check hashes the file on disk and compares
+    // with the before-hash it was handed, reporting `undefined` only when no before-hash was supplied
+    // (post-turn.ts, the "not measured" contract). This fake does the same thing against the same files.
+    //
+    // It matters that this is not a knob: an earlier version of this harness let a test declare
+    // `artifactChanged: false`, which pinned a state production cannot produce (a from-scratch build
+    // always has before-hash `null` against a freshly written file) and would have let a dead branch
+    // carry a green test. A stub that can assert what the system cannot do is worse than no stub.
+    const hashNow = (rel: string): Promise<string | null> => artifactHash(dir, rel);
+    const wfRel = `projects/${p.project}/${p.workflowSlug}/workflows/${p.workflowFile}`;
+    const artifactChanged =
+      p.artifactHashBefore === undefined ? undefined : p.artifactHashBefore !== (await hashNow(wfRel));
+    const specChanged =
+      p.specHashBefore === undefined
+        ? undefined
+        : p.specHashBefore !== (await hashNow(`projects/${p.project}/${p.workflowSlug}/SPEC.md`));
     return {
       ok: clean,
       status: clean ? 'done' : 'error',
       reasons,
       detail: {
         artifactOk: true, yamlOk: true, lintCodes, idsOk: true, confinementBreaches: [], extraFiles: [],
-        // spec 105: absent unless a test opts in — see Overrides.
-        ...(o.artifactChanged === undefined ? {} : { artifactChanged: o.artifactChanged }),
-        ...(o.specChanged === undefined ? {} : { specChanged: o.specChanged }),
+        ...(artifactChanged === undefined ? {} : { artifactChanged }),
+        ...(specChanged === undefined ? {} : { specChanged }),
       },
     };
   };
@@ -162,7 +178,7 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
     },
     runners: { runTurn, runPython, runReport, postTurnCheck },
   };
-  return { ctx, calls, events, reportDeploys };
+  return { ctx, calls, events, reportDeploys, lastPostTurn };
 }
 
 function fixtureDir(): string {
@@ -214,16 +230,39 @@ describe('advance-loop integration (013 D3)', () => {
     assert.ok(task.project, 'project resolved at the spec gate (_drafts by default)');
   });
 
-  // ── spec 105: two MEASURED faults an autonomous build must not sail past ──────────────────────
-  // These sit beside the still_failing test on purpose: same shape (auto must PARK), different
-  // reason. still_failing is a gate STATE the verify assigns; these two are attributes it MEASURED
-  // about the round, and they were previously readable only on a card `auto` never shows anyone.
+  // ── spec 105: the measured fault an autonomous build must not sail past ───────────────────────
+  // Beside the still_failing test on purpose: same shape (auto must PARK), different reason.
+  // still_failing is a gate STATE the verify assigns; this is something it MEASURED about the round,
+  // previously readable only on a card `auto` never shows anyone.
+  //
+  // These build an EDIT-EXISTING task, not a from-scratch one, because that is the only configuration
+  // in which the guard can fire at all: from-scratch has no file before ③ (before-hash `null` ⇒ always
+  // "changed"). Pinning it on a from-scratch build would pin the function while leaving the system
+  // untested.
 
-  test('spec 105 — auto HARD-STOPS when the round changed nothing (never reports done for empty work)', async () => {
+  /** Put a workflow on disk the way an earlier build would have left it, and hand its slug to the
+   *  task — `localEditSeed` then resolves project+slug and ③ edits THIS file. The content is exactly
+   *  what the runTurn fake writes, so a turn that "does nothing" is byte-identical by construction. */
+  function seedExistingWorkflow(dir: string, slug: string, content?: string): void {
+    const abs = join(dir, 'projects', '_drafts', slug, 'workflows', 'main.yml');
+    mkdirSync(dirname(abs), { recursive: true });
+    // Default = byte-for-byte what `writeArtifact` produces, so a turn that "does nothing" is
+    // indistinguishable from one that never ran. Pass `content` to make the round a real change.
+    writeFileSync(abs, content ?? 'workflow:\n  graph:\n    nodes: []\n');
+  }
+
+  test('spec 105 — auto HARD-STOPS when the round left the workflow byte-identical', async () => {
     const dir = fixtureDir();
-    const task = await createTask(dir, { requirement: 'change the notify step', confirmMode: 'auto', deploy: 'none' });
-    // lint is CLEAN — the only thing wrong is that the file came out byte-identical.
-    const h = harness(dir, task, { artifactChanged: false, specChanged: false });
+    seedExistingWorkflow(dir, 'existing_wf');
+    const task = await createTask(dir, {
+      requirement: 'change the notify step',
+      workflow: 'existing_wf', // edit-existing: the file is already there
+      confirmMode: 'auto',
+      deploy: 'none',
+    });
+    // Nothing is injected: the turn rewrites the same bytes the seed already holds, so the check
+    // MEASURES an unchanged round — the production shape, reproduced rather than declared.
+    const h = harness(dir, task);
 
     await withTurn(task.taskId, () => startTask(task, h.ctx));
 
@@ -231,36 +270,47 @@ describe('advance-loop integration (013 D3)', () => {
     assert.equal(task.phase, 'implement', 'stopped AT the implement gate');
     assert.equal(task.artifactUnchanged, true, 'the fault that stopped it is the measured one');
     assert.equal(h.calls.runReport, 0, '④ never ran — a done report would have described empty work');
-    assert.notEqual(task.status, 'done');
+    // The measurement was REQUESTED by the orchestrator, not merely injected by this test: a real
+    // before-hash means the file existed before ③ (the whole reason this configuration can fire).
+    const implCall = h.lastPostTurn.at(-1)!;
+    assert.notEqual(implCall.artifactHashBefore, undefined, '③ was asked to measure the artifact');
+    assert.notEqual(implCall.artifactHashBefore, null, 'and it had a real pre-round file to measure');
   });
 
-  test('spec 105 — auto HARD-STOPS when the workflow moved but SPEC.md did not', async () => {
+  test('spec 105 — a round that really changed the workflow still runs hands-free', async () => {
     const dir = fixtureDir();
-    const task = await createTask(dir, { requirement: 'change the notify step', confirmMode: 'auto', deploy: 'none' });
-    // The turn DID edit the workflow (artifactChanged) but left the spec behind (specChanged=false)
-    // — exactly the drift the implement turn is instructed to prevent, and the only guard against it
-    // once a proposal gate is off the table (which it always is under `auto`).
-    const h = harness(dir, task, { artifactChanged: true, specChanged: false });
+    seedExistingWorkflow(dir, 'existing_wf2', 'workflow:\n  graph:\n    nodes: [{id: old}]\n');
+    const task = await createTask(dir, {
+      requirement: 'change the notify step',
+      workflow: 'existing_wf2',
+      confirmMode: 'auto',
+      deploy: 'none',
+    });
+    // Same setup, one difference: the pre-round file differs from what the turn writes, so the same
+    // measurement comes out "changed". The guard must let this through untouched.
+    const h = harness(dir, task);
 
     await withTurn(task.taskId, () => startTask(task, h.ctx));
 
-    assert.equal(task.status, 'awaiting_confirm', 'auto parked instead of advancing');
-    assert.equal(task.phase, 'implement');
-    assert.equal(task.specStale, true, 'the tripwire is what stopped it');
-    assert.equal(task.artifactUnchanged, false, 'and NOT the empty-round guard — these are two faults');
-    assert.equal(h.calls.runReport, 0, '④ never ran');
-  });
-
-  test('spec 105 — a clean, reconciled round still runs hands-free (the guards are narrow)', async () => {
-    const dir = fixtureDir();
-    const task = await createTask(dir, { requirement: 'change the notify step', confirmMode: 'auto', deploy: 'none' });
-    const h = harness(dir, task, { artifactChanged: true, specChanged: true });
-
-    await withTurn(task.taskId, () => startTask(task, h.ctx));
-
-    assert.equal(task.status, 'done', 'both measurements healthy → auto behaves exactly as before');
+    assert.equal(task.status, 'done', 'a healthy measurement changes nothing — the guard is narrow');
     assert.equal(task.phase, 'test');
     assert.equal(h.calls.runReport, 1);
+  });
+
+  test('spec 105 — a from-scratch build cannot trip the guard (before-hash is null, not undefined)', async () => {
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'build something new', confirmMode: 'auto', deploy: 'none' });
+    const h = harness(dir, task);
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    assert.equal(task.status, 'done', 'a new build still runs end to end');
+    // The mechanism the guard's comment names, pinned so a later edit cannot quietly break new builds:
+    // ③ IS measured on a from-scratch build (`null` is a value, not "not measured"), and `null` against
+    // a freshly written file is a real change. The guard is inert here by arithmetic, not by omission.
+    const implCall = h.lastPostTurn.at(-1)!;
+    assert.equal(implCall.artifactHashBefore, null, 'measured, and the file did not exist yet');
+    assert.equal(task.artifactUnchanged, false, 'so the round reads as changed');
   });
 
   test('AC #25 — a still_failing Implement HARD-STOPS auto (parks at the gate, never reaches ④)', async () => {

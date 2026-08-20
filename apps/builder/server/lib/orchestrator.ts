@@ -442,26 +442,24 @@ async function maybeAutoAdvance(
   if (task.gate?.flag === 'awaiting_import') return; // deploy is ALWAYS an explicit human decision (spec 014 D1)
   if (task.gate?.flag === 'test_result') return; // spec 032 B4: live-test verdict → human decides (auto only parks here on a fail)
   if (task.gate?.flag === 'infra_degraded') return; // spec 032 D1c: degrade-to-static → human decides
-  // The five flags above are gate STATES. The two below are MEASURED FAULTS of the round that just
-  // ran — the ③ verify computes both, and until now nothing read them here: they surfaced only on the
-  // Implement gate card, which an autonomous build never stops at. So the one mode with no human in
-  // the loop was the one mode blind to them (spec 105).
+  // The flags above are gate STATES. This one is a MEASURED FAULT of the round that just ran: the ③
+  // verify computes it, and until now nothing read it here. It surfaced only on the Implement gate
+  // card — the one card an autonomous build never shows anyone — so the single mode with no human in
+  // the loop was the mode blind to it (spec 105).
   //
-  //   artifactUnchanged — the turn finished and the workflow file is byte-identical. A human reads
-  //     that on the card and decides; unattended it would flow to ④ and report `done` for a round
-  //     that changed nothing. "Finished" and "did the work" are not the same claim.
+  // The turn finished and the workflow file came out byte-identical. Attended, a human reads that off
+  // the card and decides; unattended it flowed to ④ and reported `done`. "Finished" and "did the work"
+  // are not the same claim, and only one of them was being made.
   //
-  //   specStale — the turn was told to reconcile SPEC.md with the workflow it just edited, and did
-  //     not. This matters more here than anywhere else: a proposal gate needs a human, so it is never
-  //     offered to an autonomous build, which leaves the implement turn's own reconciliation as the
-  //     ONLY thing keeping the document true. A tripwire that is the last line of defence must not be
-  //     the one nobody reads.
+  // Where this actually bites is narrower than it looks, and worth naming so the guard is not later
+  // "simplified" away as unreachable: a from-scratch build has no file before ③ (before-hash `null`),
+  // and a Dify-seed build pulls its seed to a DIFFERENT filename, so both measure a real change every
+  // time. The configuration that can produce a byte-identical round is an edit-existing build, where
+  // `localEditSeed` points the task at a workflow that is already on disk.
   //
-  // `=== true` is load-bearing, not defensive style: both fields are three-state, and `undefined`
-  // means NOT MEASURED. A first Implement has no before-hash for either (the file did not exist; ②
-  // had just written the spec), so both read `undefined` there and a new build still runs end to end.
+  // `=== true` is load-bearing rather than defensive: the field is three-state and `undefined` means
+  // NOT MEASURED, which must never be read as a verdict.
   if (task.phase === 'implement' && task.artifactUnchanged === true) return;
-  if (task.phase === 'implement' && task.specStale === true) return;
   if (!boundaryAutoAdvances(task.confirmMode, task.phase)) return;
   // Spec 028 §5: the auto+fast structural sanity-check — the ONE config with no human gate. Before
   // auto-confirming the MERGED Spec gate, require the draft's analyze.json.features (folded onto
