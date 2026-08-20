@@ -1,8 +1,17 @@
 # Spec 105 — Không phải việc sửa nào cũng là một build mới
 
-> **Status**: **mở**, chưa implement. Lập 2026-08-20 · **VIẾT LẠI HOÀN TOÀN 2026-08-21** theo phân
-> loại hai-loại của user, sau một vòng khảo sát code 5 hướng + phản biện 3 lăng kính (FSM · UX ·
-> chi phí). Xem §0 — bản trước sai ở một chỗ nền tảng.
+> **Status**: **mở** · **S0 + S2b ĐÃ SHIP (2026-08-21)**. Lập 2026-08-20 · **VIẾT LẠI HOÀN TOÀN
+> 2026-08-21** theo phân loại hai-loại của user, sau một vòng khảo sát code 5 hướng + phản biện 3
+> lăng kính (FSM · UX · chi phí) + một vòng kiểm chứng 116 claim. Xem §0 — bản trước sai ở một chỗ
+> nền tảng.
+>
+> **S0 landed** — nhánh `spec-103-lane-b`, 5 commit: ba bài học field 2026-08-19 · làn 提案 của 103 ·
+> route `undo-fix` · ba spec đang mở. (Một `tsconfig.audit.json` scratch lọt vào commit qua một
+> `git add` theo thư mục, đã gỡ bằng commit riêng — **bài học: stage theo Ý ĐỊNH, không theo thư mục**.)
+>
+> **S2b landed** — hai hard-stop trong `maybeAutoAdvance`. Suite server **1178/1178**, typecheck sạch.
+> Cả hai đã **kiểm đỏ-khi-revert**, gỡ từng dòng ⇒ đúng **một** test đỏ mỗi lần. Test thứ ba ghim
+> chiều ngược: đo được lành ⇒ `auto` chạy hết như cũ.
 >
 > Phạm vi: **hai loại việc, hai đường khác nhau.**
 > **LOẠI 1** — sửa một workflow đã có: cơ chế **đã ship gần hết** (spec 103 Làn B); còn lại là hành vi
@@ -650,17 +659,19 @@ cầu hoàn toàn không liên quan** — không gate nào chặn.
 
 ## 6. Slices
 
-### Bắt buộc trước tất cả — **S0: commit khối spec 103** *(XS)*
+### ~~Bắt buộc trước tất cả — S0: commit khối spec 103~~ ✅ **ĐÃ SHIP 2026-08-21**
 
-khối 103 chưa commit, và 105 đụng đúng các file đó (§0.2).
+Nhánh `spec-103-lane-b`. Tách làm **ba việc khác nhau** thay vì một khối 44-file: bài học field ·
+làn 提案 · spec đang mở. Route `undo-fix` xuất hiện **giữa lúc commit** (working tree đang được sửa
+song song) — typecheck + 13 test undo xanh nên commit riêng, không bỏ rơi.
 
 ### LOẠI 1
 
 | | Việc | Cỡ |
 |---|---|---|
 | **S2** | **Loại trừ hai chiều** 自動 ↔ 提案: `canPropose` thêm mệnh đề `confirmMode !== 'auto'`; `PATCH` 409 + chip ẩn 自動 khi `specRevise`. §4.3 | XS |
-| **S2b** | **Hai hard-stop** `artifactUnchanged` + `specStale` trong `maybeAutoAdvance`. §4.3.1 | XS |
-| **S2c** | **`maybeAutoAdvance` ở đuôi `replyWithin`** + ở nhánh `apply_spec` — `自動`/`仕様のみ` chạy hết cả vòng fix. §4.3.2 · **CHỈ SAU S2b** | XS |
+| ~~**S2b**~~ ✅ | ~~Hai hard-stop `artifactUnchanged` + `specStale` trong `maybeAutoAdvance`~~ — **ĐÃ SHIP 2026-08-21** (`bf6e598`). Ba test ở `advance-loop.test.ts` đi qua **entry-point thật** (`startTask`), cả hai chiều đã kiểm đỏ-khi-revert. §4.3.1 | XS |
+| **S2c** | **`maybeAutoAdvance` ở HAI chỗ** (nhánh `phase==='test'` + đuôi `replyWithin`), kẹp `phase==='implement'`; và ở nhánh `apply_spec` — `自動`/`仕様のみ` chạy hết cả vòng fix. §4.3.2 · **S2b xong rồi; còn CHỜ S3** (nếu không, `specStale` câm trên lượt ③ tươi) | XS |
 | **S3** | **Hai** lỗ im lặng: predicate `workflowExistedBefore` thay `replyText` (3 chỗ, §4.4.1) · `snapshotDiffBase` `seedPath`→`seedAppId` (§4.4b). *(Lỗ thứ ba — guard `PUT /spec` — đã có sẵn, không phải làm)* | S |
 
 **AC S3 (đỏ-khi-revert bắt buộc)**: (a) một lượt ③ **tươi** trên workflow **đã có `main.yml`** →
