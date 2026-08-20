@@ -10,7 +10,7 @@
    jsdom has no Notification — tests install a mock on globalThis.
    ============================================================ */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { notifyOn, notifyBlocked, toggleNotify, notifyTransition, notifyAskDone, clearBadge, notifyNudge, maybeNudge, dismissNudge } from './notify';
+import { notifyOn, notifyBlocked, toggleNotify, notifyTransition, notifyAskDone, clearBadge, notifyNudge, notifyNudgeKind, maybeNudge, maybeNudgeAuto, dismissNudge } from './notify';
 import type { WireStatus, WireTask } from '../types';
 
 const BASE = 'Dify Workflow Builder';
@@ -70,6 +70,7 @@ beforeEach(() => {
   (globalThis as unknown as { Notification: unknown }).Notification = MockNotification;
   localStorage.clear();
   notifyNudge.value = false;
+  notifyNudgeKind.value = 'run'; // spec 104: the banner slot is shared — never leak a kind between tests
 });
 
 afterEach(() => {
@@ -219,5 +220,91 @@ describe('toggleNotify — permission flow', () => {
     expect(notifyOn.value).toBe(false);
     expect(notifyBlocked.value).toBe(true);
     expect(localStorage.getItem('notify')).toBe(null);
+  });
+});
+
+/* ============================================================
+   spec 104 S1 — the SECOND invitation, at the moment the user
+   chooses an unattended mode. A new `describe` beside the 088
+   block above, never edits into it (spec 104 §6).
+
+   The hole being closed: "don't show again", clicked while
+   sitting in front of a running build, used to silence the offer
+   forever — including for auto mode, a context the user had not
+   been asked about yet.
+   ============================================================ */
+describe('maybeNudgeAuto — the unattended-mode banner (spec 104 S1)', () => {
+  it('THE HOLE: a dismissed run-banner does NOT silence the auto invitation', () => {
+    maybeNudge();
+    dismissNudge(); // "don't show again", answered for the watching-a-build context
+    expect(localStorage.getItem('notifyNudgeDismissed')).toBe('1');
+    expect(notifyNudge.value).toBe(false);
+
+    maybeNudgeAuto(); // …days later, the user switches to auto
+    expect(notifyNudge.value).toBe(true);
+    expect(notifyNudgeKind.value).toBe('auto');
+  });
+
+  it('shows exactly once per machine — choosing auto again stays silent', () => {
+    maybeNudgeAuto();
+    expect(notifyNudge.value).toBe(true);
+    dismissNudge();
+    expect(notifyNudge.value).toBe(false);
+    expect(localStorage.getItem('notifyNudgeAutoDismissed')).toBe('1');
+    maybeNudgeAuto();
+    expect(notifyNudge.value).toBe(false);
+  });
+
+  it('inherits 088\'s guards: already-on, granted-but-off, and denied all stay silent', () => {
+    notifyOn.value = true;
+    maybeNudgeAuto();
+    expect(notifyNudge.value).toBe(false);
+
+    notifyOn.value = false;
+    MockNotification.permission = 'granted'; // permission held, bell switched off — 088 chose silence
+    maybeNudgeAuto();
+    expect(notifyNudge.value).toBe(false);
+
+    MockNotification.permission = 'denied'; // the bell's own tooltip explains this one
+    maybeNudgeAuto();
+    expect(notifyNudge.value).toBe(false);
+  });
+
+  it('dismissing AUTO also retires the run banner — no two invitations back to back', () => {
+    maybeNudgeAuto();
+    dismissNudge();
+    // choose auto → dismiss → send → the build starts running: must NOT re-ask
+    maybeNudge();
+    expect(notifyNudge.value).toBe(false);
+    expect(localStorage.getItem('notifyNudgeDismissed')).toBe('1');
+  });
+
+  it('enabling from the auto banner retires BOTH keys', async () => {
+    maybeNudgeAuto();
+    expect(notifyNudgeKind.value).toBe('auto');
+    MockNotification.requested = 'granted';
+    await toggleNotify();
+    expect(notifyOn.value).toBe(true);
+    expect(notifyNudge.value).toBe(false);
+    expect(localStorage.getItem('notifyNudgeDismissed')).toBe('1');
+    expect(localStorage.getItem('notifyNudgeAutoDismissed')).toBe('1');
+    notifyOn.value = false; // even switched back off, neither invitation returns
+    maybeNudgeAuto();
+    maybeNudge();
+    expect(notifyNudge.value).toBe(false);
+  });
+
+  it('never enables notifications by itself — the permission stays the user\'s to grant', () => {
+    maybeNudgeAuto();
+    expect(notifyOn.value).toBe(false);
+    expect(MockNotification.permission).toBe('default');
+    expect(MockNotification.instances).toHaveLength(0);
+  });
+
+  it('a run banner already on screen keeps its wording — first up wins the slot', () => {
+    maybeNudge();
+    expect(notifyNudgeKind.value).toBe('run');
+    maybeNudgeAuto();
+    expect(notifyNudgeKind.value).toBe('run');
   });
 });

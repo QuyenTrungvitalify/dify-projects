@@ -68,7 +68,7 @@ export async function toggleNotify(): Promise<void> {
   notifyBlocked.value = perm === 'denied';
   if (perm !== 'granted') return;
   notifyOn.value = true;
-  dismissNudge(); // enabled — the nudge banner has done its job, permanently
+  retireNudges(); // enabled — BOTH invitations have done their job, permanently (spec 104 S1)
   try {
     localStorage.setItem(PREF_KEY, '1');
   } catch { /* ignore */ }
@@ -77,29 +77,76 @@ export async function toggleNotify(): Promise<void> {
 /* ───────────────────────── enable-notifications nudge banner ───────────────────────── */
 
 const NUDGE_KEY = 'notifyNudgeDismissed';
+/** Spec 104 S1 — a SECOND key, for the auto-mode invitation, deliberately INDEPENDENT of NUDGE_KEY.
+ *  A "don't show again" clicked while sitting in front of a running build was answered for a context
+ *  the user was IN; carrying it into an unattended four-phase auto run answers a question they were
+ *  never asked. That carry-over is the whole hole this slice exists to close. */
+const NUDGE_AUTO_KEY = 'notifyNudgeAutoDismissed';
 
 /** True → App renders the slide-down "enable notifications?" banner. */
 export const notifyNudge = signal<boolean>(false);
 
-/** Called by the store whenever a build is RUNNING — the exact moment notifications become
- *  valuable. Shows the banner only while asking is still possible (permission 'default'):
- *  already-on, unsupported, granted-but-off, and denied (the bell tooltip explains that one)
- *  all stay silent, as does a past dismissal (persisted). */
-export function maybeNudge(): void {
-  if (notifyNudge.value || notifyOn.value) return;
-  if (!hasNotification() || Notification.permission !== 'default') return;
+/** WHICH invitation is on screen: picks the banner's wording, and picks which key the ✕ retires.
+ *  'run'  — spec 088: a build is running, so notifications are USEFUL.
+ *  'auto' — spec 104: the user just chose an unattended mode, so they are NECESSARY. */
+export const notifyNudgeKind = signal<'run' | 'auto'>('run');
+
+/** The gate BOTH invitations share: still off, still askable, nothing already on screen.
+ *  already-on, unsupported, granted-but-off, and denied (the bell tooltip explains that one) all stay
+ *  silent — spec 088 closed those two permission cases on purpose and spec 104 §4 does not reopen them. */
+function nudgeAskable(): boolean {
+  if (notifyNudge.value || notifyOn.value) return false;
+  return hasNotification() && Notification.permission === 'default';
+}
+
+const retired = (key: string): boolean => {
   try {
-    if (localStorage.getItem(NUDGE_KEY) === '1') return;
+    return localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+};
+
+const retire = (key: string): void => {
+  try {
+    localStorage.setItem(key, '1');
   } catch { /* ignore */ }
+};
+
+/** Called by the store whenever a build is RUNNING — the moment notifications become VALUABLE. */
+export function maybeNudge(): void {
+  if (!nudgeAskable() || retired(NUDGE_KEY)) return;
+  notifyNudgeKind.value = 'run';
   notifyNudge.value = true;
 }
 
-/** ✕ on the banner (or a successful enable): hide now and never nudge again. */
+/** Spec 104 S1 — called by the store when the user CHOOSES an unattended confirm-mode: the moment
+ *  notifications become NECESSARY (four phases, no gate to come back to; a usage limit kills the run
+ *  and nothing says so). First banner up wins — a 'run' banner already on screen is already making
+ *  the same offer, so this stays quiet rather than swapping the text under the user. */
+export function maybeNudgeAuto(): void {
+  if (!nudgeAskable() || retired(NUDGE_AUTO_KEY)) return;
+  notifyNudgeKind.value = 'auto';
+  notifyNudge.value = true;
+}
+
+/** ✕ on the banner. Retires the invitation that is ON SCREEN — ASYMMETRICALLY: dismissing the 'auto'
+ *  one also retires 'run', because declining the stronger, more specific offer leaves the weaker one
+ *  nothing new to say (and untreated they fire back-to-back: choose auto → dismiss → send → the build
+ *  runs → a second banner). The reverse must NOT hold: 'run' dismissed leaves 'auto' free to ask.
+ *  Bound straight to onClick, so it takes NO arguments (it would be handed a MouseEvent). */
 export function dismissNudge(): void {
+  const auto = notifyNudgeKind.value === 'auto';
   notifyNudge.value = false;
-  try {
-    localStorage.setItem(NUDGE_KEY, '1');
-  } catch { /* ignore */ }
+  retire(auto ? NUDGE_AUTO_KEY : NUDGE_KEY);
+  if (auto) retire(NUDGE_KEY);
+}
+
+/** Notifications are ON — neither invitation has anything left to offer, so both retire. */
+function retireNudges(): void {
+  notifyNudge.value = false;
+  retire(NUDGE_KEY);
+  retire(NUDGE_AUTO_KEY);
 }
 
 /* ───────────────────────── tab badge (title + favicon) ───────────────────────── */

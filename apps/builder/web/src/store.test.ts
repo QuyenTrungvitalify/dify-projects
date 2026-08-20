@@ -18,6 +18,7 @@ import {
   ask,
   asking,
   isFreshSnapshot,
+  isUnattendedMode,
   resetToNew,
   settings,
   splitWorkflowSetting,
@@ -25,6 +26,7 @@ import {
   thread,
 } from './store';
 import type { LiveThreadItem } from './store';
+import { notifyNudge, notifyOn, maybeNudgeAuto, dismissNudge } from './lib/notify';
 import type { WireTask, WirePhase } from './types';
 
 /** A minimal running snapshot — `status:'running'` keeps `applyTask` on the run branch, so it never
@@ -659,5 +661,81 @@ describe('applyPhaseCost — what THIS run cost', () => {
   it('a cost with no run to attach it to is dropped, not turned into a phantom run', () => {
     applyPhaseCost('implement', { totalCostUsd: 2 });
     expect(thread.value).toEqual([]);
+  });
+});
+
+/* ============================================================
+   spec 104 S1 — the unattended-mode predicate, and the regression
+   that the notification NUDGE is an offer, never a gate: turning
+   it down must not cost the user their build.
+   ============================================================ */
+describe('isUnattendedMode (spec 104 S1 — which modes run with nobody watching)', () => {
+  it('auto and spec only are unattended; each step is not', () => {
+    expect(isUnattendedMode('auto')).toBe(true);
+    // spec 104 §7 Q2: `spec only` parks once at ②, but ①→② can still die on the way there
+    expect(isUnattendedMode('spec only')).toBe(true);
+    // must accept the SAME label set as confirmModeWire (api.ts), alias included — a label only one
+    // of the two knows is a silently missed nudge
+    expect(isUnattendedMode('at spec only')).toBe(true);
+    expect(isUnattendedMode('each step')).toBe(false);
+  });
+
+  it('an unknown label is NOT treated as unattended — no nudge on a mode we cannot name', () => {
+    expect(isUnattendedMode('')).toBe(false);
+    expect(isUnattendedMode('confirm each step')).toBe(false); // the WIRE value, not the UI label
+  });
+});
+
+describe('REGRESSION: the notification nudge is an OFFER, never a gate (spec 104 S1)', () => {
+  /* jsdom has no Notification, and without one maybeNudgeAuto() no-ops — a "regression test" that
+     never enters the branch it claims to guard. Install the minimum that makes it really fire. */
+  class Noti {
+    static permission: NotificationPermission = 'default';
+    close(): void {}
+    static requestPermission(): Promise<NotificationPermission> {
+      return Promise.resolve('default');
+    }
+  }
+
+  beforeEach(() => {
+    thread.value = [];
+    resetToNew();
+    notifyNudge.value = false;
+    notifyOn.value = false;
+    localStorage.removeItem('notifyNudgeDismissed');
+    localStorage.removeItem('notifyNudgeAutoDismissed');
+    (globalThis as unknown as { Notification: unknown }).Notification = Noti;
+  });
+  afterEach(() => {
+    delete (globalThis as unknown as { Notification?: unknown }).Notification;
+    notifyNudge.value = false;
+    localStorage.removeItem('notifyNudgeDismissed');
+    localStorage.removeItem('notifyNudgeAutoDismissed');
+  });
+
+  it('the banner really fires here — and touches nothing the build depends on', () => {
+    const settingsBefore = settings.value;
+
+    maybeNudgeAuto();
+
+    expect(notifyNudge.value).toBe(true); // proves the branch ran; a jsdom no-op would be false
+    expect(notifyOn.value).toBe(false); // never turns notifications on by itself
+    expect(settings.value).toBe(settingsBefore); // never edits the build's own settings
+
+    applyTask({ ...mk('A1', 1, 'analyze'), confirmMode: 'auto' } as WireTask);
+    expect(task.value?.taskId).toBe('A1');
+    expect(task.value?.status).toBe('running');
+    expect(thread.value.some((i) => i.kind === 'run' && i.phase === 'analyze')).toBe(true);
+  });
+
+  it('turning the offer down does not cost the user the build', () => {
+    maybeNudgeAuto();
+    dismissNudge();
+    expect(notifyNudge.value).toBe(false);
+    expect(localStorage.getItem('notifyNudgeAutoDismissed')).toBe('1');
+
+    applyTask({ ...mk('A2', 1, 'analyze'), confirmMode: 'auto' } as WireTask);
+    expect(task.value?.status).toBe('running');
+    expect(thread.value.some((i) => i.kind === 'run')).toBe(true);
   });
 });

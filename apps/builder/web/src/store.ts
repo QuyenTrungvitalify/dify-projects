@@ -14,7 +14,7 @@ import { recoverOpenAsk } from './lib/ask-recovery';
 import { backfillFromTranscript } from './lib/ask-backfill';
 import { connectSSE, type AskAnomalyFile } from './sse-client';
 import { t as tr, tf } from './lib/i18n';
-import { notifyTransition, notifyAskDone, maybeNudge } from './lib/notify';
+import { notifyTransition, notifyAskDone, maybeNudge, maybeNudgeAuto } from './lib/notify';
 import type {
   WireTask,
   WireArtifacts,
@@ -1237,6 +1237,10 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
   clearErrors();
   _lastPersisted = ''; // fresh build — reset the persistence dedupe so the new task.json persists cleanly
   const s = settings.value;
+  // spec 104 S1: offer notifications HERE, before applyTask's run-nudge, so the more specific
+  // auto wording wins the single banner slot. The choice is already made at this point — waiting
+  // for the build to die is too late, and by then the user wants an answer, not an invitation.
+  if (isUnattendedMode(s.confirm)) maybeNudgeAuto();
   const userItemId = uid();
   thread.value = [{ id: userItemId, kind: 'user', text: requirement, atts: attsOf(files) }];
   task.value = null;
@@ -1783,6 +1787,16 @@ export async function cancelById(taskId: string): Promise<void> {
   void loadActive();
 }
 
+/** Spec 104 S1 — the confirm-modes that run with NOBODY WATCHING. `auto` never stops; `spec only`
+ *  stops once, at ②, and ①→② can still die on the way there. Both are the case where a silent
+ *  failure (a usage limit is the everyday one on a small plan) costs the user hours of not knowing.
+ *  Takes the composer's UI label, so notify.ts never has to learn the composer's vocabulary.
+ *  Accepts the SAME label set as `confirmModeWire` (api.ts), including its 'at spec only' alias — the
+ *  two must agree, or a label only one of them knows becomes a silently missed nudge. */
+export function isUnattendedMode(uiLabel: string): boolean {
+  return uiLabel === 'auto' || uiLabel === 'spec only' || uiLabel === 'at spec only';
+}
+
 /** Map the backend's internal confirmMode → the composer's UI label (inverse of confirmModeWire). */
 export function confirmModeLabel(mode: WireTask['confirmMode']): string {
   if (mode === 'auto') return 'auto';
@@ -1795,6 +1809,7 @@ export function confirmModeLabel(mode: WireTask['confirmMode']): string {
  *  builds inherit the choice. The open task's `confirmMode` is reflected optimistically (the chip
  *  reads it back); SSE also carries the authoritative `task:update`. */
 export async function patchConfirmMode(taskId: string, uiLabel: string): Promise<void> {
+  if (isUnattendedMode(uiLabel)) maybeNudgeAuto(); // spec 104 S1 — same decision, mid-build seam
   settings.value = { ...settings.value, confirm: uiLabel }; // future builds inherit
   try {
     const t = await api.patchTask(taskId, { confirm_mode: confirmModeWire(uiLabel) });

@@ -18,7 +18,7 @@ import { devMode } from '../lib/dev';
 import { I } from './Icon';
 import { suggestions } from '../data';
 import { t as tr, tf, lang } from '../lib/i18n';
-import { notifyOn, notifyBlocked, toggleNotify, notifyNudge, dismissNudge } from '../lib/notify';
+import { notifyOn, notifyBlocked, toggleNotify, notifyNudge, notifyNudgeKind, dismissNudge } from '../lib/notify';
 import * as store from '../store';
 import { type ComposerAttachment, MAX_ATTACHMENTS, isAcceptedFile, fileToDataUrl, toWire } from '../lib/attachments';
 import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed, NewTaskOpts } from '../types';
@@ -456,12 +456,16 @@ export function App() {
     <div className={'app' + (sbCollapsed ? ' sb-collapsed' : '')}>
       {/* spec 088: slide-down nudge — shown by maybeNudge() while a build runs and the browser
           permission is still askable. Enable runs the same bell flow (permission prompt in-click);
-          a denial flips the text to the blocked explanation (the Enable button disappears). */}
+          a denial flips the text to the blocked explanation (the Enable button disappears).
+          spec 104 S1: ONE banner slot, two invitations — `notifyNudgeKind` picks the wording
+          ('auto' = the user just chose an unattended mode) and ✕ retires the matching key. */}
       {notifyNudge.value && (
         <div className="notify-nudge" role="status">
           <I.bell className="notify-nudge-ic" />
           <span className="notify-nudge-text">
-            {notifyBlocked.value ? tr('notifyBlockedHint') : tr('notifyNudgeText')}
+            {notifyBlocked.value
+              ? tr('notifyBlockedHint')
+              : tr(notifyNudgeKind.value === 'auto' ? 'notifyNudgeAutoText' : 'notifyNudgeText')}
           </span>
           {!notifyBlocked.value && (
             <button className="btn ok" onClick={() => void toggleNotify()}>{tr('notifyNudgeEnable')}</button>

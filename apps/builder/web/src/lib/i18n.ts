@@ -82,6 +82,9 @@ const EN: Dict = {
   notifError: 'Build failed',
   notifAnswer: 'Answer ready',
   notifyNudgeText: 'A build is running — enable notifications to know the moment a phase finishes.',
+  // spec 104 S1: the auto-mode variant. Deliberately the ACCOUNT's voice, not this build's — a usage
+  // limit is account-wide, so it stops every build and every question, not just this one (spec 104 §7 Q4).
+  notifyNudgeAutoText: 'Auto mode runs all four steps without stopping. Enable notifications to know when it finishes — or stops early, like when this account hits its usage limit.',
   notifyNudgeEnable: 'Enable notifications',
   notifyNudgeDismiss: 'Don’t show again',
   notifyTip: 'Ping when a phase is done',
@@ -586,6 +589,7 @@ const JA: Dict = {
   notifError: 'ビルド失敗',
   notifAnswer: '回答完了',
   notifyNudgeText: 'ビルド実行中 — 通知を有効にすると、フェーズ完了をすぐ知らせます。',
+  notifyNudgeAutoText: '自動モードは4ステップを止まらずに実行します。通知を有効にすると、完了時や途中停止時（このアカウントが利用上限に達した場合など）にすぐ知らせます。',
   notifyNudgeEnable: '通知を有効にする',
   notifyNudgeDismiss: '今後表示しない',
   notifyTip: 'ONでフェーズ完了を通知',
