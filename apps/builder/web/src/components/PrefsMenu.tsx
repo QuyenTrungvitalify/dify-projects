@@ -78,7 +78,7 @@ export function PrefsMenu({ theme, onTheme }: { theme: Theme; onTheme: (t: Theme
     <div className="prefs-wrap">
       <button ref={btnRef} className="ghost-pill" onClick={toggle}
         title={tr('prefs')} aria-label={tr('prefs')} aria-haspopup="menu" aria-expanded={open}>
-        <I.sliders /><I.chevron className="export-caret" />
+        <I.sliders />
       </button>
       {open && (
         <>
