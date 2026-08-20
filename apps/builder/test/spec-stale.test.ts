@@ -265,11 +265,23 @@ describe('103 L0 · snapshotDiffBase — the diff base follows the fix round', (
     assert.equal(read(dir, baseRel), YAML_B);
   });
 
-  test('restart still respects the Dify-seed base (the KNOWN GAP, pinned so it stays deliberate)', async () => {
+  test('restart still respects the DIFY-SEED base (the KNOWN GAP, pinned so it stays deliberate)', async () => {
     const { dir, ymlRel } = repo('_drafts');
     writeFileSync(join(dir, ymlRel), YAML_A);
-    const seeded = { ...task('_drafts'), seedPath: 'projects/_drafts/wf/workflows/seed.yml' } as Task;
+    const seeded = { ...task('_drafts'), seedAppId: 'app-abc123' } as Task;
     await snapshotDiffBase(dir, seeded, { restart: true });
-    assert.equal(existsSync(join(dir, baseRel)), false, 'a seeded build diffs against its seed, always');
+    assert.equal(existsSync(join(dir, baseRel)), false, 'a build seeded from a Dify app diffs against that app, always');
+  });
+
+  test('but a LOCAL edit-existing build IS snapshotted — the gap was wider than its own comment (spec 105)', async () => {
+    // `localEditSeed` sets `seedPath` for every local edit-existing build, so keying the exclusion on
+    // that field swallowed a case the KNOWN GAP never claimed: a human fixing a workflow already on
+    // disk got no pre-round snapshot, hence no undo. `seedAppId` is the field that actually means
+    // "seeded from Dify".
+    const { dir, ymlRel } = repo('_drafts');
+    writeFileSync(join(dir, ymlRel), YAML_A);
+    const local = { ...task('_drafts'), seedPath: 'apps/builder/.runs/1780000000000/seed.yml' } as Task;
+    await snapshotDiffBase(dir, local, { restart: true });
+    assert.equal(existsSync(join(dir, baseRel)), true, 'the pre-round workflow is captured');
   });
 });

@@ -184,17 +184,25 @@ function newWorkflowRel(task: Task): string {
  * build began" when the human is asking "what did THIS round change" — the two diverge further with
  * every round, which is the same drift this spec fixes for `SPEC.md`, one artifact over.
  *
- * KNOWN GAP (deliberate, not an oversight): the `seedPath` early-return is untouched, so a Dify-seed
- * build still diffs against its original seed on every round. Closing that means changing
- * {@link resolveBase}'s precedence, which would also destroy the "compare with the Dify app I started
- * from" view — a separate decision with its own trade-off, not a line of this one.
+ * KNOWN GAP (deliberate, not an oversight): a build seeded from a Dify app still diffs against that
+ * app on every round. Closing THAT means changing {@link resolveBase}'s precedence, which would also
+ * destroy the "compare with the Dify app I started from" view — a separate decision with its own
+ * trade-off, not a line of this one.
+ *
+ * The gap used to be keyed on `seedPath`, which is wider than the sentence above describes: it is set
+ * for EVERY local edit-existing build too (`localEditSeed` snapshots the workflow already on disk).
+ * That silently swallowed the case the undo exists for — a human fixing a workflow they already had —
+ * and left the button permanently unavailable there while offering it on builds they had just made.
+ * Keying on `seedAppId` restores the gap to the shape its own comment claims. This does NOT change the
+ * `差分` tab in either case: {@link resolveBase} still prefers `seedPath` when one exists, so the view
+ * stays "compared with the seed"; the snapshot taken here only gives Undo something to restore.
  */
 export async function snapshotDiffBase(
   projectsDir: string,
   task: Task,
   opts?: { restart?: boolean }
 ): Promise<void> {
-  if (!task.project || !task.workflowSlug || task.seedPath) return;
+  if (!task.project || !task.workflowSlug || task.seedAppId) return;
   const snapRel = baseSnapshotRel(task.taskId);
   const snapAbs = join(projectsDir, snapRel);
   if (existsSync(snapAbs) && !opts?.restart) return;

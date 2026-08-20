@@ -81,14 +81,24 @@ describe('103 step 1 · arming a fix round', () => {
     assert.equal(fixRoundUndoable(dir, task), false);
   });
 
-  test('a Dify-seed build is NOT undoable — half a restore is worse than none', async () => {
-    // `snapshotDiffBase` no-ops for a seeded task (the seed IS the diff base), so there is no pre-round
-    // main.yml. The spec side would restore fine, and that is exactly the danger: SPEC.md would go back
-    // while the workflow stayed forward. Pinned so the seeded case stays deliberately excluded.
-    const { dir, task } = fixture({ seedPath: 'projects/_drafts/wf/workflows/seed.yml' });
+  test('a DIFY-SEED build is NOT undoable — half a restore is worse than none', async () => {
+    // `snapshotDiffBase` no-ops for a build seeded from a Dify app (that app IS the diff base), so
+    // there is no pre-round main.yml. The spec side would restore fine, and that is exactly the
+    // danger: SPEC.md would go back while the workflow stayed forward. Deliberately excluded.
+    const { dir, task } = fixture({ seedAppId: 'app-abc123' });
     await armFixRound(dir, task);
     assert.equal(existsSync(join(dir, specBaseRel(TASK_ID))), true, 'the spec half WAS taken');
     assert.equal(fixRoundUndoable(dir, task), false, 'but the pair is incomplete → refuse');
+  });
+
+  test('a LOCAL edit-existing build IS undoable — it is the case undo exists for (spec 105)', async () => {
+    // `localEditSeed` sets `seedPath` on every local edit-existing build, and the exclusion above used
+    // to key on that field — so the person most likely to want undo (someone fixing a workflow they
+    // already had) was the one who never got the button, while a workflow they had just built did.
+    // `seedPath` set, `seedAppId` absent: the snapshot must be taken.
+    const { dir, task } = fixture({ seedPath: 'apps/builder/.runs/1780000000000/seed.yml' });
+    await armFixRound(dir, task);
+    assert.equal(fixRoundUndoable(dir, task), true, 'both halves taken → the round can be taken back');
   });
 
   test('the snapshot is re-armed each round — undo takes back the LAST round, not the first', async () => {
