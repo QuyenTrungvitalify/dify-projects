@@ -9,6 +9,7 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import type { JSX } from 'preact';
 import { I } from './Icon';
 import { t as tr, tf } from '../lib/i18n';
+import { workflowRowAction } from '../lib/workflow-row';
 import { askConfirm, removeTask, removeProject, removeWorkflow } from '../store';
 import { devMode } from '../lib/dev';
 import { sidebarPageSize, pageList } from '../lib/sidebar-prefs';
@@ -71,28 +72,21 @@ async function confirmRemoveProject(project: WireTreeProject): Promise<void> {
   if (ok) void removeProject(project.id);
 }
 
-function TaskRow({ task, activeTask, onOpen, projectId, workflowSlug, synthetic, onNewTask }: {
+function TaskRow({ task, activeTask, onOpen }: {
   task: WireTreeTask;
   activeTask: string | null;
   onOpen: (taskId: string) => void;
-  projectId: string;
-  workflowSlug: string;
-  /** Spec 090 S2: parent row is the synthetic `(unsaved)` group — its slug is NOT a real workflow,
-   *  so the edit-shortcut (which would arm that phantom as the base) is hidden. × stays. */
-  synthetic?: boolean;
-  onNewTask: (opts?: NewTaskOpts) => void;
 }) {
   const active = task.id === activeTask;
   return (
     <div className={'tree-row tree-task' + (active ? ' active' : '')} onClick={() => onOpen(task.id)}>
       <span className="tw-name">{task.name}</span>
       <span className="tw-time">{task.time}</span>
-      {/* hover: edit this task's WORKFLOW — a NEW edit-existing build on it (same as the workflow-row "+").
-          Surfaced here too so it's reachable from any task row (esp. in _drafts). */}
+      {/* No edit pencil here. It used to run the SAME call as the workflow row's pencil — a new
+          conversation on the PARENT workflow, ignoring this task entirely — while sitting on a task
+          row where it read as "edit this conversation". That action does exist, but it is "Request a
+          fix" on the last card inside the conversation, not a sidebar button. */}
       <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-        {!synthetic && (
-          <button className="icon-btn" title={tr('editThisWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: workflowSlug } })}><I.edit /></button>
-        )}
         <RemoveButton taskId={task.id} name={task.name} />
       </span>
     </div>
@@ -116,16 +110,16 @@ function WorkflowRow({ wf, projectId, activeTask, active, defaultOpen, onOpen, o
   useEffect(() => {
     if (active) rowRef.current?.scrollIntoView({ block: 'nearest' });
   }, [active]);
-  // Clicking the row SELECTS this workflow: open a new task that edits it (menu-style), and expand it so
-  // its tasks show. The twist chevron alone toggles collapse (stopPropagation below).
-  // Spec 090 S2: a `synthetic` row (the `(unsaved)` bucket) is a DISPLAY group, not a workflow —
-  // clicking it used to silently arm the composer with the phantom target `_drafts/(unsaved)`,
-  // whose build died deterministically at ② (`artifact missing`; the field bundle + repro
-  // 1785916628346). For it, click = expand only; the edit/delete actions are hidden (its tasks
-  // remain openable, and each still has its own × via TaskRow).
+  // Clicking the row always expands it so its builds show; `workflowRowAction` decides what else —
+  // open the sole build, arm a new edit-build, or (a synthetic `(unsaved)` group) nothing at all.
+  // The reasoning for each branch lives with the helper. The twist chevron alone toggles collapse
+  // (stopPropagation below); a synthetic row also hides the edit/delete actions, while its tasks
+  // stay openable and keep their own × via TaskRow.
   const select = (): void => {
     setOpen(true);
-    if (!wf.synthetic) onNewTask({ baseWorkflow: { project: projectId, workflow: wf.id } });
+    const act = workflowRowAction(wf);
+    if (act.kind === 'open') onOpen(act.taskId);
+    else if (act.kind === 'newTask') onNewTask({ baseWorkflow: { project: projectId, workflow: wf.id } });
   };
   return (
     <div>
@@ -149,7 +143,7 @@ function WorkflowRow({ wf, projectId, activeTask, active, defaultOpen, onOpen, o
       {open && (
         <div className="tree-children">
           {wf.tasks.length === 0 && <div className="tree-row tree-empty"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noTasksYet')}</span></div>}
-          {wf.tasks.map((t) => <TaskRow key={t.id} task={t} activeTask={activeTask} onOpen={onOpen} projectId={projectId} workflowSlug={wf.id} synthetic={wf.synthetic} onNewTask={onNewTask} />)}
+          {wf.tasks.map((t) => <TaskRow key={t.id} task={t} activeTask={activeTask} onOpen={onOpen} />)}
         </div>
       )}
     </div>
