@@ -456,7 +456,6 @@ const EN: Dict = {
   /* sidebar */
   projects: 'Projects',
   newProject: 'New project',
-  newTaskInWorkflow: 'New task in this workflow',
   // spec 090 S2 — the synthetic `(unsaved)` group row: explain why it is not clickable-as-base.
   unsavedGroupHint: 'Drafts without a folder yet — open a task to view it. To edit a file, use Import base.',
   noTasksYet: 'no tasks yet',
@@ -937,7 +936,6 @@ const JA: Dict = {
   /* sidebar */
   projects: 'プロジェクト',
   newProject: '新規プロジェクト',
-  newTaskInWorkflow: 'このワークフローに新規タスク',
   unsavedGroupHint: 'まだフォルダのない下書きです — タスクを開いて内容を確認できます。ファイルを編集するには「ベースを取り込む」を使ってください。',
   noTasksYet: 'タスクはまだありません',
   inProgress: '進行中',

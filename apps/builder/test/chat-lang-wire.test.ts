@@ -158,6 +158,93 @@ describe('chat language — wire → task.json → prompt', () => {
     await h.app.close();
   });
 
+  // The reported failure, end to end: a build born under 日本語 kept answering Japanese to plainly
+  // Vietnamese messages, because `chat_lang` rode only the CREATE call and `task.chatLang` outranks
+  // the language of the text. The assertion is on the PROMPT the next turn received — a PATCH that
+  // lands on task.json but never reaches the pin would be worth nothing.
+  test('PATCH chat_lang re-pins the build — the language stops being frozen at creation', async () => {
+    const h = await build(dir);
+    const res = await h.app.inject({
+      method: 'POST', url: '/api/tasks',
+      payload: { requirement: 'メール要約ワークフローを作ってください', confirm_mode: 'each_step', chat_lang: 'ja' },
+    });
+    const task = res.json() as Task;
+    minted.push(task.taskId);
+    await waitFor(() => h.prompts.length > 0, 'the ① turn');
+    assert.ok(h.prompts[0].startsWith(JA_PIN), 'it starts out pinned to Japanese');
+    await waitFor(() => !buildTurnBusy(), 'the ① gate to park');
+
+    const patch = await h.app.inject({
+      method: 'PATCH', url: `/api/tasks/${task.taskId}`, payload: { chat_lang: 'vi' },
+    });
+    assert.equal(patch.statusCode, 200, patch.body);
+    assert.equal((patch.json() as Task).chatLang, 'vi', 'the patch is reflected in the response');
+    assert.equal((await loadTask(dir, task.taskId)).chatLang, 'vi', 'and persisted to task.json');
+
+    // A Japanese message on the next turn: the explicit setting must now beat the text, the same way
+    // it did in the other direction before the patch. Anything less and the setting is advisory.
+    const reply = await h.app.inject({
+      method: 'POST', url: `/api/tasks/${task.taskId}/reply`,
+      payload: { text: '入力欄の説明をもう少し詳しくしてください' },
+    });
+    assert.equal(reply.statusCode, 200, reply.body);
+    await waitFor(() => h.prompts.length > 1, 'the reply turn');
+    assert.ok(h.prompts[1].startsWith(VI_PIN), 'the NEXT turn is pinned to the patched language');
+    assert.ok(!h.prompts[1].startsWith(JA_PIN), 'the creation-time pin no longer wins');
+
+    await waitFor(() => !buildTurnBusy(), 'the reply turn to settle');
+    await h.app.close();
+  });
+
+  test('PATCH chat_lang is accepted on a TERMINAL build, whose Ask turns still read it', async () => {
+    const h = await build(dir);
+    const res = await h.app.inject({
+      method: 'POST', url: '/api/tasks',
+      payload: { requirement: 'メール要約ワークフローを作ってください', confirm_mode: 'each_step', chat_lang: 'ja' },
+    });
+    const task = res.json() as Task;
+    minted.push(task.taskId);
+    await waitFor(() => h.prompts.length > 0, 'the ① turn');
+    await waitFor(() => !buildTurnBusy(), 'the ① gate to park');
+
+    // confirm_mode is refused once a build is done; chat_lang must NOT inherit that rule — a finished
+    // build still answers questions, and answering them in a language the user turned off is the bug.
+    const t = await loadTask(dir, task.taskId);
+    t.status = 'done';
+    await writeFile(join(dir, `apps/builder/.runs/${task.taskId}/task.json`), JSON.stringify(t), 'utf8');
+
+    const patch = await h.app.inject({
+      method: 'PATCH', url: `/api/tasks/${task.taskId}`, payload: { chat_lang: 'vi' },
+    });
+    assert.equal(patch.statusCode, 200, patch.body);
+    assert.equal((await loadTask(dir, task.taskId)).chatLang, 'vi');
+
+    const refused = await h.app.inject({
+      method: 'PATCH', url: `/api/tasks/${task.taskId}`, payload: { confirm_mode: 'auto' },
+    });
+    assert.equal(refused.statusCode, 409, 'confirm_mode keeps its own terminal rule');
+    await h.app.close();
+  });
+
+  test('PATCH with an unknown chat_lang degrades to auto rather than rejecting', async () => {
+    const h = await build(dir);
+    const res = await h.app.inject({
+      method: 'POST', url: '/api/tasks',
+      payload: { requirement: '目的を整理したい', confirm_mode: 'each_step', chat_lang: 'ja' },
+    });
+    const task = res.json() as Task;
+    minted.push(task.taskId);
+    await waitFor(() => h.prompts.length > 0, 'the ① turn');
+    await waitFor(() => !buildTurnBusy(), 'the ① gate to park');
+
+    const patch = await h.app.inject({
+      method: 'PATCH', url: `/api/tasks/${task.taskId}`, payload: { chat_lang: 'klingon' },
+    });
+    assert.equal(patch.statusCode, 200, patch.body);
+    assert.equal((await loadTask(dir, task.taskId)).chatLang, 'auto', 'same rule as create');
+    await h.app.close();
+  });
+
   test('POST /api/consult: an explicit setting beats the detected language of the message', async () => {
     const h = await build(dir);
     const res = await h.app.inject({

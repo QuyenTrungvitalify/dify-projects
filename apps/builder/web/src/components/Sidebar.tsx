@@ -131,8 +131,10 @@ function WorkflowRow({ wf, projectId, activeTask, active, defaultOpen, onOpen, o
         <span className="row-actions" onClick={(e) => e.stopPropagation()}>
           {/* spec 030: workflow "+" = new task that EDITS this workflow → pre-select the COMPOUND
               {project, workflow} key (the same workflow name can exist in multiple projects). Edit glyph
-              (I.edit, "edit this workflow") vs the project "+" (I.plus). */}
-          <button className="icon-btn" title={tr('newTaskInWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: wf.id } })}><I.edit /></button>
+              (I.edit) vs the project "+" (I.plus). Labelled "Edit in a new conversation", not "New task":
+              it is technically a new task, but what the user is doing is EDITING an existing workflow,
+              and the old label hid that — it read as "start something from scratch here". */}
+          <button className="icon-btn" title={tr('editThisWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: wf.id } })}><I.edit /></button>
           {/* spec 084 follow-up — permanently delete this workflow (folder + its builds). The Build/`_drafts`
               rows are workflows, so this is the "delete a junk build" ×. */}
           <button className="icon-btn" title={tr('removeWorkflow')} aria-label={tr('removeWorkflow')}

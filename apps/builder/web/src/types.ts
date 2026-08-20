@@ -160,6 +160,10 @@ export interface WireTask {
   importedHash?: string | null;
   importedAt?: number;
   confirmMode: WireConfirmMode;
+  /** The build's own reply language ('auto' | 'vi' | 'ja'); absent on a task.json predating the field
+   *  ⇒ read as 'auto'. Live-patchable (PATCH /api/tasks/:id), so the ⚙ menu renders THIS over the
+   *  global default whenever a build is open — see lib/chat-lang.ts. */
+  chatLang?: string;
   /** spec 096: the model family alias this task's turns spawn with (`opus`/`sonnet`/`haiku`/`fable`).
    *  Absent ⇒ nothing was pinned and the CLI picks — every task created before 096 reads that way, so
    *  the composer must render "not recorded" there rather than a default. Changeable after start

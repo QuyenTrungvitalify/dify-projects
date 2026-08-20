@@ -37,6 +37,7 @@ import {
   toWireTask,
   type Task,
 } from '../state/task.js';
+import { normalizeChatLang } from '../lib/language.js';
 import { canRequestFix, computeGate } from '../lib/gate.js';
 import { difyTargets } from '../lib/dify-io.js';
 import { runLiveTest } from '../lib/live-test.js';
@@ -628,6 +629,13 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
   // Nothing technical forced the lock (`--model` is per-spawn), and the audit trail was never the
   // problem: `cost[phase].model` already records each phase separately, so a build that ran ② small and
   // ③ large reads correctly in the dossier — and cheap-①/strong-③ is worth being able to do by hand.
+  // `chat_lang` is patchable for a THIRD reason, and it is the strongest of the three: it rode only the
+  // CREATE calls, so `task.chatLang` froze the moment the build was born — and `resolveLang` ranks the
+  // explicit setting ABOVE the language of the text you just typed. A build started under 日本語 kept
+  // answering Japanese to plainly Vietnamese messages forever (observed: task 1787190372697, chatLang
+  // 'ja' with langHint 'vi'), while the header menu showed ✓Tiếng Việt. The control described nothing.
+  // Unlike confirm_mode it stays patchable on a TERMINAL build, for the same reason `model` does: a
+  // finished build still takes Ask turns, and those resolve their language off `task.chatLang`.
   // `workflow`/`deploy`/`fast` stay start-bound.
   app.patch('/api/tasks/:id', async (req, reply) => {
     const id = idOf(req);
@@ -635,8 +643,9 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // spec 096: `model` joined confirm_mode as patchable — see the note above the handler.
     const wantsConfirm = body.confirm_mode !== undefined || body.confirmMode !== undefined;
     const wantsModel = body.model !== undefined;
-    if (!wantsConfirm && !wantsModel) {
-      return reply.code(400).send({ error: 'confirm_mode or model is required' });
+    const wantsChatLang = body.chat_lang !== undefined || body.chatLang !== undefined;
+    if (!wantsConfirm && !wantsModel && !wantsChatLang) {
+      return reply.code(400).send({ error: 'confirm_mode, model or chat_lang is required' });
     }
     let task;
     try {
@@ -669,6 +678,12 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       // a mid-build switch stays auditable instead of rewriting history. An unrecognised value clears
       // the pin (back to ambient) rather than guessing — the same rule as create.
       task.model = normalizeModel(body.model);
+    }
+    if (wantsChatLang) {
+      // Takes effect from the NEXT turn: /confirm, /reply and /ask all re-load the task from disk, and
+      // each builds its language pin from `task.chatLang`. An unrecognised value normalizes to 'auto'
+      // (infer from the text) rather than being guessed at — the same rule as create.
+      task.chatLang = normalizeChatLang(body.chat_lang ?? body.chatLang);
     }
     bumpRev(task); // D5: this direct broadcast bypasses emit — bump so a stale GET can't revert confirmMode
     await saveTask(projectsDir, task);

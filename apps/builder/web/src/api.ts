@@ -144,8 +144,10 @@ export const api = {
   /** spec 084 S1.5: GET /api/promotes → the distill/promote tasks (newest first) for the sidebar's own
    *  "蒸留" section. Shows ALL (incl. done/shared) as history; excluded from /api/tree. */
   promotes: (): Promise<{ promotes: WireTreeTask[] }> => request('GET', '/api/promotes'),
-  /** PATCH /api/tasks/:id → live-patch confirm_mode on a non-terminal build (spec 010 F2; 409 if terminal). */
-  patchTask: (id: string, patch: { confirm_mode?: string; model?: string }): Promise<WireTask> =>
+  /** PATCH /api/tasks/:id → live-patch a build's settings: confirm_mode (409 once terminal — no next
+   *  boundary to honor it), or model / chat_lang (still patchable on a finished build, whose Ask turns
+   *  read both). All three 409 while THIS build's turn is running. */
+  patchTask: (id: string, patch: { confirm_mode?: string; model?: string; chat_lang?: string }): Promise<WireTask> =>
     request('PATCH', `/api/tasks/${encodeURIComponent(id)}`, patch),
   /** POST /api/tasks/:id/cancel → abandon: kill child, terminal status, release lock (AC #24). */
   cancel: (id: string): Promise<WireTask> =>

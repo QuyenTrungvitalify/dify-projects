@@ -189,12 +189,36 @@ function initialChatLang(): ChatLang {
     return 'auto';
   }
 }
+/** Set the default that FUTURE builds inherit. Persisted, unlike confirm-mode/model, because a
+ *  Vietnamese user should set this once and never again. To also move the build currently open, call
+ *  {@link patchChatLang} — the ⚙ menu routes between the two via `chatLangTarget`. */
 export function setChatLang(next: ChatLang): void {
   settings.value = { ...settings.value, chatLang: next };
   try {
     localStorage.setItem(CHAT_LANG_KEY, next);
   } catch {
     /* private mode / quota — the pick still holds for this session */
+  }
+}
+
+/**
+ * Change the reply language OF AN OPEN BUILD, and make it the default for future ones.
+ *
+ * Mirrors {@link patchConfirmMode} / {@link patchModel}: the new value is also what the next build
+ * inherits, because changing it here is a statement about what you want, not a one-off.
+ *
+ * Why a patch is needed at all: `chat_lang` used to ride only the CREATE calls, so `task.chatLang`
+ * froze when the build was born — and the server ranks that explicit setting ABOVE the language of
+ * the message you just typed. A build started under 日本語 therefore kept answering Japanese to
+ * plainly Vietnamese messages, with the menu showing ✓Tiếng Việt the whole time.
+ */
+export async function patchChatLang(taskId: string, next: ChatLang): Promise<void> {
+  setChatLang(next); // future builds inherit, and it survives a reload
+  try {
+    const t = await api.patchTask(taskId, { chat_lang: next });
+    if (task.value?.taskId === t.taskId) task.value = { ...task.value, chatLang: t.chatLang };
+  } catch (e) {
+    surfaceError(e);
   }
 }
 

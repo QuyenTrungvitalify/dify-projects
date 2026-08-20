@@ -24,6 +24,7 @@ import type { VNode } from 'preact';
 import { I } from './Icon';
 import * as store from '../store';
 import { t as tr, tf, lang, setLang } from '../lib/i18n';
+import { chatLangInForce, chatLangTarget } from '../lib/chat-lang';
 
 type Theme = 'light' | 'dark';
 
@@ -42,7 +43,17 @@ export function PrefsMenu({ theme, onTheme }: { theme: Theme; onTheme: (t: Theme
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
-  const chatLang = store.settings.value.chatLang;
+  // With a build open the menu shows and edits THAT build's reply language, not the global default —
+  // the rule the composer's Confirm chip already follows. `task.chatLang` is what the server actually
+  // resolves against, so rendering the global value here made the menu describe a setting the running
+  // conversation was not using.
+  const openTask = store.task.value;
+  const chatLang = chatLangInForce(openTask, store.settings.value.chatLang);
+  const pickChatLang = (next: store.ChatLang): void => {
+    const t = chatLangTarget(openTask);
+    if (t.kind === 'task') void store.patchChatLang(t.taskId, next);
+    else store.setChatLang(next);
+  };
 
   const place = (): void => {
     const r = btnRef.current?.getBoundingClientRect();
@@ -97,9 +108,9 @@ export function PrefsMenu({ theme, onTheme }: { theme: Theme; onTheme: (t: Theme
                 title={tf('chatLangHint', { name: store.CHAT_LANG_NAME[chatLang] || tr('chatLangAutoName') })}>
                 <I.message />{tr('prefsReplyLang')}
               </div>
-              <Row on={chatLang === 'auto'} label={tr('chatLangAuto')} onPick={() => store.setChatLang('auto')} />
-              <Row on={chatLang === 'vi'} label={store.CHAT_LANG_NAME.vi} onPick={() => store.setChatLang('vi')} />
-              <Row on={chatLang === 'ja'} label={store.CHAT_LANG_NAME.ja} onPick={() => store.setChatLang('ja')} />
+              <Row on={chatLang === 'auto'} label={tr('chatLangAuto')} onPick={() => pickChatLang('auto')} />
+              <Row on={chatLang === 'vi'} label={store.CHAT_LANG_NAME.vi} onPick={() => pickChatLang('vi')} />
+              <Row on={chatLang === 'ja'} label={store.CHAT_LANG_NAME.ja} onPick={() => pickChatLang('ja')} />
             </div>
             <div className="prefs-sec" role="group" aria-label={tr('prefsTheme')}>
               <div className="prefs-sec-title">{theme === 'light' ? <I.sun /> : <I.moon />}{tr('prefsTheme')}</div>
