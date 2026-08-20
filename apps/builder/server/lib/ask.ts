@@ -1196,9 +1196,14 @@ export function countChatPairs(lines: ConsultChatLine[]): number {
 /** How much of the seed the carried-over EXCHANGES may occupy (spec 100 S2).
  *
  *  The budget covers the Q/A text only; the two header lines that introduce it sit outside it, so the
- *  rendered block runs over by their length — `[ĐO]` **178 bytes** on the worst measured case (one
- *  oversized answer, clipped: block 4,274 B against a 4,096 B budget). Said plainly because a "4 KB
- *  budget" that silently produces 4.3 KB is the kind of small lie a later size assertion trips over.
+ *  rendered block runs over by their length. `[ĐO 2026-08-20]` across all 19 real transcripts in
+ *  `.runs/`, the largest block was **4,314 B** against this 4,096 B budget — i.e. the header costs
+ *  **under 256 B**, which is the bound to rely on rather than any one measurement (it varies with the
+ *  digits in "N earlier exchange(s)" and whether the clip clause is present; an earlier comment here
+ *  pinned 178 B from a single synthetic case and was already wrong by the next measurement).
+ *
+ *  Immaterial in context — 256 B against a seed spec 098 holds under ~16k chars — but stated, because a
+ *  "4 KB budget" that silently produces 4.3 KB is what a later size assertion trips over.
  *
  *  4 KB, the same order as {@link SPEC_INLINE_MAX}, and that alignment is the whole justification. Spec
  *  098 pressed the ENTIRE seed under ~16k chars — a budget pinned by test (ask-seed-size.test.ts) — so
