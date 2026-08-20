@@ -1,4 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": { "outDir": "/private/tmp/claude-502/-Users-quyenbt-Desktop-MyProjects-dify-projects/7ea12860-73d2-4b1b-8514-cd47208c8aff/scratchpad/rebuild" }
-}
