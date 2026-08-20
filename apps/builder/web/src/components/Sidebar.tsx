@@ -244,11 +244,21 @@ function ActiveSection({ active, activeTask, onOpen, onCancel }: {
   };
   return (
     <div className="sb-active">
-      <div className="tree-row tree-section" style={{ fontSize: 10, letterSpacing: '.06em', color: 'var(--tx-faint)', textTransform: 'uppercase', cursor: 'default' }}>
-        {tr('inProgress')}
+      {/* Same heading card as Chat / 蒸留 / Build, minus the "+" — nothing is added here directly, so
+          it is a plain div rather than a button. It used to be a bare 10px uppercase label sitting at
+          the far left while every other heading was a card 36px in, which is what made this block read
+          as belonging to a different design. */}
+      <div className="sb-section-btn sb-section-static">
+        <span className="sb-section-label"><I.clock />{tr('inProgress')}</span>
       </div>
       <CollapsibleList items={active} render={(t) => (
         <div key={t.id} className={'tree-row tree-task tree-flat' + (t.id === activeTask ? ' active' : '')} onClick={() => onOpen(t.id)}>
+          {/* The lead glyph the other flat lists have (💬 chat, ✨ distill). It also carries state the
+              row's text already names: a live turn spins, a build parked at a gate shows the clock —
+              "in progress" covers both, but only one of them is actually working right now. */}
+          <span className="tw-ic">
+            {t.status === 'awaiting_confirm' ? <I.clock /> : <span className="spin sb-row-spin" />}
+          </span>
           <span className="tw-name">{t.name}</span>
           <span className="tw-time">{activeHint(t.status)}</span>
           <span className="row-actions" onClick={(e) => e.stopPropagation()}>

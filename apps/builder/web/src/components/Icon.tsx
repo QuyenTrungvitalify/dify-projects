@@ -55,6 +55,9 @@ export const I: Record<string, Glyph> = {
   sliders:    (p) => <Svg {...p}><path d="M4 8h10M18 8h2M4 16h2M10 16h10" /><circle cx="16" cy="8" r="2" /><circle cx="8" cy="16" r="2" /></Svg>,
   spark:      (p) => <Svg {...p}><path d="M12 4l1.6 5.4L19 11l-5.4 1.6L12 18l-1.6-5.4L5 11l5.4-1.6z" /></Svg>,
   chart:      (p) => <Svg {...p}><path d="M4 20h16M7 20v-6M12 20V9M17 20v-4" /></Svg>,
+  // 進行中: a build in flight — either a live turn or one parked at a gate. A clock covers both
+  // ("this is not finished"), which a spinner alone would not: a parked build is waiting for YOU.
+  clock:      (p) => <Svg {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7.5V12l3.2 2" /></Svg>,
   sun:        (p) => <Svg {...p}><circle cx="12" cy="12" r="4" /><path d="M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M3 12h2M19 12h2M5.6 18.4l1.4-1.4M17 7l1.4-1.4" /></Svg>,
   moon:       (p) => <Svg {...p}><path d="M20 14.5A8 8 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5z" /></Svg>,
   globe:      (p) => <Svg {...p}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.5 3.8 5.7 3.8 9s-1.3 6.5-3.8 9c-2.5-2.5-3.8-5.7-3.8-9s1.3-6.5 3.8-9z" /></Svg>,

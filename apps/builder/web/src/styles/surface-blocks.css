@@ -319,6 +319,9 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .sb-section-btn:first-child { margin-top: 2px; }
 .sb-section-btn:hover { background: var(--bg-elevated-2); border-color: var(--border-strong); }
+/* 進行中 uses the same card with nothing to add — so it must not offer the hover affordance of one. */
+.sb-section-static { cursor: default; }
+.sb-section-static:hover { background: var(--bg-elevated); border-color: var(--border); }
 .sb-section-btn .sb-section-label { display: flex; align-items: center; gap: 8px; }
 .sb-section-btn .sb-section-label svg { width: 15px; height: 15px; color: var(--tx-2); }
 .sb-section-plus { width: 15px; height: 15px; color: var(--tx-3); }
@@ -341,10 +344,6 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   transition: background 0.12s, color 0.12s;
 }
 .tree-row:hover { background: var(--bg-elevated); }
-
-/* section label ("In progress" etc.) — base .tree-row has no padding, so without this the text
-   hugs the edge of its hover highlight. Symmetric padding gives the highlight breathing room. */
-.tree-section { padding: 7px 10px; }
 
 /* level 1: project (group label) */
 .tree-project { padding: 7px 8px 7px 9px; margin-top: 6px; }
@@ -375,10 +374,9 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
    right precisely because its top-level rows already landed on the heading's column; nothing else
    did. Every row now sits on that column, so the eye follows one line the whole way down.
 
-   Two paddings because the leading glyph differs, not because the levels do: a Chat/蒸留 row fills
-   the lead column with its own icon, a 進行中 row has no glyph and must span the column itself. */
+   ONE rule for all three flat sections, because all three fill the lead column with their own icon:
+   💬 chat, ✨ distill, and 進行中's clock/spinner. */
 .tree-flat { padding-left: 14px; }            /* 14 + icon 15 + gap 8 → text at 47 */
-.sb-active .tree-flat { padding-left: 37px; } /* no glyph → the padding IS the column */
 /* the "nothing here yet" placeholders sit in a section, so they belong on the same column; the ones
    nested INSIDE a workflow (`.tree-children`) are a level deeper and keep their own indent */
 .sb-scroll > .tree-empty { padding: 6px 10px 6px 37px; }
@@ -399,13 +397,12 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   content: ""; position: absolute; left: 24px; top: 50%; transform: translateY(-50%);
   width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
 }
-/* On a Chat/蒸留 row that lead column holds the row's own icon (measured: dot 26–31px, icon 24–39px —
+/* On a flat row that lead column holds the row's own icon (measured: dot 26–31px, icon 24–39px —
    the dot landed inside the glyph), so there the icon takes the job over by tinting, exactly as a
    selected project row already tints its folder. */
 .tree-flat.active::before { display: none; }
 .tree-flat.active .tw-ic { color: var(--accent); }
-/* 進行中 rows carry no icon, so their dot comes back. */
-.sb-active .tree-flat.active::before { display: block; }
+
 
 /* menu-style highlight for the SELECTED project / workflow row (the active context or "+"-preselection).
    An accent bar on the left edge reads as "this is the selected menu item" without competing with the
@@ -424,7 +421,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .tw-twist { width: 13px; height: 13px; flex-shrink: 0; display: grid; place-items: center; transition: transform 0.18s; }
 .tw-twist.open { transform: rotate(90deg); }
 .tw-twist svg { width: 11px; height: 11px; }
-.tw-ic { width: 15px; height: 15px; flex-shrink: 0; color: var(--tx-faint); }
+/* grid-centred because the column holds either a 15px svg or the smaller ring spinner, and the text
+   column must not shift between them */
+.tw-ic { width: 15px; height: 15px; flex-shrink: 0; color: var(--tx-faint); display: grid; place-items: center; }
+.sb-row-spin { width: 12px; height: 12px; border-width: 1.5px; }
 .tw-ic svg { width: 100%; height: 100%; }
 .tw-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
