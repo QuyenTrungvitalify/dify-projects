@@ -970,21 +970,34 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
             so this whole block disappears and only the spacer + attach + send remain. spec 082: the build
             chips also hide while the Mode chip says consult — meaningless for a chat. */}
         {settings && onSettings && mode !== 'consult' && (<>
-        <SettingSelect mono shrink icon={<I.sliders style={{ width: 12, height: 12 }} />} label={tr('workflow')}
-          value={settings.workflow} options={workflowOpts} onChange={(v) => onSettings({ workflow: v })}
-          disabled={lockStartBound} title={tr('workflowFixed')} />
+        {/* The two START-BOUND chips, shown only where they can still decide something — the new-task
+            surface. `lockStartBound` is passed unconditionally by the conversation composer, not tied
+            to `busy`, so in a conversation these were disabled for the whole life of every build: a
+            control you can never operate, which this codebase elsewhere calls a lying control.
+            Workflow was also near-constant there — 20 of 22 recorded builds are from-scratch, so it
+            sat saying "none (new)", i.e. that the build is based on nothing. Neither fact is lost:
+            an edit-existing build names its base in the header crumb (`runContextCrumb` uses
+            `task.workflow` as the leaf) and highlights it in the sidebar, and fast-build is a property
+            of the run, recorded with the run's own facts. */}
+        {!lockStartBound && (
+          <SettingSelect mono shrink icon={<I.sliders style={{ width: 12, height: 12 }} />} label={tr('workflow')}
+            value={settings.workflow} options={workflowOpts} onChange={(v) => onSettings({ workflow: v })}
+            title={tr('workflowFixed')} />
+        )}
         <SettingSelect label={tr('confirm')} value={settings.confirm}
           options={[{ v: 'each step', l: tr('eachStep') }, { v: 'spec only', l: tr('specOnly') }, { v: 'auto', l: tr('auto') }]}
           onChange={(v) => onSettings({ confirm: v })}
           disabled={lockConfirm} title={tr('confirmModeHint')} />
-        {/* spec 028: ⚡ Fast build — start-bound, from-scratch only (disabled when an existing workflow is
-            chosen; the backend also force-offs on seed/slug). spec 036: the Deploy + Test chips were
-            removed here — deploy/test are decided at the test gate from reachable creds (difyTargets),
-            not declared up front. Row is now Workflow · Confirm · Fast build. */}
-        <SettingSelect label={tr('fast')} value={settings.fast ? 'on' : 'off'}
-          options={[{ v: 'off', l: tr('fastOff') }, { v: 'on', l: tr('fastOn') }]}
-          onChange={(v) => onSettings({ fast: v === 'on' })}
-          disabled={lockStartBound || settings.workflow !== 'none'} title={tr('fastHint')} />
+        {/* spec 028: ⚡ Fast build — from-scratch only (disabled when an existing workflow is chosen;
+            the backend also force-offs on seed/slug). spec 036: the Deploy + Test chips were removed
+            here — deploy/test are decided at the test gate from reachable creds (difyTargets), not
+            declared up front. */}
+        {!lockStartBound && (
+          <SettingSelect label={tr('fast')} value={settings.fast ? 'on' : 'off'}
+            options={[{ v: 'off', l: tr('fastOff') }, { v: 'on', l: tr('fastOn') }]}
+            onChange={(v) => onSettings({ fast: v === 'on' })}
+            disabled={settings.workflow !== 'none'} title={tr('fastHint')} />
+        )}
         </>)}
         <span className="spacer" />
         {onAddFiles && (
