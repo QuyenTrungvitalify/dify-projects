@@ -42,6 +42,10 @@ interface Overrides {
   reportLintClean?: boolean;
   /** when set, the runTurn stub calls markCancelled() while running THIS phase (simulates a /cancel). */
   cancelDuringTurn?: Task['phase'];
+  /** spec 105 — the ③ turn looks at the workflow and writes NOTHING: the agent decided no change was
+   *  needed. Models what the AGENT did, never what the check reports — the measurement stays derived
+   *  from the files, so this cannot manufacture a verdict the system could not reach on its own. */
+  implementNoOp?: boolean;
 }
 
 interface Harness {
@@ -74,14 +78,19 @@ async function withDifyEnv<T>(fn: () => Promise<T>): Promise<T> {
 
 /** Write the artifact a real turn would produce for the task's CURRENT phase, so the (real) ①/②
  *  verify (artifact-exists + JSON + confinement) passes; ③ verify is the stubbed postTurnCheck. */
-function writeArtifact(task: Task, dir: string): void {
+function writeArtifact(task: Task, dir: string, o: Overrides, nth: number): void {
   const phase = PHASES.find((p) => p.id === task.phase)!;
   const rel = phase.artifactRel(task);
   const abs = join(dir, rel);
   mkdirSync(dirname(abs), { recursive: true });
-  if (task.phase === 'analyze') writeFileSync(abs, '{"seed": null, "summary": "ok"}');
-  else if (task.phase === 'spec') writeFileSync(abs, '# SPEC\nbuild it.\n');
-  else writeFileSync(abs, 'workflow:\n  graph:\n    nodes: []\n');
+  if (task.phase === 'analyze') { writeFileSync(abs, '{"seed": null, "summary": "ok"}'); return; }
+  if (task.phase === 'spec') { writeFileSync(abs, '# SPEC\nbuild it.\n'); return; }
+  // spec 105 — a fix round CHANGES the workflow, so the bytes must differ per implement turn. This
+  // wrote a constant before, which made every /reply round measure as "unchanged": harmless while
+  // nothing read that, and a trap the moment something does. The tests here say "main.yml is actually
+  // edited"; now that is true rather than merely asserted.
+  if (o.implementNoOp) return; // the agent read the workflow and changed nothing
+  writeFileSync(abs, `workflow:\n  graph:\n    nodes: []\n# round ${nth}\n`);
 }
 
 function harness(dir: string, task: Task, o: Overrides = {}): Harness {
@@ -100,7 +109,7 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
     // NB: we deliberately don't invoke `_onSessionId` — a real turn fires it on the init event, well
     // before the result; calling it synchronously here would race the awaited post-turn saveTask on
     // the shared task.json.tmp path. The session id is still persisted below (from the return value).
-    writeArtifact(task, dir);
+    writeArtifact(task, dir, o, calls.runTurn);
     return { sessionId: `sess-${task.phase}`, result: { type: 'result', is_error: false }, isError: false };
   };
 
@@ -241,14 +250,12 @@ describe('advance-loop integration (013 D3)', () => {
   // untested.
 
   /** Put a workflow on disk the way an earlier build would have left it, and hand its slug to the
-   *  task — `localEditSeed` then resolves project+slug and ③ edits THIS file. The content is exactly
-   *  what the runTurn fake writes, so a turn that "does nothing" is byte-identical by construction. */
-  function seedExistingWorkflow(dir: string, slug: string, content?: string): void {
+   *  task — `localEditSeed` then resolves project+slug and ③ edits THIS file. This is what makes the
+   *  guard reachable at all: a from-scratch build has no pre-round file to compare against. */
+  function seedExistingWorkflow(dir: string, slug: string): void {
     const abs = join(dir, 'projects', '_drafts', slug, 'workflows', 'main.yml');
     mkdirSync(dirname(abs), { recursive: true });
-    // Default = byte-for-byte what `writeArtifact` produces, so a turn that "does nothing" is
-    // indistinguishable from one that never ran. Pass `content` to make the round a real change.
-    writeFileSync(abs, content ?? 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(abs, 'workflow:\n  graph:\n    nodes: [{id: existing}]\n');
   }
 
   test('spec 105 — auto HARD-STOPS when the round left the workflow byte-identical', async () => {
@@ -260,9 +267,10 @@ describe('advance-loop integration (013 D3)', () => {
       confirmMode: 'auto',
       deploy: 'none',
     });
-    // Nothing is injected: the turn rewrites the same bytes the seed already holds, so the check
-    // MEASURES an unchanged round — the production shape, reproduced rather than declared.
-    const h = harness(dir, task);
+    // The turn runs and writes nothing — the agent looked and decided no change was needed. Nothing
+    // about the VERDICT is injected: the check hashes the same file before and after and measures an
+    // unchanged round itself.
+    const h = harness(dir, task, { implementNoOp: true });
 
     await withTurn(task.taskId, () => startTask(task, h.ctx));
 
@@ -279,15 +287,15 @@ describe('advance-loop integration (013 D3)', () => {
 
   test('spec 105 — a round that really changed the workflow still runs hands-free', async () => {
     const dir = fixtureDir();
-    seedExistingWorkflow(dir, 'existing_wf2', 'workflow:\n  graph:\n    nodes: [{id: old}]\n');
+    seedExistingWorkflow(dir, 'existing_wf2');
     const task = await createTask(dir, {
       requirement: 'change the notify step',
       workflow: 'existing_wf2',
       confirmMode: 'auto',
       deploy: 'none',
     });
-    // Same setup, one difference: the pre-round file differs from what the turn writes, so the same
-    // measurement comes out "changed". The guard must let this through untouched.
+    // Same setup, one difference: the turn actually writes, so the same measurement comes out
+    // "changed". The guard must let this through untouched.
     const h = harness(dir, task);
 
     await withTurn(task.taskId, () => startTask(task, h.ctx));
