@@ -248,7 +248,7 @@ function ActiveSection({ active, activeTask, onOpen, onCancel }: {
         {tr('inProgress')}
       </div>
       <CollapsibleList items={active} render={(t) => (
-        <div key={t.id} className={'tree-row tree-task' + (t.id === activeTask ? ' active' : '')} onClick={() => onOpen(t.id)}>
+        <div key={t.id} className={'tree-row tree-task tree-flat' + (t.id === activeTask ? ' active' : '')} onClick={() => onOpen(t.id)}>
           <span className="tw-name">{t.name}</span>
           <span className="tw-time">{activeHint(t.status)}</span>
           <span className="row-actions" onClick={(e) => e.stopPropagation()}>
@@ -302,7 +302,7 @@ function ConsultRow({ consult, activeTask, onOpen }: {
   onOpen: (taskId: string) => void;
 }) {
   return (
-    <div className={'tree-row tree-task' + (consult.id === activeTask ? ' active' : '')} onClick={() => onOpen(consult.id)}>
+    <div className={'tree-row tree-task tree-flat' + (consult.id === activeTask ? ' active' : '')} onClick={() => onOpen(consult.id)}>
       <span className="tw-ic"><I.message /></span>
       <span className="tw-name">{consult.name}</span>
       <span className="tw-time">{consult.time}</span>
@@ -320,7 +320,7 @@ function PromoteRow({ promote, activeTask, onOpen }: {
   onOpen: (taskId: string) => void;
 }) {
   return (
-    <div className={'tree-row tree-task' + (promote.id === activeTask ? ' active' : '')} onClick={() => onOpen(promote.id)}>
+    <div className={'tree-row tree-task tree-flat' + (promote.id === activeTask ? ' active' : '')} onClick={() => onOpen(promote.id)}>
       <span className="tw-ic"><I.spark /></span>
       <span className="tw-name">{promote.name}</span>
       <span className="tw-time">{promote.time}</span>

@@ -356,9 +356,32 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .tree-workflow { padding: 6px 8px 6px 16px; }
 .tree-workflow .tw-name { color: var(--tx-2); font-size: 12.5px; font-family: var(--mono); letter-spacing: -0.01em; }
 
-/* level 3: task — tighter left indent (was 44px) for more title width; still steps in from the
-   workflow above so the nesting reads. */
-.tree-task { padding: 6px 10px 6px 30px; }
+/* level 3: task — flush with the workflow above it rather than stepped in. The step used to be
+   30px, which put the child's title at 40px and its PARENT's at 47 — the indent ran backwards, and
+   only the parent's twist chevron kept the nesting legible. Rather than step the child further right
+   (it carries the longest titles in the sidebar and would lose 23px of them), it joins the one column
+   everything else uses. What still marks the parent: its twist, its mono title, and the child's own
+   right-hand time column. */
+.tree-task { padding: 6px 10px 6px 37px; }
+
+/* ── ONE text column down the sidebar ────────────────────────────────────────────────────────────
+   `.tree-task`'s indent is a NESTING indent: it says "something above me contains me". The 進行中 /
+   Chat / 蒸留 sections are flat lists — nothing contains their rows — so they were paying for a
+   hierarchy they do not have, and the icon rows paid twice: 30px of phantom nesting plus a 15+8px
+   glyph column put their titles 17px to the RIGHT of their own section heading.
+
+   Measured from the sidebar's left edge, before: section heading 46 · Build's workflow rows 47 ·
+   Chat/蒸留 63 · 進行中 40 · a build under a workflow 40 · the empty-state lines 15. Build looked
+   right precisely because its top-level rows already landed on the heading's column; nothing else
+   did. Every row now sits on that column, so the eye follows one line the whole way down.
+
+   Two paddings because the leading glyph differs, not because the levels do: a Chat/蒸留 row fills
+   the lead column with its own icon, a 進行中 row has no glyph and must span the column itself. */
+.tree-flat { padding-left: 14px; }            /* 14 + icon 15 + gap 8 → text at 47 */
+.sb-active .tree-flat { padding-left: 37px; } /* no glyph → the padding IS the column */
+/* the "nothing here yet" placeholders sit in a section, so they belong on the same column; the ones
+   nested INSIDE a workflow (`.tree-children`) are a level deeper and keep their own indent */
+.sb-scroll > .tree-empty { padding: 6px 10px 6px 37px; }
 .tree-task .tw-name { color: var(--tx-muted); font-size: 12.5px; font-weight: 400; }
 .tree-task .tw-time { color: var(--tx-faint); font-size: 11px; margin-left: auto; padding-left: 8px; flex-shrink: 0; }
 .tree-task:hover .tw-name { color: var(--tx-2); }
@@ -369,10 +392,20 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 
 .tree-task.active { background: var(--bg-elevated-2); }
 .tree-task.active .tw-name { color: var(--tx-strong); font-weight: 450; }
+/* The dot marking the open row sits in the LEAD column — one offset for every row that shows it, so
+   it stays a fixed distance from a title column that is itself now fixed. (At 16px it was tuned to a
+   30px indent; once the titles moved it floated 21px out in open space.) */
 .tree-task.active::before {
-  content: ""; position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+  content: ""; position: absolute; left: 24px; top: 50%; transform: translateY(-50%);
   width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
 }
+/* On a Chat/蒸留 row that lead column holds the row's own icon (measured: dot 26–31px, icon 24–39px —
+   the dot landed inside the glyph), so there the icon takes the job over by tinting, exactly as a
+   selected project row already tints its folder. */
+.tree-flat.active::before { display: none; }
+.tree-flat.active .tw-ic { color: var(--accent); }
+/* 進行中 rows carry no icon, so their dot comes back. */
+.sb-active .tree-flat.active::before { display: block; }
 
 /* menu-style highlight for the SELECTED project / workflow row (the active context or "+"-preselection).
    An accent bar on the left edge reads as "this is the selected menu item" without competing with the
