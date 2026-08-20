@@ -232,6 +232,35 @@ describe('classifyResultFailure — the result-event path (spec 104 S3)', () => 
     assert.equal(classifyResultFailure(resultEvent({ subtype: 'error_max_turns', errors: ['Reached maximum number of turns (5)'] }), ''), null);
   });
 
+  /* The event a REAL `claude` 2.1.222 emitted, captured 2026-08-20 by driving it at a local stub that
+     answers 429 (spec 104 §3's blocking test, run without an exhausted account and without a single
+     packet leaving the machine). Not a hand-written shape — this is what actually came out. */
+  const CAPTURED_429 = {
+    type: 'result',
+    subtype: 'success',
+    is_error: true,
+    result: "API Error: Request rejected (429) · You've used 100% of your weekly limit · resets 11:20pm",
+    api_error_status: 429,
+    terminal_reason: 'api_error',
+    stop_reason: 'stop_sequence',
+    num_turns: 1,
+  } as never;
+
+  test('THE REAL CAPTURED EVENT classifies, and the note carries the WHOLE sentence', () => {
+    // stderr was EMPTY (0 bytes) in the captured run — the exit-path classifier had nothing to read,
+    // which is exactly why S3 exists.
+    const r = classifyResultFailure(CAPTURED_429, '');
+    assert.equal(r?.cls, 'usage_limit');
+    // Not the bare "429": the line a human can act on, including whatever the API said about resets.
+    assert.ok(r!.note.includes('weekly limit'), r!.note);
+    assert.ok(r!.note.includes('resets 11:20pm'), r!.note);
+  });
+
+  test('`result` is read ONLY under terminal_reason api_error — otherwise it is model prose', () => {
+    const notAnApiError = { ...(CAPTURED_429 as object), terminal_reason: 'turn_setup_failed', api_error_status: undefined } as never;
+    assert.equal(classifyResultFailure(notAnApiError, ''), null);
+  });
+
   test("the MODEL'S OWN PROSE is never classified — only machine carriers are read", () => {
     const r = classifyResultFailure(
       resultEvent({ result: 'I documented what happens when the account hits its usage limit.' }),

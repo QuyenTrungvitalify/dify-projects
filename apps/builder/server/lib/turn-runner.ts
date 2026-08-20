@@ -152,16 +152,34 @@ export function classifyResultFailure(
   result: ClaudeStreamEvent,
   stderrTail: string
 ): { cls: 'usage_limit' | 'auth' | 'network'; note: string } | null {
-  const e = result as { subtype?: unknown; api_error_status?: unknown; errors?: unknown };
+  const e = result as {
+    subtype?: unknown;
+    api_error_status?: unknown;
+    errors?: unknown;
+    terminal_reason?: unknown;
+    result?: unknown;
+  };
+  // RICHEST CARRIER FIRST — matchSignature attaches the first matching LINE, and a bare "429" is a
+  // far worse thing to show a human than the sentence that says which window ran out and when it
+  // comes back.
   const parts: string[] = [];
-  if (typeof e.subtype === 'string') parts.push(e.subtype);
-  if (e.api_error_status !== undefined && e.api_error_status !== null) parts.push(String(e.api_error_status));
+  // `terminal_reason: 'api_error'` is the machine field that says "this `result` is MY error string,
+  // not the model's answer". Measured against claude 2.1.222 driven at a stubbed 429: the field is
+  // `"API Error: Request rejected (429) · <the API's own message>"`. That string is the ONLY place a
+  // reset time can ever reach us — the CLI reads `anthropic-ratelimit-unified-reset` for its own
+  // interactive UI and does NOT forward it into stream-json (measured: a 429 carrying the header but
+  // a bare message produced `… (429) · Rate limit exceeded.` and nothing more). So read `result`
+  // HERE, and nowhere else: under any other terminal_reason it is model prose, which must never be
+  // classified.
+  if (e.terminal_reason === 'api_error' && typeof e.result === 'string') parts.push(e.result);
   if (Array.isArray(e.errors)) {
     for (const x of e.errors) {
       if (x === undefined || x === null) continue;
       parts.push(typeof x === 'string' ? x : JSON.stringify(x));
     }
   }
+  if (e.api_error_status !== undefined && e.api_error_status !== null) parts.push(String(e.api_error_status));
+  if (typeof e.subtype === 'string') parts.push(e.subtype);
   if (stderrTail) parts.push(stderrTail);
   return matchSignature(parts.join('\n'));
 }

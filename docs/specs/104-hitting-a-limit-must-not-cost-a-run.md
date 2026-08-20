@@ -1,6 +1,7 @@
 # 104 — Chạm hạn mức không được làm mất một lượt chạy
 
-> Trạng thái: **S1 + S3 ĐÃ SHIP** (2026-08-20) · **chỉ còn S2 CHẶN** ở phép kiểm thủ công §3.
+> Trạng thái: **S1 + S3 ĐÃ SHIP** (2026-08-20) · **phép kiểm chặn cửa §3 ĐÃ CHẠY** — bằng một stub 429
+> cục bộ thay vì chờ ai chạm hạn mức thật. Ba câu hỏi đã có đáp án (§3/S2); S2 còn lại một mẩu hẹp.
 > S3 gỡ được khoá bằng cách **đọc thẳng binary `claude` 2.1.222 trên đĩa** thay vì chờ ai đó chạm hạn
 > mức — và nó ship **bất kể** câu ① trả lời thế nào, vì giờ cả hai đường chết đều được phân loại. Lập 2026-08-20 · **soát lại với code
 > cùng ngày** — bản đầu bỏ sót rằng cơ chế nhắc-bật-chuông đã ship trong spec 088; S1 đã được viết lại
@@ -173,7 +174,30 @@ Vì sao chỗ nối là **lúc chọn auto** chứ không phải lúc build ch�
 bằng một tài khoản đã cạn), lưu lại **`session.stderrTail()` thô** (24 dòng / 2KB) *và* toàn bộ `result`
 event cuối — **không phải** note đã qua `clean()`, vì `clean()` đã vứt mọi dòng trừ dòng khớp đầu tiên.
 
-Ba câu hỏi, không phải một:
+### ✅ ĐÃ CHẠY 2026-08-20 — cách làm, và đáp án
+
+**Không cần tài khoản cạn.** Dựng một HTTP stub cục bộ luôn trả `429` kèm header
+`anthropic-ratelimit-unified-reset`, trỏ `ANTHROPIC_BASE_URL` vào nó, rồi chạy **đúng argv Builder
+spawn** (`--output-format stream-json --verbose --permission-mode acceptEdits --settings … 
+--setting-sources local`, prompt qua stdin). Ba lớp chặn rò, cố ý thừa: `CLAUDE_CONFIG_DIR` trỏ thư mục
+rỗng · `ANTHROPIC_BASE_URL` trỏ stub · `ANTHROPIC_API_KEY` là chuỗi giả. Log của stub là **bằng chứng
+dương**: nó nhận đúng lượt thật (`POST /v1/messages?beta=true`, body 96KB) — không gói tin nào rời máy,
+không tốn một token hạn mức nào.
+
+| Câu hỏi | Đáp án `[ĐO thực nghiệm]` |
+|---|---|
+| **① Đường nào?** | **`result` event**, không chết. `subtype:"success"`, `is_error:true`, `terminal_reason:"api_error"`, `api_error_status:429`, exit code 1 |
+| **② Có trên stderr không?** | **KHÔNG — stderr rỗng 0 byte.** Tiền đề gốc của S2 ("note gắn dòng stderr nguyên văn") **sai** |
+| **③ Có thời điểm reset không?** | CLI **không** đẩy header `anthropic-ratelimit-unified-reset` ra stream-json (kiểm riêng: 429 mang header nhưng message trống chỉ cho ra `… (429) · Rate limit exceeded.`). Thứ duy nhất tới được Builder là **message body của chính API**, CLI echo lại thành `result: "API Error: Request rejected (429) · <message>"` |
+
+⇒ **① xác nhận S3 là cần thiết** — trước S3 `onExit` return sớm và gate câm hoàn toàn.
+⇒ **② giết đường đọc stderr của S2.**
+⇒ **③ thu S2 lại còn một mẩu:** S3 đã đính **nguyên câu** của API vào note, nên nếu message thật có
+giờ reset thì người dùng **đã thấy nó hôm nay**. Còn lại chỉ là bóc nó thành *"thử lại sau HH:MM"* +
+cảnh báo cạnh nút Retry — và việc đó cần **hình dạng chuỗi thật của API**, thứ chỉ một lần chạm hạn
+mức thật mới cho biết. Stub không dựng hộ được, vì message là do API sinh chứ không phải CLI.
+
+Ba câu hỏi gốc, để đối chiếu:
 
 1. **Hạn mức đến qua đường nào?** Tiến trình chết không có result event, hay một `result{is_error}`?
    → quyết định **S3**.
@@ -295,7 +319,7 @@ Test phải **đỏ-khi-revert-fix**.
 | 3 | S1 | `notifyOn === true` → không nhắc. `permission !== 'default'` (`granted`-nhưng-off, `denied`) → **không** nhắc — giữ nguyên quyết định 088 | như trên |
 | 4 | S1 | Bật chuông từ banner auto → tắt **cả hai** khoá; chọn `auto` lại → im lặng | như trên |
 | 5 | S1 | **Regression**: bỏ qua lời nhắc → auto mode vẫn chạy bình thường, không bị chặn | `web/src/store.test.ts` |
-| 6 | S2+S3 | `[CHẶN CỬA]` ba câu hỏi §3: đường nào? có trên stderr không? có thời điểm reset không? — lưu `stderrTail()` thô **và** result event | thủ công, một lần |
+| 6 | S2+S3 | ✅ `[CHẶN CỬA — ĐÃ CHẠY]` ba câu hỏi §3, trả lời bằng stub 429 cục bộ. Event thật đã chụp và **đóng băng thành fixture test** (`CAPTURED_429`) | thủ công, xong · fixture ở `test/turn-failure-triage.test.ts` |
 | 7 | S2 | Nếu (3) có: bóc đúng thời điểm **và quy đổi đúng giờ địa phương**; stderr **không** có → note giữ nguyên như hôm nay, không bịa | `test/turn-failure-triage.test.ts` |
 | 8 | S2 | Nếu đổi câu note EN: frame `NOTE_JA` khớp lại được (note vẫn ra tiếng Nhật, không rơi về EN) | `web/src/lib/notes-i18n.test.ts` |
 | 9 | S3 | ✅ `result{is_error}` mang chữ hạn mức → **đúng** note `usage_limit`, giống hệt đường exit; result **thành công** không bao giờ đeo note; không khớp gì → note `undefined` như trước S3; prose của model không bao giờ bị phân loại | `test/turn-failure-triage.test.ts` |
