@@ -68,3 +68,12 @@ projects/*/workflow_*/
 /analysic.txt
 /run_after*.txt
 /test_*.txt
+
+# Scratch files written by throwaway analysis/verification runs, never by the app. Named so they are
+# obvious in `git status` — but a directory-wide `git add` sweeps them in anyway, which has already
+# put one into a commit (a tsconfig whose outDir pointed at a machine-local scratchpad). Ignoring them
+# is cheaper than remembering to stage by intent every time.
+**/zz-*.test.ts
+**/__audit*
+apps/builder/tsconfig.*.json
+!apps/builder/tsconfig.test.json
