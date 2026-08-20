@@ -9,9 +9,10 @@
 > route `undo-fix` · ba spec đang mở. (Một `tsconfig.audit.json` scratch lọt vào commit qua một
 > `git add` theo thư mục, đã gỡ bằng commit riêng — **bài học: stage theo Ý ĐỊNH, không theo thư mục**.)
 >
-> **S2b landed** — hai hard-stop trong `maybeAutoAdvance`. Suite server **1178/1178**, typecheck sạch.
-> Cả hai đã **kiểm đỏ-khi-revert**, gỡ từng dòng ⇒ đúng **một** test đỏ mỗi lần. Test thứ ba ghim
-> chiều ngược: đo được lành ⇒ `auto` chạy hết như cũ.
+> **S2b landed — NHƯNG chỉ MỘT NỬA**, và nửa kia bị gỡ sau một vòng soát (§4.3.1a). Hard-stop
+> `artifactUnchanged` đã ship, kiểm đỏ-khi-revert **qua đường sản phẩm thật** (build edit-existing,
+> phép đo tự suy từ đĩa). Hard-stop `specStale` **BẤT KHẢ ĐẠT** hôm nay ⇒ đã gỡ, chuyển vào **S2c**.
+> Suite server **1178/1178**, typecheck sạch.
 >
 > Phạm vi: **hai loại việc, hai đường khác nhau.**
 > **LOẠI 1** — sửa một workflow đã có: cơ chế **đã ship gần hết** (spec 103 Làn B); còn lại là hành vi
@@ -324,10 +325,41 @@ Tất cả đều là *sự thật đo được*, không phải *câu hỏi ý k
 `[ĐO code]` Có **hai** tín hiệu cùng loại đang bị bỏ ngoài danh sách, và cả hai đều nguy hiểm gấp bội
 trong auto vì auto là chế độ **không ai nhìn màn hình**:
 
-| Tín hiệu | Được đo ở đâu | Vì sao auto phải dừng |
+| Tín hiệu | Trạng thái | Vì sao auto phải dừng |
 |---|---|---|
-| `artifactUnchanged` | field `Task.artifactUnchanged` · đo trong verify của ③ | ③ chạy xong mà **file không đổi một byte** — trong auto sẽ đi thẳng tới ④ và báo 完了 cho một việc chưa làm (§5.6) |
-| `specStale` | field `Task.specStale` · đo trong verify của ③ | ③ được **dặn** hoà giải `SPEC.md` nhưng **không làm**. Trong auto, không ai bao giờ biết — hồ sơ lặng lẽ sai. Và trong auto, việc ③ tự viết lại là cơ chế **duy nhất** giữ hồ sơ đúng (không có làn 提案) ⇒ tripwire của nó là thứ **không được phép** vô hình |
+| `artifactUnchanged` | ✅ **ĐÃ SHIP** (S2b) | ③ chạy xong mà **file không đổi một byte** — trong auto sẽ đi thẳng tới ④ và báo 完了 cho một việc chưa làm |
+| `specStale` | ⏳ **chuyển sang S2c** — xem §4.3.1a | ③ được **dặn** hoà giải `SPEC.md` nhưng **không làm**. Trong auto, việc ③ tự viết lại là cơ chế **duy nhất** giữ hồ sơ đúng (không có làn 提案) ⇒ tripwire của nó không được phép vô hình |
+
+#### 4.3.1a Vì sao `specStale` phải đi cùng S2c, không phải S2b
+
+`[ĐO code]` Ship S2b xong mới phát hiện: hard-stop `specStale` **không bao giờ chạy được** ở bản hiện tại.
+
+```
+specStale chỉ được tính khi orchestrator đưa cho post-turn một before-hash của SPEC.md
+   └─ và nó chỉ làm thế trên lượt ③ MANG THEO change request (replyText)
+
+maybeAutoAdvance có ĐÚNG HAI call-site:
+   ├─ startTask          → phase luôn là ① hoặc ②
+   └─ đuôi confirmAdvance → hop ②→③ gọi runPhaseAndGate KHÔNG kèm replyText
+   (replyWithin thì KHÔNG BAO GIỜ gọi maybeAutoAdvance — đó chính là §4.3.2)
+
+⇒ tại đúng khoảnh khắc guard được đánh giá, specStale luôn là `undefined`.
+```
+
+Nó trở nên **đạt được** chính xác khi vòng fix bắt đầu auto-advance — tức khi S2c landing. Nên nó
+thuộc S2c, cạnh một test có thể đỏ. **Không ship code không kiểm được.**
+
+> **Bài học đắt hơn cả cái bug** — và là bài học về TEST, không phải về code: guard chết vẫn có một
+> test **xanh**, vì harness cho phép test **KHAI** `artifactChanged`/`specChanged` thay vì **ĐO** chúng.
+> Một stub được phép khẳng định một phép đo mà caller chưa từng yêu cầu sẽ pin được một trạng thái
+> production không thể tạo ra. Đã sửa: fake giờ **hash chính những file bản thật hash** rồi so với
+> chính before-hash nó nhận — phép đo chỉ có thể **tái hiện**, không thể **khai báo**. Đúng thay đổi
+> đó làm nhánh chết đỏ lên.
+>
+> `[ĐO code]` Kèm một đính chính: `artifactHash` trả **`null`** khi file thiếu, **không phải
+> `undefined`**, và ③ **luôn** nhận before-hash. Nên một build từ đầu đi tiếp vì **phép đo LÀNH**
+> (`null` ≠ hash mới ⇒ có đổi), **không phải** vì "không đo". Bản trước của spec này và của commit
+> đều nói sai chỗ đó.
 
 ⇒ hai dòng **cạnh nhóm `if (task.gate?.flag === … ) return;` bên trong hàm `maybeAutoAdvance`**
 (neo theo ký hiệu, không theo số dòng — xem cảnh báo §0.4):
@@ -670,8 +702,8 @@ song song) — typecheck + 13 test undo xanh nên commit riêng, không bỏ rơ
 | | Việc | Cỡ |
 |---|---|---|
 | **S2** | **Loại trừ hai chiều** 自動 ↔ 提案: `canPropose` thêm mệnh đề `confirmMode !== 'auto'`; `PATCH` 409 + chip ẩn 自動 khi `specRevise`. §4.3 | XS |
-| ~~**S2b**~~ ✅ | ~~Hai hard-stop `artifactUnchanged` + `specStale` trong `maybeAutoAdvance`~~ — **ĐÃ SHIP 2026-08-21** (`bf6e598`). Ba test ở `advance-loop.test.ts` đi qua **entry-point thật** (`startTask`), cả hai chiều đã kiểm đỏ-khi-revert. §4.3.1 | XS |
-| **S2c** | **`maybeAutoAdvance` ở HAI chỗ** (nhánh `phase==='test'` + đuôi `replyWithin`), kẹp `phase==='implement'`; và ở nhánh `apply_spec` — `自動`/`仕様のみ` chạy hết cả vòng fix. §4.3.2 · **S2b xong rồi; còn CHỜ S3** (nếu không, `specStale` câm trên lượt ③ tươi) | XS |
+| ~~**S2b**~~ ✅ | ~~Hai~~ **MỘT** hard-stop — `artifactUnchanged` — trong `maybeAutoAdvance`. **ĐÃ SHIP 2026-08-21** (`bf6e598` + sửa `f554493`). Ba test qua **đường sản phẩm thật** (build edit-existing), đã kiểm đỏ-khi-revert. `specStale` **chuyển sang S2c** vì bất khả đạt — §4.3.1a | XS |
+| **S2c** | **`maybeAutoAdvance` ở HAI chỗ** (nhánh `phase==='test'` + đuôi `replyWithin`), kẹp `phase==='implement'`; và ở nhánh `apply_spec`. **CỘNG hard-stop `specStale`** (chuyển từ S2b — §4.3.1a: chỉ ở đây nó mới đạt được, vì vòng fix có `replyText`). Vẫn **CHỜ S3** cho lượt ③ tươi. §4.3.2 | S |
 | **S3** | **Hai** lỗ im lặng: predicate `workflowExistedBefore` thay `replyText` (3 chỗ, §4.4.1) · `snapshotDiffBase` `seedPath`→`seedAppId` (§4.4b). *(Lỗ thứ ba — guard `PUT /spec` — đã có sẵn, không phải làm)* | S |
 
 **AC S3 (đỏ-khi-revert bắt buộc)**: (a) một lượt ③ **tươi** trên workflow **đã có `main.yml`** →
