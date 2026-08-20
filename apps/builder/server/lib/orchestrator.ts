@@ -617,7 +617,7 @@ async function runPhase(
     return { outcome: 'error', reasons: ['cancelled by user'] };
   }
 
-  const verify = await verifyPhase(phase, task, ctx, baseline, turn.note, artifactHashBefore);
+  const verify = await verifyPhase(phase, task, ctx, baseline, turn.note, artifactHashBefore, turn.noteAdvisory);
   // verifyPhase awaits python/git subprocesses — a /cancel can land in that window. Re-check (mirrors
   // the guard at the spawn boundary above) so the success save below can't clobber `cancelled`→`running`.
   if (isCancelled(task.taskId)) {
@@ -661,7 +661,13 @@ async function runPhase(
  */
 export function resolveImplementOutcome(
   d: PostTurnDetail,
-  turnNote: string | undefined
+  turnNote: string | undefined,
+  /** spec 104 S3 — the note came off a terminal `result` event, so it EXPLAINS rather than routes.
+   *  Before S3 that path carried no note at all and this function decided purely on the post-turn
+   *  detail; `otherNote` must keep behaving exactly that way, or attaching an explanation would
+   *  silently start discarding clean artifacts — a full rebuild billed to the user who just hit
+   *  their limit, which is the very cost spec 104 is about. */
+  noteAdvisory?: boolean
 ): 'error' | 'success' | 'still_failing' {
   // Spec 085 (salvage-on-timeout): the 600s cap fires at the TAIL of a big build's fix loop, discarding an
   // artifact the independent post-turn verify would confirm CLEAN — only to force a full-cost rebuild (run
@@ -669,7 +675,7 @@ export function resolveImplementOutcome(
   // TIMEOUT is not automatically hard: it hard-errors only if the artifact is missing/broken/out-of-
   // confinement (nothing worth keeping). Any OTHER note (spawn/exit failure) is never salvageable.
   const timedOut = isTimeoutNote(turnNote);
-  const otherNote = !!turnNote && !timedOut;
+  const otherNote = !!turnNote && !timedOut && !noteAdvisory;
   const hardError =
     otherNote || !d.artifactOk || !d.yamlOk || d.confinementBreaches.length > 0 ||
     d.extraFiles.some((f) => !f.yamlOk || f.twin);
@@ -690,7 +696,9 @@ async function verifyPhase(
   baseline: Set<string>,
   turnNote: string | undefined,
   /** spec 094 S1 — the pre-spawn artifact hash (③ only; `undefined` elsewhere ⇒ not measured). */
-  artifactHashBefore?: string | null
+  artifactHashBefore?: string | null,
+  /** spec 104 S3 — see resolveImplementOutcome. The note still shows in `reasons`; it just cannot route. */
+  noteAdvisory?: boolean
 ): Promise<PhaseVerify> {
   const { projectsDir, log } = ctx;
   const { postTurnCheck } = resolveRunners(ctx); // 013 D2: real impl unless a test injects a fake
@@ -755,7 +763,7 @@ async function verifyPhase(
       log.warn({ taskId: task.taskId, err: errMsg(e) }, 'runnability preflight failed (advisory, non-fatal)');
     }
 
-    const outcome = resolveImplementOutcome(check.detail, turnNote);
+    const outcome = resolveImplementOutcome(check.detail, turnNote, noteAdvisory);
     // 048 D2: expose ③'s lint codes for the windowless hop. `?? undefined` — detail.lintCodes is
     // null when the artifact was missing/empty, but that maps to 'error' (never hops) anyway.
     return {

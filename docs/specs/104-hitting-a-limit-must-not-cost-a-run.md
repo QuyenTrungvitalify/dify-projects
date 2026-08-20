@@ -1,7 +1,8 @@
 # 104 — Chạm hạn mức không được làm mất một lượt chạy
 
-> Trạng thái: **S1 ĐÃ SHIP** (2026-08-20) · **S2 + S3 CHẶN** ở phép kiểm thủ công §3 — chưa ai chạm hạn
-> mức thật nên chưa có stderr/result event để trả lời ba câu hỏi. Lập 2026-08-20 · **soát lại với code
+> Trạng thái: **S1 + S3 ĐÃ SHIP** (2026-08-20) · **chỉ còn S2 CHẶN** ở phép kiểm thủ công §3.
+> S3 gỡ được khoá bằng cách **đọc thẳng binary `claude` 2.1.222 trên đĩa** thay vì chờ ai đó chạm hạn
+> mức — và nó ship **bất kể** câu ① trả lời thế nào, vì giờ cả hai đường chết đều được phân loại. Lập 2026-08-20 · **soát lại với code
 > cùng ngày** — bản đầu bỏ sót rằng cơ chế nhắc-bật-chuông đã ship trong spec 088; S1 đã được viết lại
 > thành delta trên nó (§3).
 >
@@ -99,9 +100,36 @@ Nếu CLI báo hạn mức bằng một terminal `result` event `is_error` **tha
 `undefined`, `failureCls` không được đặt, và note thân thiện *không bao giờ xuất hiện* — gate hiện thứ
 `verifyPhase` nói. Cùng một sự kiện, hai chất lượng thông báo khác hẳn, tuỳ đường.
 
-**Chưa kiểm** đường nào thật sự xảy ra — đó là **câu hỏi thứ nhất** của phép kiểm chặn cửa (§3/S2).
-Nếu là đường `result{is_error}` thì tiền đề của S2 sai từ gốc (không có stderr nào để bóc), và S3 trở
-thành việc quan trọng hơn cả S2.
+**`[ĐO binary]` 2026-08-20 — đọc `claude` 2.1.222:** result event cuối có **ba biến thể**, và biến thể
+`success` mang `is_error` **cùng** `api_error_status`, còn `error_during_execution` mang `errors[]`:
+
+```
+subtype:"error_max_turns"        is_error:true
+subtype:"error_during_execution" is_error:true   errors:[…]
+subtype:"success"                is_error:_t     api_error_status: dt   ← lỗi API đi đường này
+```
+
+Builder **không đọc `api_error_status` ở đâu cả**. Nên đường này có thật, và nó câm.
+
+Vẫn chưa kiểm được *một hạn mức thật* đi đường nào — nhưng **S3 không còn phụ thuộc câu hỏi đó**:
+phân loại cả hai đường thì đường nào cũng nói được.
+
+### `[ĐO binary]` S3b — bảng regex của spec 045 bỏ sót 5/6 tên cửa sổ hạn mức
+
+Phát hiện khi viết test cho S3. CLI đặt tên cửa sổ từ một bảng cố định (`kNt`) rồi in
+`You've used N% of your <window> · resets <time>`:
+
+| `rateLimitType` | chữ in ra | regex 045 khớp? |
+|---|---|---|
+| `five_hour` | session limit | ✅ |
+| `seven_day` | **weekly limit** | ❌ |
+| `seven_day_opus` | Opus limit | ❌ |
+| `seven_day_sonnet` | Sonnet limit | ❌ |
+| `seven_day_overage_included` | Fable 5 limit | ❌ |
+| `overage` | usage credit limit | ❌ |
+
+Cạn hạn mức **tuần** — ca thường ngày của gói nhỏ — rơi vào ô ❌, tức **không có note trên CẢ HAI
+đường**. Đây là lỗ độc lập với S1/S2/S3 và đã vá cùng S3.
 
 ---
 
@@ -173,13 +201,27 @@ im lặng, đúng loại hỏng không test nào hiện có bắt được.
 **Không** parse để đổi hành vi tự động (không auto-retry theo giờ). Chỉ hiển thị. Một vòng tự thử lại
 là đúng thứ đang đốt hạn mức của người ta.
 
-### S3 — Note hạn mức phải hiện trên CẢ HAI đường chết  `[phụ thuộc câu hỏi 1 của phép kiểm]`
+### S3 — Note hạn mức phải hiện trên CẢ HAI đường chết  `[ĐÃ SHIP]`
 
-- **Phép kiểm trả lời "đường `result{is_error}`"** → chạy `classifyTurnFailure` cho **cả** đường result:
-  đầu vào là stderr tail **cộng** text của result event, để cùng một sự kiện cho ra cùng một note bất kể
-  CLI chết kiểu nào. Đây là điều kiện cần của S2 — không có nó thì S2 vá một đường mà bỏ đường kia.
-- **Phép kiểm trả lời "đường exit"** → S3 **chết**, ghi lại và đóng. `if (resultEvent) return` khi đó là
-  đúng, không phải lỗ.
+Không chờ phép kiểm nữa: làm **cả hai đường**, nên câu ① trả lời thế nào cũng đúng.
+
+- `classifyResultFailure(result, stderrTail)` — cùng bảng signature với `classifyTurnFailure`, để một
+  nguyên nhân đọc lên **giống hệt nhau** dù CLI chết kiểu gì. Bảng được tách ra dùng chung, câu chữ
+  note không đổi một byte (frame JA an toàn).
+- Chỉ đọc **carrier do máy sinh** — `subtype`, `api_error_status`, `errors[]` — cộng stderr ring.
+  **Không** đọc text trả lời của model: trong repo mà build *viết về* hạn mức, làm thế sẽ khiến một
+  build đang bàn về spec 104 tự khai là đã chạm hạn mức.
+- **Trả `null` khi không khớp gì cụ thể** — không có fallback. Fallback của `classifyTurnFailure` nói
+  "process exited…", ở đây là nói dối; và trên đường này một cái note **không miễn phí**:
+
+**⚠ Ràng buộc chịu lực — giải thích KHÔNG được biến thành phán quyết.** `resolveImplementOutcome` biến
+*mọi* note không-phải-timeout thành hard error → vứt artifact → rebuild toàn phần. Trước S3 đường này
+không có note nên một hạn mức rơi trúng artifact sạch **vẫn ship**. Gắn note một cách ngây thơ sẽ bắt
+đúng người vừa cạn quota trả giá một lượt rebuild — **đúng cái spec 104 sinh ra để chặn**.
+
+Nên `TurnResult.noteAdvisory` đánh dấu note đến từ result event, và `resolveImplementOutcome` bỏ qua nó
+khi định tuyến. Giữ nguyên hợp đồng của spec 045: *phân loại là mỹ phẩm, không bao giờ đổi routing.*
+S3 đổi **thứ người dùng được kể**, không đổi **thứ build làm**.
 
 ---
 
@@ -256,7 +298,9 @@ Test phải **đỏ-khi-revert-fix**.
 | 6 | S2+S3 | `[CHẶN CỬA]` ba câu hỏi §3: đường nào? có trên stderr không? có thời điểm reset không? — lưu `stderrTail()` thô **và** result event | thủ công, một lần |
 | 7 | S2 | Nếu (3) có: bóc đúng thời điểm **và quy đổi đúng giờ địa phương**; stderr **không** có → note giữ nguyên như hôm nay, không bịa | `test/turn-failure-triage.test.ts` |
 | 8 | S2 | Nếu đổi câu note EN: frame `NOTE_JA` khớp lại được (note vẫn ra tiếng Nhật, không rơi về EN) | `web/src/lib/notes-i18n.test.ts` |
-| 9 | S3 | Nếu (1) là `result{is_error}`: một result event mang chữ hạn mức → ra **đúng** note `usage_limit`, giống hệt đường exit | `test/turn-failure-triage.test.ts` |
+| 9 | S3 | ✅ `result{is_error}` mang chữ hạn mức → **đúng** note `usage_limit`, giống hệt đường exit; result **thành công** không bao giờ đeo note; không khớp gì → note `undefined` như trước S3; prose của model không bao giờ bị phân loại | `test/turn-failure-triage.test.ts` |
+| 10 | S3 | ✅ **Chịu lực**: note advisory + artifact sạch → `success` (y như trước S3); **cùng** note đó từ đường exit vẫn hard error; advisory không tẩy trắng artifact hỏng / vi phạm confinement | như trên |
+| 11 | S3b | ✅ **cả sáu** tên cửa sổ đo từ `kNt` đều phân loại `usage_limit`, trên **cả hai** đường | như trên |
 
 **Nghiệm thu tay `[CHƯA CHẠY]`:** trên một máy đã bấm "không hiện lại" cho banner cũ và chuông đang tắt
 → bật auto mode → thấy nhắc; bỏ qua → build vẫn chạy; chọn auto lần hai → im lặng.

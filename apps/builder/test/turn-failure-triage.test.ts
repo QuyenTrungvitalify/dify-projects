@@ -9,7 +9,9 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { runTurn, classifyTurnFailure } from '../server/lib/turn-runner.js';
+import { runTurn, classifyTurnFailure, classifyResultFailure } from '../server/lib/turn-runner.js';
+import { resolveImplementOutcome } from '../server/lib/orchestrator.js';
+import type { PostTurnDetail } from '../server/lib/post-turn.js';
 import type { ClaudeSession } from '../server/lib/claude-session.js';
 
 // ── D2 classifier table (pure) ──────────────────────────────────────────────────────────────────
@@ -167,5 +169,161 @@ describe('runTurn — the note reads the RING, redacted (AC 2/2b/3/4)', () => {
     const sHang = fakeSession(''); // spawns ok, never emits → timeout fires
     const resTimeout = await runTurn(sHang as unknown as ClaudeSession, 'prompt', undefined, { timeoutMs: 50 });
     assert.equal(resTimeout.note, 'phase timed out after 0s — retry or simplify'); // pre-045 text, untouched
+  });
+});
+
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   Spec 104 S3 — the OTHER death path.
+
+   `classifyTurnFailure` only ever runs from `onExit`, which returns early once a terminal `result`
+   event has arrived. Measured in the claude 2.1.222 binary: the terminal result has three variants,
+   and the `success` one carries `is_error` alongside an `api_error_status`, while
+   `error_during_execution` carries an `errors[]` list. A limit reported THAT way used to reach the
+   gate with no explanation at all — same cause, two very different things told to the user.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+const resultEvent = (over: Record<string, unknown> = {}): never =>
+  ({ type: 'result', subtype: 'success', is_error: true, ...over }) as never;
+
+describe('classifyResultFailure — the result-event path (spec 104 S3)', () => {
+  test('api_error_status 429 → the SAME usage_limit note the exit path produces', () => {
+    const r = classifyResultFailure(resultEvent({ api_error_status: 429 }), '');
+    assert.equal(r?.cls, 'usage_limit');
+    assert.match(r!.note, /^Claude CLI usage limit reached — builds cannot run until the limit resets\./);
+  });
+
+  test('errors[] carrying the limit wording is read, reset time and all', () => {
+    const r = classifyResultFailure(
+      resultEvent({ subtype: 'error_during_execution', errors: ["You've used 100% of your weekly limit · resets 11:20pm"] }),
+      ''
+    );
+    assert.equal(r?.cls, 'usage_limit');
+    assert.ok(r!.note.includes('resets 11:20pm'), 'the matched line is attached verbatim');
+  });
+
+  test('EVERY window name the CLI can print classifies — measured from 2.1.222, not guessed', () => {
+    // `kNt` in the binary. Spec 045's table only ever matched the first of these; a Pro user burning
+    // through the WEEKLY window — the everyday case — used to get no note at all.
+    for (const window of ['session limit', 'weekly limit', 'Opus limit', 'Sonnet limit', 'Fable 5 limit', 'usage credit limit']) {
+      const line = `You've used 100% of your ${window} · resets 11:20pm`;
+      assert.equal(classifyResultFailure(resultEvent({ errors: [line] }), '')?.cls, 'usage_limit', window);
+      // and the SAME line down the exit path, so one cause reads identically either way
+      assert.equal(classifyTurnFailure(line, 1).cls, 'usage_limit', `${window} (exit path)`);
+    }
+  });
+
+  test("the CLI's own blocked-state strings classify too", () => {
+    assert.equal(classifyResultFailure(resultEvent({ errors: ['usage limit reached — check plan'] }), '')?.cls, 'usage_limit');
+    assert.equal(classifyResultFailure(resultEvent({ errors: ['rate limited — wait and retry'] }), '')?.cls, 'usage_limit');
+  });
+
+  test('a 401 on the result event classifies auth, not usage_limit', () => {
+    assert.equal(classifyResultFailure(resultEvent({ api_error_status: 401 }), '')?.cls, 'auth');
+  });
+
+  test('the stderr ring is still read on this path (both sources, one table)', () => {
+    const r = classifyResultFailure(resultEvent(), 'fetch failed: ENOTFOUND api.anthropic.com');
+    assert.equal(r?.cls, 'network');
+  });
+
+  test('NOTHING specific matched -> null, NOT a fallback note', () => {
+    assert.equal(classifyResultFailure(resultEvent({ api_error_status: 500 }), ''), null);
+    assert.equal(classifyResultFailure(resultEvent({ subtype: 'error_max_turns', errors: ['Reached maximum number of turns (5)'] }), ''), null);
+  });
+
+  test("the MODEL'S OWN PROSE is never classified — only machine carriers are read", () => {
+    const r = classifyResultFailure(
+      resultEvent({ result: 'I documented what happens when the account hits its usage limit.' }),
+      ''
+    );
+    assert.equal(r, null);
+  });
+});
+
+describe('runTurn — an errored result event now self-describes (spec 104 S3)', () => {
+  test('result{is_error, api_error_status:429} -> usage_limit note + failureCls + noteAdvisory', async () => {
+    const s = fakeSession('');
+    const p = runTurn(s as unknown as ClaudeSession, 'prompt');
+    await new Promise((r) => setImmediate(r));
+    s.onEvent!(resultEvent({ api_error_status: 429 }));
+    const res = await p;
+    assert.equal(res.isError, true);
+    assert.equal(res.failureCls, 'usage_limit');
+    assert.match(res.note!, /^Claude CLI usage limit reached/);
+    assert.equal(res.noteAdvisory, true, 'marked explain-only so it cannot route');
+  });
+
+  test('a SUCCESSFUL result carrying limit words is never given a failure note', async () => {
+    const s = fakeSession("You've hit your usage limit");
+    const p = runTurn(s as unknown as ClaudeSession, 'prompt');
+    await new Promise((r) => setImmediate(r));
+    s.onEvent!(resultEvent({ is_error: false }));
+    const res = await p;
+    assert.equal(res.isError, false);
+    assert.equal(res.note, undefined, 'a turn that SUCCEEDED must never wear a failure note');
+    assert.equal(res.failureCls, undefined);
+  });
+
+  test('an errored result with no known signature is byte-for-byte the pre-S3 behaviour', async () => {
+    const s = fakeSession('');
+    const p = runTurn(s as unknown as ClaudeSession, 'prompt');
+    await new Promise((r) => setImmediate(r));
+    s.onEvent!(resultEvent({ api_error_status: 500 }));
+    const res = await p;
+    assert.equal(res.isError, true);
+    assert.equal(res.note, undefined);
+    assert.equal(res.noteAdvisory, undefined);
+  });
+
+  test('a planted secret never reaches the note on this path either (AC 3, result-side)', async () => {
+    // redactSecrets scrubs KNOWN values (Dify creds + minted app-keys), not key-shaped patterns —
+    // so plant what it actually knows, exactly as the exit-path AC 3 test above does.
+    process.env.DIFY_CONSOLE_URL = 'http://localhost/console/api';
+    process.env.DIFY_CONSOLE_TOKEN = 'tok-supersecret-104';
+    const s = fakeSession('quota exceeded for tok-supersecret-104 account');
+    const p = runTurn(s as unknown as ClaudeSession, 'prompt');
+    await new Promise((r) => setImmediate(r));
+    s.onEvent!(resultEvent());
+    const res = await p;
+    assert.equal(res.failureCls, 'usage_limit');
+    assert.ok(!res.note!.includes('tok-supersecret-104'), res.note);
+  });
+});
+
+/* ── The load-bearing guard: an EXPLANATION must not become a VERDICT ─────────────────────────
+   `resolveImplementOutcome` turns any non-timeout note into a hard error, which discards the
+   artifact and forces a full rebuild. Before S3 this path carried no note, so a limit that landed
+   on a clean artifact still shipped. If attaching the explanation flipped that, spec 104 would bill
+   a full rebuild to the user who just ran out of quota — the exact cost it exists to prevent. */
+const cleanDetail = (): PostTurnDetail => ({
+  artifactOk: true,
+  yamlOk: true,
+  lintCodes: { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 },
+  idsOk: true,
+  confinementBreaches: [],
+  extraFiles: [],
+});
+
+describe('resolveImplementOutcome — an advisory note explains, it does not route (spec 104 S3)', () => {
+  const LIMIT = 'Claude CLI usage limit reached — builds cannot run until the limit resets. (429)';
+
+  test('advisory note + clean artifact -> success, exactly as before S3', () => {
+    assert.equal(resolveImplementOutcome(cleanDetail(), LIMIT, true), 'success');
+  });
+
+  test('the SAME note from the exit path still hard-errors (unchanged, and correct — nothing was left)', () => {
+    assert.equal(resolveImplementOutcome(cleanDetail(), LIMIT, false), 'error');
+    assert.equal(resolveImplementOutcome(cleanDetail(), LIMIT), 'error', 'omitted flag = the old signature');
+  });
+
+  test('advisory does NOT whitewash a genuinely broken artifact', () => {
+    assert.equal(resolveImplementOutcome({ ...cleanDetail(), artifactOk: false }, LIMIT, true), 'error');
+    assert.equal(resolveImplementOutcome({ ...cleanDetail(), confinementBreaches: ['../escape.yml'] }, LIMIT, true), 'error');
+  });
+
+  test('advisory note + dirty lint -> still_failing (the human decides), not a hard error', () => {
+    const dirty = { ...cleanDetail(), lintCodes: { validate: 1, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 } };
+    assert.equal(resolveImplementOutcome(dirty, LIMIT, true), 'still_failing');
   });
 });

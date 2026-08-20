@@ -21,6 +21,13 @@ export interface TurnResult {
   /** Spec 045 (review #8): the machine-readable failure class behind `note` — future consumers
    *  (e.g. orchestrator's resume-fallback exclusion) can key on this instead of note-sniffing. */
   failureCls?: 'usage_limit' | 'auth' | 'network' | 'spawn' | 'unknown';
+  /** Spec 104 S3 — TRUE when `note` was read off a terminal `result` event instead of a dead process.
+   *  Such a note EXPLAINS; it must NOT ROUTE. Before S3 this path carried no note at all, and
+   *  `resolveImplementOutcome` turns any non-timeout note into a HARD error — which would discard a
+   *  clean, lint-passing artifact and force a full rebuild on the very user who just ran out of quota:
+   *  the exact cost spec 104 exists to prevent. Keeping this separate preserves spec 045's standing
+   *  contract that classification is cosmetic and never changes status/outcome routing. */
+  noteAdvisory?: boolean;
 }
 
 /**
@@ -33,38 +40,65 @@ export interface TurnResult {
  * The EN note templates are WORDING-STABLE — web/src/lib/i18n.ts NOTE_JA keys off their prefixes
  * (the 030a/043 exact-frame mechanism); reword them only together with the JA frames + tests.
  */
+// Review #3: embedded stderr must never smuggle the FE's `' | '` split marker (Chat.tsx errLines)
+// or raw newlines into the note — sanitize every fragment before embedding.
+const clean = (s: string): string => s.replace(/\s*\|\s*/g, ' ⏐ ').replace(/\s*\n\s*/g, ' ⏎ ').trim();
+
+/** The three SPECIFIC classes, first-match-wins / most-specific-first. Lifted out of
+ *  {@link classifyTurnFailure} so spec 104 S3's result-event path classifies through the SAME table:
+ *  one cause must read the same however the CLI reported it. The note templates are WORDING-STABLE
+ *  (i18n.ts NOTE_JA keys off their prefixes) — reword only together with the JA frames + tests. */
+const SIGNATURES: ReadonlyArray<{
+  cls: 'usage_limit' | 'auth' | 'network';
+  re: RegExp;
+  note: (line: string) => string;
+}> = [
+  {
+    cls: 'usage_limit',
+    // Spec 104 S3 — WIDENED against the measured CLI. `claude` 2.1.222 names the window from a fixed
+    // table (`kNt`): five_hour→"session limit", seven_day→"weekly limit", seven_day_opus→"Opus limit",
+    // seven_day_sonnet→"Sonnet limit", seven_day_overage_included→"<model> limit", overage→"usage
+    // credit limit" — and it renders them as "You've used N% of your <window> · resets <time>".
+    // Spec 045's original table only covered "session limit", so FIVE of the six windows classified as
+    // nothing at all — including the weekly one, the everyday case on a small plan. The trailing
+    // `limit … resets` frame catches the model-named windows without hardcoding a model name that will
+    // drift. Whether these strings reach the error carriers is still unmeasured (§3's blocked test);
+    // missing them costs a silent note, and a wrong class is cosmetic by spec 045's standing contract.
+    re: /usage limit|session limit|weekly limit|(?:opus|sonnet) limit|usage credit|\blimit\b[^\n]{0,40}\bresets?\b|rate.?limit|credit balance|quota|\b429\b|overloaded/i,
+    note: (l) => `Claude CLI usage limit reached — builds cannot run until the limit resets. (${l})`,
+  },
+  {
+    cls: 'auth',
+    re: /logged in|log.?in\b|authentication|unauthorized|\b401\b|invalid api key|oauth/i,
+    note: (l) => `Claude CLI is not authenticated on this machine — run \`claude\` in a terminal and log in. (${l})`,
+  },
+  {
+    cls: 'network',
+    re: /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error/i,
+    note: (l) => `Cannot reach the Anthropic API from this machine (network/proxy). (${l})`,
+  },
+];
+
+/** First specific signature present in `text`, or null. Line-oriented: the MATCHED line is what gets
+ *  attached verbatim, so the truth always shows even when the class is wrong. */
+function matchSignature(text: string): { cls: 'usage_limit' | 'auth' | 'network'; note: string } | null {
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  for (const sig of SIGNATURES) {
+    const hit = lines.find((l) => sig.re.test(l));
+    if (hit) return { cls: sig.cls, note: sig.note(clean(hit)) };
+  }
+  return null;
+}
+
 export function classifyTurnFailure(
   stderrTail: string,
   code: number | null,
   ctx: 'exit' | 'spawn' = 'exit'
 ): { cls: NonNullable<TurnResult['failureCls']>; note: string } {
-  // Review #3: embedded stderr must never smuggle the FE's `' | '` split marker (Chat.tsx errLines)
-  // or raw newlines into the note — sanitize every fragment before embedding.
-  const clean = (s: string): string => s.replace(/\s*\|\s*/g, ' ⏐ ').replace(/\s*\n\s*/g, ' ⏎ ').trim();
+  const specific = matchSignature(stderrTail);
+  if (specific) return specific;
   const lines = stderrTail.split('\n').map((l) => l.trim()).filter(Boolean);
   const firstMatch = (re: RegExp): string | undefined => lines.find((l) => re.test(l));
-
-  let m = firstMatch(/usage limit|session limit|rate.?limit|credit balance|quota|\b429\b|overloaded/i);
-  if (m) {
-    return {
-      cls: 'usage_limit',
-      note: `Claude CLI usage limit reached — builds cannot run until the limit resets. (${clean(m)})`,
-    };
-  }
-  m = firstMatch(/logged in|log.?in\b|authentication|unauthorized|\b401\b|invalid api key|oauth/i);
-  if (m) {
-    return {
-      cls: 'auth',
-      note: `Claude CLI is not authenticated on this machine — run \`claude\` in a terminal and log in. (${clean(m)})`,
-    };
-  }
-  m = firstMatch(/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error/i);
-  if (m) {
-    return {
-      cls: 'network',
-      note: `Cannot reach the Anthropic API from this machine (network/proxy). (${clean(m)})`,
-    };
-  }
   const tail = clean(lines.slice(-2).join('\n')) || '(empty)';
   // Review blocker #1: a MISSING binary reaches here via the 'error'(ENOENT) event path — the ring
   // then carries node's `spawn claude ENOENT` message; classify it as the install case regardless
@@ -97,6 +131,41 @@ export function classifyTurnFailure(
  *   the `tool_use`/`tool_result` blocks. Try/catch-wrapped here so a throwing recorder can NEVER break
  *   the turn; the SSE `onText` path stays byte-identical (AC #6).
  */
+/**
+ * Spec 104 S3 — the OTHER death path. `classifyTurnFailure` above only ever runs when the CLI dies
+ * WITHOUT a terminal `result` event (`onExit` returns early once one has arrived). But the CLI also
+ * reports API failures ON that result event — measured in the 2.1.222 binary, the terminal result has
+ * three variants and the `success` one carries `is_error` together with an `api_error_status`, while
+ * the `error_during_execution` one carries an `errors[]` list. A build that died that way reached the
+ * gate with no explanation at all, so the same cause read as a friendly note down one path and as
+ * silence down the other.
+ *
+ * Returns null when nothing SPECIFIC matched — deliberately no fallback. `classifyTurnFailure`'s
+ * fallbacks name a process that exited, which would be a plain lie here; and on this path a note is
+ * NOT free (see `TurnResult.noteAdvisory`), so inventing one has a cost.
+ *
+ * Reads only MACHINE-generated carriers — `subtype`, `api_error_status`, `errors[]` — plus the stderr
+ * ring. Never the model's own answer text: in a repo whose builds WRITE about usage limits, that would
+ * classify the assistant's own prose as a usage limit.
+ */
+export function classifyResultFailure(
+  result: ClaudeStreamEvent,
+  stderrTail: string
+): { cls: 'usage_limit' | 'auth' | 'network'; note: string } | null {
+  const e = result as { subtype?: unknown; api_error_status?: unknown; errors?: unknown };
+  const parts: string[] = [];
+  if (typeof e.subtype === 'string') parts.push(e.subtype);
+  if (e.api_error_status !== undefined && e.api_error_status !== null) parts.push(String(e.api_error_status));
+  if (Array.isArray(e.errors)) {
+    for (const x of e.errors) {
+      if (x === undefined || x === null) continue;
+      parts.push(typeof x === 'string' ? x : JSON.stringify(x));
+    }
+  }
+  if (stderrTail) parts.push(stderrTail);
+  return matchSignature(parts.join('\n'));
+}
+
 /** The note a wall-clock timeout stamps on its TurnResult. Exported alongside {@link isTimeoutNote} so a
  *  consumer (resolveImplementOutcome, spec 085) can tell a TIMEOUT — a possibly-salvageable interruption
  *  that may have left a valid artifact — apart from a hard spawn/exit failure, WITHOUT string-guessing that
@@ -166,7 +235,19 @@ export async function runTurn(
       // turn-end is the single terminal result event (nexus :148-157)
       if (event.type === 'result') {
         resultEvent = event;
-        finish({ sessionId: capturedSessionId, result: event, isError: !!event.is_error });
+        const isError = !!event.is_error;
+        // Spec 104 S3: classify ONLY an errored result. A successful turn must never wear a failure
+        // note, and `api_error_status` can ride a result whose retry then succeeded. `noteAdvisory`
+        // marks the note as explain-only so it cannot flip a salvageable phase into a hard error.
+        const triage = isError
+          ? classifyResultFailure(event, redactSecrets(session.stderrTail?.() ?? ''))
+          : null;
+        finish({
+          sessionId: capturedSessionId,
+          result: event,
+          isError,
+          ...(triage ? { note: triage.note, failureCls: triage.cls, noteAdvisory: true } : {}),
+        });
       }
     };
 
