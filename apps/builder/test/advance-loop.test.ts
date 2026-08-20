@@ -41,6 +41,11 @@ interface Overrides {
   reportLintClean?: boolean;
   /** when set, the runTurn stub calls markCancelled() while running THIS phase (simulates a /cancel). */
   cancelDuringTurn?: Task['phase'];
+  /** spec 105 — what the ③ post-turn check MEASURED about the round. Left undefined by default, which
+   *  is the real "not measured" state a first Implement produces; every pre-existing test relies on
+   *  that default, so the two auto hard-stops below cannot fire in them. */
+  artifactChanged?: boolean;
+  specChanged?: boolean;
 }
 
 interface Harness {
@@ -116,7 +121,12 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
       ok: clean,
       status: clean ? 'done' : 'error',
       reasons,
-      detail: { artifactOk: true, yamlOk: true, lintCodes, idsOk: true, confinementBreaches: [], extraFiles: [] },
+      detail: {
+        artifactOk: true, yamlOk: true, lintCodes, idsOk: true, confinementBreaches: [], extraFiles: [],
+        // spec 105: absent unless a test opts in — see Overrides.
+        ...(o.artifactChanged === undefined ? {} : { artifactChanged: o.artifactChanged }),
+        ...(o.specChanged === undefined ? {} : { specChanged: o.specChanged }),
+      },
     };
   };
 
@@ -202,6 +212,55 @@ describe('advance-loop integration (013 D3)', () => {
     // a workflow was scaffolded for the derived slug
     assert.ok(task.workflowSlug, 'workflowSlug derived at the spec gate');
     assert.ok(task.project, 'project resolved at the spec gate (_drafts by default)');
+  });
+
+  // ── spec 105: two MEASURED faults an autonomous build must not sail past ──────────────────────
+  // These sit beside the still_failing test on purpose: same shape (auto must PARK), different
+  // reason. still_failing is a gate STATE the verify assigns; these two are attributes it MEASURED
+  // about the round, and they were previously readable only on a card `auto` never shows anyone.
+
+  test('spec 105 — auto HARD-STOPS when the round changed nothing (never reports done for empty work)', async () => {
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'change the notify step', confirmMode: 'auto', deploy: 'none' });
+    // lint is CLEAN — the only thing wrong is that the file came out byte-identical.
+    const h = harness(dir, task, { artifactChanged: false, specChanged: false });
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    assert.equal(task.status, 'awaiting_confirm', 'auto parked instead of advancing');
+    assert.equal(task.phase, 'implement', 'stopped AT the implement gate');
+    assert.equal(task.artifactUnchanged, true, 'the fault that stopped it is the measured one');
+    assert.equal(h.calls.runReport, 0, '④ never ran — a done report would have described empty work');
+    assert.notEqual(task.status, 'done');
+  });
+
+  test('spec 105 — auto HARD-STOPS when the workflow moved but SPEC.md did not', async () => {
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'change the notify step', confirmMode: 'auto', deploy: 'none' });
+    // The turn DID edit the workflow (artifactChanged) but left the spec behind (specChanged=false)
+    // — exactly the drift the implement turn is instructed to prevent, and the only guard against it
+    // once a proposal gate is off the table (which it always is under `auto`).
+    const h = harness(dir, task, { artifactChanged: true, specChanged: false });
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    assert.equal(task.status, 'awaiting_confirm', 'auto parked instead of advancing');
+    assert.equal(task.phase, 'implement');
+    assert.equal(task.specStale, true, 'the tripwire is what stopped it');
+    assert.equal(task.artifactUnchanged, false, 'and NOT the empty-round guard — these are two faults');
+    assert.equal(h.calls.runReport, 0, '④ never ran');
+  });
+
+  test('spec 105 — a clean, reconciled round still runs hands-free (the guards are narrow)', async () => {
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'change the notify step', confirmMode: 'auto', deploy: 'none' });
+    const h = harness(dir, task, { artifactChanged: true, specChanged: true });
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    assert.equal(task.status, 'done', 'both measurements healthy → auto behaves exactly as before');
+    assert.equal(task.phase, 'test');
+    assert.equal(h.calls.runReport, 1);
   });
 
   test('AC #25 — a still_failing Implement HARD-STOPS auto (parks at the gate, never reaches ④)', async () => {
