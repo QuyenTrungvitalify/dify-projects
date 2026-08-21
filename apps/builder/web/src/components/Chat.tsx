@@ -279,8 +279,23 @@ export function gateView(t: WireTask): GateView {
     return { tone: 'error', badge: tr('gateCancelledBadge'), title: tr('gateCancelledTitle'), meta, summary: [tr('gateCancelledSummary')] };
   }
   if (t.status === 'done') {
+    const doneLines = [tr('gateDoneSummary1'), tr('gateDoneSummary2')];
+    // spec 105 — the deployed app can now be BEHIND a finished build. An unattended fix round runs
+    // straight through ④, and an autonomous build deliberately skips the Import gate (spec 036 D5), so
+    // the one surface that compared these two hashes is the one such a build never sees. Without this
+    // line 完了 quietly claims something untrue of the app the user is about to go and run.
+    //
+    // Needs BOTH hashes and a real difference: no import yet ⇒ nothing to be behind, and equal hashes
+    // ⇒ Dify already has this file. Same three-state care as its sibling on the Import gate.
+    if (t.importedHash && t.artifactHash && t.importedHash !== t.artifactHash) {
+      doneLines.unshift(
+        tf('gateDoneStaleImport', {
+          time: t.importedAt ? new Date(t.importedAt).toLocaleTimeString() : '—',
+        })
+      );
+    }
     return { tone: 'done', badge: tr('gateDoneBadge'), title: tr('gateDoneTitle'), meta: tr('phaseMeta4'),
-      summary: [tr('gateDoneSummary1'), tr('gateDoneSummary2')], showReportLink: true };
+      summary: doneLines, showReportLink: true };
   }
   // F4 (spec 010): the slug-collision note rides on the task from the Spec-gate scaffold → surface it
   // (once) at the Implement gate, leading the summary, so the user sees the rename before continuing.

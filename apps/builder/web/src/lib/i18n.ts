@@ -196,6 +196,10 @@ const EN: Dict = {
   restoreBuild: 'Restore build',
   gateDoneBadge: 'Done',
   gateDoneTitle: 'Test passed — workflow updated',
+  // spec 105 — a build can now finish `done` with Dify holding an OLDER file: an unattended fix round
+  // runs straight through ④, and autonomous builds deliberately skip the Import gate. Saying nothing
+  // there means 完了 quietly claims something that is not true of the deployed app.
+  gateDoneStaleImport: 'Dify still has the version imported at {time}; the workflow has changed since. Importing again sends the current one.',
   gateDoneSummary1: 'Linters re-run on the produced main.yml.',
   gateDoneSummary2: 'Open the report in the panel for the details.',
   gateFailBadge: 'Lint still failing',
@@ -731,6 +735,7 @@ const JA: Dict = {
   restoreBuild: 'ビルドを復元',
   gateDoneBadge: '完了',
   gateDoneTitle: 'テスト合格 — ワークフローを更新しました',
+  gateDoneStaleImport: 'Dify には {time} にインポートした版が残っています。その後ワークフローは変わりました。もう一度インポートすると今の版が送られます。',
   gateDoneSummary1: '生成された main.yml に対してリンターを再実行しました。',
   gateDoneSummary2: '詳細はパネルのレポートを開いてください。',
   gateFailBadge: 'リンターが失敗のまま',
