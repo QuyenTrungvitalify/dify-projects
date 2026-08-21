@@ -15,8 +15,8 @@
 > không có chỗ unit-test riêng"*, giờ đã có. Suite **1193/1193** · web **447/447**.
 >
 > **S2c landed** — `autoAdvanceAfterFix` ở **ba** chỗ (không phải hai như §4.3.2 dự đoán: `replyWithin`
-> return sớm ở 4/5 nhánh) + nhánh `apply_spec`, kẹp `phase==='implement'`. Hard-stop `specStale` quay
-> lại **ở đây**, nơi nó mới đạt được. Harness phải học cùng một chuyện: ③ của nó chưa từng chạm
+> return sớm ở 4/5 nhánh) + nhánh `apply_spec`, kẹp `phase==='implement'`. ~~Hard-stop `specStale` quay
+> lại ở đây~~ — **đã ship rồi GỠ ngay sau đó, xem §8.0.** Harness phải học cùng một chuyện: ③ của nó chưa từng chạm
 > `SPEC.md` nên **mọi** vòng fix đo thành spec-stale — một phán quyết về CÁI FAKE, không phải về code.
 > Suite **1190/1190**. Năm mảnh đỏ-khi-revert riêng lẻ.
 >
@@ -102,7 +102,7 @@ Bảng này để đọc thay cho cả spec khi cần nhớ *"đã chốt gì r�
 | 19 | Số đo §1.2 tin được tới đâu? | Có **đóng dấu ngày**. Ô chi phí đã bị gỡ một con số **không dựng lại được** và sửa tỉ số ②:③ từ "15–40×" (so min-với-max) xuống **~2,5× trung vị / ~27× đuôi** | §1.2 · §4.3 |
 | 20 | Làm LOẠI 2 ngay sau LOẠI 1? | **Không.** Ship LOẠI 1 → **đo nhu cầu** → mới quyết. Giá trị của LOẠI 2 là **thời gian**, không phải tiền | §6 |
 | 15 | Đặt `maybeAutoAdvance` ở đâu? | **HAI chỗ** (nhánh `phase==='test'` + đuôi), **kẹp `phase==='implement'`**. Một dòng ở đuôi ⇒ auto chạy **so le** giữa các vòng fix | §4.3.2 |
-| 16 | Ràng buộc thứ tự? | S2c **sau CẢ** S2b **và** S3 — `specStale` câm trên lượt ③ tươi nếu thiếu S3 | §4.3.2 ⛔ |
+| 16 | ~~Ràng buộc thứ tự?~~ | **Không còn áp dụng**: ràng buộc đó tồn tại vì hard-stop `specStale`, mà guard đó đã bị gỡ (§8.0). S2c đứng một mình | §8.0 |
 | 17 | Hàng chip có mấy chip? | **4**, không phải 5 (chip `mode` là code chết). Chip 作り方 là thứ **5** — vẫn thay chip 高速ビルド, nhưng vì **ngữ nghĩa**, không vì layout | §5.3 |
 | 14 | Vậy còn lại gì cho cửa vào? | Một **giá trị mặc định** của chip 作り方 khi workflow đã được chọn sẵn — không phải affordance mới | §4.2.1 |
 
@@ -343,9 +343,14 @@ trong auto vì auto là chế độ **không ai nhìn màn hình**:
 | Tín hiệu | Trạng thái | Vì sao auto phải dừng |
 |---|---|---|
 | `artifactUnchanged` | ✅ **ĐÃ SHIP** (S2b) | ③ chạy xong mà **file không đổi một byte** — trong auto sẽ đi thẳng tới ④ và báo 完了 cho một việc chưa làm |
-| `specStale` | ⏳ **chuyển sang S2c** — xem §4.3.1a | ③ được **dặn** hoà giải `SPEC.md` nhưng **không làm**. Trong auto, việc ③ tự viết lại là cơ chế **duy nhất** giữ hồ sơ đúng (không có làn 提案) ⇒ tripwire của nó không được phép vô hình |
+| ~~`specStale`~~ | ❌ **KHÔNG làm — xem §8.0.** Lập luận ở ô bên phải nghe hợp lý và **đã sai**: phép đo hai bit không phân biệt được "quên hoà giải" với "hoà giải rồi thấy không cần sửa", mà chỉ thị cho ③ **cho phép** vế thứ hai | ③ được **dặn** hoà giải `SPEC.md` nhưng **không làm**. Trong auto, việc ③ tự viết lại là cơ chế **duy nhất** giữ hồ sơ đúng (không có làn 提案) ⇒ tripwire của nó không được phép vô hình |
 
-#### 4.3.1a Vì sao `specStale` phải đi cùng S2c, không phải S2b
+#### 4.3.1a ~~Vì sao `specStale` phải đi cùng S2c~~ — LỖI THỜI, đọc §8.0 trước
+
+> ⚠️ **Mục này đúng về CHỖ ĐẶT và sai về VIỆC CÓ NÊN ĐẶT KHÔNG.** Nó chứng minh hard-stop `specStale`
+> bất khả đạt ở S2b (đúng), rồi kết luận là phải chuyển sang S2c (sai). Chuyển sang S2c rồi thì nó
+> **đạt được — và chặn nhầm việc đúng**. §8.0 giải thích. Giữ lại nguyên văn vì phần chứng minh
+> bất-khả-đạt vẫn dùng được cho bất kỳ ai định đặt lại guard đó.
 
 `[ĐO code]` Ship S2b xong mới phát hiện: hard-stop `specStale` **không bao giờ chạy được** ở bản hiện tại.
 
