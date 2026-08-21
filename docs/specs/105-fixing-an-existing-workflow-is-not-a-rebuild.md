@@ -935,6 +935,19 @@ cái đó, giữ nguyên advisory.
 
 ---
 
+### 8.0b Ba hệ quả của S2c — một đã vá, hai còn để ngỏ
+
+Cho `auto` chạy hết vòng fix mở ra ba chuyện. Ghi cả ba, vì hai cái còn lại là **quyết định**, không
+phải lỗi — và người quyết phải thấy chúng.
+
+| | Hệ quả | Trạng thái |
+|---|---|---|
+| **a** | **Dify giữ bản CŨ trong khi build báo `完了`.** Build không-giám-sát cố ý bỏ qua cổng Import (036 D5), và S2c làm vòng fix chạy thẳng qua ④ ⇒ bề mặt DUY NHẤT từng so "trên đĩa" với "đã import" là bề mặt build đó không bao giờ thấy | ✅ **ĐÃ VÁ** (`e7a2c71`) — thẻ `done` nói ra. Không đổi chính sách deploy, chỉ bỏ sự im lặng |
+| **b** | **Mỗi vòng fix không-giám-sát giờ CHẠM Dify thật.** ④ chạy `runImportProbe` → tạo app `[probe] <taskId>` rồi xoá. Trước S2c một vòng fix `auto` không bao giờ tới ④ nên không hề chạm Dify. Xoá hỏng ⇒ mỗi vòng để lại một app mồ côi | ⏳ **để ngỏ** — cần đo trước: probe có thật sự chạy khi `deploy='none'` không, và tỉ lệ xoá hỏng. Đừng đoán (bài học §8.0) |
+| **c** | **S2c nới cả `仕様のみ`, không chỉ `自動`.** `boundaryAutoAdvances('spec_only','implement')` là `true`, nên vòng fix dưới `仕様のみ` cũng tự đi ③→④ — kể cả nhánh `apply_spec` | ⏳ **đúng nghĩa của nó** ("chỉ dừng ở ②"), nhưng commit chỉ nói về `auto`. Cần một câu trong `docs/state` lúc đóng spec, không cần sửa code |
+
+---
+
 ### 8.1 Việc tồn phát sinh trong lúc ship (2026-08-21) — **chưa làm, cố ý**
 
 Bốn thứ vòng soát tìm ra sau khi S2b/S3b landing. Không cái nào chặn S2c; ghi ra để không rơi.
