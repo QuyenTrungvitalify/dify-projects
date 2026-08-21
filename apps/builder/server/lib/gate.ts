@@ -47,6 +47,36 @@ export function canRequestFix(
   );
 }
 
+/**
+ * Spec 103 Lane B / spec 105 — may THIS task open a plan proposal?
+ *
+ * Lives here beside {@link canRequestFix} for the same reason that one does: the `/reply` route needs
+ * an authoritative answer, and the FE renders its caret from the same facts. When the two drifted
+ * apart they did so SILENTLY — the FE stopped offering the lane under `auto` while the route still
+ * accepted it, so a stale tab could open a plan on a build that would never stop for it. Autonomous
+ * advance hard-stops on the proposal gate, so such a build sits there with the ② turn already paid
+ * for, waiting for someone who has said they are not watching.
+ *
+ * PURE: the caller supplies `workflowExists` (an fs question) so this stays unit-testable. Mirrors
+ * `web/src/lib/propose-lane.ts` — same rule, two ends, and the pair is why neither may be edited alone.
+ */
+export function mayOpenProposal(
+  task: Pick<Task, 'status' | 'project' | 'workflowSlug' | 'specRevise' | 'confirmMode'>,
+  workflowExists: boolean
+): boolean {
+  return (
+    // NOT on an errored build. A `/reply` there is a Retry — the human wants the failed phase to run
+    // again, and quietly turning that into "let me draft you a plan instead" would strand the build in
+    // its error while spending a turn on something nobody asked for.
+    task.status !== 'error' &&
+    !!task.project &&
+    !!task.workflowSlug &&
+    !task.specRevise && // one proposal at a time — a second would diff against a spec being replaced
+    task.confirmMode !== 'auto' && // a gate that waits, on a mode that says nobody is waiting
+    workflowExists
+  );
+}
+
 /** Verify outcome the orchestrator resolves before gating. `awaiting_import` is the Lát-5 ④ state:
  *  selfhost lint is clean but the import hasn't run yet → present the Import button (AC #16). */
 export type GateOutcome =

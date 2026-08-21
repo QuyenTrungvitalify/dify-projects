@@ -38,7 +38,7 @@ import {
   type Task,
 } from '../state/task.js';
 import { normalizeChatLang } from '../lib/language.js';
-import { canRequestFix, computeGate } from '../lib/gate.js';
+import { canRequestFix, computeGate, mayOpenProposal } from '../lib/gate.js';
 import { difyTargets } from '../lib/dify-io.js';
 import { runLiveTest } from '../lib/live-test.js';
 import { promoteConfirm, promoteReply, resolvePastedPromoteSource, resolvePromoteSource, startPromote, undoPromotion } from '../lib/promote.js';
@@ -795,15 +795,16 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // Spec 103 Lane B — "show me the plan first". Re-derive legality SERVER-SIDE from the same facts
     // the FE renders the option on; a stale tab or a forged POST must not be able to open a proposal
     // on a build that has no spec, has no workflow yet, or already has one pending.
+    // Spec 103 Lane B — "show me the plan first". Legality is re-derived SERVER-SIDE from the same
+    // facts the FE renders the option on; a stale tab or a forged POST must not be able to open one.
+    // The predicate is pure and lives in gate.ts beside `canRequestFix` (spec 105) — the fs question is
+    // the only part that belongs here.
     const wantsPropose =
       body.mode === 'propose' &&
-      // NOT on an errored build. A `/reply` there is a Retry — the human wants the failed phase to run
-      // again, and quietly turning that into "let me draft you a plan instead" would strand the build
-      // in its error while spending a turn on something nobody asked for.
-      task.status !== 'error' &&
-      !!task.project && !!task.workflowSlug &&
-      !task.specRevise && // one proposal at a time — a second would diff against a spec being replaced
-      existsSync(join(projectsDir, `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`));
+      mayOpenProposal(
+        task,
+        existsSync(join(projectsDir, `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`))
+      );
     dispatch(id, replyWithin(task, text, ctx, wantsPropose ? { mode: 'propose' } : undefined));
     return reply.send({ ...optimisticRunning(task), uploads });
   });

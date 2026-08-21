@@ -268,6 +268,26 @@ describe('103 Lane B · a plan with nothing in it is not a plan', () => {
     assert.equal(task.specRevise, undefined);
     assert.equal(existsSync(draftPath(task)), false, 'the empty draft is cleaned up');
   });
+
+  test('spec 105 — and it returns a FINISHED build to done, not to an invented ③ gate', async () => {
+    // The case above cannot tell the two code paths apart: it starts at ③, which is also what the
+    // fallback branch recomputes, so it passed while the captured state was being thrown away. Lane B
+    // is reachable from a finished build too, and there the difference is the whole promise — a plan
+    // with nothing in it must not un-finish the build that asked for it.
+    dir = fixtureDir();
+    const { task, ctx } = await buildToImplementGate({}, { noopRevise: true });
+    // Stand the build where a human actually finds Lane B after testing in Dify: finished.
+    task.phase = 'test';
+    task.status = 'done';
+    task.gate = undefined;
+
+    await propose(task, ctx, 'reformat the prompt, change no behaviour');
+
+    assert.equal(task.phase, 'test', 'still finished');
+    assert.equal(task.status, 'done', 'the button that promises no change made none');
+    assert.equal(task.specNoop, true);
+    assert.equal(task.specRevise, undefined);
+  });
 });
 
 describe('103 Lane B · a turn that dies must not strand the build', () => {

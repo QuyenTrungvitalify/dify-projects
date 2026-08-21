@@ -490,13 +490,16 @@ async function maybeAutoAdvance(
   // `=== true` is load-bearing rather than defensive: the field is three-state and `undefined` means
   // NOT MEASURED, which must never be read as a verdict.
   if (task.phase === 'implement' && task.artifactUnchanged === true) return;
-  // The same shape, one artifact over: ③ is told to bring SPEC.md back in line with the workflow it
-  // just edited, and this says it did not. Unattended that matters more than anywhere else — a plan
-  // gate needs a human, so it is never offered to an autonomous build, which leaves the implement
-  // turn's own reconciliation as the only thing keeping the document true. A last line of defence
-  // must not be the one nobody reads. Only measured on a round carrying a change request, which is
-  // why it can only be reached now that such a round is allowed to advance (spec 105).
-  if (task.phase === 'implement' && task.specStale === true) return;
+  // `specStale` is deliberately NOT a hard-stop here, and the reason is worth keeping next to the one
+  // that is. It shipped as a block for exactly one commit (spec 105) on the argument that unattended
+  // builds have no other guard on the document — then came off, because the measurement cannot carry
+  // that weight: `isSpecStale` is `artifactChanged && !specChanged`, two bits that cannot tell "the
+  // turn forgot to reconcile" from "the turn reconciled and correctly found nothing to change". The
+  // instruction sent to that same turn ends `If nothing in the document has become untrue, change
+  // nothing — a no-op is a correct outcome`, so the second reading is not hypothetical: it is
+  // behaviour the prompt asks for, and blocking on it hangs an unattended build for doing as it was
+  // told. Spec 103 had already decided this on purpose (see the ADVISORY note at the verify) and left
+  // promotion to a block as a question for the measured rate — not for a guess. Guessing was the bug.
   if (!boundaryAutoAdvances(task.confirmMode, task.phase)) return;
   // Spec 028 §5: the auto+fast structural sanity-check — the ONE config with no human gate. Before
   // auto-confirming the MERGED Spec gate, require the draft's analyze.json.features (folded onto
@@ -1213,7 +1216,11 @@ async function verifyPhase(
     if (identical) {
       await dropSpecProposal(projectsDir, task);
       task.specRevise = undefined;
-      task.specReviseFrom = undefined;
+      // `specReviseFrom` is NOT cleared here: `reparkAfterProposal` runs next and is the only owner of
+      // that field — it reads the captured state, then clears it. Clearing early sent every no-op down
+      // the fallback branch, which recomputes a ③ gate; and Lane B is reachable from a ④ gate and from
+      // a finished build, so that fallback un-finished a `done` build and invented a gate — a real
+      // change, from the one button that promises none (spec 105).
       task.specNoop = true; // the ③ gate says so, instead of the build silently doing nothing
       return { outcome: 'spec_noop', reasons: [] };
     }

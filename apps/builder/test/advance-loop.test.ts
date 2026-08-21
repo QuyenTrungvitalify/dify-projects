@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { startTask, confirmAdvance, replyWithin, type OrchestratorCtx } from '../server/lib/orchestrator.js';
 import { acquireTurn, releaseTurn, markCancelled, unmarkCancelled } from '../server/lib/lock.js';
-import { canRequestFix } from '../server/lib/gate.js';
+import { canRequestFix, mayOpenProposal } from '../server/lib/gate.js';
 import { createTask, type Task } from '../server/state/task.js';
 import { PHASES } from '../server/lib/phases.js';
 import { applyInitFake } from './helpers/scaffold-fake.js';
@@ -348,23 +348,23 @@ describe('advance-loop integration (013 D3)', () => {
     assert.equal(h.calls.runTurn, turnsBefore + 1, 'exactly ONE turn: the ① re-run, no ② behind it');
   });
 
-  test('spec 105 — auto HARD-STOPS a fix round that left SPEC.md behind', async () => {
-    // Reachable only now that a fix round is allowed to advance: `specStale` is measured on rounds
-    // carrying a change request, and until this slice no such round ever reached maybeAutoAdvance.
-    // The turn edits the workflow and skips the reconcile — the failure the tripwire exists for.
+  test('spec 105 — a fix round that leaves SPEC.md alone still finishes (the badge warns, it does not block)', async () => {
+    // This shipped the other way round for one commit: `specStale` was a hard-stop, on the argument
+    // that an unattended build has no other guard on the document. It came off because the measurement
+    // is two bits — `artifactChanged && !specChanged` — and cannot tell a turn that FORGOT to reconcile
+    // from one that reconciled and correctly found nothing to change. The instruction sent to that same
+    // turn ends "a no-op is a correct outcome", so blocking on it hangs a build for obeying.
     const dir = fixtureDir();
     const task = await createTask(dir, { requirement: 'x', confirmMode: 'auto', deploy: 'none' });
     const h = harness(dir, task, { implementSkipsSpecReconcile: true });
     await withTurn(task.taskId, () => startTask(task, h.ctx));
-    assert.equal(task.status, 'done');
     const reportsBefore = h.calls.runReport;
 
     await withTurn(task.taskId, () => replyWithin(task, 'change the threshold', h.ctx));
 
-    assert.equal(task.specStale, true, 'the workflow moved and the document did not');
-    assert.equal(task.status, 'awaiting_confirm', 'auto stopped instead of shipping a stale document');
-    assert.equal(task.phase, 'implement');
-    assert.equal(h.calls.runReport, reportsBefore, '④ never ran');
+    assert.equal(task.specStale, true, 'still MEASURED — the gate card says so');
+    assert.equal(task.status, 'done', 'but it does not stop an unattended build');
+    assert.equal(h.calls.runReport, reportsBefore + 1);
   });
 
   // ── calibration: the harness itself ───────────────────────────────────────────────────────────
@@ -673,6 +673,25 @@ describe('advance-loop integration (013 D3)', () => {
     assert.ok(!canRequestFix({ ...done, kind: 'consult' }), 'a chat has no workflow to revise');
     assert.ok(!canRequestFix({ ...done, sessionIds: {} }), 'no implement session → the reply would silently no-op');
     assert.ok(!canRequestFix({ ...done, workflowSlug: null }), 'no on-disk workflow → nothing to edit');
+  });
+
+  test('spec 105 — mayOpenProposal: the server half of "a plan gate and unattended mode are exclusive"', async () => {
+    // The FE withdraws the caret under `auto`; this is the authority. When the two drifted apart they
+    // did so SILENTLY — a stale tab could open a plan on a build that will never stop for it, because
+    // autonomous advance hard-stops on the proposal gate. `PATCH` already refuses the mirror move
+    // (switching to `auto` while a plan is pending); together they make the pair impossible to hold.
+    const dir = fixtureDir();
+    const base = await createTask(dir, { requirement: 'x', confirmMode: 'each_step', deploy: 'none' });
+    const ready = { ...base, status: 'awaiting_confirm' as const, project: 'p', workflowSlug: 'wf' };
+
+    assert.ok(mayOpenProposal(ready, true), 'an attended build with a workflow may plan first');
+    assert.ok(mayOpenProposal({ ...ready, confirmMode: 'spec_only' }, true), 'spec_only stops at gates too');
+    assert.ok(!mayOpenProposal({ ...ready, confirmMode: 'auto' }, true), 'auto says nobody is waiting');
+    assert.ok(!mayOpenProposal(ready, false), 'no workflow on disk → nothing to plan a change to');
+    assert.ok(!mayOpenProposal({ ...ready, specRevise: true }, true), 'one proposal at a time');
+    assert.ok(!mayOpenProposal({ ...ready, status: 'error' }, true), 'a /reply on an error is a Retry');
+    assert.ok(!mayOpenProposal({ ...ready, project: null }, true));
+    assert.ok(!mayOpenProposal({ ...ready, workflowSlug: null }, true));
   });
 
   test('spec 036 fix — "Request changes" at the LIVE ④ gate re-runs IMPLEMENT (edits main.yml), not a bare re-test', async () => {
