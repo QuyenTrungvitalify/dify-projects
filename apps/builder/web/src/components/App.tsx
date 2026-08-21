@@ -25,6 +25,7 @@ import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed, NewTaskOpts
 import { newTaskCrumb, runContextCrumb, workflowOptions, activeSidebarProject, activeSidebarWorkflow, type NewTaskCrumb } from '../lib/crumb';
 import { canPromoteFromConversation } from '../lib/promote-visibility';
 import { composerTarget, replyLabel, type ComposerIntent } from '../lib/composer-route';
+import { canPropose, confirmModeOptions } from '../lib/propose-lane';
 import { api, ApiError } from '../api';
 
 let _attUid = 0;
@@ -236,16 +237,8 @@ export function App() {
     setFiles((prev) => prev.filter((f) => f.id !== id));
   }
 
-  // spec 103 Lane B — "show me the plan first" is only meaningful once a workflow EXISTS: at ① and ②
-  // the spec is still being written, so there is nothing to plan a change TO. `artifacts.yaml` is set
-  // by the ③ verify, which makes it the honest "there is something to fix" signal. One proposal at a
-  // time. The server re-derives all of it — this only decides whether to render the caret.
-  //
-  // The key is `implement`, NOT `yaml`: `artifacts` is keyed by PHASE ID (runPhase writes
-  // `artifacts[sessKey]`), so `artifacts.yaml` is always undefined and gating on it silently disabled
-  // the entire feature. `artifactContents.yaml` is a different object — that one holds file CONTENT.
-  const canPropose =
-    !!task?.project && !!task?.workflowSlug && !!task?.artifacts?.implement && !task?.specRevise;
+  // spec 103 Lane B / spec 105 — see `lib/propose-lane.ts` for why this is a pure function.
+  const proposeLane = canPropose(task);
 
   function send(text?: string, intent: ComposerIntent = 'ask'): void {
     const msg = (text ?? draft).trim();
@@ -776,7 +769,8 @@ export function App() {
                         canChange={askableGate} changeArmed={!!armed}
                         /* spec 103 Lane B — a plan can only be drafted against a workflow that exists,
                            and only one proposal at a time (the server re-checks both). */
-                        canPropose={canPropose}
+                        canPropose={proposeLane}
+                        proposalPending={!!task.specRevise}
                         sendGlyph={task.kind === 'promote' ? 'edit' : undefined}
                         /* spec 052: a promote build has no ①②③④ run-settings — omit the Workflow/Confirm/Fast
                            chips (and their confirm_mode PATCH) so the promote-gate composer is a plain reply box. */
@@ -820,7 +814,7 @@ export function App() {
                         canChange={terminalFixable} changeArmed={!!armed}
                         /* spec 103 Lane B — a plan can only be drafted against a workflow that exists,
                            and only one proposal at a time (the server re-checks both). */
-                        canPropose={canPropose}
+                        canPropose={proposeLane}
                         /* spec 096: a finished build still takes follow-up questions, and those Ask
                            turns spawn with `task.model` — so the chip belongs here too. Without it the
                            model was in force but invisible and unchangeable. It is the ONLY chip here:

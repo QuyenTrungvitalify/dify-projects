@@ -673,7 +673,21 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     if (isCancelled(id) && wantsConfirm) {
       return reply.code(409).send({ error: 'task was cancelled — confirm_mode is no longer changeable' });
     }
-    if (wantsConfirm) task.confirmMode = normalizeConfirmMode(body.confirm_mode ?? body.confirmMode);
+    // spec 105 — the other half of "a proposal and `auto` cannot both be honoured". The FE withdraws
+    // `auto` from the chip while a plan is pending; this is the authority, because the chip is
+    // live-patchable and a stale tab (or a hand-rolled request) would otherwise land a mode that does
+    // nothing: `maybeAutoAdvance` hard-stops on the proposal gate, so the build would sit there reading
+    // "don't stop" while stopped. Normalise FIRST — the wire carries verbose forms and two field
+    // spellings, and comparing the raw string would let `'auto '` through.
+    const nextConfirm = wantsConfirm
+      ? normalizeConfirmMode(body.confirm_mode ?? body.confirmMode)
+      : undefined;
+    if (nextConfirm === 'auto' && task.specRevise) {
+      return reply.code(409).send({
+        error: 'a plan is waiting for your decision — settle it before switching to unattended mode',
+      });
+    }
+    if (wantsConfirm) task.confirmMode = nextConfirm!;
     if (wantsModel) {
       // spec 096: takes effect from the NEXT turn on — /confirm and /reply both re-load the task from
       // disk, so the next spawn reads this. Phases already run keep their model in `cost[*].model`, so

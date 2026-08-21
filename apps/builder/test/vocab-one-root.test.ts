@@ -64,19 +64,17 @@ test('103 S1 — the server still emits the English labels ACTION_JA is keyed by
   assert.ok(gate.includes("REPLY('changes', 'Edit spec')"), "the 'Edit spec' label moved");
 });
 
-test('103 Lane B — canPropose gates on `artifacts.implement`, the key that actually exists', () => {
+test('103 Lane B — the workflow path really is written under the PHASE id', () => {
   // `task.artifacts` is keyed by PHASE ID (runPhase writes `artifacts[sessKey]`), so the workflow path
-  // lives under `implement`. Gating on `artifacts.yaml` — which is a key of the SEPARATE
-  // `artifactContents` object — silently disabled the whole feature: the expression is always
-  // undefined, the caret never rendered, and nothing failed. A static check because the predicate is
-  // an inline JSX expression with no unit-test seam of its own.
-  const app = readFileSync(join(HERE, '../web/src/components/App.tsx'), 'utf8');
-  const m = app.match(/const canPropose\s*=\s*([^;]+);/);
-  assert.ok(m, 'canPropose is no longer a named const — update this guard');
-  assert.match(m![1], /artifacts\?\.implement/, 'must read artifacts.implement');
-  assert.ok(!/artifacts\?\.yaml/.test(m![1]), 'artifacts.yaml does not exist on the wire task');
-
-  // And the key really is written by the phase id, not invented here.
+  // lives under `implement`. Gating on `artifacts.yaml` — a key of the SEPARATE `artifactContents`
+  // object — silently disabled the whole Lane B caret: the expression is always undefined, nothing
+  // rendered, nothing failed.
+  //
+  // The half of this guard that grepped App.tsx for the predicate is GONE, and its own stated reason is
+  // why: it existed "because the predicate is an inline JSX expression with no unit-test seam of its
+  // own". It has one now — `web/src/lib/propose-lane.ts`, whose tests assert both directions directly
+  // (spec 105). What a static string-match cannot check, and this still does, is the other end of the
+  // agreement: that the producer writes the key the consumer reads.
   const orch = readFileSync(join(HERE, '../server/lib/orchestrator.ts'), 'utf8');
   assert.match(orch, /task\.artifacts\[sessKey\] = phase\.artifactRel\(task\)/);
 });

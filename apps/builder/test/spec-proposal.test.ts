@@ -271,6 +271,30 @@ describe('103 Lane B · a plan with nothing in it is not a plan', () => {
 });
 
 describe('103 Lane B · a turn that dies must not strand the build', () => {
+  test('spec 105 — a failed APPLY also offers "Never mind" (it used to strand the build)', async () => {
+    // The other way a revise can end in an error gate: the draft is gone by the time the human clicks
+    // "Go with this", so `applySpecProposal` returns false. That branch built its gate without saying a
+    // proposal was open, so it offered only Retry and Discard — while `PUT /spec` refuses to save the
+    // spec for exactly as long as the flag is set. The build was left holding a plan it could neither
+    // apply nor get rid of through the UI.
+    dir = fixtureDir();
+    const { task, ctx } = await buildToImplementGate();
+    await propose(task, ctx);
+    rmSync(draftPath(task)); // the draft disappears under us — nothing left to rename
+
+    await withTurn(task.taskId, () => confirmAdvance(task, 'apply_spec', ctx));
+
+    assert.equal(task.status, 'error');
+    assert.match(task.error ?? '', /nothing to apply/);
+    assert.ok(task.gate?.actions.some((a) => a.id === 'drop_spec'), 'the escape hatch is offered here too');
+
+    // And it works: the human drops the plan and is put back where they were standing.
+    await withTurn(task.taskId, () => confirmAdvance(task, 'drop_spec', ctx));
+    assert.equal(task.specRevise, undefined);
+    assert.equal(task.phase, 'implement');
+    assert.equal(task.status, 'awaiting_confirm');
+  });
+
   test('an errored revise still offers "Never mind", and it costs nothing', async () => {
     // Observed live: the ② revise hit a Claude usage limit and the build stranded at phase 'spec',
     // status 'error', with the draft still open. The plain error gate offers Retry (another turn) or

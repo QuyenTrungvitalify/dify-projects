@@ -180,7 +180,11 @@ export async function confirmAdvance(
       if (!(await applySpecProposal(ctx.projectsDir, task))) {
         task.status = 'error';
         task.error = 'the spec proposal is gone — nothing to apply';
-        task.gate = computeGate('spec', { outcome: 'error' }, task.deploy);
+        // Pass `specRevise` so the error gate keeps its 「やめる」: the flag is still set at this point
+        // (it is cleared on the line below, which this branch never reaches), and `PUT /spec` refuses
+        // while it is — so an error gate without a way to drop the proposal strands the build with a
+        // pending plan it cannot get rid of through the UI (spec 105).
+        task.gate = computeGate('spec', { outcome: 'error' }, task.deploy, {}, { specRevise: task.specRevise });
         await emit(task, ctx);
         return;
       }

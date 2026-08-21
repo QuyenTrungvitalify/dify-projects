@@ -16,6 +16,7 @@ import { renderMarkdownHtml } from '../lib/markdown';
 import { PHASE_LABELS, phaseIndex, phaseLabelAt } from '../lib/phase';
 import { canUndoFix, replyButtonKind, terminalFootActions } from '../lib/gate-foot';
 import type { ComposerIntent } from '../lib/composer-route';
+import { confirmModeOptions } from '../lib/propose-lane';
 import { t as tr, tf, phaseLabel, tAction, localizeNotes } from '../lib/i18n';
 import {
   type ComposerAttachment,
@@ -906,7 +907,7 @@ function SendVariants({ ready, onPick }: { ready: boolean; onPick: (intent: 'cha
   );
 }
 
-export function Composer({ value, onChange, onSend, settings, onSettings, model, onModel, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, onMode, canChange, changeArmed, sendGlyph, canPropose }: {
+export function Composer({ value, onChange, onSend, settings, onSettings, model, onModel, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, onMode, canChange, changeArmed, sendGlyph, canPropose, proposalPending }: {
   value: string;
   onChange: (value: string) => void;
   /** spec 092: intent is PER-MESSAGE — 'ask' from Enter / the chat button, 'change' from the labeled
@@ -962,6 +963,10 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
   /** spec 092: a gate action ("Edit spec", "Request a fix") armed a PRESENTATION hint — highlight the
    *  change pill for the next message. Never changes what Enter does (Enter stays the cheap 'ask'). */
   changeArmed?: boolean;
+  /** spec 105: a plan proposal is waiting for this build, so `auto` withdraws from the Confirm chip —
+   *  switching to it mid-proposal changes nothing (the proposal gate hard-stops autonomous advance) and
+   *  the server refuses the PATCH. See `lib/propose-lane.ts`. */
+  proposalPending?: boolean;
   /** spec 092: glyph for the send button. Default is the ↵ return-arrow — the button IS the Enter key,
    *  which is exactly what it should teach. 'edit' only where every send is a revision (promote), so
    *  that box doesn't dress a change request up as a plain send. */
@@ -1117,7 +1122,10 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
             title={tr('workflowFixed')} />
         )}
         <SettingSelect label={tr('confirm')} value={settings.confirm}
-          options={[{ v: 'each step', l: tr('eachStep') }, { v: 'spec only', l: tr('specOnly') }, { v: 'auto', l: tr('auto') }]}
+          options={confirmModeOptions(
+            [{ v: 'each step', l: tr('eachStep') }, { v: 'spec only', l: tr('specOnly') }, { v: 'auto', l: tr('auto') }],
+            proposalPending ? { specRevise: true } : null
+          )}
           onChange={(v) => onSettings({ confirm: v })}
           disabled={lockConfirm} title={tr('confirmModeHint')} />
         {/* spec 028: ⚡ Fast build — from-scratch only (disabled when an existing workflow is chosen;

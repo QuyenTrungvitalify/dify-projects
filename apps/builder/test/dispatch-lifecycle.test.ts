@@ -25,7 +25,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import Fastify from 'fastify';
 import tasksRoutes, { type TasksRoutesOptions } from '../server/routes/tasks.js';
-import { loadTask, type Task } from '../server/state/task.js';
+import { loadTask, saveTask, type Task } from '../server/state/task.js';
 import { PHASES } from '../server/lib/phases.js';
 import { cancelledCount, releaseTurn, buildTurnBusy, buildHolderId } from '../server/lib/lock.js';
 import { applyInitFake } from './helpers/scaffold-fake.js';
@@ -281,6 +281,47 @@ describe('PATCH /api/tasks/:id — confirm_mode is only patchable at rest', () =
     await waitFor(() => !buildTurnBusy(), 'the chain to park');
     const t = await loadTask(dir, task.taskId);
     assert.equal(t.confirmMode, 'each_step', 'the rejected patch never reached disk');
+    await h.app.close();
+  });
+
+  test('spec 105 — a build with a PLAN PENDING refuses `auto`, and keeps the mode it had', async () => {
+    // The chip withdraws `auto` while a proposal is open, but the chip is not the authority: a stale
+    // tab or a hand-rolled request would otherwise land a mode that does nothing at all — autonomous
+    // advance hard-stops on the proposal gate, so the build would sit there reading "don't stop"
+    // while stopped, with nothing on screen saying why.
+    const gate = deferred();
+    const h = await build(dir, { gate: gate.promise });
+    const task = await start(h);
+    gate.release();
+    await waitFor(() => !buildTurnBusy(), 'the chain to park');
+    const parked = await loadTask(dir, task.taskId);
+    parked.specRevise = true; // a plan is waiting for this human
+    await saveTask(dir, parked);
+
+    const res = await patch(h, task.taskId, 'auto');
+
+    assert.equal(res.statusCode, 409);
+    assert.match(res.json().error, /settle it before switching to unattended mode/);
+    assert.equal((await loadTask(dir, task.taskId)).confirmMode, 'each_step', 'the refused patch never reached disk');
+    await h.app.close();
+  });
+
+  test('spec 105 — the attended modes are still patchable while a plan is pending', async () => {
+    // The rule is about `auto` specifically, not about freezing the chip: someone deciding on a plan
+    // may still move between "stop everywhere" and "stop at the spec".
+    const gate = deferred();
+    const h = await build(dir, { gate: gate.promise });
+    const task = await start(h);
+    gate.release();
+    await waitFor(() => !buildTurnBusy(), 'the chain to park');
+    const parked = await loadTask(dir, task.taskId);
+    parked.specRevise = true;
+    await saveTask(dir, parked);
+
+    const res = await patch(h, task.taskId, 'spec only');
+
+    assert.equal(res.statusCode, 200);
+    assert.equal((await loadTask(dir, task.taskId)).confirmMode, 'spec_only');
     await h.app.close();
   });
 
