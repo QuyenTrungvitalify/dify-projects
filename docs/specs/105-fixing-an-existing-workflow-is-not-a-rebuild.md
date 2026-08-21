@@ -892,6 +892,19 @@ QA-3 + QA-4      ← chỉ khi ship LOẠI 2
 7. **Spec 103 §Status đã lỗi thời** (nói Làn B "còn mở" trong khi code đã có) — sửa trước khi ai đó
    lập kế hoạch dựa trên nó. Ba mảnh còn thiếu thật của L1: hồ sơ `fixes/`, strip tab 仕様, action `as_new`.
 
+### 8.1 Việc tồn phát sinh trong lúc ship (2026-08-21) — **chưa làm, cố ý**
+
+Bốn thứ vòng soát tìm ra sau khi S2b/S3b landing. Không cái nào chặn S2c; ghi ra để không rơi.
+
+| # | Vấn đề | Vì sao hoãn | Cỡ |
+|---|---|---|---|
+| **T1** | **Tab 差分 trộn HAI mốc thời gian** trên build edit-existing — và thẻ gate nói ngược lại tab. `resolveBase` ưu tiên `seedPath`, mà `localEditSeed` đặt field đó cho **mọi** build edit-existing local ⇒ phần workflow của diff luôn là *"kể từ đầu build"*, còn `specDiff` là *"lượt này"*. Badge no-change nói 「このラウンドではワークフローは変わっていません」 trong khi mở tab ra vẫn thấy diff to. **Đây là S2b gặp S3b** — trên đúng cấu hình mà comment của S2b gọi là cấu hình DUY NHẤT sinh được lượt byte-identical | Sửa đúng nghĩa là đổi thứ tự ưu tiên của `resolveBase` (ưu tiên `diff-base.yml`, chỉ rơi về seed khi không có snapshot) — chạm view *"so với app Dify tôi bắt đầu từ đó"*, một quyết định riêng có trade-off riêng. **Là cái DUY NHẤT trong bốn cái người dùng NHÌN THẤY SAI** | S |
+| **T2** | `fixUndone` bị **tiêu thụ** trên đường `apply_spec` mà **không bao giờ gửi cho model**: nhánh đó dựng prompt riêng, không nối `undoneTail`, nhưng verify vẫn xoá cờ — kèm comment sai sự thật *"the undo note rode THIS turn's prompt, so it is delivered"*. Session ③ vẫn giữ trong context các sửa đã bị lùi | Lỗi của Làn B (spec 103), không phải của 105. Sửa: nối `undoneTail` vào nhánh `specApplied`, HOẶC chỉ xoá cờ khi đã thật sự gửi (*"hand the value, don't restate the condition"*) | XS |
+| **T3** | Bất biến *"import chỉ xảy ra ở ④, nên không undo nào mâu thuẫn được với thứ đã đẩy lên Dify"* — **SAI**. Vòng fix hậu-import (041) đưa build từ ④/`done` **về ③** kèm `replyText`, nên snapshot được arm lại và Undo khả dụng trên build **đã nằm trong Dify** | Hậu quả hôm nay lành (state đầu-lượt chính là state đã import), nhưng lý lẽ này được viết ở **ba** chỗ comment và đang gánh vai *"vì thế không cần cảnh báo"* | XS |
+| **T4** | `/restore` không dọn cờ vòng fix (`fixUndoable`, `artifactUnchanged`, `specStale`, `specEdits`) ⇒ thẻ ③ phục hồi có thể mời *"Take this fix back"* cho một lượt người dùng **đã chấp nhận và đã đi qua**, và đeo badge của lượt đó | Độc lập, nhỏ. Route undo đã xoá đúng ba trường đó với lý do *"the two measurements described the round that no longer exists"* — lý do y hệt áp cho restore | XS |
+
+---
+
 ---
 
 ## 9. Khi đóng spec — loại tri thức → nhà
