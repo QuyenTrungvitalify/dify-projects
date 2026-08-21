@@ -268,7 +268,9 @@ describe('103 L0 · snapshotDiffBase — the diff base follows the fix round', (
   test('restart still respects the DIFY-SEED base (the KNOWN GAP, pinned so it stays deliberate)', async () => {
     const { dir, ymlRel } = repo('_drafts');
     writeFileSync(join(dir, ymlRel), YAML_A);
-    const seeded = { ...task('_drafts'), seedAppId: 'app-abc123' } as Task;
+    // Both fields, as a real Dify-seed build carries them: the app id, and the pulled file that IS
+    // the diff base. The id alone would mean a failed pull, which has no base and must be snapshotted.
+    const seeded = { ...task('_drafts'), seedAppId: 'app-abc123', seedPath: 'projects/_drafts/wf/workflows/pulled.yml' } as Task;
     await snapshotDiffBase(dir, seeded, { restart: true });
     assert.equal(existsSync(join(dir, baseRel)), false, 'a build seeded from a Dify app diffs against that app, always');
   });

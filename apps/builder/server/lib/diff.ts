@@ -202,7 +202,10 @@ export async function snapshotDiffBase(
   task: Task,
   opts?: { restart?: boolean }
 ): Promise<void> {
-  if (!task.project || !task.workflowSlug || task.seedAppId) return;
+  // Skip only when there is a Dify seed FILE to diff against — `seedAppId` alone is not enough: a
+  // build whose pull failed has the id but no seed on disk, and `resolveBase` then falls through to
+  // this snapshot. Requiring both keeps the exclusion exactly as wide as the view it protects.
+  if (!task.project || !task.workflowSlug || (task.seedAppId && task.seedPath)) return;
   const snapRel = baseSnapshotRel(task.taskId);
   const snapAbs = join(projectsDir, snapRel);
   if (existsSync(snapAbs) && !opts?.restart) return;

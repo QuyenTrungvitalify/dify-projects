@@ -85,10 +85,21 @@ describe('103 step 1 · arming a fix round', () => {
     // `snapshotDiffBase` no-ops for a build seeded from a Dify app (that app IS the diff base), so
     // there is no pre-round main.yml. The spec side would restore fine, and that is exactly the
     // danger: SPEC.md would go back while the workflow stayed forward. Deliberately excluded.
-    const { dir, task } = fixture({ seedAppId: 'app-abc123' });
+    // A real Dify-seed build has BOTH: the app id it came from, and the pulled file on disk that
+    // `resolveBase` diffs against. That pulled file is the base, so no snapshot is taken.
+    const { dir, task } = fixture({ seedAppId: 'app-abc123', seedPath: 'projects/_drafts/wf/workflows/pulled.yml' });
     await armFixRound(dir, task);
     assert.equal(existsSync(join(dir, specBaseRel(TASK_ID))), true, 'the spec half WAS taken');
     assert.equal(fixRoundUndoable(dir, task), false, 'but the pair is incomplete → refuse');
+  });
+
+  test('a Dify-seed build whose PULL FAILED is still snapshotted (no seed file to diff against)', async () => {
+    // `seedAppId` alone does not mean "there is a seed on disk": a failed pull leaves the id set and
+    // `seedPath` null, and `resolveBase` then has nothing to prefer. Excluding on the id alone would
+    // take the snapshot away from a build that has no other base — the narrowing this guard must not do.
+    const { dir, task } = fixture({ seedAppId: 'app-abc123', seedPath: null });
+    await armFixRound(dir, task);
+    assert.equal(fixRoundUndoable(dir, task), true, 'no seed to fall back on ⇒ the snapshot is the base');
   });
 
   test('a LOCAL edit-existing build IS undoable — it is the case undo exists for (spec 105)', async () => {

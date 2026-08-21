@@ -1035,6 +1035,22 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       return reply.code(409).send({ error: 'a turn is running for this task' });
     }
     try {
+      // The turn lock scopes to THIS task, and several tasks legitimately share one workflow — an
+      // edit-existing build, a finished build reopened for a fix. Undo writes to the SHARED path
+      // (`projects/<p>/<slug>/…`), so holding our own lock proves nothing about who wrote there last.
+      // Lane B solved the same collision for its draft by putting the taskId in the SOURCE path; that
+      // cannot help a shared DESTINATION. Compare instead: the workflow must still be byte-for-byte
+      // what this task's own last Implement left, or the restore would silently delete work this task
+      // never made. Refuse rather than guess — the human can look and decide.
+      const liveHash = await artifactHash(
+        projectsDir,
+        `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`
+      );
+      if (task.artifactHash != null && liveHash !== task.artifactHash) {
+        return reply.code(409).send({
+          error: 'the workflow changed since this build last wrote it — undo would discard that change',
+        });
+      }
       if (!(await undoFixRound(projectsDir, task))) {
         // Both snapshots must exist; restoring one without the other would leave SPEC.md describing a
         // main.yml it no longer matches — Undo manufacturing the very drift spec 103 exists to prevent.
