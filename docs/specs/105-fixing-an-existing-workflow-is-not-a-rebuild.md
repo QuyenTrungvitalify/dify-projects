@@ -754,7 +754,7 @@ song song) — typecheck + 13 test undo xanh nên commit riêng, không bỏ rơ
 |---|---|---|
 | ~~**S2**~~ ✅ | **Loại trừ hai chiều** 自動 ↔ 提案 — **ĐÃ SHIP 2026-08-21** (`cdfa96c`). **BỐN** mảnh, không phải hai: `canPropose` (tách ra lib thuần `propose-lane.ts`) · chip 確認 rút `auto` · `PATCH` 409 · **+ khe hở gate lỗi `apply_spec`** (build kẹt với 提案 không xoá được). Mỗi mảnh đỏ-khi-revert riêng. §4.3 | XS |
 | ~~**S2b**~~ ✅ | ~~Hai~~ **MỘT** hard-stop — `artifactUnchanged` — trong `maybeAutoAdvance`. **ĐÃ SHIP 2026-08-21** (`bf6e598` + sửa `f554493`). Ba test qua **đường sản phẩm thật** (build edit-existing), đã kiểm đỏ-khi-revert. `specStale` **chuyển sang S2c** vì bất khả đạt — §4.3.1a | XS |
-| ~~**S2c**~~ ✅ | **BA** chỗ, không phải hai — `replyWithin` return sớm ở **4/5** nhánh. **ĐÃ SHIP 2026-08-21** (`de448ee`), 5 mảnh đều đỏ-khi-revert riêng lẻ. Chi tiết cũ: | XS |
+| ~~**S2c**~~ ✅ | **BA** chỗ, không phải hai — và hard-stop `specStale` kèm theo đã bị **GỠ** (§8.0) — `replyWithin` return sớm ở **4/5** nhánh. **ĐÃ SHIP 2026-08-21** (`de448ee`), 5 mảnh đều đỏ-khi-revert riêng lẻ. Chi tiết cũ: | XS |
 | ~~(mô tả cũ)~~ | ~~**`maybeAutoAdvance` ở HAI chỗ** (nhánh `phase==='test'` + đuôi `replyWithin`), kẹp `phase==='implement'`; và ở nhánh `apply_spec`. **CỘNG hard-stop `specStale`** (chuyển từ S2b — §4.3.1a: chỉ ở đây nó mới đạt được, vì vòng fix có `replyText`). **KHÔNG còn chờ gì** — S3 đã ship, và phần predicate hoá ra không thuộc LOẠI 1. §4.3.2~~ | — |
 | ~~**S3**~~ ✅ | **MỘT** lỗ: `snapshotDiffBase` `seedPath`→`seedAppId` (§4.4b) — **ĐÃ SHIP 2026-08-21** (`6576020`), 4 test đỏ-khi-revert cả hai chiều. *(Phần predicate **chuyển sang LOẠI 2** — §4.4.1 giải thích vì sao nó SAI. Guard `PUT /spec` đã có sẵn.)* | XS |
 
@@ -903,6 +903,37 @@ QA-3 + QA-4      ← chỉ khi ship LOẠI 2
    (chính sách 036 D5). Đúng, nhưng im lặng — cần một dòng trên thẻ gate nói rõ "lần này kiểm tĩnh".
 7. **Spec 103 §Status đã lỗi thời** (nói Làn B "còn mở" trong khi code đã có) — sửa trước khi ai đó
    lập kế hoạch dựa trên nó. Ba mảnh còn thiếu thật của L1: hồ sơ `fixes/`, strip tab 仕様, action `as_new`.
+
+### 8.0 ⚠️ Một quyết định của spec này đã bị GỠ — đọc trước khi đề xuất lại
+
+**`specStale` KHÔNG được làm hard-stop.** §4.3.1 của spec này lập luận rằng `auto` phải dừng khi ③ bỏ
+lại `SPEC.md`. Đã ship — và **gỡ sau đúng một commit**.
+
+`[ĐO code]` Phép đo chỉ có **hai bit**: `isSpecStale = artifactChanged && !specChanged`. Nó **không
+phân biệt được**:
+
+| | |
+|---|---|
+| ③ **quên** hoà giải | ✗ sai — đáng cảnh báo |
+| ③ hoà giải **rồi kết luận đúng là không cần sửa** | ✓ **đúng, và được chỉ thị** |
+
+Chỉ thị gửi cho **chính lượt đó** kết bằng: *"If nothing in the document has become untrue, change
+nothing — **a no-op is a correct outcome**."* Nên chặn trên tín hiệu này là **treo một build không
+người trông vì nó làm đúng lời dặn**.
+
+Và spec 103 **đã chốt chuyện này rồi**, kèm lý do, ngay tại chỗ đo:
+
+> *"ADVISORY, deliberately … Whether the badge should ever become a block is a question for the
+> **measured rate after this ships**, not for a guess today."*
+
+Spec 105 đè lên quyết định đó **bằng một phỏng đoán**, đúng thứ câu trên cấm. Suite không thấy vì fake
+mô hình hoá một agent **luôn** ghi `SPEC.md` ở vòng > 1 — nó chưa từng diễn cái no-op mà prompt cho phép.
+
+⇒ **Muốn chặn thì phải có tín hiệu ba trạng thái**, không phải hai: bắt ③ **tuyên bố** kết quả hoà giải
+theo cách máy đọc được, rồi mới phân biệt "đã xem, không cần sửa" với "im lặng hoàn toàn". Trước khi có
+cái đó, giữ nguyên advisory.
+
+---
 
 ### 8.1 Việc tồn phát sinh trong lúc ship (2026-08-21) — **chưa làm, cố ý**
 
