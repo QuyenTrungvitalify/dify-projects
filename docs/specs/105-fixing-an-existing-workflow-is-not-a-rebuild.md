@@ -9,6 +9,12 @@
 > route `undo-fix` · ba spec đang mở. (Một `tsconfig.audit.json` scratch lọt vào commit qua một
 > `git add` theo thư mục, đã gỡ bằng commit riêng — **bài học: stage theo Ý ĐỊNH, không theo thư mục**.)
 >
+> **S2c landed** — `autoAdvanceAfterFix` ở **ba** chỗ (không phải hai như §4.3.2 dự đoán: `replyWithin`
+> return sớm ở 4/5 nhánh) + nhánh `apply_spec`, kẹp `phase==='implement'`. Hard-stop `specStale` quay
+> lại **ở đây**, nơi nó mới đạt được. Harness phải học cùng một chuyện: ③ của nó chưa từng chạm
+> `SPEC.md` nên **mọi** vòng fix đo thành spec-stale — một phán quyết về CÁI FAKE, không phải về code.
+> Suite **1190/1190**. Năm mảnh đỏ-khi-revert riêng lẻ.
+>
 > **S3 landed** — `snapshotDiffBase` khoá theo `seedAppId` thay vì `seedPath`: Undo giờ có mặt trên
 > đúng ca nó sinh ra để phục vụ. Phần predicate của S3 **bị bỏ** — kiểm chứng cho thấy nó gây báo
 > động giả trên **mọi** build edit-existing (§4.4.1); nó thuộc LOẠI 2, không thuộc đây.
@@ -743,7 +749,8 @@ song song) — typecheck + 13 test undo xanh nên commit riêng, không bỏ rơ
 |---|---|---|
 | **S2** | **Loại trừ hai chiều** 自動 ↔ 提案: `canPropose` thêm mệnh đề `confirmMode !== 'auto'`; `PATCH` 409 + chip ẩn 自動 khi `specRevise`. §4.3 | XS |
 | ~~**S2b**~~ ✅ | ~~Hai~~ **MỘT** hard-stop — `artifactUnchanged` — trong `maybeAutoAdvance`. **ĐÃ SHIP 2026-08-21** (`bf6e598` + sửa `f554493`). Ba test qua **đường sản phẩm thật** (build edit-existing), đã kiểm đỏ-khi-revert. `specStale` **chuyển sang S2c** vì bất khả đạt — §4.3.1a | XS |
-| **S2c** | **`maybeAutoAdvance` ở HAI chỗ** (nhánh `phase==='test'` + đuôi `replyWithin`), kẹp `phase==='implement'`; và ở nhánh `apply_spec`. **CỘNG hard-stop `specStale`** (chuyển từ S2b — §4.3.1a: chỉ ở đây nó mới đạt được, vì vòng fix có `replyText`). **KHÔNG còn chờ gì** — S3 đã ship, và phần predicate hoá ra không thuộc LOẠI 1. §4.3.2 | S |
+| ~~**S2c**~~ ✅ | **BA** chỗ, không phải hai — `replyWithin` return sớm ở **4/5** nhánh. **ĐÃ SHIP 2026-08-21** (`de448ee`), 5 mảnh đều đỏ-khi-revert riêng lẻ. Chi tiết cũ: | XS |
+| ~~(mô tả cũ)~~ | ~~**`maybeAutoAdvance` ở HAI chỗ** (nhánh `phase==='test'` + đuôi `replyWithin`), kẹp `phase==='implement'`; và ở nhánh `apply_spec`. **CỘNG hard-stop `specStale`** (chuyển từ S2b — §4.3.1a: chỉ ở đây nó mới đạt được, vì vòng fix có `replyText`). **KHÔNG còn chờ gì** — S3 đã ship, và phần predicate hoá ra không thuộc LOẠI 1. §4.3.2~~ | — |
 | ~~**S3**~~ ✅ | **MỘT** lỗ: `snapshotDiffBase` `seedPath`→`seedAppId` (§4.4b) — **ĐÃ SHIP 2026-08-21** (`6576020`), 4 test đỏ-khi-revert cả hai chiều. *(Phần predicate **chuyển sang LOẠI 2** — §4.4.1 giải thích vì sao nó SAI. Guard `PUT /spec` đã có sẵn.)* | XS |
 
 **AC S3 (đỏ-khi-revert bắt buộc)**: (a) một lượt ③ **tươi** trên workflow **đã có `main.yml`** →
