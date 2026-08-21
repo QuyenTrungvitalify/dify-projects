@@ -47,6 +47,9 @@ interface Overrides {
    *  needed. Models what the AGENT did, never what the check reports — the measurement stays derived
    *  from the files, so this cannot manufacture a verdict the system could not reach on its own. */
   implementNoOp?: boolean;
+  /** spec 105 — the ③ turn edits the workflow but leaves `SPEC.md` behind, i.e. it ignores the
+   *  reconcile instruction. Also an AGENT behaviour, and the exact one `specStale` exists to catch. */
+  implementSkipsSpecReconcile?: boolean;
 }
 
 interface Harness {
@@ -92,6 +95,14 @@ function writeArtifact(task: Task, dir: string, o: Overrides, nth: number): void
   // edited"; now that is true rather than merely asserted.
   if (o.implementNoOp) return; // the agent read the workflow and changed nothing
   writeFileSync(abs, `workflow:\n  graph:\n    nodes: []\n# round ${nth}\n`);
+  // ③ also brings SPEC.md back in line with the workflow it just edited. On the FIRST implement ②
+  // has just written the spec for this very change, so there is nothing to reconcile and the document
+  // correctly does not move; on a later round it must. Modelling the well-behaved agent by default is
+  // load-bearing: without it every fix round here measures as spec-stale, which is a verdict about
+  // this fake rather than about the code under test.
+  if (nth > 1 && !o.implementSkipsSpecReconcile && task.project && task.workflowSlug) {
+    writeFileSync(join(dir, specRelFor(task.project, task.workflowSlug)), `# SPEC\nbuild it.\n# round ${nth}\n`);
+  }
 }
 
 function harness(dir: string, task: Task, o: Overrides = {}): Harness {
@@ -99,6 +110,7 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
   const events: Harness['events'] = [];
   const reportDeploys: string[] = [];
   const lastPostTurn: Harness['lastPostTurn'] = [];
+  let implementTurns = 0; // `calls.runTurn` counts every phase; the spec-reconcile rule needs ③'s own index
 
   const runTurn = async (
     _session: ClaudeSession,
@@ -110,7 +122,8 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
     // NB: we deliberately don't invoke `_onSessionId` — a real turn fires it on the init event, well
     // before the result; calling it synchronously here would race the awaited post-turn saveTask on
     // the shared task.json.tmp path. The session id is still persisted below (from the return value).
-    writeArtifact(task, dir, o, calls.runTurn);
+    if (task.phase === 'implement') implementTurns++;
+    writeArtifact(task, dir, o, task.phase === 'implement' ? implementTurns : calls.runTurn);
     return { sessionId: `sess-${task.phase}`, result: { type: 'result', is_error: false }, isError: false };
   };
 
@@ -251,6 +264,107 @@ describe('advance-loop integration (013 D3)', () => {
     // a workflow was scaffolded for the derived slug
     assert.ok(task.workflowSlug, 'workflowSlug derived at the spec gate');
     assert.ok(task.project, 'project resolved at the spec gate (_drafts by default)');
+  });
+
+  // ── spec 105: an unattended build finishes its fix rounds too ─────────────────────────────────
+  // A new build ran ①→④ hands-free while every fix on it stopped dead at ③ — an asymmetry nobody
+  // chose. `/reply` ended the request on the reasoning that a revision is a human act; true for
+  // `each_step`, and exactly backwards for `auto`, which is the user saying they are not watching.
+
+  test('spec 105 — auto carries the FIRST fix (sent from done) through to 完了', async () => {
+    // The first fix after `done` rides the `phase === "test"` branch, which returns early. A single
+    // call at the tail of replyWithin would miss it, and the loop would alternate: round 1 parks,
+    // round 2 finishes, round 3 parks.
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'x', confirmMode: 'auto', deploy: 'none' });
+    const h = harness(dir, task);
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+    assert.equal(task.status, 'done');
+    const reportsBefore = h.calls.runReport;
+
+    await withTurn(task.taskId, () => replyWithin(task, 'the LLM node uses the wrong variable', h.ctx));
+
+    assert.equal(task.status, 'done', 'the fix round finished on its own');
+    assert.equal(task.phase, 'test');
+    assert.equal(h.calls.runReport, reportsBefore + 1, '④ ran again on the edited workflow');
+  });
+
+  test('spec 105 — and a fix sent while PARKED at the ③ gate (the fall-through branch)', async () => {
+    // The other entry: the build is standing at the Implement gate, not at `done`. That is where a
+    // watched build lives, and where an unattended one lands after a hard-stop — so a fix typed there
+    // takes a different route through replyWithin than the one above, and needs its own hand-off.
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'x', confirmMode: 'each_step', deploy: 'none' });
+    const h = harness(dir, task);
+    await withTurn(task.taskId, () => startTask(task, h.ctx));                 // ① parks
+    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // ② parks
+    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx)); // ③ parks
+    assert.equal(task.phase, 'implement');
+    assert.equal(task.status, 'awaiting_confirm');
+    task.confirmMode = 'auto'; // the human walks away at this point
+    const reportsBefore = h.calls.runReport;
+
+    await withTurn(task.taskId, () => replyWithin(task, 'one more thing', h.ctx));
+
+    assert.equal(task.status, 'done', 'the fix carried on to ④ without another click');
+    assert.equal(h.calls.runReport, reportsBefore + 1);
+  });
+
+  test('spec 105 — each_step is untouched: a fix still parks at the Implement gate', async () => {
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'x', confirmMode: 'auto', deploy: 'none' });
+    const h = harness(dir, task);
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+    task.confirmMode = 'each_step';
+    const reportsBefore = h.calls.runReport;
+
+    await withTurn(task.taskId, () => replyWithin(task, 'a fix I want to look at', h.ctx));
+
+    assert.equal(task.phase, 'implement', 'parked for the human, as before');
+    assert.equal(task.status, 'awaiting_confirm');
+    assert.equal(h.calls.runReport, reportsBefore, '④ did NOT run');
+  });
+
+  test('spec 105 — the hand-off is clamped to ③: a retry at ① does not run ② behind it', async () => {
+    // `replyWithin`'s fall-through re-runs whatever phase the build is parked at — ① and ② included,
+    // where a /reply is a Retry, not a fix round. Whether an unattended build should also carry those
+    // onward is a real question with its own reasoning, and it is NOT the question this slice answers.
+    // The clamp keeps the change the size of its claim; without it, one line quietly widens `auto`
+    // and `spec_only` at two more boundaries with nothing said about either.
+    //
+    // The errored state is constructed, the same way the ④ Retry case above constructs one: the
+    // harness's turns always succeed, and what is under test here is the hand-off, not how ① fails.
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'x', confirmMode: 'auto', deploy: 'none' });
+    const h = harness(dir, task);
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+    task.phase = 'analyze';
+    task.status = 'error';
+    const turnsBefore = h.calls.runTurn;
+
+    await withTurn(task.taskId, () => replyWithin(task, 'the digest missed the schedule', h.ctx));
+
+    assert.equal(task.phase, 'analyze', 'still at ①');
+    assert.equal(h.calls.runTurn, turnsBefore + 1, 'exactly ONE turn: the ① re-run, no ② behind it');
+  });
+
+  test('spec 105 — auto HARD-STOPS a fix round that left SPEC.md behind', async () => {
+    // Reachable only now that a fix round is allowed to advance: `specStale` is measured on rounds
+    // carrying a change request, and until this slice no such round ever reached maybeAutoAdvance.
+    // The turn edits the workflow and skips the reconcile — the failure the tripwire exists for.
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'x', confirmMode: 'auto', deploy: 'none' });
+    const h = harness(dir, task, { implementSkipsSpecReconcile: true });
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+    assert.equal(task.status, 'done');
+    const reportsBefore = h.calls.runReport;
+
+    await withTurn(task.taskId, () => replyWithin(task, 'change the threshold', h.ctx));
+
+    assert.equal(task.specStale, true, 'the workflow moved and the document did not');
+    assert.equal(task.status, 'awaiting_confirm', 'auto stopped instead of shipping a stale document');
+    assert.equal(task.phase, 'implement');
+    assert.equal(h.calls.runReport, reportsBefore, '④ never ran');
   });
 
   // ── calibration: the harness itself ───────────────────────────────────────────────────────────
@@ -521,11 +635,18 @@ describe('advance-loop integration (013 D3)', () => {
     // Dify, run it, and only then find what to change. That fix must land in the SAME conversation —
     // resuming the implement session — rather than dying at `done` (the old behavior: /reply 409'd, so
     // the only route was a brand-new edit-existing build, fresh session and all four phases again).
+    //
+    // Built hands-free, then watched: the fix goes in under `each_step`, because this test is about
+    // spec 041 ROUTING (a ④ revision edits the workflow instead of re-running the report), not about
+    // how far the build then travels. Under an unattended mode the same fix carries on to ④ — that is
+    // spec 105, pinned separately below; mixing the two questions into one test would leave neither
+    // able to fail alone.
     const dir = fixtureDir();
     const task = await createTask(dir, { requirement: 'x', confirmMode: 'auto', deploy: 'none' });
     const h = harness(dir, task);
     await withTurn(task.taskId, () => startTask(task, h.ctx)); // run to done@test
     assert.equal(task.status, 'done');
+    task.confirmMode = 'each_step'; // the human comes back to watch this one
     assert.equal(task.phase, 'test');
     assert.ok(canRequestFix(task), 'a done ①②③④ build with an implement session + on-disk workflow is fixable');
     const turnsBefore = h.calls.runTurn;

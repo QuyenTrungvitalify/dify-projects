@@ -207,6 +207,7 @@ export async function confirmAdvance(
       // workflow that is a rebuild wearing a fix's clothes. The normal ②→③ hop below runs fresh because
       // there is nothing yet to edit; here there is.
       await runPhaseAndGate(task, 'implement', ctx, { resumeId: task.sessionIds.implement });
+      await autoAdvanceAfterFix(task, ctx); // an approved plan is still a fix round — let it finish
       return;
     }
     try {
@@ -290,10 +291,32 @@ export async function confirmAdvance(
 }
 
 /**
+ * After a `/reply` has re-run ③, let an unattended build carry on to ④ (spec 105).
+ *
+ * `/reply` used to end the request unconditionally, on the reasoning that a revision is a human act
+ * and the human wants to see the result. That reasoning holds for `each_step` — and is exactly
+ * backwards for `auto`, which is the user SAYING they are not watching. The asymmetry was never
+ * chosen: a new build ran ①→④ hands-free while every fix on it stopped dead at ③.
+ *
+ * Clamped to `implement` because the tail of `replyWithin` re-runs whatever phase the build is
+ * parked at: without this, a Retry at the ① gate under `spec_only` would auto-spend a ② turn on a
+ * digest the human has not read (`boundaryAutoAdvances('spec_only','analyze')` is `true`). `each_step`
+ * needs no clamp — it declines at every phase — but relying on that would leave the other two modes
+ * silently widened.
+ *
+ * `maybeAutoAdvance` still owns every reason to stop: lint, an unchanged round, a stale spec, the
+ * deploy decision. This only decides that the fix loop is allowed to reach them.
+ */
+async function autoAdvanceAfterFix(task: Task, ctx: OrchestratorCtx): Promise<void> {
+  if (task.phase !== 'implement') return;
+  await maybeAutoAdvance(task, ctx);
+}
+
+/**
  * POST /api/tasks/:id/reply core: re-run the CURRENT phase WITHIN the phase via
- * `--resume <sessionIds[phase]>` (Spike E5), re-verify, re-gate WITHOUT advancing. Also the Retry
- * path out of `error` (§I). A /reply never auto-advances — it is a human revise, so it always
- * pauses for the next decision (even in `auto`).
+ * `--resume <sessionIds[phase]>` (Spike E5), re-verify, then re-gate. A /reply does not advance by
+ * itself; under an unattended Confirm-mode it hands off to {@link autoAdvanceAfterFix}, which is the
+ * only thing that can carry a fix round on to ④ (spec 105).
  */
 export async function replyWithin(
   task: Task,
@@ -346,6 +369,7 @@ export async function replyWithin(
     //   fall-through below stays the awaiting_confirm/error path it always was.
     if ((task.status === 'awaiting_confirm' || task.status === 'done') && task.sessionIds.implement) {
       await runPhaseAndGate(task, 'implement', ctx, { resumeId: task.sessionIds.implement, replyText: text });
+      await autoAdvanceAfterFix(task, ctx); // the FIRST fix after `done` rides this branch, not the tail
       return;
     }
     // Retry OUT OF ERROR (status==='error'), or no implement session to resume: re-run ④ itself, exactly
@@ -353,6 +377,7 @@ export async function replyWithin(
     if (task.testMode === 'live') {
       const resumeId = task.sessionIds.implement;
       await runPhaseAndGate(task, 'implement', ctx, { resumeId, replyText: text });
+      await autoAdvanceAfterFix(task, ctx);
       return;
     }
     await runTestAndFinish(task, ctx, false);
@@ -360,6 +385,7 @@ export async function replyWithin(
   }
   const resumeId = task.sessionIds[task.phase as 'analyze' | 'spec' | 'implement'];
   await runPhaseAndGate(task, task.phase, ctx, { resumeId, replyText: text });
+  await autoAdvanceAfterFix(task, ctx); // a fix sent while PARKED at the ③ gate rides this fall-through
 }
 
 // ───────────────────────────── internal steps ─────────────────────────────
@@ -460,6 +486,13 @@ async function maybeAutoAdvance(
   // `=== true` is load-bearing rather than defensive: the field is three-state and `undefined` means
   // NOT MEASURED, which must never be read as a verdict.
   if (task.phase === 'implement' && task.artifactUnchanged === true) return;
+  // The same shape, one artifact over: ③ is told to bring SPEC.md back in line with the workflow it
+  // just edited, and this says it did not. Unattended that matters more than anywhere else — a plan
+  // gate needs a human, so it is never offered to an autonomous build, which leaves the implement
+  // turn's own reconciliation as the only thing keeping the document true. A last line of defence
+  // must not be the one nobody reads. Only measured on a round carrying a change request, which is
+  // why it can only be reached now that such a round is allowed to advance (spec 105).
+  if (task.phase === 'implement' && task.specStale === true) return;
   if (!boundaryAutoAdvances(task.confirmMode, task.phase)) return;
   // Spec 028 §5: the auto+fast structural sanity-check — the ONE config with no human gate. Before
   // auto-confirming the MERGED Spec gate, require the draft's analyze.json.features (folded onto
