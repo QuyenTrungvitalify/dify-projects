@@ -9,6 +9,11 @@
 > route `undo-fix` · ba spec đang mở. (Một `tsconfig.audit.json` scratch lọt vào commit qua một
 > `git add` theo thư mục, đã gỡ bằng commit riêng — **bài học: stage theo Ý ĐỊNH, không theo thư mục**.)
 >
+> **S2 landed** — loại trừ hai chiều. `canPropose` **tách ra lib thuần** (`propose-lane.ts`) đúng lý do
+> `composer-route.ts`/`gate-foot.ts` đã tách: nó hỏng **im lặng cả hai chiều**. Một test cũ grep source
+> App.tsx bị **nghỉ hưu theo đúng lời nó tự khai** — nó tồn tại *"vì predicate là biểu thức JSX inline
+> không có chỗ unit-test riêng"*, giờ đã có. Suite **1193/1193** · web **447/447**.
+>
 > **S2c landed** — `autoAdvanceAfterFix` ở **ba** chỗ (không phải hai như §4.3.2 dự đoán: `replyWithin`
 > return sớm ở 4/5 nhánh) + nhánh `apply_spec`, kẹp `phase==='implement'`. Hard-stop `specStale` quay
 > lại **ở đây**, nơi nó mới đạt được. Harness phải học cùng một chuyện: ③ của nó chưa từng chạm
@@ -747,7 +752,7 @@ song song) — typecheck + 13 test undo xanh nên commit riêng, không bỏ rơ
 
 | | Việc | Cỡ |
 |---|---|---|
-| **S2** | **Loại trừ hai chiều** 自動 ↔ 提案: `canPropose` thêm mệnh đề `confirmMode !== 'auto'`; `PATCH` 409 + chip ẩn 自動 khi `specRevise`. §4.3 | XS |
+| ~~**S2**~~ ✅ | **Loại trừ hai chiều** 自動 ↔ 提案 — **ĐÃ SHIP 2026-08-21** (`cdfa96c`). **BỐN** mảnh, không phải hai: `canPropose` (tách ra lib thuần `propose-lane.ts`) · chip 確認 rút `auto` · `PATCH` 409 · **+ khe hở gate lỗi `apply_spec`** (build kẹt với 提案 không xoá được). Mỗi mảnh đỏ-khi-revert riêng. §4.3 | XS |
 | ~~**S2b**~~ ✅ | ~~Hai~~ **MỘT** hard-stop — `artifactUnchanged` — trong `maybeAutoAdvance`. **ĐÃ SHIP 2026-08-21** (`bf6e598` + sửa `f554493`). Ba test qua **đường sản phẩm thật** (build edit-existing), đã kiểm đỏ-khi-revert. `specStale` **chuyển sang S2c** vì bất khả đạt — §4.3.1a | XS |
 | ~~**S2c**~~ ✅ | **BA** chỗ, không phải hai — `replyWithin` return sớm ở **4/5** nhánh. **ĐÃ SHIP 2026-08-21** (`de448ee`), 5 mảnh đều đỏ-khi-revert riêng lẻ. Chi tiết cũ: | XS |
 | ~~(mô tả cũ)~~ | ~~**`maybeAutoAdvance` ở HAI chỗ** (nhánh `phase==='test'` + đuôi `replyWithin`), kẹp `phase==='implement'`; và ở nhánh `apply_spec`. **CỘNG hard-stop `specStale`** (chuyển từ S2b — §4.3.1a: chỉ ở đây nó mới đạt được, vì vòng fix có `replyText`). **KHÔNG còn chờ gì** — S3 đã ship, và phần predicate hoá ra không thuộc LOẠI 1. §4.3.2~~ | — |
