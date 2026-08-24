@@ -99,6 +99,11 @@ const EN: Dict = {
   updateOnBranch: 'Not updated — this copy is on branch «{branch}», not main, and updating would discard it. Run `git checkout main` first if you want the latest version.',
   updateBuildFailed: 'Build failed — contact the admin.',
   updateBusy: 'A build is running — cancel it first, then update.',
+  /* The turn-collision 409, restated in the reader's language. It says the one thing the server's
+     English never did: the message is still in the composer. The old wording ("try again in a
+     moment") invited exactly the retry that used to strand a copy of the message in the thread. */
+  turnBusy:
+    'A turn is already running. Your message is still in the composer — stop the running turn, or wait for it to finish.',
   updateTip: 'Update to the latest here',
   /* The language the MODEL answers in — distinct from the toggle above, which is the UI chrome's own
      language. Kept apart on purpose: a Japanese-chrome user may still want replies in Vietnamese. */
@@ -640,6 +645,8 @@ const JA: Dict = {
   updateOnBranch: '更新しませんでした — いま main ではなく「{branch}」ブランチにいます。更新するとこのブランチが失われるため、そのままにしました。最新版にするには先に `git checkout main` を実行してください。',
   updateBuildFailed: 'ビルドに失敗しました — 管理者に連絡してください。',
   updateBusy: 'ビルド実行中です — 先にキャンセルしてから更新してください。',
+  turnBusy:
+    '実行中のターンがあります。入力内容はそのまま残っています — 実行中のターンを停止するか、終了までお待ちください。',
   updateTip: 'ここから最新版に更新',
   chatLangAuto: '自動',
   chatLangHint: '返答の言語: {name}（ワークフロー自体は要件の言語のまま）',

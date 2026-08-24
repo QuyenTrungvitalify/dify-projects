@@ -11,6 +11,7 @@ import { signal, computed, effect } from '@preact/signals';
 import { api, confirmModeWire, ApiError, type Attachment } from './api';
 import { serializeThread, parseThread, hydrateForReopen } from './lib/thread-persist';
 import { recoverOpenAsk } from './lib/ask-recovery';
+import { isTurnBusy } from './lib/turn-busy';
 import { backfillFromTranscript } from './lib/ask-backfill';
 import { connectSSE, type AskAnomalyFile } from './sse-client';
 import { t as tr, tf } from './lib/i18n';
@@ -48,6 +49,23 @@ function stampUploads(itemId: string, uploads?: number[]): void {
   if (it.kind !== 'user' || !it.atts) return;
   cur[i] = { ...it, atts: it.atts.map((a, n) => (uploads[n] === undefined ? a : { ...a, idx: uploads[n] })) };
   thread.value = cur;
+}
+
+/**
+ * Take back items a dispatch pushed optimistically, when that dispatch turned out to have failed.
+ *
+ * A message the server never received must not be drawn as one it did: the thread is the record of
+ * what was SENT, and it is persisted + rebuilt on reopen, so a bubble left behind by a failed POST
+ * outlives the moment and reads forever after as a request that was made and ignored. The text is not
+ * lost — the composer takes it back (App.send restores the draft on a `false`), which is the one place
+ * an undelivered message belongs.
+ *
+ * BY ID, never by index or length: the await this runs after can span an SSE event that appended a
+ * real item, and a positional cut would eat it. (spec 109)
+ */
+function dropThreadItems(...ids: string[]): void {
+  const drop = new Set(ids);
+  thread.value = thread.value.filter((it) => !drop.has(it.id));
 }
 
 export type UiPhaseState = 'pending' | 'running' | 'awaiting' | 'done' | 'error';
@@ -1147,12 +1165,24 @@ function openStream(taskId: string): void {
  *  other error is a plain message. Clears `busyHolder` when the failure is not a turn collision. */
 function surfaceError(e: unknown): void {
   if (e instanceof ApiError) {
-    startError.value = e.message;
+    // The turn-collision 409 is the one error a user meets while simply trying to talk, and the server
+    // sends it as a wording-stable English sentence so the UI can say it in the reader's language —
+    // adding what the raw string never said: the message is still in the composer. Every other 409
+    // carries its own specific message and passes through untouched (see isTurnBusy). (spec 109)
+    startError.value = isTurnBusy(e.status, e.message) ? tr('turnBusy') : e.message;
     busyHolder.value = e.status === 409 && e.holder ? e.holder : null;
   } else {
     startError.value = String(e);
     busyHolder.value = null;
   }
+}
+
+/** The same "a turn is running" banner, for a collision this tab detects LOCALLY — no request is sent,
+ *  so there is no ApiError to surface. `busyHolder` stays null: the turn belongs to the open task, and a
+ *  jump to it would land where the user already is. (spec 109) */
+function surfaceTurnBusy(): void {
+  startError.value = tr('turnBusy');
+  busyHolder.value = null;
 }
 
 function clearErrors(): void {
@@ -1297,6 +1327,7 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
     void loadActive();
     return true; // spec 040 D2: signal success so the composer clears (a 409 returns false → draft kept)
   } catch (e) {
+    dropThreadItems(userItemId); // no build was created — the requirement belongs to the composer alone
     surfaceError(e);
     return false;
   }
@@ -1600,6 +1631,10 @@ export async function undoBg(key: string): Promise<void> {
 export async function confirm(action: WireGateAction, extra?: { slug?: string; name?: string; keepCurrent?: boolean }): Promise<void> {
   const t = task.value;
   if (!t) return;
+  // A fresh attempt outlives the last one's banner: leaving "a turn is already running" standing while
+  // this send goes through would describe a state that just ended, and the reader has no way to tell a
+  // live warning from a dead one. Re-raised by surfaceError if THIS attempt collides too. (spec 109)
+  clearErrors();
   try {
     // Optimistic: close the gate; SSE opens the next-phase run item (no duplicate "Running").
     optimisticAdvance(await api.confirm(t.taskId, action.id, extra), action.label);
@@ -1630,6 +1665,10 @@ export async function reply(
   // spec 053: empty text is a valid reply ONLY as a Retry-out-of-error (a text-less one-click re-run of
   // the failed phase — the button fires store.reply('', 'Retry phase', …)). Everywhere else it is a no-op.
   if (!trimmed && t.status !== 'error') return false;
+  // A fresh attempt outlives the last one's banner: leaving "a turn is already running" standing while
+  // this send goes through would describe a state that just ended, and the reader has no way to tell a
+  // live warning from a dead one. Re-raised by surfaceError if THIS attempt collides too. (spec 109)
+  clearErrors();
   const items = thread.value.slice();
   // No empty user bubble on a text-less retry; a steered reply still shows the user's message.
   const userItemId = uid();
@@ -1643,6 +1682,9 @@ export async function reply(
     void loadActive();
     return true; // spec 040 D2
   } catch (e) {
+    // Nothing was dispatched, so nothing answers this message and no reload would ever explain it —
+    // take the bubble back and let the composer hold the words (spec 040 D2 returns them there).
+    dropThreadItems(userItemId);
     surfaceError(e);
     return false;
   }
@@ -1661,7 +1703,16 @@ export async function ask(text: string, files?: Attachment[]): Promise<boolean> 
   // disabled during a live Ask (App: disabled={asking}), so this is belt-and-suspenders — but it also
   // guarantees the single-open-qa invariant `findOpenAskIdx` relies on, regardless of how ask() is
   // reached. A concurrent Ask would 409 on the global turn lock anyway.
-  if (asking.value) return false;
+  if (asking.value) {
+    // Silence here read as the send vanishing: the draft came back to the composer with no bubble, no
+    // banner, nothing to explain it. Refuse out loud, in the same words as the server's collision.
+    surfaceTurnBusy();
+    return false;
+  }
+  // A fresh attempt outlives the last one's banner: leaving "a turn is already running" standing while
+  // this send goes through would describe a state that just ended, and the reader has no way to tell a
+  // live warning from a dead one. Re-raised by surfaceError if THIS attempt collides too. (spec 109)
+  clearErrors();
   const items = thread.value.slice();
   const userItemId = uid();
   items.push({ id: userItemId, kind: 'user', text: text.trim(), atts: attsOf(files) });
@@ -1674,14 +1725,11 @@ export async function ask(text: string, files?: Attachment[]): Promise<boolean> 
     return true; // spec 040 D2
   } catch (e) {
     // The POST itself failed (400/409/500) — no turn was ever dispatched, so no ask:done will ever
-    // arrive to settle this. Finalize the qa item locally with the error, matching surfaceError's shape.
+    // arrive to settle this. Take BOTH items back: the question was never asked, and an answer bubble
+    // holding an error is a second telling of what the banner already says. The question itself returns
+    // to the composer, ready to re-send.
     asking.value = false;
-    const cur = thread.value.slice();
-    const idx = cur.findIndex((it) => it.id === qaId);
-    if (idx !== -1) {
-      cur[idx] = { ...(cur[idx] as LiveThreadItem & { kind: 'qa' }), answer: String(e instanceof Error ? e.message : e), done: true };
-      thread.value = cur;
-    }
+    dropThreadItems(userItemId, qaId);
     surfaceError(e);
     return false;
   }
