@@ -444,6 +444,11 @@ export interface Task {
   /** Spec 094 S1 — sha256 of the artifact as of the last measured ③ verify. Compared with
    *  {@link importedHash} to tell the ④ gate whether the file on disk is the one already imported. */
   artifactHash?: string | null;
+  /** Spec 105 — the same idea for `SPEC.md`, and it exists for the same reason: undo restores BOTH
+   *  files into a path several tasks legitimately share, so BOTH need a "still what this task left"
+   *  check. Guarding only the workflow made the protection half-true — a task that touched only the
+   *  document (another build's round, or a human Save on the spec panel) was silently discarded. */
+  specHash?: string | null;
   /** Spec 094 S1 — sha256 of the artifact at the last SUCCESSFUL ④ import, and when it landed. Written
    *  only by `runImportAndFinish`, beside {@link importAppId} / {@link importAppMode} (same lifecycle:
    *  what the last import did). Absent ⇒ nothing imported yet, so nothing to compare. */

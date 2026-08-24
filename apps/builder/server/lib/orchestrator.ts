@@ -1047,6 +1047,12 @@ async function verifyPhase(
     if (check.detail.artifactChanged !== undefined) {
       task.artifactUnchanged = !check.detail.artifactChanged;
       task.artifactHash = await artifactHash(projectsDir, phase.artifactRel(task));
+      // Spec 105 — recorded together with the workflow's, because undo restores them together. A hash
+      // for one and not the other makes the collision check half-true, which is worse than absent: it
+      // reads as protection while the document goes unguarded.
+      task.specHash = task.project && task.workflowSlug
+        ? await artifactHash(projectsDir, specRelFor(task.project, task.workflowSlug))
+        : undefined;
       if (task.artifactUnchanged) {
         await logEvent(taskDir(projectsDir, task.taskId), {
           kind: 'artifact_unchanged',

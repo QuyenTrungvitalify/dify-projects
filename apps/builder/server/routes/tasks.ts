@@ -539,7 +539,21 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     } catch {
       return reply.code(404).send({ error: `no such task: ${id}` });
     }
-    if (task.status !== 'awaiting_confirm') {
+    // Spec 103 Lane B / spec 105 — `drop_spec` is the ONE confirm that must work from `error` too, and
+    // `confirmAdvance` already places it above its own status guard for that reason ("safe above the
+    // guard because it runs NO turn"). This route had a guard of its own, which fired first: a revise
+    // turn that died left a gate offering 「やめる」, and clicking it answered `task is error, not
+    // awaiting_confirm`. The escape hatch existed on every surface except the one a human touches —
+    // and the build stayed stuck, because `PUT /spec` also refuses while `specRevise` is set, so the
+    // only ways out were another turn (Retry) or discarding the whole build.
+    //
+    // Conditions mirror `confirmAdvance` exactly: the gate must actually offer the action (never trust
+    // an id off the wire) and there must be a proposal to drop.
+    const droppingProposal =
+      actionId === 'drop_spec' &&
+      !!task.specRevise &&
+      !!task.gate?.actions.some((a) => a.id === 'drop_spec');
+    if (!droppingProposal && task.status !== 'awaiting_confirm') {
       return reply.code(409).send({ error: `task is ${task.status}, not awaiting_confirm` });
     }
     // Validate the action synchronously so a stale/unknown action returns 409 to the caller. This runs
@@ -1066,6 +1080,16 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
           error: 'the workflow changed since this build last wrote it — undo would discard that change',
         });
       }
+      // The same check for the document, because undo restores BOTH files. Guarding only the workflow
+      // left the other half open: a round that touched only `SPEC.md` — another build's, or a human
+      // Save on the spec panel — was discarded silently, which is precisely the failure this guard was
+      // added to stop, one artifact over (spec 105).
+      const liveSpecHash = await artifactHash(projectsDir, `projects/${task.project}/${task.workflowSlug}/SPEC.md`);
+      if (task.specHash != null && liveSpecHash !== task.specHash) {
+        return reply.code(409).send({
+          error: 'the spec changed since this build last wrote it — undo would discard that change',
+        });
+      }
       if (!(await undoFixRound(projectsDir, task))) {
         // Both snapshots must exist; restoring one without the other would leave SPEC.md describing a
         // main.yml it no longer matches — Undo manufacturing the very drift spec 103 exists to prevent.
@@ -1080,6 +1104,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
         projectsDir,
         `projects/${task.project}/${task.workflowSlug}/workflows/${task.workflowFile}`
       );
+      task.specHash = await artifactHash(projectsDir, `projects/${task.project}/${task.workflowSlug}/SPEC.md`);
       // The live implement session still holds its own edits in context; the next /reply must be told.
       task.fixUndone = true;
       task.fixUndoable = false; // the snapshots still exist on disk, but this round is already taken back

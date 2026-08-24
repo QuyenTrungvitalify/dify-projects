@@ -48,6 +48,7 @@ describe('POST /api/tasks/:id/undo-fix — a shared workflow (spec 105)', () => 
     // The round runs: the workflow moves, and the verify records the hash it left behind.
     await writeFile(join(dir, WF_REL), THIS_ROUND);
     task.artifactHash = await artifactHash(dir, WF_REL);
+    task.specHash = await artifactHash(dir, SPEC_REL);
     task.fixUndoable = true;
     await saveTask(dir, task);
     return task;
@@ -76,6 +77,21 @@ describe('POST /api/tasks/:id/undo-fix — a shared workflow (spec 105)', () => 
     assert.equal(res.statusCode, 409, 'refuse rather than guess whose work this is');
     assert.match(res.json().error, /changed since this build last wrote it/);
     assert.match(await readFile(join(dir, WF_REL), 'utf8'), /task B round/, 'B’s work is intact');
+  });
+
+  test('undo REFUSES when something else wrote the SPEC — undo restores that file too', async () => {
+    // The other half. Undo copies BOTH files back, so guarding only the workflow made the protection
+    // half-true: a round that touched only the document — another build's, or a human Save on the spec
+    // panel — was discarded silently, which reads as protection while doing none.
+    await armedTask();
+    await writeFile(join(dir, SPEC_REL), '# Spec\n\nEdited by someone else.\n');
+
+    const res = await app.inject({ method: 'POST', url: `/api/tasks/${TASK_ID}/undo-fix` });
+
+    assert.equal(res.statusCode, 409);
+    assert.match(res.json().error, /spec changed since this build last wrote it/);
+    assert.match(await readFile(join(dir, SPEC_REL), 'utf8'), /someone else/, 'their edit is intact');
+    assert.match(await readFile(join(dir, WF_REL), 'utf8'), /task A round/, 'and nothing else moved');
   });
 
   test('undo still works when the workflow is exactly where this build left it', async () => {
