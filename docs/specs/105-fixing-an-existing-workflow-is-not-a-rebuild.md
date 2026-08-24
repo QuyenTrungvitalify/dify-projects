@@ -955,6 +955,10 @@ phải lỗi — và người quyết phải thấy chúng.
 
 ### 8.1 Việc tồn phát sinh trong lúc ship (2026-08-21) — **chưa làm, cố ý**
 
+> **Tổng cộng còn để ngỏ: T1–T8 (§8.1 + §8.2) · hai hệ quả S2c (§8.0b) · LOẠI 2 (S4–S9).**
+> Chỉ **T1** là thứ người dùng NHÌN THẤY SAI; còn lại là mờ, thiếu chữ, hoặc chỉ tới được bằng
+> tab cũ. Không cái nào chặn việc dùng thật.
+
 Bốn thứ vòng soát tìm ra sau khi S2b/S3b landing. Không cái nào chặn S2c; ghi ra để không rơi.
 
 | # | Vấn đề | Vì sao hoãn | Cỡ |
@@ -965,6 +969,21 @@ Bốn thứ vòng soát tìm ra sau khi S2b/S3b landing. Không cái nào chặn
 | **T4** | `/restore` không dọn cờ vòng fix (`fixUndoable`, `artifactUnchanged`, `specStale`, `specEdits`) ⇒ thẻ ③ phục hồi có thể mời *"Take this fix back"* cho một lượt người dùng **đã chấp nhận và đã đi qua**, và đeo badge của lượt đó | Độc lập, nhỏ. Route undo đã xoá đúng ba trường đó với lý do *"the two measurements described the round that no longer exists"* — lý do y hệt áp cho restore | XS |
 
 ---
+
+### 8.2 Bốn mục nữa từ vòng soát trước merge (2026-08-21) — **chưa làm**
+
+Vòng soát cuối (trước khi merge vào `main`) tìm ra hai thứ **chặn-merge** — đã vá — và bốn mục nhẹ
+dưới đây. Không cái nào chặn; ghi ra để không rơi. Neo theo **tên ký hiệu** (§0.4).
+
+| # | Vấn đề | Sửa tối thiểu | Cỡ |
+|---|---|---|---|
+| **T5** | `[ĐO code]` 「やめる」 ở **gate LỖI** render thành **nút xanh primary** cạnh Retry. Luật "hành động từ chối là nút mờ" được khoá theo **flag**: `if (task.gate?.flag === 'spec_proposal' && a.id === 'drop_spec') return 'ghost'` — mà gate lỗi **không mang flag đó** (`computeGate` trả `[...ERROR_GATE.actions, CONFIRM('drop_spec', …)]`, không flag) ⇒ rơi xuống `'ok'`. Icon thì đã đúng vì khoá theo **id**. Hệ quả: nút "bỏ kế hoạch" trông ngang hàng với nút "thử lại tốn một lượt" | Khoá theo **id** như icon đã làm: `if (a.id === 'drop_spec') return 'ghost'` — `drop_spec` chỉ xuất hiện ở đúng hai gate này | XS |
+| **T6** | `mayOpenProposal` (server, `gate.ts`) và `canPropose` (FE, `propose-lane.ts`) được ghi chú là *"cùng một luật, hai đầu"* nhưng **không kiểm cùng thứ**: server kiểm `status !== 'error'` + workflow tồn tại; FE kiểm `artifacts.implement` và **không** kiểm status. ⇒ có ca **server nhận mà FE không bao giờ gửi**: build edit-existing đứng ở gate ② đã có workflow trên đĩa (`localEditSeed`) nhưng chưa có `sessionIds.implement` → server cho mở 提案 → `apply_spec` chạy ③ với `resumeId` rỗng ⇒ **lượt ③ TƯƠI dựng lại từ pattern, đè lên workflow đang có**. Chỉ tới được bằng tab cũ / POST tự chế | Thêm `!!task.sessionIds?.implement` vào `mayOpenProposal` (đúng như `canRequestFix` đã đòi), và/hoặc `status !== 'error'` vào `canPropose`. Kèm một test bắn `/reply {mode:'propose'}` trên task ở gate ② | XS |
+| **T7** | `[ĐO code]` Dòng giải thích `specNoop` (*"tôi xin kế hoạch và bị đưa về đây"*) **không bao giờ hiện** khi 提案 mở từ build `done` hoặc từ gate ④ — tức **hai trong ba** lối vào Làn B. `gateView` có nhánh `if (t.status === 'done')` **return sớm**, còn `specNoop` chỉ được đọc trong nhánh `implement`. Mà `reparkAfterProposal` khôi phục đúng chỗ đã chụp — có thể là `phase='test'` + `done`. Hệ quả: người dùng **trả tiền một lượt ②** rồi bị đưa thẳng về thẻ 完了, **không một dòng nào nói vì sao** — đúng cái bí ẩn mà field này sinh ra để xoá | Đưa `tr('gateSpecNoop')` lên đầu `doneLines` (khuôn `gateDoneStaleImport` vừa làm), và tương tự cho các gate ④ | XS |
+| **T8** | Các thông điệp 409 **mới** đều là **tiếng Anh thô** và `surfaceError` in nguyên văn lên banner — người dùng Nhật gặp tiếng Anh đúng lúc đang bối rối. Gồm: *"the workflow changed since this build last wrote it…"*, *"the spec changed since…"*, *"a plan is waiting for your decision — settle it before switching to unattended mode"* | Cho các guard trả thêm một `code` ổn định (vd `undo_workflow_moved`, `undo_spec_moved`, `confirm_mode_locked`) cạnh `error`, rồi `surfaceError` ưu tiên `t('err_' + code)` và rơi về `e.message` khi thiếu. **Đây là mẫu cần cho MỌI 409 mới**, không riêng ba cái này | S |
+
+> **Ghi chú về T8**: cùng lớp với việc §5.5 đã ghi cho LOẠI 2 (*"nói ra đã bỏ gì"*) — app nói đúng
+> nhưng nói bằng ngôn ngữ người dùng không đọc. Nếu làm, làm một lần cho cả `store.ts` chứ đừng vá lẻ.
 
 ---
 
