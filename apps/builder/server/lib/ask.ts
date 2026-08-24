@@ -8,6 +8,10 @@
  * Containment is TWO INDEPENDENT LAYERS (D3), neither relying on `confinementCheck`/`gitDirtyPaths`:
  *   - Layer 1 (primary, structural): `ClaudeSession({askMode:true})` sets `BUILDER_ASK_MODE=1` on the
  *     child; `permission-gate.ts`'s `decide()` denies every Write/Edit/MultiEdit/NotebookEdit outright.
+ *     Read that scope literally: it covers the WRITE TOOLS, not every route to the disk. `Bash` returns
+ *     from its own allowlist branch BEFORE the ask-mode check is reached, so a shell redirect is not
+ *     something layer 1 sees at all. That is not a hole in layer 1 — it is precisely the case layer 2
+ *     exists to catch, and saying so here stops the next reader from trusting one layer for both.
  *   - Layer 2 (backstop, defense-in-depth — FIX-M): a byte-snapshot/restore over BOTH writable roots a
  *     bypassed layer 1 would actually expose (`workflowDir(task)` + the task's own `.runs/<taskId>/`),
  *     not just the phase's single gate artifact — mirroring `pathIsProtectedWrite`'s own write-allow
@@ -20,6 +24,7 @@ import { clearSession, isAskCancelRequested, setSession } from './lock.js';
 import { attachmentBlock } from './attachments.js';
 import { buildWorkflowIndex } from './workflow-index.js';
 import { unifiedDiffOfFiles } from './diff.js';
+import { EVENTS_FILE } from './run-events.js';
 import { PHASES } from './phases.js';
 import { languagePin } from './language.js';
 import { lintStandaloneYaml } from './base-import.js';
@@ -356,10 +361,24 @@ async function snapshotRoots(projectsDir: string, task: Task): Promise<Map<strin
   //     "created" anomaly (and a restore that would delete a file a real save is about to rename in).
   //   - .ask-anomaly-before.tmp — this module's OWN diff staging file (restoreAndDiff), likewise not a
   //     turn write. (It is created AFTER the `after` snapshot, so normally absent, but exclude defensively.)
+  //   - events.jsonl — the run timeline. SAME class as task.json, and it is the one that actually fired:
+  //     THREE of its writers run OUTSIDE the turn lock, so they append inside the very window this
+  //     snapshot brackets — `stream_open`/`stream_close` from the SSE socket handler (every tab reload,
+  //     reconnect, second tab), and `history_gap`/`persist_failed` from `GET /api/tasks/:id/chat`. None
+  //     of them is a turn write. MEASURED on run 1787544155222: a reconnect during an 8-minute ask was
+  //     read as "layer 1 bypassed", and the restore — which OVERWRITES, it does not merge — erased the
+  //     `stream_close` line for good, while two perfectly good answers were recorded `ok:false`. The
+  //     canonical path is the only one excluded because `logEvent` only ever writes through `taskDir()`;
+  //     the pre-relocate `.runs/<taskId>/` shorthand has no writer at all (same as `jsonPrefix`).
+  //     Cost of the exclusion, stated plainly: a turn that DID append here is no longer caught. Accepted
+  //     — task.json, far more load-bearing, has been blanket-excluded from the start, and the worst a
+  //     missed write can do here is add one junk line to a timeline. (spec 112)
   const jsonPrefix = `apps/builder/.runs/${task.taskId}/task.json`;
   const askTmp = `apps/builder/.runs/${task.taskId}/.ask-anomaly-before.tmp`;
+  const eventsFile = `apps/builder/.runs/${task.taskId}/${EVENTS_FILE}`;
   for (const key of [...out.keys()]) {
-    if (key === jsonPrefix || key.startsWith(jsonPrefix + '.') || key === askTmp) out.delete(key);
+    if (key === jsonPrefix || key.startsWith(jsonPrefix + '.') || key === askTmp || key === eventsFile)
+      out.delete(key);
   }
   return out;
 }

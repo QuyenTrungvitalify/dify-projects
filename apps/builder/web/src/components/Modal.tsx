@@ -286,7 +286,10 @@ export function ConfirmModal({ title, message, okLabel = tr('ok'), cancelLabel =
   title: string;
   message?: string;
   okLabel?: string;
-  cancelLabel?: string;
+  /** `null` = ONE button, i.e. an alert rather than a choice — for a notice about something already
+   *  done, where a second button could only ever mean the same thing as the first. Esc and a backdrop
+   *  click still dismiss (they route to onCancel), so nothing traps the reader. */
+  cancelLabel?: string | null;
   danger?: boolean;
   onOk: () => void;
   onCancel: () => void;
@@ -310,7 +313,7 @@ export function ConfirmModal({ title, message, okLabel = tr('ok'), cancelLabel =
           {message && <div className="confirm-message">{richText(message)}</div>}
         </div>
         <div className="confirm-foot">
-          <button className="btn ghost" onClick={onCancel}>{cancelLabel}</button>
+          {cancelLabel !== null && <button className="btn ghost" onClick={onCancel}>{cancelLabel}</button>}
           <button className={'btn ' + (danger ? 'danger' : 'primary')} autoFocus onClick={onOk}>{okLabel}</button>
         </div>
       </div>

@@ -8,10 +8,14 @@
  * to the known artifact (#1b) would still pass even if layer 2's broadened scope were silently dropped
  * in a future refactor — #1c is what actually proves FIX-M.
  * Plus: the normal (clean) path, and FIX-D (a resume failure never falls through to a write-intent turn).
+ *
+ * And the INVERSE of #1b/#1c — a write layer 2 must NOT react to: the backend's own `events.jsonl`
+ * append, which three lock-free writers can land inside the very window the snapshot brackets. Without
+ * it, layer 2 reverts the backend's timeline and calls a good answer a breach.
  */
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, appendFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -151,6 +155,70 @@ describe('askWithin — AC#1c (FIX-M): a write to a DIFFERENT in-scope file is A
     assert.equal(data.anomaly?.files.length, 1);
     assert.equal(data.anomaly?.files[0].kind, 'created');
     assert.match(data.anomaly!.files[0].path, /evil\.txt$/);
+  });
+});
+
+describe('askWithin — the backend\'s own timeline write is NOT an anomaly (spec 112)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await tmp();
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  // The inverse of AC#1b/#1c, and the case that actually happened (run 1787544155222): nothing bypassed
+  // layer 1 at all — the BACKEND appended to its own `events.jsonl` while the ask was in flight, because
+  // three of that file's writers hold no turn lock (the SSE socket handler's stream_open/stream_close,
+  // and history_gap/persist_failed on GET /chat). Layer 2 read that as a breach and, worse, OVERWROTE the
+  // file with the pre-ask bytes — deleting a timeline line permanently and marking a perfectly good
+  // answer ok:false. The surviving line is the load-bearing assertion here: an ok:true that still ate
+  // the write would be no fix at all.
+  test('a concurrent timeline append survives the ask and raises no anomaly', async () => {
+    const task = await createTask(dir, { requirement: 'r', confirmMode: 'each_step' });
+    task.phase = 'spec';
+    task.status = 'awaiting_confirm';
+    await saveTask(dir, task);
+    const runDir = join(dir, `apps/builder/.runs/${task.taskId}`);
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, 'SPEC.md'), '# Spec\noriginal content\n');
+
+    const eventsAbs = join(runDir, 'events.jsonl');
+    const seeded = JSON.stringify({ ts: 1, phase: 'spec', kind: 'gate_reached', detail: 'success' }) + '\n';
+    await writeFile(eventsAbs, seeded);
+    // exactly what sse.ts writes when a tab reloads mid-ask: the old socket closes, the new one opens
+    const concurrent =
+      JSON.stringify({ ts: 2, kind: 'stream_close', detail: 'clients=0' }) + '\n' +
+      JSON.stringify({ ts: 3, kind: 'stream_open', detail: 'clients=1' }) + '\n';
+
+    const runTurn = async (
+      _s: ClaudeSession,
+      _p: string,
+      onSessionId?: (id: string) => void
+    ): Promise<TurnResult> => {
+      onSessionId?.('sess-3');
+      await appendFile(eventsAbs, concurrent); // the BACKEND, not the turn — no lock is held by either
+      return { sessionId: 'sess-3', result: { type: 'result', is_error: false }, isError: false };
+    };
+    const { ctx, events } = ctxWith(dir, runTurn);
+
+    assert.ok(acquireTurn(task.taskId, 'ask'));
+    try {
+      await askWithin(task, 'how many nodes?', ctx);
+    } finally {
+      releaseTurn(task.taskId);
+    }
+
+    assert.equal(
+      await readFile(eventsAbs, 'utf8'),
+      seeded + concurrent,
+      'the timeline line written during the ask is still on disk — the restore must not have run'
+    );
+    const done = events.find((e) => e.event === 'ask:done');
+    assert.ok(done);
+    const data = done!.data as { ok: boolean; anomaly?: { files: unknown[] } };
+    assert.equal(data.ok, true, 'a backend bookkeeping write must not fail the ask');
+    assert.equal(data.anomaly, undefined, 'and must not be reported as a layer-1 bypass');
   });
 });
 

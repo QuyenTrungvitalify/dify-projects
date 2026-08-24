@@ -348,7 +348,8 @@ export interface ConfirmOptions {
   title: string;
   message?: string;
   okLabel?: string;
-  cancelLabel?: string;
+  /** `null` = a one-button alert (see ConfirmModal); omit for the normal two-button confirm. */
+  cancelLabel?: string | null;
   danger?: boolean;
 }
 /** The live confirm request (App renders <ConfirmModal> from this), with the pending resolver. */
@@ -848,15 +849,17 @@ export function applyAskDone(d: {
     };
     thread.value = items;
   }
-  // D3 layer 2 (FIX-M): layer 1 should make this unreachable — surface it verbatim via the EXISTING
-  // ConfirmModal/askConfirm pattern (no new dialog component). Both buttons dismiss identically (D1):
-  // there is no "keep this change" affordance — the restore already happened before this notice shows.
+  // Layer 2 fired: something wrote despite layer 1 — surface it verbatim via the EXISTING
+  // ConfirmModal/askConfirm pattern (no new dialog component). ONE button, because there is no "keep
+  // this change" affordance to offer: the restore already happened before this notice shows. It used to
+  // pass the same label as BOTH ok and cancel, which rendered two identical OK buttons and read as a
+  // choice the reader did not have.
   if (!d.ok && d.anomaly && d.anomaly.files.length > 0) {
     void askConfirm({
       title: tr('askAnomalyTitle'),
       message: tf('askAnomalyMsg', { files: describeAnomalyFiles(d.anomaly.files) }),
       okLabel: tr('askAnomalyOk'),
-      cancelLabel: tr('askAnomalyOk'),
+      cancelLabel: null, // an alert, not a choice — the restore already happened before this shows
     });
   }
 }
