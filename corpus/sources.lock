@@ -5,6 +5,11 @@
       "resolved_sha": "88842fcef7fd44be2ed0aea63c223468ba4c4a1a",
       "ref": "main",
       "updated": "2026-07-26T16:36:39Z"
+    },
+    "awesome-dify-workflow-zh": {
+      "resolved_sha": "e730ed3627e5fa56fc1668d995b83178b6b1181c",
+      "ref": "main",
+      "updated": "2026-08-24T09:53:37Z"
     }
   }
 }
