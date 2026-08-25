@@ -177,6 +177,10 @@ interface GateView {
   showSpecLink?: boolean;
   showReportLink?: boolean;
   showDiffLink?: boolean;
+  /** The SPEC.md diff is a SEPARATE link from the workflow's, because they are now separate views in
+   *  separate tabs. Set only where a spec diff genuinely exists — `specStale` and `specNoop` both mean
+   *  the spec did NOT move, so a "仕様の差分" link on those cards would open on "nothing changed". */
+  showSpecDiffLink?: boolean;
   /** spec 052: open the staged/promoted pattern YAML (the review gate's "view pattern" link). */
   showYamlLink?: boolean;
 }
@@ -429,7 +433,7 @@ export function gateView(t: WireTask): GateView {
           // `{s}` is a caller-supplied plural param, not magic — tf() substitutes only what it is
           // given, so omitting it renders a literal "{s}" (shipped that way once; only JA was eyeballed).
           summary: [...implLines, tf('gateSpecEdits', { n: t.specEdits, s: t.specEdits === 1 ? '' : 's' })],
-          showDiffLink: true, showSpecLink: true };
+          showDiffLink: true, showSpecLink: true, showSpecDiffLink: true };
       }
       return { tone: '', badge: tr('gateImplBadge'), title: tr('gateImplTitle'), meta,
         summary: implLines, showDiffLink: true };
@@ -603,7 +607,7 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
   onRequestFix?: () => void;
   /** spec 103 step 1 — take back the last fix round (both files). Absent ⇒ the link never renders. */
   onUndoFix?: () => void;
-  onOpenArtifact: (tab: ArtifactTab) => void;
+  onOpenArtifact: (tab: ArtifactTab, view?: 'diff') => void;
 }) {
   const v = gateView(task);
   // Spec 103 step 1 — pure, in gate-foot.ts with its neighbours (and its regression tests).
@@ -651,10 +655,16 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
         </div>
       )}
 
-      {(v.showSpecLink || v.showReportLink || v.showDiffLink || v.showYamlLink || showUndoFix) && (
+      {(v.showSpecLink || v.showSpecDiffLink || v.showReportLink || v.showDiffLink || v.showYamlLink || showUndoFix) && (
         <div className="gate-actions">
           {v.showSpecLink && (
             <button className="gs-link" onClick={() => onOpenArtifact('spec')}><I.doc />{tr('openSpec')}</button>
+          )}
+          {/* Two diff links, not one. There is no longer a single place that shows "everything that
+              changed" — a diff is a view of ONE file now — so a single 「差分を表示」 would have had to
+              pick a file silently. Each link names its own. */}
+          {v.showSpecDiffLink && (
+            <button className="gs-link" onClick={() => onOpenArtifact('spec', 'diff')}><I.diff />{tr('viewSpecDiff')}</button>
           )}
           {v.showYamlLink && (
             <button className="gs-link" onClick={() => onOpenArtifact('yaml')}><I.yaml />{tr('openPattern')}</button>
@@ -662,7 +672,7 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
           {v.showDiffLink && (
             <>
               <button className="gs-link" onClick={() => onOpenArtifact('yaml')}><I.yaml />main.yml</button>
-              <button className="gs-link" onClick={() => onOpenArtifact('diff')}><I.diff />{tr('viewDiff')}</button>
+              <button className="gs-link" onClick={() => onOpenArtifact('yaml', 'diff')}><I.diff />{tr('viewWorkflowDiff')}</button>
             </>
           )}
           {v.showReportLink && (

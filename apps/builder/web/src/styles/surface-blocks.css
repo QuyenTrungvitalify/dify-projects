@@ -1177,7 +1177,11 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .spec-tab { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .spec-tab > .spec-edit,
 .spec-tab > .spec-preview,
+.spec-tab > .spec-diff,
 .spec-tab > .spec-split { flex: 1 1 auto; min-height: 160px; }
+/* The 差分 view is a 4th sibling in the same flex column, so it needs the same growth rule — and its own
+   scroller, because a wide diff must not widen the panel. */
+.spec-tab > .spec-diff { overflow: auto; }
 
 /* File actions (Reveal / Copy path / Copy) in a section title row — SPEC.md's equivalent of the slot
    main.yml's buttons occupy in its code-block header. Same reset as .spec-mode below: the title row is

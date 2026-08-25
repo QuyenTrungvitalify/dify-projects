@@ -11,6 +11,19 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**差分 is a view of a file now, not a tab of its own**
+- The Diff tab had to hold BOTH files' diffs at once, stacked, with a table of contents to get between
+  them — that rail existed only to undo the stacking. A diff is a way of reading a document, not a
+  document, so it sits beside プレビュー/編集/分割 on SPEC.md and beside コード on main.yml, where "diff of
+  what?" is answered by the tab you are already standing in.
+- The mode is offered only when there is something to compare against. On SPEC.md the three states stay
+  apart: no snapshot at all (no 差分 button), compared-and-unchanged (a sentence saying so), changed.
+- The gate card's single 「差分を表示」 becomes two: 「仕様の差分」 and 「ワークフローの差分」. There is no
+  longer one place that shows everything, so a single link would have had to pick a file silently. The
+  spec link appears only where the spec actually moved.
+- Switching into a diff view refetches the artifacts, which is what switching to the old tab used to do
+  — without that, a diff written after the panel opened would never appear.
+
 **Open, copy, or take the path of either file the panel shows**
 - The panel could hand you main.yml two ways — reveal it in Finder, or copy what is inside it — and
   neither gives you the one thing a terminal, an editor's open-file box, or a message to a colleague

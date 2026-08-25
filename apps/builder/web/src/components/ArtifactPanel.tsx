@@ -12,7 +12,7 @@ import { I } from './Icon';
 import { SplitDiffView } from './SplitDiffView';
 import { specDiffState } from '../lib/diff-parser';
 import { renderMarkdownHtml } from '../lib/markdown';
-import { activeTocIndex, tocSelector, yamlAnchors, type TocEntry } from '../lib/artifact-toc';
+import { activeTocIndex, tocSelector, usesYamlAnchors, yamlAnchors, type TocEntry } from '../lib/artifact-toc';
 import { t as tr, tAction, tf, lang, localizeNotes } from '../lib/i18n';
 import { api } from '../api';
 import type { ArtifactTab, WireTask, WireArtifacts, FileChange } from '../types';
@@ -100,8 +100,18 @@ function ContentsRail({ entries, active, onJump }: {
   );
 }
 
-type SpecMode = 'edit' | 'preview' | 'split';
+/**
+ * How you are looking at a file. `diff` is one of these — not a tab.
+ *
+ * It used to be a fourth tab, which meant ONE tab had to hold BOTH files' diffs, stacked, with a table
+ * of contents to get between them. That rail existed only to undo the stacking. A diff is a way of
+ * reading a document, not a document, so it belongs beside Preview/Edit/Split, where the answer to
+ * "diff of what?" is the tab you are already standing in.
+ */
+export type SpecMode = 'edit' | 'preview' | 'split' | 'diff';
+export type YamlMode = 'code' | 'diff';
 // Preview FIRST (review-before-edit): the panel opens on the rendered spec; Edit is one click away.
+// `diff` is appended at render time — only when there is a spec diff to show (see SpecTab).
 const SPEC_MODES: { key: SpecMode; labelKey: string }[] = [
   { key: 'preview', labelKey: 'specPreview' },
   { key: 'edit', labelKey: 'specEdit' },
@@ -204,9 +214,13 @@ function FileActions({ taskId, which, contents, onReveal }: {
 /** Spec 103 Lane B — while a proposal is open this tab shows the DRAFT (the backend swaps the content
  *  in `readArtifactContents`), so it must SAY so and must not offer to save: `PUT /spec` 409s during a
  *  proposal, and a Save that appeared to work would be destroyed by `apply`'s rename moments later. */
-function SpecTab({ task, content, onSave, onReveal, onDecide }: {
+function SpecTab({ task, content, specDiff, mode, setMode, onSave, onReveal, onDecide }: {
   task: WireTask;
   content: string;
+  /** The unified diff of SPEC.md for this round; drives whether the 差分 mode is offered at all. */
+  specDiff: string | null;
+  mode: SpecMode;
+  setMode: (m: SpecMode) => void;
   onSave: (c: string) => Promise<void>;
   onReveal: (which: ArtifactFile) => void;
   onDecide?: (id: 'apply_spec' | 'changes' | 'drop_spec') => void;
@@ -215,7 +229,6 @@ function SpecTab({ task, content, onSave, onReveal, onDecide }: {
   const [val, setVal] = useState(content);
   const [saved, setSaved] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [mode, setMode] = useState<SpecMode>('preview'); // review-before-edit: open on the rendered spec
   const taRef = useRef<HTMLTextAreaElement>(null);
   // After a toolbar edit re-renders the controlled textarea, re-apply focus + selection here (the
   // value isn't in the DOM until the next render, so it can't be set synchronously in the handler).
@@ -309,6 +322,18 @@ function SpecTab({ task, content, onSave, onReveal, onDecide }: {
     ? <div className="spec-preview md-stream" dangerouslySetInnerHTML={{ __html: renderMarkdownHtml(val) }} />
     : <div className="spec-preview md-stream spec-preview-empty">{tr('nothingToPreview')}</div>;
 
+  // `specDiffState` keeps three answers apart, and they are three different sentences on screen:
+  // `absent` (this build has no spec-diff at all — the mode is not offered), `unchanged` (there IS a
+  // round to compare and it left the spec alone — say so), `changed` (render it).
+  const specState = specDiffState(specDiff);
+  const modes = specState === 'absent' ? SPEC_MODES : [...SPEC_MODES, { key: 'diff' as SpecMode, labelKey: 'specDiffMode' }];
+  // A mode can stop being available under a live panel (a new round lands with no spec change). Falling
+  // back at RENDER, not by writing state, keeps this a pure consequence of what exists.
+  const view: SpecMode = mode === 'diff' && specState === 'absent' ? 'preview' : mode;
+  const diffPane = specState === 'changed'
+    ? <div className="spec-diff"><SplitDiffView file={{ path: 'SPEC.md', status: 'modified', additions: 0, deletions: 0, diff: specDiff ?? '' }} /></div>
+    : <div className="spec-diff secret-note">{tr('diffSpecUnchanged')}</div>;
+
   return (
     <div className="spec-tab">
       <div className="art-section-title">{draft ? tr('specDraftTitle') : 'SPEC.md'} <span className="ast-line" />
@@ -320,14 +345,14 @@ function SpecTab({ task, content, onSave, onReveal, onDecide }: {
           <FileActions taskId={task.taskId} which="spec" contents={val.trim() ? val : null} onReveal={onReveal} />
         </span>
         <div className="seg spec-mode">
-          {SPEC_MODES.map((m) => (
-            <button key={m.key} className={mode === m.key ? 'on' : ''} onClick={() => setMode(m.key)}>{tr(m.labelKey)}</button>
+          {modes.map((m) => (
+            <button key={m.key} className={view === m.key ? 'on' : ''} onClick={() => setMode(m.key)}>{tr(m.labelKey)}</button>
           ))}
         </div>
       </div>
       {draft && <div className="secret-note" style={{ marginBottom: 8 }}>{tr('specDraftNote')}</div>}
       {content === '' && <div className="secret-note" style={{ marginBottom: 8 }}>{tr('noSpecYet')}</div>}
-      {mode !== 'preview' && (
+      {(view === 'edit' || view === 'split') && (
         <div className="spec-toolbar">
           {tools.map((t, i) => 'sep' in t
             ? <span key={i} className="stb-sep" />
@@ -335,9 +360,9 @@ function SpecTab({ task, content, onSave, onReveal, onDecide }: {
             : <button key={i} className="stb" title={t.title} onMouseDown={(e) => e.preventDefault()} onClick={t.run}>{t.label}</button>)}
         </div>
       )}
-      {mode === 'split'
-        ? <div className="spec-split">{editor}{preview}</div>
-        : mode === 'preview' ? preview : editor}
+      {view === 'diff' ? diffPane
+        : view === 'split' ? <div className="spec-split">{editor}{preview}</div>
+        : view === 'preview' ? preview : editor}
       {/* Lane B: decide right here. Same three actions as the gate, same ids, same handlers — the gate
           is not replaced, it is duplicated at the one place the human is actually looking. The order
           and weighting mirror the gate exactly (approve primary, decline quiet) so the two doors can
@@ -358,7 +383,7 @@ function SpecTab({ task, content, onSave, onReveal, onDecide }: {
       <div className="spec-bar">
         {/* Lane B: no Save on a draft. `PUT /spec` 409s while a proposal is open, and a button that
             reports success before `apply`'s rename erases the write is worse than no button. */}
-        <button className="btn primary" disabled={draft || saved || saving} onClick={save}
+        <button className="btn primary" disabled={draft || saved || saving || view === 'diff'} onClick={save}
           title={draft ? tr('specDraftNote') : undefined}
           style={draft || saved ? { opacity: 0.5 } : undefined}>
           <I.save />{saving ? tr('saving') : tr('saveSpec')}
@@ -379,9 +404,13 @@ function SpecTab({ task, content, onSave, onReveal, onDecide }: {
   );
 }
 
-function YamlTab({ yaml, report, taskId, onReveal }: {
+function YamlTab({ yaml, report, diff, mode, setMode, taskId, onReveal }: {
   yaml: string | null;
   report: ReportShape | null;
+  /** The unified diff of main.yml for this round; drives whether the 差分 mode is offered at all. */
+  diff: string | null;
+  mode: YamlMode;
+  setMode: (m: YamlMode) => void;
   taskId: string;
   onReveal: (which: ArtifactFile) => void;
 }) {
@@ -393,10 +422,32 @@ function YamlTab({ yaml, report, taskId, onReveal }: {
         { name: 'lint_plugin_hashes', code: lint.lint_plugin_hashes },
       ]
     : [];
+  // The same two-mode row SPEC.md carries, for the same reason: "diff of what?" is answered by the tab
+  // you are standing in. Offered only when this build HAS a workflow diff — `null` means there is no
+  // base to compare against (a from-scratch build before its first round), which is not the same as
+  // "compared and nothing moved". The render-time fallback mirrors SpecTab's.
+  const hasDiff = diff !== null;
+  const view: YamlMode = mode === 'diff' && !hasDiff ? 'code' : mode;
+  const YAML_MODES: { key: YamlMode; labelKey: string }[] = [
+    { key: 'code', labelKey: 'yamlCodeMode' },
+    { key: 'diff', labelKey: 'specDiffMode' },
+  ];
   return (
     <div>
-      <div className="art-section-title">main.yml <span className="ast-line" /></div>
-      {yaml ? (
+      <div className="art-section-title">main.yml <span className="ast-line" />
+        {hasDiff && (
+          <div className="seg spec-mode">
+            {YAML_MODES.map((m) => (
+              <button key={m.key} className={view === m.key ? 'on' : ''} onClick={() => setMode(m.key)}>{tr(m.labelKey)}</button>
+            ))}
+          </div>
+        )}
+      </div>
+      {view === 'diff' ? (
+        diff && diff.trim()
+          ? <SplitDiffView file={{ path: 'main.yml', status: 'modified', additions: 0, deletions: 0, diff }} />
+          : <div className="secret-note">{tr('diffWorkflowUnchanged')}</div>
+      ) : yaml ? (
         <div className="codeblock">
           <div className="cb-head"><I.yaml style={{ width: 13, height: 13 }} />
             <span className="cb-name">main.yml</span>
@@ -439,36 +490,6 @@ function YamlTab({ yaml, report, taskId, onReveal }: {
  * which is a different statement from an empty diff ("the spec did not change"), and the two must not
  * render alike.
  */
-function DiffTab({ diff, specDiff }: { diff: string | null; specDiff: string | null }) {
-  if (!diff && !specDiff) {
-    return (
-      <div>
-        <div className="art-section-title">{tr('splitDiff')} <span className="ast-line" /></div>
-        <div className="secret-note">{tr('noDiffYet')}</div>
-      </div>
-    );
-  }
-  const file: FileChange = { path: 'main.yml', status: 'modified', additions: 0, deletions: 0, diff: diff ?? '' };
-  const specFile: FileChange = { path: 'SPEC.md', status: 'modified', additions: 0, deletions: 0, diff: specDiff ?? '' };
-  const specState = specDiffState(specDiff);
-  return (
-    <div>
-      {specState !== 'absent' && (
-        <>
-          <div className="art-section-title">{tr('diffSpecSection')} <span className="ast-line" /></div>
-          {specState === 'changed'
-            ? <SplitDiffView file={specFile} />
-            : <div className="secret-note">{tr('diffSpecUnchanged')}</div>}
-        </>
-      )}
-      <div className="art-section-title">{tr('diffWorkflowSection')} <span className="ast-line" /></div>
-      {diff && diff.trim()
-        ? <SplitDiffView file={file} />
-        : <div className="secret-note">{tr('diffWorkflowUnchanged')}</div>}
-    </div>
-  );
-}
-
 function ReportTab({ report, onReveal }: { report: ReportShape | null; onReveal: (which: ArtifactFile) => void }) {
   if (!report) {
     return (
@@ -539,10 +560,17 @@ function ReportTab({ report, onReveal }: { report: ReportShape | null; onReveal:
   );
 }
 
-export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpec, onReveal, onProposalDecide }: {
+export function ArtifactPanel({ task, tab, setTab, specMode, setSpecMode, yamlMode, setYamlMode, available, onClose, onSaveSpec, onReveal, onProposalDecide }: {
   task: WireTask;
   tab: ArtifactTab;
   setTab: (tab: ArtifactTab) => void;
+  /** The two file tabs' view modes. They live in App, not here, because a gate card's 差分 link opens a
+   *  tab already in diff mode, and because App's artifact refetch keys off them — entering a diff view
+   *  is what switching to the old 差分 TAB used to be. */
+  specMode: SpecMode;
+  setSpecMode: (m: SpecMode) => void;
+  yamlMode: YamlMode;
+  setYamlMode: (m: YamlMode) => void;
   available: ArtifactTab[];
   onClose: () => void;
   onSaveSpec: (content: string) => Promise<void>;
@@ -569,7 +597,6 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
   const allTabs: { key: ArtifactTab; label: string; icon: VNode; dot?: string }[] = [
     { key: 'spec', label: tr('tab_spec'), icon: <I.doc /> },
     { key: 'yaml', label: 'main.yml', icon: <I.yaml />, dot: report ? (lintWarn ? 'warn' : 'ok') : undefined },
-    { key: 'diff', label: tr('tab_diff'), icon: <I.diff /> },
     { key: 'report', label: tr('tab_report'), icon: <I.report /> },
   ];
   const tabs = allTabs.filter((t) => available.includes(t.key));
@@ -644,9 +671,18 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
   // The bytes on screen for the CURRENT tab — the fingerprint scrollMemory keys its position against,
   // and the signal that content has actually arrived (App refetches artifacts when the panel opens, so
   // the first render after a reopen is usually still empty).
-  const tabLen = (activeTab === 'spec' ? art.spec : activeTab === 'yaml' ? art.yaml
-    : activeTab === 'diff' ? art.diff : art.report ? JSON.stringify(art.report) : null)?.length ?? 0;
-  const memKey = `${task.taskId}:${activeTab}`;
+  // What is actually on screen right now — which depends on the VIEW, not just the tab: reading the diff
+  // of main.yml shows different bytes than reading main.yml.
+  const view = activeTab === 'spec' ? specMode : activeTab === 'yaml' ? yamlMode : 'report';
+  const tabLen = (view === 'diff'
+    ? (activeTab === 'spec' ? art.specDiff : art.diff)
+    : activeTab === 'spec' ? art.spec
+    : activeTab === 'yaml' ? art.yaml
+    : art.report ? JSON.stringify(art.report) : null)?.length ?? 0;
+  // Keyed by VIEW too. Code and diff are two documents of different lengths, so without the view in the
+  // key the `len` fingerprint would simply throw the saved position away on every switch — safe, but it
+  // means losing your place in a long YAML every time you glance at its diff and come back.
+  const memKey = `${task.taskId}:${activeTab}:${view}`;
 
   // Remember the scroll position (see scrollMemory). Passive + no state: this fires on every wheel tick.
   useEffect(() => {
@@ -690,7 +726,7 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
     const collect = (): void => {
       const found: TocEntry[] = [];
       const anchors: { domIndex: number; line: number }[] = [];
-      const sel = tocSelector(activeTab);
+      const sel = tocSelector(activeTab, view);
       if (sel) {
         // `i` is the index in the FULL match list — that is the address `currentTops` re-queries with,
         // so a heading skipped here for having no text must not shift the ones after it.
@@ -700,7 +736,7 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
           found.push({ key: `d${i}`, text, level: el.tagName === 'H1' ? 1 : el.tagName === 'H3' ? 3 : 2 });
           anchors.push({ domIndex: i, line: 0 });
         });
-      } else if (activeTab === 'yaml' && art.yaml) {
+      } else if (usesYamlAnchors(activeTab, view) && art.yaml) {
         // A <pre> is one text node — there is nothing to query. Anchor by LINE instead: the code block
         // is monospace and never wraps (`white-space: pre`), so every line is exactly one line-height and
         // line N sits at `<top of pre's text> + N * lineHeight`. Measured, never assumed — a theme or
@@ -729,7 +765,7 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
     // Collecting anchors is layout-independent (it reads elements and text, not pixels), so one pass
     // after render is enough — no resize handling, because nothing measured here can go stale.
     collect();
-  }, [expanded, activeTab, art.spec, art.yaml, art.report, art.diff, lang.value]);
+  }, [expanded, activeTab, view, art.spec, art.yaml, art.report, art.diff, art.specDiff, lang.value]);
 
   // Scroll-spy. Passive listener + rAF coalescing: this fires on every wheel tick, and the work is a
   // linear scan that must never be the reason a long spec scrolls badly.
@@ -779,10 +815,12 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
       <div className="artifact-main">
         <div className="artifact-body" ref={bodyRef}>
           {activeTab === 'spec' && (
-            <SpecTab task={task} content={art.spec ?? ''} onSave={onSaveSpec} onReveal={onReveal} onDecide={onProposalDecide} />
+            <SpecTab task={task} content={art.spec ?? ''} specDiff={art.specDiff ?? null}
+              mode={specMode} setMode={setSpecMode}
+              onSave={onSaveSpec} onReveal={onReveal} onDecide={onProposalDecide} />
           )}
-          {activeTab === 'yaml' && <YamlTab yaml={art.yaml} report={report} taskId={task.taskId} onReveal={onReveal} />}
-          {activeTab === 'diff' && <DiffTab diff={art.diff} specDiff={art.specDiff ?? null} />}
+          {activeTab === 'yaml' && <YamlTab yaml={art.yaml} report={report} diff={art.diff ?? null}
+            mode={yamlMode} setMode={setYamlMode} taskId={task.taskId} onReveal={onReveal} />}
           {activeTab === 'report' && <ReportTab report={report} onReveal={onReveal} />}
         </div>
         {expanded && (

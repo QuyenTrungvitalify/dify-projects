@@ -269,8 +269,6 @@ const EN: Dict = {
   undoFixTitle: 'Take this fix back?',
   undoFixMsg: 'The workflow file and the spec document both return to how they were before this fix. The conversation stays. Asking for the fix again costs another run.',
   // spec 103 step 1 — the 差分 tab answers one question about two files.
-  diffSpecSection: 'Spec (SPEC.md)',
-  diffWorkflowSection: 'Workflow (main.yml)',
   diffSpecUnchanged: 'This round did not change the spec.',
   diffWorkflowUnchanged: 'This round did not change the workflow file.',
   gateNoChangeImport: 'The file is byte-for-byte the one imported at {time}, so importing again would send Dify what it already has.',
@@ -289,7 +287,10 @@ const EN: Dict = {
 
   /* gate links */
   openSpec: 'open SPEC.md',
-  viewDiff: 'view diff',
+  /* Two links, one per file: a diff is a view of ONE document now, so a single "view diff" would have
+     to pick a file without saying which. */
+  viewSpecDiff: 'spec diff',
+  viewWorkflowDiff: 'workflow diff',
   openReport: 'open report',
 
   /* gate reply */
@@ -528,13 +529,15 @@ const EN: Dict = {
   hidePanel: 'Hide panel',
   newWorkflow: 'new workflow',
   tab_spec: 'Spec',
-  tab_diff: 'Diff',
   tab_report: 'Report',
 
   /* spec tab */
   specEdit: 'Edit',
   specPreview: 'Preview',
   specSplit: 'Split',
+  /* The 4th spec view / the 2nd main.yml view — the old Diff TAB, moved into the file it describes. */
+  specDiffMode: 'Diff',
+  yamlCodeMode: 'Code',
   noSpecYet: 'No SPEC.md yet — it appears after the Spec phase.',
   nothingToPreview: 'Nothing to preview yet.',
   saving: 'Saving…',
@@ -575,8 +578,6 @@ const EN: Dict = {
   pathCopied: 'Path copied',
 
   /* diff tab */
-  splitDiff: 'Split diff',
-  noDiffYet: 'No diff yet — a diff appears once a workflow is seeded from a Dify app or pattern.',
   diffBinary: 'Binary or oversized diff — not shown.',
   diffNoChanges: 'No textual changes in this file.',
 
@@ -798,8 +799,6 @@ const JA: Dict = {
   undoFix: 'この修正を取り消す',
   undoFixTitle: 'この修正を取り消しますか？',
   undoFixMsg: 'ワークフローファイルと仕様書の両方が、この修正の前の状態に戻ります。会話はそのまま残ります。もう一度依頼する場合は実行が 1 回分かかります。',
-  diffSpecSection: '仕様（SPEC.md）',
-  diffWorkflowSection: 'ワークフロー（main.yml）',
   diffSpecUnchanged: 'この回は仕様書を変更していません。',
   diffWorkflowUnchanged: 'この回はワークフローファイルを変更していません。',
   gateNoChangeImport: '{time} にインポートしたファイルと1バイトも違いません。もう一度インポートしても、Dify にすでにあるものを送ることになります。',
@@ -815,7 +814,8 @@ const JA: Dict = {
 
   /* gate links */
   openSpec: 'SPEC.md を開く',
-  viewDiff: '差分を表示',
+  viewSpecDiff: '仕様の差分',
+  viewWorkflowDiff: 'ワークフローの差分',
   openReport: 'レポートを開く',
 
   /* gate reply */
@@ -1042,13 +1042,14 @@ const JA: Dict = {
   hidePanel: 'パネルを隠す',
   newWorkflow: '新規ワークフロー',
   tab_spec: '仕様',
-  tab_diff: '差分',
   tab_report: 'レポート',
 
   /* spec tab */
   specEdit: '編集',
   specPreview: 'プレビュー',
   specSplit: '分割',
+  specDiffMode: '差分',
+  yamlCodeMode: 'コード',
   noSpecYet: 'SPEC.md はまだありません — 仕様フェーズの後に表示されます。',
   nothingToPreview: 'プレビューする内容がまだありません。',
   saving: '保存中…',
@@ -1085,8 +1086,6 @@ const JA: Dict = {
   pathCopied: 'パスをコピーしました',
 
   /* diff tab */
-  splitDiff: '分割差分',
-  noDiffYet: '差分はまだありません — Dify アプリやパターンからシードすると差分が表示されます。',
   diffBinary: 'バイナリまたはサイズ超過の差分 — 表示されません。',
   diffNoChanges: 'このファイルにテキストの変更はありません。',
 

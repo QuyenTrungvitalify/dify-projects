@@ -312,7 +312,11 @@ export type PhaseKey = 'analyze' | 'spec' | 'implement' | 'test';
 export type PhaseState = 'pending' | 'running' | 'awaiting' | 'done' | 'error';
 export type PhaseStates = Record<PhaseKey, PhaseState>;
 
-export type ArtifactTab = 'spec' | 'yaml' | 'diff' | 'report';
+/** A tab is a FILE (plus the run report), not a view of one. `diff` used to sit here as a fourth tab
+ *  and had to hold BOTH files at once, with a table of contents to get between them — the rail existed
+ *  only because the tab was carrying two documents. A diff is a way of LOOKING at a file, so it is a
+ *  view mode inside that file's tab now (SpecMode / YamlMode in ArtifactPanel.tsx). */
+export type ArtifactTab = 'spec' | 'yaml' | 'report';
 
 export interface Settings {
   workflow: string;

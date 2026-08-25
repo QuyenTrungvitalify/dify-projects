@@ -369,7 +369,7 @@ chụp của một vòng khác), `phase==='implement' && status==='awaiting_conf
 **có render không**, không quyết **có an toàn không**.
 
 **Chỗ đặt là quyết định thiết kế, không phải chi tiết CSS.** Link nằm ở hàng `gate-actions` (cùng chỗ với
-`main.yml` / `差分を表示`), **không** ở `gate-foot`. Hàng foot đã có 「ビルドを破棄」, mà 破棄 và 取り消す
+`main.yml` / `ワークフローの差分`), **không** ở `gate-foot`. Hàng foot đã có 「ビルドを破棄」, mà 破棄 và 取り消す
 gần đồng nghĩa trong tiếng Nhật trong khi hậu quả lệch một trời (mất cả build vs mất một vòng). Hai nút
 cùng cỡ với hai chữ gần giống nhau chính là §1.5 — bệnh mà spec 103 lập ra để chữa. Khác hàng, khác cỡ,
 khác trọng lượng: đọc là biết cái nào nguy hiểm. Có `askConfirm` danger phía sau làm lớp thứ hai, vì
@@ -388,10 +388,22 @@ không đổi / spec tụt lại) đã có badge và cảnh báo riêng, thêm d
 > đúng (card là lịch sử), nhưng nó làm việc kiểm chứng thủ công dễ nhầm — phải xoá cache thread hoặc
 > chạy một vòng mới mới thấy.
 
-`specDiffState` (`lib/diff-parser.ts`) giữ **ba** trạng thái cho mục 仕様 của tab `差分`: `absent`
-(chưa có bản chụp — build đầu, mục biến mất hẳn) · `unchanged` (có đo, không đổi — một câu khẳng định)
-· `changed`. Gộp hai cái đầu là để một build đầu **âm thầm tuyên bố** spec đã được đối chiếu và giống hệt.
-Cùng hợp đồng ba trạng thái mà `specStale` giữ ở server.
+`specDiffState` (`lib/diff-parser.ts`) giữ **ba** trạng thái cho chế độ xem `差分` của tab 仕様: `absent`
+(chưa có bản chụp — build đầu, **chế độ 差分 không được chào ra** ở segment) · `unchanged` (có đo, không
+đổi — một câu khẳng định) · `changed`. Gộp hai cái đầu là để một build đầu **âm thầm tuyên bố** spec đã
+được đối chiếu và giống hệt. Cùng hợp đồng ba trạng thái mà `specStale` giữ ở server.
+
+**`差分` là một CHẾ ĐỘ XEM, không phải một tab (2026-08-26).** Trước đây nó là tab thứ tư, nên **một** tab
+phải chứa diff của **cả hai** file, xếp chồng, kèm một mục lục để đi qua lại — cái rail đó tồn tại chỉ để
+gỡ hậu quả của việc xếp chồng. Diff là *một cách đọc* một tài liệu, không phải một tài liệu, nên nó nằm
+cạnh プレビュー/編集/分割 (tab 仕様) và コード (tab main.yml), nơi câu hỏi "diff của cái gì" được trả lời bởi
+chính cái tab bạn đang đứng. Hai link trên thẻ gate tách theo: `仕様の差分` · `ワークフローの差分`.
+
+> **Cái rail là chỗ nguy hiểm, đã đo chứ không suy luận.** Rail của `main.yml` neo theo **số dòng** từ
+> `yamlAnchors(art.yaml)`. Ở chế độ 差分, chữ trên màn hình không còn là YAML đó. Bỏ điều kiện
+> `usesYamlAnchors` ra, rail vẫn hiện **đủ 33 mục** đè lên một diff, mỗi mục nhảy tới một dòng không phải
+> thứ nó ghi. Điều kiện DOM anh em (`.codeblock pre` phải tồn tại) **KHÔNG** chặn được ca này — đó là lý
+> do `usesYamlAnchors` là hàm thuần có test riêng, chứ không phải một dòng `&&` trong effect.
 
 > **Đã gỡ (2026-08-20)** — từng có một caret trên nút 修正を依頼 mở menu, trong đó dòng thứ hai
 > 「仕様の修正案を先に作る」 là một **probe**: chưa chạy được, bấm vào chỉ ghi một event để đếm xem có

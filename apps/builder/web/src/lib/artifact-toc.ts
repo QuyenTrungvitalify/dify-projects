@@ -100,10 +100,35 @@ export function activeTocIndex(entries: { top: number }[], scrollTop: number, lo
   return active;
 }
 
-/** Which rendered elements are the anchors, per tab. `null` = this tab has no DOM-anchored entries
- *  (main.yml builds its rail from the text instead — see {@link yamlAnchors}). */
-export function tocSelector(tab: string): string | null {
+/**
+ * Which rendered elements are the anchors, for the tab AND the view it is showing. `null` = no
+ * DOM-anchored entries (main.yml's code view builds its rail from the text instead — see
+ * {@link yamlAnchors}).
+ *
+ * `view` is not decoration. A diff has ONE section, so a rail over it would be a list of one — and the
+ * old `diff` TAB needed `.art-section-title` precisely because it stacked BOTH files and the rail was
+ * how you got between them. Now that each diff sits in its own tab, that reason is gone.
+ *
+ * It also has to be right for the caller's other branch: main.yml's rail is anchored by LINE NUMBER off
+ * `yamlAnchors(art.yaml)`, and in diff view the text on screen is not that YAML — every anchor would
+ * point at a line that is not where the rail claims.
+ */
+/**
+ * Does main.yml's LINE-anchored rail apply right now?
+ *
+ * Only in its code view. This is not defensive tidiness — it was measured: with the view check removed,
+ * switching main.yml to 差分 left all 33 YAML anchors in the rail, over a diff, each one scrolling to a
+ * line that is not what it names. The sibling DOM check (`.codeblock pre` must exist) does NOT cover it.
+ *
+ * Pure and here rather than inline in the effect precisely so that fact has a test instead of a memory.
+ */
+export function usesYamlAnchors(tab: string, view?: string): boolean {
+  return tab === 'yaml' && view === 'code';
+}
+
+export function tocSelector(tab: string, view?: string): string | null {
+  if (view === 'diff') return null;
   if (tab === 'spec') return '.spec-preview h1, .spec-preview h2, .spec-preview h3';
-  if (tab === 'report' || tab === 'diff') return '.art-section-title';
+  if (tab === 'report') return '.art-section-title';
   return null;
 }

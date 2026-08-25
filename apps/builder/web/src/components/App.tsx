@@ -9,7 +9,7 @@
 import { useState, useRef, useEffect } from 'preact/hooks';
 import { Sidebar } from './Sidebar';
 import { PhaseTrack, Disclosure, GateCard, GateActions, QaAnswer, Composer, MsgAttachments } from './Chat';
-import { ArtifactPanel } from './ArtifactPanel';
+import { ArtifactPanel, type SpecMode, type YamlMode } from './ArtifactPanel';
 import { CreateProjectModal, IntakeYamlModal, ConfirmModal } from './Modal';
 import { BgTray } from './BgTray';
 import { DevPanel } from './DevPanel';
@@ -44,8 +44,9 @@ function availableTabs(task: WireTask): ArtifactTab[] {
   const a = task.artifactContents;
   const tabs: ArtifactTab[] = [];
   if ((a && a.spec) || reached('spec')) tabs.push('spec');
-  if ((a && a.yaml) || (reached('implement') && task.phase !== 'analyze')) tabs.push('yaml');
-  if (a && a.diff) tabs.push('diff');
+  // `a.diff` counts toward the YAML tab now that the diff is a view mode inside it rather than a tab of
+  // its own — otherwise a build that has a diff but no inlined yaml would have nowhere to show it.
+  if ((a && (a.yaml || a.diff)) || (reached('implement') && task.phase !== 'analyze')) tabs.push('yaml');
   if ((a && a.report) || task.status === 'done') tabs.push('report');
   return tabs;
 }
@@ -87,6 +88,13 @@ export function App() {
   const [importBaseOpen, setImportBaseOpen] = useState(false); // spec 051 D5
   const [artifactOpen, setArtifactOpen] = useState(false);
   const [artifactTab, setArtifactTab] = useState<ArtifactTab>('spec');
+  // The two tabs' VIEW MODES live here, not inside the tab components, for two reasons. A gate card's
+  // 「仕様の差分」/「ワークフローの差分」 link has to be able to open a tab already in diff mode, and the
+  // artifact refetch below keys off them: it used to fire when you switched to the 差分 TAB, which is how
+  // a diff written after the panel opened ever appeared. With the tab gone, the mode change is the only
+  // signal left, so it has to be visible from here.
+  const [specMode, setSpecMode] = useState<SpecMode>('preview');
+  const [yamlMode, setYamlMode] = useState<YamlMode>('code');
   const [exportMenuOpen, setExportMenuOpen] = useState(false); // spec 062 follow-up: the Export dropdown
   const exportBtnRef = useRef<HTMLButtonElement>(null); // anchor for the fixed-positioned menu (see below)
   const [exportMenuPos, setExportMenuPos] = useState<{ top: number; left: number } | null>(null);
@@ -129,6 +137,9 @@ export function App() {
 
   // Live signals.
   const task = store.task.value;
+  // A different build starts on the rendered spec again (review-before-edit), and never inherits the
+  // previous build's diff view — which would open on a diff belonging to something else.
+  useEffect(() => { setSpecMode('preview'); setYamlMode('code'); }, [task?.taskId]);
   const thread = store.thread.value;
   const tree = store.tree.value;
   const seeds = store.seeds.value;
@@ -304,8 +315,15 @@ export function App() {
     const atts = files.length ? toWire(files) : undefined;
     void store.reply('', 'Retry phase', atts).then((ok) => { if (ok) setFiles([]); });
   }
-  function openArtifact(tab: ArtifactTab): void {
+  /** Open the panel on `tab`. `view: 'diff'` also switches that tab into its diff mode — the gate cards'
+   *  two 差分 links are deep links, and landing on the file's normal view would make the reader hunt for
+   *  the thing the link named. */
+  function openArtifact(tab: ArtifactTab, view?: 'diff'): void {
     setArtifactTab(tab);
+    if (view === 'diff') {
+      if (tab === 'spec') setSpecMode('diff');
+      if (tab === 'yaml') setYamlMode('diff');
+    }
     setArtifactOpen(true);
   }
   // spec 016 D4: the irreversible/destructive gate confirms route through the shared ConfirmModal first
@@ -476,7 +494,9 @@ export function App() {
   useEffect(() => {
     if (artifactOpen && task) void store.refreshArtifacts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [artifactOpen, artifactTab, task?.taskId, task?.phase, task?.status]);
+    // specMode/yamlMode are in here for the reason spelled out where they are declared: entering a diff
+    // view is now what the 差分 TAB switch used to be, and that switch was the refetch's trigger.
+  }, [artifactOpen, artifactTab, specMode, yamlMode, task?.taskId, task?.phase, task?.status]);
 
   /* ---------- render ---------- */
   return (
@@ -844,6 +864,7 @@ export function App() {
             {/* click-away: dismiss the panel when clicking the chat area outside it */}
             <div className="artifact-scrim" onClick={() => setArtifactOpen(false)} />
             <ArtifactPanel task={task} tab={artifactTab} setTab={setArtifactTab}
+              specMode={specMode} setSpecMode={setSpecMode} yamlMode={yamlMode} setYamlMode={setYamlMode}
               available={tabs}
               onClose={() => setArtifactOpen(false)}
               onSaveSpec={store.saveSpec}
