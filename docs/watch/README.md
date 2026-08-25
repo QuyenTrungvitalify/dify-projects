@@ -9,6 +9,14 @@ vì mục đó không giữ nổi ba thứ một watchlist cần: **đã lặp m
 > ⚠ Đừng thêm nhà thứ sáu cho tri thức. Nếu một mục ở đây đã đủ bằng chứng, nó **rời khỏi đây** —
 > thành spec, thành commit, hoặc thành một dòng trong `AGENTS.md §9`. Danh sách này phải ngắn.
 
+Ba chỗ đã được cập nhật để biết nhà này tồn tại — nếu bạn đổi luật ở đây, đổi cả ba:
+
+| File | Biết gì về `docs/watch/` |
+|---|---|
+| [`docs/specs/README.md`](../specs/README.md) | một hàng trong bảng "loại tri thức → nhà", và câu nghiệm thu #2 |
+| [`.claude/skills/spec-close/SKILL.md`](../../.claude/skills/spec-close/SKILL.md) | được phép chuyển mảnh "chờ quan sát" về đây, và **phải từ chối** mảnh không có `detector` |
+| `docs/specs/108`, `docs/specs/111` | các open question đã chuyển thành mục theo dõi đều trỏ tới `W-NNN` thay vì chép lại |
+
 ## Luật một dòng
 
 **Không có `detector` thì không phải mục theo dõi — đó là điều ước.**

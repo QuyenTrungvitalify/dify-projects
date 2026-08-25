@@ -399,6 +399,11 @@ grep '"kind": "error"' apps/builder/.runs/1787273481220/events.jsonl
 
 ## 6. Open questions
 
+> Các câu hỏi dưới đây là **của spec này**. Loại "chờ quan sát, có cách đo" đã chuyển sang
+> [`docs/watch/`](../watch/README.md) — xem [`W-001`](../watch/W-001-ghi-cheo-project-do-model-tu-di.md)
+> (phần hook deny của S1, hoãn vì 0 ca), [`W-005`](../watch/W-005-false-positive-bo-do-fs.md)
+> (điều kiện để nâng advisory → fatal).
+
 1. **`workflowSlug === null` (①/② trước scaffold) thì hook nên làm gì?** Hôm nay `projects/` mở toàn
    bộ và post-turn nói "mọi ghi `projects/` đều là breach" — nhưng mù trong `_drafts`. Đóng chặt
    (deny mọi `projects/` khi chưa có slug) là đúng lý thuyết; cần kiểm có phase nào ghi hợp lệ ở đó
@@ -408,6 +413,8 @@ grep '"kind": "error"' apps/builder/.runs/1787273481220/events.jsonl
    nhưng dễ false-positive (tên app tiếng Nhật + emoji). **Chưa chốt.**
 3. **S4 ưu tiên 1 hay 2 trước?** Ưu tiên 2 (note ở gate ①) rẻ, không đụng FE composer, chặn được sau
    $1.71. Ưu tiên 1 chặn trước $0 nhưng đụng luồng gửi. Nếu chỉ làm một, làm **2 trước**.
+   → đang theo dõi: [`W-004`](../watch/W-004-requirement-tro-project-khac.md) — 3 ca, tất cả ngày
+   21/08, chưa tái phát. Ngưỡng để làm: ≥2 ca MỚI.
 4. **`(external)` project (2 run)** có nằm trong vùng git-mù không? Chưa đo.
 
 ---
@@ -523,10 +530,13 @@ xanh"*, cạnh dòng về SPEC.md. Cùng chỗ, cùng định dạng với các 
 3. Lượt ② sửa `main.yml` **hỏng lint** ⇒ gate ② báo lint đỏ như ③ vẫn báo, không nuốt.
 4. Lượt ② KHÔNG chạm workflow ⇒ hành vi gate **y hệt hôm nay** (không thêm dòng thừa).
 
-### 7.4 Câu hỏi mở thêm
+### 7.4 Hai mục đã rời spec này — giờ nằm ở `docs/watch/`
 
-5. **900s có còn đúng cho build ~200 KB?** 2/3 lượt ③ timeout, và lượt timeout không ghi cost nên
-   ngân sách thật của một phase đang bị đánh giá thấp. Liên quan spec 085 (đã hạ timeout) + spec 102.
-6. **Lượt bị giết giữa chừng** (`process exited code null`, 17:00) — ai giết? Không có event
-   `cancel`. Cần một event cho "turn killed" để phân biệt với timeout, nếu không mọi khoản chi mất
-   dấu đều trông giống nhau.
+Hai câu hỏi mở ban đầu ở đây **không thuộc luận đề của 108** ("chấm cái đã ghi"); chúng thuộc địa hạt
+spec 085/102/104. Chúng đã thành mục theo dõi có detector, và **số liệu ở đó mới là số đúng** — cả hai
+con số tôi viết vội trong bản đầu đều sai khi đo đủ:
+
+| Đã ghi ở đây (bản đầu) | Đo đủ 58 run | Nhà mới |
+|---|---|---|
+| "2/3 lượt **③** timeout" | **5/8 lần timeout là phase ②**, không phải ③ ⇒ nới theo phase là nới sai chỗ | [`W-002`](../watch/W-002-timeout-900s.md) |
+| "lượt bị giết… **không có event `cancel`**" | **đã có** từ 2026-08-25 (spec 111 S2). Phần còn đúng: 13/71 lượt (18%) không ghi `turn_cost` ⇒ đã vượt ngưỡng | [`W-003`](../watch/W-003-luot-khong-ghi-hoa-don.md) |

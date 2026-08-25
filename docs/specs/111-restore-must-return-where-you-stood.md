@@ -102,38 +102,50 @@ timeline có `cancelled ③` → `restored ③→②` thì user tự đọc ra t
 
 ### S1 — Trả về gate người dùng đang đứng
 
-**Làm gì.** Ghi lại chỗ đứng **trước** khi lượt chạy, rồi `/restore` đọc nó.
+**Làm gì.** `/restore` hỏi run timeline: **phase bị cancel đã từng đỗ ở một gate chưa?** Có ⇒ mở lại
+đúng gate đó. Chưa ⇒ giữ nguyên đường lùi-một-biên hôm nay.
 
-Cơ chế đã có sẵn trong repo, dùng đúng lại nó: `orchestrator.ts:350` —
-`task.specReviseFrom = { phase, status, gate }`, kèm comment *"Capture where the human is standing
-BEFORE the phase moves"*. Lane B đã giải đúng bài toán này cho một trường hợp; S1 chỉ tổng quát hoá.
+> ⚠ **Bản ship khác bản thiết kế đầu — đây là bản đã chạy.** Thiết kế ban đầu thêm một trường
+> `task.gateBefore = { phase, status, gate }` ghi trước mỗi lượt (nhái `specReviseFrom`,
+> `orchestrator.ts:350`). Lúc implement chọn khác, vì hai lý do đo được:
+> **(a)** `gate_reached` **đã nằm sẵn** trong `events.jsonl` — thêm trường mới là thêm một sự thật
+> thứ hai phải giữ đồng bộ với sự thật đã có; **(b)** đọc timeline **chữa được cả task cũ** — những
+> build bị cancel TRƯỚC khi bản vá ship vẫn restore đúng, còn `gateBefore` thì chỉ đúng từ ngày ship
+> trở đi. Task `1787544155222` là ca thật đang mắc kẹt, nên (b) không phải lợi ích lý thuyết.
 
-1. Trong `runPhaseAndGate`, trước khi `task.phase`/`status` bị ghi đè, lưu
-   `task.gateBefore = { phase, status, gate }` (chỉ khi trạng thái cũ **là một gate** —
-   `awaiting_confirm`/`done`; một lượt nối tiếp lượt đang chạy không có gate để ghi).
-2. `/restore`: có `gateBefore` **và** nó còn mạch lạc (artifact của phase đó còn trên đĩa) ⇒ trả về
-   **đúng gate đó**. Không có ⇒ giữ nguyên đường lùi-một-biên hôm nay.
+1. `/restore` đọc `events.jsonl`, tìm `kind === 'gate_reached'` có `phase === task.phase`.
+2. Có ⇒ `target = task.phase` (mở lại gate của chính nó). Không ⇒ `restoreTargetPhaseFor(task)` như cũ.
+3. `④` **không** đi đường mới: một `/reply` ở gate ④ đã được spec 041 định tuyến về ③, nên một vòng
+   fix ④ bị cancel vốn đã nằm ở `phase === 'implement'`; còn "mở lại một gate ④ đã `done`" là câu hỏi
+   khác, chưa đo.
+
+**Vì sao KHÔNG dùng `sessionIds[phase]` làm dấu hiệu** — cạm bẫy đã suýt mắc: nó được set **ngay đầu
+lượt**, nên một ③ **đầu tiên** bị giết giữa chừng cũng có `sessionIds.implement`. Dùng nó thì restore
+sẽ mở lại một gate ③ **chưa từng tồn tại**, và trao cho người dùng nút "Continue to Test" cho một file
+chưa bao giờ được ghi. `gate_reached` là dấu hiệu đúng vì nó chỉ xuất hiện khi gate đã thật sự mở.
 
 **Hai kịch bản §1.3 hợp nhất, không cần rẽ nhánh:**
 
-| Kịch bản | `gateBefore` là gì | Restore trả về |
+| Kịch bản | Timeline có `gate_reached` của phase đó? | Restore trả về |
 |---|---|---|
-| Cancel ngay sau Continue từ ② | gate ② | ② — **y như hôm nay** |
-| Cancel một vòng fix từ gate ③ | gate ③ | ③ — kèm artifact, 差分, Undo còn nguyên |
-| Cancel một vòng fix từ gate ④ | gate ④ | ④ |
+| Cancel ngay sau Continue từ ② | chưa | ② — **y như hôm nay** |
+| Cancel một vòng fix từ gate ③ | rồi | ③ — kèm artifact, 差分, phiên ③ còn nguyên |
+| Cancel một vòng fix từ gate ④ | (đã ở phase ③) | ③ |
 
 **Ranh giới:**
-- `gateBefore` **không** đổi `artifactRel`, không đụng file, không chạy lượt nào — `/restore` vẫn là
-  thao tác thuần trạng thái, vẫn không lấy turn lock (route giữ nguyên hình dạng).
-- `analyze` không có gate trước ⇒ nhánh `error` "restored — Retry to re-run analyze" giữ nguyên.
+- Không thêm trường nào lên task, không đụng file, không chạy lượt — `/restore` vẫn là thao tác thuần
+  trạng thái, vẫn không lấy turn lock (route giữ nguyên hình dạng).
+- `analyze` chưa từng có gate ⇒ nhánh `error` "restored — Retry to re-run analyze" giữ nguyên.
 - `specRevise` vẫn bị dọn khi cancel (`tasks.ts:1004`) — quy tắc đó độc lập, không đụng.
 
-**Nghiệm thu:**
+**Nghiệm thu** — `test/restore-target.test.ts`, 6 ca, đã kiểm đỏ-khi-revert (gỡ điều kiện ⇒ 2 ca đỏ):
 1. Cancel một vòng fix ở gate ③ → Restore ⇒ `phase === 'implement'`, `status === 'awaiting_confirm'`,
-   gate ③, và `sessionIds.implement` **còn nguyên**.
-2. Cancel ngay sau `/confirm` từ ② ⇒ trả về ② — **byte-identical với hôm nay** (test cũ không đổi).
-3. `gateBefore` trỏ tới phase mà artifact đã biến mất ⇒ rơi về đường lùi-một-biên, không nổ.
-4. Test đỏ-khi-revert: gỡ `gateBefore` thì ca (1) rơi về ② — đó chính là bug.
+   gate ③ có action `continue`.
+2. Cancel khi ③ chưa từng có gate ⇒ trả về ② — **hành vi cũ, không đổi**.
+3. Có `sessionIds.implement` nhưng timeline chưa có `gate_reached` ⇒ vẫn về ② (ghim cạm bẫy trên).
+4. Mỗi cú restore ghi đúng **một** dòng `restored` với `from → to`.
+5. `/cancel` ghi dòng của nó, phân biệt "giết lượt đang chạy" với "đóng build đang đỗ".
+6. `/restore` vẫn 409 trên build không ở trạng thái `cancelled`.
 
 ### S2 — Cancel và restore phải để lại dấu vết
 
@@ -207,8 +219,11 @@ grep -n "cancel\|restore" apps/builder/server/lib/run-events.ts
 1. **Continue từ ② có nên nối lại phiên ③ khi `sessionIds.implement` còn không?** Sẽ xoá hẳn cái giá
    ở §1.4, nhưng đụng bất biến "no cross-phase resume" (`orchestrator.ts:9`) — bất biến đó có lý do
    riêng chưa đo lại. **Chưa chốt, và S1 không phụ thuộc nó.**
-2. **`gateBefore` sống bao lâu?** Đề xuất: ghi đè mỗi lượt, không có TTL. Cần kiểm một chuỗi
-   cancel→restore→cancel→restore xem có tự trỏ vòng không.
+   → đang theo dõi: [`W-006`](../watch/W-006-continue-tu-2-dot-phien-3.md). Câu hỏi thật là "sau khi
+   S1 chặn cú lùi oan, còn ai rơi vào tình huống này nữa không" — cần dữ liệu `restored` vài tuần.
+2. ~~**`gateBefore` sống bao lâu?**~~ — **hết hiệu lực 2026-08-25**: bản ship không dùng trường nào,
+   nó đọc `gate_reached` trên timeline (S1). Timeline chỉ nối thêm, không ghi đè, nên không có TTL để
+   chốt và không có chuỗi cancel→restore nào tự trỏ vòng được.
 3. **Cancel khi KHÔNG có lượt nào chạy** (bấm Cancel ở một gate đang đứng yên) — hôm nay vẫn cho, và
    restore sẽ lùi một biên. Sau S1 nó trả về đúng gate đó, tức Cancel + Restore thành no-op. Đúng
    hay nên chặn Cancel ở trạng thái đứng yên? **Chưa chốt.**

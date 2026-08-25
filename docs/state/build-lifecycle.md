@@ -296,19 +296,35 @@ orchestrator (đang chạy trong request khác) còn kiểm tra nó **sau khi** 
    `dispatch` (sau khi load lại thấy `done`/`error`/`cancelled`), hoặc ngay tại route cancel khi
    build đang park (không có dispatch nào sẽ đọc cờ).
 
-`POST /:id/restore` (chỉ từ `cancelled`): `unmarkCancelled` rồi **lùi đúng một boundary** —
-`restoreTargetPhaseFor` trả phase liền trước, park lại `awaiting_confirm` với gate `success` của
-phase đó (phase đó chắc chắn đã hoàn tất và từng được gate; artifact còn trên đĩa). Không có gate
-trước (① — hoặc build fast huỷ ngay tại turn merged, `phase='spec'` mà `workflowSlug` còn null,
-lùi về Analyze sẽ dựng **gate ma** của một phase chưa từng chạy) → mở lại thành `error` retry được,
-với `restored — Retry to re-run analyze` / `restored — Retry to re-run the merged draft`. Restore
-**không chạy turn, không lấy lock**.
+`POST /:id/restore` (chỉ từ `cancelled`): `unmarkCancelled` rồi **trả về gate đã từng tồn tại**.
+Route đọc `events.jsonl` hỏi phase bị cancel đã có `gate_reached` chưa:
+
+- **Có** → mở lại **chính gate đó** (`phase` không đổi). Đây là ca "cancel một vòng fix": build đã
+  park ở ③ hàng giờ, vòng fix không vượt boundary nào, nên không có gì để lùi.
+- **Chưa** → **lùi đúng một boundary** như trước: `restoreTargetPhaseFor` trả phase liền trước, park
+  `awaiting_confirm` với gate `success` của phase đó (phase đó chắc chắn đã hoàn tất và từng được
+  gate; artifact còn trên đĩa). Đây là ca "lỡ bấm Continue".
+- **Không có gate trước** (① — hoặc build fast huỷ ngay tại turn merged, `phase='spec'` mà
+  `workflowSlug` còn null, lùi về Analyze sẽ dựng **gate ma** của một phase chưa từng chạy) → mở lại
+  thành `error` retry được, với `restored — Retry to re-run analyze` /
+  `restored — Retry to re-run the merged draft`.
+
+`④` không đi nhánh mới: `/reply` ở gate ④ đã được định tuyến về ③, nên một vòng fix ④ bị cancel vốn
+nằm ở `phase='implement'`. Dấu hiệu là `gate_reached`, **không phải** `sessionIds[phase]` — cái sau
+được set ngay đầu lượt, nên một ③ đầu tiên bị giết giữa chừng cũng có, và sẽ mở ra một gate chưa từng
+tồn tại. Restore **không chạy turn, không lấy lock**.
+
+Cả `/cancel` lẫn `/restore` đều ghi một dòng lên run timeline (`cancelled` / `restored`) — trước đó
+phase đổi mà **không có event nào** giữa hai `phase_start`, và một lượt bị `/cancel` giết đọc y hệt
+một lượt sập (`process exited code null`). `cancelled` nói rõ đã giết lượt đang chạy hay chỉ đóng
+build đang đỗ; `restored` ghi `<from> → <to>`.
 
 ```mermaid
 stateDiagram-v2
   running --> cancelled: /cancel — markCancelled rồi forceKill
   awaiting_confirm --> cancelled: /cancel (Discard) khi đang park
-  cancelled --> awaiting_confirm: /restore — lùi một boundary, gate success của phase liền trước
+  cancelled --> awaiting_confirm: /restore — gate CỦA CHÍNH phase đó nếu đã từng gate_reached
+  cancelled --> awaiting_confirm: /restore — else lùi một boundary, gate success của phase liền trước
   cancelled --> error: /restore — không có gate trước (① hoặc fast merged)
   error --> running: /reply rỗng (nút Retry)
   note right of cancelled
@@ -334,6 +350,20 @@ error** — Retry là `/reply` (re-acquire lock).
   (085 S4)**: một TIMEOUT để lại artifact present+parse+confinement+lint-clean+id-chuẩn →
   `success` thay vì vứt trắng (note khác timeout không bao giờ salvage; predicate `isTimeoutNote`
   co-locate với chỗ mint note ở turn-runner để match/mint không lệch nhau).
+- **Mọi phase**: sau verify, một lượt quét fs (`strayWrites`, so `mtime` với thời điểm spawn) liệt kê
+  file dưới `projects/` **ngoài** thư mục build đã đổi trong lượt; với ①/② còn liệt kê cả
+  `workflows/*.yml` **của chính build** (③ đã được `postTurnCheck` chấm rồi). Mọi yml trong danh sách
+  đi qua **đúng 4 linter của ③** (`checkExtraWorkflowFile`, tối đa 3 file/lượt), verdict ghi thẳng vào
+  `task.strayNote` và dẫn đầu gate card của mọi phase; một cú ①/② sửa workflow còn refresh `diff.json`.
+  **ADVISORY**: không revert, không fail phase — lint đỏ ở đây là thông tin, không phải án.
+  Lý do phải quét bằng fs chứ không dùng `git status` như confinement: `.gitignore` bỏ
+  `projects/_drafts/` **nguyên cụm**, mà đó là nơi gần như mọi build chạy — nên delta git rỗng và mọi
+  cú ghi chéo project rơi vào điểm mù. Revert cũng không phải lựa chọn ở vùng đó: file không có bản
+  sao trong git, "revert" nghĩa là **xoá**.
+- **Retry ra khỏi `error`**: prompt là `freshPrompt` (thân skill của phase) + chữ của người dùng +
+  phán quyết vòng trước verbatim, thay vì `CHANGE_REQUEST` trần. Trước đó chỉ retry **không kèm chữ**
+  mới nhận được thân skill — vì `opts?.replyText` rỗng là falsy nên rơi vào nhánh fresh; retry có gõ
+  chữ mất sạch hướng dẫn, gồm cả câu nêu đường dẫn backend chấm.
 - ②: verify **nhận nuôi** một `SPEC.md` tốt bị ghi lạc vào run-dir trước khi kết luận
   `artifact missing` (090 S3 — chỉ khi slug ĐÃ set, tức đường chuẩn là `projects/…`; file non-empty;
   from-scratch có run-dir LÀ đường chuẩn nên không chạm). Salvage không nới chuẩn nội dung —

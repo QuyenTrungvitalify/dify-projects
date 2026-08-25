@@ -19,6 +19,7 @@ hai nơi:
 | **Nguyên tắc còn chi phối tương lai** | "Nguyên tắc thiết kế", non-goal loại *"đừng bao giờ…"* | `docs/state/<doc chủ>` — đây thường là mảnh ĐẮT NHẤT, đừng bỏ sót |
 | **Bài học từ thất bại thật** | mục sự cố, "chẩn đoán SAI đã loại", ngõ cụt | `AGENTS.md §9` (định dạng `YYYY-MM-DD: sai gì → luật ngăn được`) |
 | **Việc CHƯA làm** | slice chưa ship, open question chưa chốt | `docs/prompts/runs/CAMPAIGNS.md` mục "để ngỏ" |
+| **Chờ QUAN SÁT** | "chưa đủ bằng chứng để sửa", "nếu còn tái phát thì…" | [`docs/watch/`](../watch/README.md) — **bắt buộc có `detector`**: một lệnh chạy được trên `apps/builder/.runs/` cho biết nó vừa xảy ra lần nữa |
 | **Bằng chứng đo / repro** | số liệu, block lệnh tái hiện | `docs/prompts/runs/CAMPAIGNS.md` (findings / runbook) |
 | **Quyết định chốt lúc implement** | open question đã được code trả lời | comment inline tại dòng liên quan — thường ĐÃ có, chỉ cần kiểm |
 
@@ -26,6 +27,8 @@ hai nơi:
 
 1. Mỗi **hành vi đã ship** — `docs/state` mô tả nó chưa? (grep keyword phải ra)
 2. Mỗi **việc chưa làm** — đã nằm trong mục để-ngỏ của CAMPAIGNS.md chưa?
+   (Nếu nó là *"chờ xem có tái phát không"* thì nhà là `docs/watch/`, và **không có detector thì không
+   được nhận** — mảnh đó chưa về nhà, spec chưa đóng được.)
 3. Mỗi **ngõ cụt / bài học** — AGENTS.md §9 có dòng tương ứng chưa?
 4. Mỗi **nguyên tắc còn hiệu lực** — `docs/state` có chưa?
 5. **Repro / bằng chứng đo** — CAMPAIGNS.md giữ chưa?

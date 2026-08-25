@@ -46,7 +46,9 @@ Viết mảnh còn thiếu vào nhà của nó. Luật viết:
 
 - **Chưng cất, không chép nguyên văn**: docs/state nhận *bất biến* (không số đo, không ngày tháng,
   không "run 1784…"); AGENTS.md §9 nhận đúng định dạng `- YYYY-MM-DD: <sai gì> → <luật>`;
-  CAMPAIGNS.md nhận việc-để-ngỏ dạng bảng đang có sẵn.
+  CAMPAIGNS.md nhận việc-để-ngỏ dạng bảng đang có sẵn; `docs/watch/` nhận loại **chờ quan sát** —
+  một file `W-NNN-<slug>.md` theo mẫu ở `docs/watch/README.md`, và **từ chối nhận** mảnh không viết
+  nổi trường `detector` (không có cách đo thì đó là điều ước, không phải mục theo dõi).
 - Viết khớp giọng văn + ngôn ngữ của file đích (docs/state đang là tiếng Việt, AGENTS.md tiếng Anh).
 - Một mảnh một nhà — nếu thấy cần chép hai nơi thì một trong hai chỉ được là **con trỏ**.
 - Nếu mảnh trùng một mục nhà đã có (vd finding trong CAMPAIGNS.md cùng gốc) → **gộp**, đừng thêm
