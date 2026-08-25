@@ -24,7 +24,8 @@ import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startTask, confirmAdvance, replyWithin, type OrchestratorCtx } from '../server/lib/orchestrator.js';
 import { acquireTurn, releaseTurn } from '../server/lib/lock.js';
 import { createTask, type Task } from '../server/state/task.js';
@@ -188,6 +189,59 @@ describe('103 L0 · the reconcile directive reaches the turn that is measured', 
     assert.ok(fresh.includes('# implement'), 'precondition: a fresh turn DOES carry the skill body');
     assert.ok(!fresh.includes(MARK), 'no resume tail on the fresh path (the real implement.md covers it)');
     assert.deepEqual(seen.specHashes, [undefined], 'and it is not measured either');
+  });
+
+  test('spec 105 — a build that STARTS at ③ gets both, on its very first turn', async () => {
+    // The same invariant, on the path that broke the assumption underneath it. "Fresh ③ ⇒ neither" was
+    // never a rule about freshness — it was a rule about ② having written SPEC.md minutes ago. A build
+    // editing an already-specced workflow has no ②: the document on disk describes the workflow from
+    // BEFORE the edit, which is precisely the state the tripwire watches for. So this turn must be told
+    // the rule AND judged by it, on turn one, with no `/reply` anywhere in sight.
+    dir = fixtureDir();
+    mkdirSync(join(dir, 'projects', '_drafts', 'specced', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects/_drafts/specced/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(join(dir, 'projects/_drafts/specced/SPEC.md'), '# Spec\n\n## Acceptance Criteria\n- it works\n');
+    const seen: Seen = { prompts: [], specHashes: [] };
+    const ctx = harness(dir, seen);
+    const task = await createTask(dir, {
+      requirement: 'add a retry branch', workflow: 'specced', startPhase: 'implement', deploy: 'none',
+    });
+    current = task;
+
+    await withTurn(task.taskId, () => startTask(task, ctx));
+
+    assert.equal(seen.prompts.length, 1, 'precondition: ① and ② really were skipped');
+    assert.notEqual(seen.specHashes[0], undefined, 'measured — the document predates this round');
+    // Instructed by the OTHER seam. This turn is FRESH (no resumeId), and a fresh prompt carries the
+    // skill body, where step 6 states the rule in full — so the tail is correctly absent here rather
+    // than missing. Widening the tail to cover this path was tried first and was DEAD CODE: fresh
+    // prompts never concatenate it at all. Which is what makes `readSkillStep6` below load-bearing.
+    assert.ok(seen.prompts[0].includes('# implement'), 'the skill body rode this prompt');
+    assert.ok(!seen.prompts[0].includes(MARK), 'and the resume tail correctly did not');
+    // And the ask itself, which is the whole reason the turn exists.
+    const i = seen.prompts[0].indexOf('## Change request');
+    assert.ok(i > -1 && seen.prompts[0].slice(i).includes('add a retry branch'), 'carrying the request');
+  });
+
+  test('spec 105 — and the REAL implement.md step 6 does not tell that turn to change nothing', async () => {
+    // The fixture above stubs the skill body on purpose, so it can prove WHICH seam delivered. That
+    // leaves the fresh path's actual delivery unproven by any test — and the fresh path is the only
+    // one a start-at-③ build ever takes. So read the shipped document.
+    //
+    // Step 6 used to excuse a no-op with "the normal case on a first build, where Phase ② wrote it from
+    // the same requirement minutes ago". A build editing an already-specced workflow IS on its first ③
+    // and has no ② at all, so the excuse read as written for it — while its SPEC.md described the
+    // workflow from before the edit. The rule has to name the CONDITION, not the round number.
+    const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+    const step6 = readFileSync(
+      join(REPO, '.claude/skills/dify-build/implement.md'), 'utf8'
+    ).split('\n6. **Reconcile')[1] ?? '';
+    assert.ok(step6, 'precondition: step 6 is where the reconcile rule lives');
+    assert.ok(
+      step6.includes('{{SEED_PATH}}'),
+      'the no-op excuse must be stated against SEED_PATH — a turn editing an existing workflow is ' +
+      'never excused from re-reading the document written for the workflow it replaced'
+    );
   });
 
   test('a /reply at the ② gate gets no directive — it is not an Implement turn', async () => {

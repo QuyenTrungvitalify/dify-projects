@@ -744,9 +744,10 @@ async function runPhase(
   // falsified stood untouched. The directive below names that failure first, because it is the one
   // that actually happened.
   //
-  // The gate is deliberately IDENTICAL to `specHashBefore`'s below: the instruction is delivered on
-  // exactly the turns the measurement judges. Duplicated in `implement.md` step 6 for the fresh path,
-  // the same way CHANGE_REQUEST is stated on both paths — see the comment there.
+  // Delivery is per-PROMPT-SHAPE, measurement is per-ROUND, and the two only looked like one gate while
+  // every measured round happened to be a resume. Keep them named apart: `implement.md` step 6 covers
+  // every FRESH turn, this tail covers every RESUME, and `specPredatesThisRound` below decides which
+  // rounds are judged. Every measured round is still instructed — by one seam or the other.
   //
   // Spec 105 — `replyText` was a PROXY for the real question, and the proxy stopped covering it. The
   // question these three ask is: *is the SPEC.md on disk a document written before this round, which
@@ -761,7 +762,17 @@ async function runPhase(
   // `task.specApplied`, which suppresses `specStale` explicitly rather than by omission.
   const specPredatesThisRound =
     phaseId === 'implement' && (!!opts?.replyText || task.startPhase === 'implement');
-  const reconcileTail = specPredatesThisRound ? `\n\n${SPEC_RECONCILE}` : '';
+  // The TAIL, however, answers a different question, and conflating the two put dead code on the very
+  // path the widening was for. Its question is "does this prompt carry the skill body?" — a resume does
+  // not, so the rule has to ride the tail; a fresh turn does, and `implement.md` step 6 states it in
+  // full. A build starting at ③ is FRESH (no `resumeId` ⇒ `freshPrompt`, which never concatenates this
+  // tail at all), so widening it here delivered nothing and merely looked like it had.
+  //
+  // Which makes step 6 itself load-bearing for this path, and step 6 had a carve-out reading "the
+  // normal case on a first build, where ② wrote it from the same requirement minutes ago — change
+  // nothing" — true for every build until now, and exactly wrong here. That carve-out is now stated
+  // against `{{SEED_PATH}}` instead. `test/spec-reconcile-prompt.test.ts` pins both halves.
+  const reconcileTail = phaseId === 'implement' && opts?.replyText ? `\n\n${SPEC_RECONCILE}` : '';
   // Spec 103 step 1 — an undo rewrote the files UNDER a live session. The resumed model still has its
   // own edits in context and would otherwise patch on top of a state that no longer exists (a resume
   // prompt carries no skill body, so implement.md's "re-read it fresh" never reaches it). Say so, once,
