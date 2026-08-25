@@ -216,7 +216,10 @@ export function App() {
   // several projects), so the composer's Workflow dropdown carries a COMPOUND `project/workflow` value
   // with a readable "Project / Workflow" label — `_drafts` scratch is excluded. Sorted by RECENCY
   // (most-recently-touched first) so it stays usable when there are many workflows (workflowOptions).
-  const workflows = workflowOptions(tree);
+  // `settings.workflow` rides along so the ARMED target always has an option of its own: a `_drafts`
+  // edit falls outside the list, and without an entry the chip printed the raw compound slug instead of
+  // the name the crumb right above it shows (the two disagreed on what you were editing).
+  const workflows = workflowOptions(tree, settings.workflow);
 
   /* ---------- actions ---------- */
   // spec 012/025: read dropped/pasted/picked files → base64 chips, honoring the 3-file cap + type/size

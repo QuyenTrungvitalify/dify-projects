@@ -238,6 +238,10 @@ export interface WireTask {
   /** spec 028 §5: set when an `auto`+fast build's merged draft found a non-single-LLM shape — the
    *  auto-advance hard-stopped at the Spec gate; shown (leading) on the Spec gate card. */
   fastReviewNote?: string;
+  /** spec 111 + 108 S5: file edits the phase's verify did not cover — cross-project writes, and a
+   *  ①/② turn's edits to the build's own workflow (with an inline lint verdict). Advisory — leads the
+   *  gate card of EVERY phase; never blocks, nothing is reverted. */
+  strayNote?: string;
   /** spec 012: repo-relative paths of images attached via the composer (persisted on the task). */
   attachments?: string[];
   /** present on GET /api/tasks/:id (not on SSE task:update). */

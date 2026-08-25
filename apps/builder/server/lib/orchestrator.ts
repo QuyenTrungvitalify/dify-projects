@@ -18,7 +18,8 @@ import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { ClaudeSession } from './claude-session.js';
 import {
-  confinementCheck, gitDirtyPaths, artifactHash, specRelFor, isSpecStale, type PostTurnDetail,
+  confinementCheck, gitDirtyPaths, strayWrites, changedWorkflowYmls, checkExtraWorkflowFile,
+  artifactHash, specRelFor, isSpecStale, type PostTurnDetail,
 } from './post-turn.js';
 import { type TurnResult, isTimeoutNote } from './turn-runner.js';
 import { costFromResult } from './cost.js';
@@ -46,7 +47,7 @@ import { checkRunnability, preflightNote, sourceContractNote } from './runnabili
 import { persistCriteria } from './criteria.js';
 import { AttemptRecorder } from './run-transcript.js';
 import { logEvent } from './run-events.js';
-import { bumpRev, noteUserLang, saveTask, taskDir, type Task } from '../state/task.js';
+import { bumpRev, noteUserLang, saveTask, taskDir, workflowDir, type Task } from '../state/task.js';
 
 // L2 (spec 019): the runner seams, ctx types, ConfirmPayload, and emit/errMsg/httpError moved to
 // orchestrator-shared.ts (a leaf the extracted scaffold/import modules can import without a cycle); the
@@ -564,11 +565,16 @@ async function runPhase(
   // clean round, or a RETRY of one that ERRORED mid-write. The snapshot logic below must tell them
   // apart, and after `status = 'running'` nothing can.
   const retryFromError = task.status === 'error';
+  // Spec 111 — the backend's verdict on the round being retried, read on the same line as the flag
+  // above and for the same reason: `task.error` is cleared four lines down, and after that nothing on
+  // the task remembers WHY this retry exists. It rides the retry prompt below.
+  const priorError = retryFromError ? task.error : undefined;
   task.phase = phaseId;
   task.status = 'running';
   task.gate = undefined;
   task.error = undefined;
   task.fastReviewNote = undefined; // spec 028: a re-run/reply re-evaluates the §5 guard from scratch
+  task.strayNote = undefined; // spec 111: last round's stray writes do not describe this one
   task.specNoop = undefined; // spec 103 Lane B: last round's "nothing to change" does not describe this one
   await emit(task, ctx);
   // Spec 062 S1b: record the phase start on the run timeline (non-fatal — logEvent swallows its own IO).
@@ -705,8 +711,45 @@ async function runPhase(
         'The files on disk are back to the state from before that edit. Re-read `main.yml` and ' +
         'SPEC.md from disk before changing anything — do not assume your earlier edits are still there.'
       : '';
-  const resumePrompt = opts?.replyText
-    ? langPin + `${CHANGE_REQUEST}\n${opts.replyText}${block}${knowledgeTail}${reconcileTail}${approvedTail}${undoneTail}`
+  // Spec 108 S5 — a resumed ①/② session is handed `CHANGE_REQUEST + the human's words` and NOTHING
+  // else: no skill body, so nothing tells it which phase it is standing in. Measured consequence on run
+  // 1787544155222: from 17:06 on, every turn labelled `spec` was editing `main.yml` and `appScript.js`
+  // (`duplicate_topic`, added by the 19:15 ② turn, is in the shipped workflow) — while ②'s verify checks
+  // only SPEC.md, so none of it met a linter, a diff, or the undo button.
+  //
+  // A LABEL, not a wall: the human chose "let it edit, but keep the books" over "refuse and send them to
+  // ③" (2026-08-25), on the same ground that killed the one-task-one-workflow rule — a constraint that
+  // makes the work bend to the phase model is the wrong shape. So this says where you are and asks you
+  // to say what you touched; `strayNote` above is the half that measures it.
+  const phaseScopeTail =
+    (phaseId === 'spec' || phaseId === 'analyze') && opts?.replyText
+      ? `\n\n## Lượt này thuộc phase ${phaseId === 'spec' ? '②' : '①'}\n` +
+        `Sản phẩm chính của phase này là \`${phase.artifactRel(task)}\`.\n` +
+        `Nếu yêu cầu buộc bạn sửa file dưới \`workflows/\`, cứ sửa — nhưng NÓI RÕ trong câu trả lời ` +
+        `bạn đã sửa file nào, và cập nhật tài liệu cho khớp trong CÙNG lượt này. Backend sẽ tự chạy ` +
+        `4 linter trên file bạn sửa và ghi vào 差分 sau lượt; riêng nút hoàn tác KHÔNG có ở lượt này, ` +
+        `nên đừng để file ở trạng thái dở dang.`
+      : '';
+  // Spec 111 — a RETRY out of error gets the phase's own instructions back, plus the verdict it failed
+  // on. Measured, on one task and one session (1787273481220, 2026-08-21): the two retries that carried
+  // the human's text answered in prose with ZERO tool calls and re-failed identically ($2.94), while the
+  // retry with NO text recovered the build on its first try. The difference is not the wording — it is
+  // that an empty `replyText` is FALSY, so that retry fell through to `freshPrompt` and got the skill
+  // body back, including the one sentence naming the path the backend grades. A retry that types a word
+  // silently loses that. So: send the fresh prompt (it already folds in `replyText` under CHANGE_REQUEST
+  // at :674) and append what went wrong, rather than the context-free change request alone.
+  const retryVerdictTail =
+    retryFromError && priorError
+      ? `\n\n## Vòng trước bị backend đánh trượt\n` +
+        `Lý do (verbatim): ${priorError}\n` +
+        `Đường dẫn backend chấm là \`${phase.artifactRel(task)}\` — không phải đường dẫn nào khác. ` +
+        `Trước khi trả lời, hãy kiểm tra file đó trên đĩa. Nếu bạn tin mình đã làm xong, nghĩa là bạn ` +
+        `đã ghi ra một chỗ khác — nói rõ chỗ đó ra thay vì báo đã xong.`
+      : '';
+  const resumePrompt = retryFromError
+    ? freshPrompt + retryVerdictTail
+    : opts?.replyText
+    ? langPin + `${CHANGE_REQUEST}\n${opts.replyText}${block}${knowledgeTail}${reconcileTail}${approvedTail}${undoneTail}${phaseScopeTail}`
     // Spec 103 Lane B — an APPROVED plan resumes ③ with no `replyText`. Falling through to
     // `freshPrompt` would re-send the whole implement.md body to a session that already built this
     // workflow, telling it to "instantiate" a file it has been editing for rounds: wasted tokens and,
@@ -750,6 +793,9 @@ async function runPhase(
 
   // Confinement baseline for THIS turn (captured just before spawn — after any scaffold).
   const baseline = await gitDirtyPaths(projectsDir);
+  // Spec 111 — the same moment, as a clock reading: the git baseline above cannot see `projects/_drafts/`
+  // (gitignored wholesale), so the stray-write scan after the turn compares mtimes against this instead.
+  const turnStartedAtMs = Date.now();
 
   // Spec 094 S1 — the artifact's content hash for THIS turn, same moment as the baseline (after any
   // scaffold, before the spawn). ③ only: ①/② produce analyze.json / SPEC.md, whose "did it change"
@@ -899,6 +945,63 @@ async function runPhase(
     task.gate = undefined;
     await emit(task, ctx);
     return { outcome: 'error', reasons: ['cancelled by user'] };
+  }
+  // Spec 111 — what this turn changed under `projects/` OUTSIDE the build's own folder. Advisory only:
+  // it never fails the phase and never touches a file (see `strayWrites` for why a revert is not even
+  // available here). It exists because the two things a gate could previously say about a misplaced
+  // build were both wrong — `artifact missing`, naming a path nobody wrote, and `success`, on a turn
+  // whose own artifact never moved. Computed for EVERY phase, not just ③: on run 1787544155222 it was
+  // the ② turns that rewrote `main.yml` + `appScript.js`, and ①/②'s verify checks only their own file.
+  try {
+    const ownDir = workflowDir(task);
+    const strays = await strayWrites(projectsDir, turnStartedAtMs, ownDir);
+    // Spec 108 S5(b) — a ①/② turn that edited the build's OWN workflow files. ③ is excluded on
+    // purpose: its declared artifact (and git-visible extras) are already graded by postTurnCheck,
+    // and its own main.yml ALWAYS changes on a working turn — re-grading it here would only repeat
+    // the verdict the gate already carries.
+    const ownEdits =
+      phaseId !== 'implement' && ownDir
+        ? await changedWorkflowYmls(projectsDir, `${ownDir}/workflows`, turnStartedAtMs)
+        : [];
+    // Grade every workflow yml the fs delta surfaced — the SAME four linters postTurnCheck runs, via
+    // the same per-file checker (spec 039's), so "checked" cannot mean two different things. Capped:
+    // the real incidents touched 1–2 files, and each grade is 5 python spawns.
+    const rp = resolveRunners(ctx).runPython;
+    const ymlOf = (paths: string[]): string[] => paths.filter((p) => /workflows\/[^/]+\.ya?ml$/i.test(p));
+    const toGrade = [...ownEdits, ...ymlOf(strays)].slice(0, 3);
+    const verdicts = new Map<string, string>();
+    for (const rel of toGrade) {
+      const r = await checkExtraWorkflowFile(projectsDir, rel, rp);
+      verdicts.set(
+        rel,
+        r.reasons.length === 0 && r.idsOk ? '4 linter xanh' : `lint đỏ: ${r.reasons[0] ?? 'không kiểm được'}`
+      );
+    }
+    const describe = (rel: string): string => (verdicts.has(rel) ? `${rel} (${verdicts.get(rel)})` : rel);
+    const parts: string[] = [];
+    if (ownEdits.length) {
+      parts.push(
+        `Lượt này (phase ${phaseId === 'spec' ? '②' : '①'}) đã sửa trực tiếp workflow của build: ` +
+          `${ownEdits.map(describe).join(' · ')} — đã cập nhật 差分; lượt này không có nút hoàn tác.`
+      );
+      // The 差分 tab must show what just happened to the file — ③ refreshes it on every verify, and an
+      // edit is an edit regardless of which phase's turn made it. Try-wrapped like ③'s own call.
+      try {
+        await writeDiffArtifact(projectsDir, task);
+      } catch (e) {
+        log.warn({ taskId: task.taskId, err: errMsg(e) }, 'diff refresh after off-phase edit failed (non-fatal)');
+      }
+    }
+    if (strays.length) {
+      parts.push(
+        `Ngoài thư mục build, ${strays.length} file dưới projects/ đã thay đổi trong lượt này: ` +
+          `${strays.slice(0, 5).map(describe).join(' · ')}${strays.length > 5 ? ` (+${strays.length - 5} file nữa)` : ''}. ` +
+          `File chưa ghi kết quả kiểm ở trên là file KHÔNG qua bộ kiểm nào.`
+      );
+    }
+    task.strayNote = parts.length ? parts.join(' ') : undefined;
+  } catch (e) {
+    log.warn({ taskId: task.taskId, err: errMsg(e) }, 'stray-write scan failed (advisory, non-fatal)');
   }
   if (verify.outcome !== 'error') {
     // Spec 103 Lane B — a REVISE must NOT publish its draft as "the spec". `artifacts.spec` is read by

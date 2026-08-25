@@ -11,6 +11,66 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**The Workflow chip names the workflow you are actually editing**
+- Editing a workflow out of the sidebar's Build section arms a `_drafts` target, and the composer's
+  Workflow dropdown excludes `_drafts` by design — so the chip had no option matching what it was
+  pointed at and fell back to printing the raw compound slug
+  (`_drafts/build_requirement_news_automat…`), truncated exactly where the `_2` that separates two
+  sibling folders would have been. The breadcrumb directly above it showed the workflow's name: same
+  target, two names, neither checkable against the other. The menu, holding no entry for the armed
+  value, could also neither highlight nor re-select it.
+- The armed target is now always an option of its own, labelled by the same display name the crumb
+  uses. A deleted or renamed target degrades to its bare slug rather than to a dead chip.
+
+**Cancelling a fix no longer sends the build back a step (spec 111)**
+- Cancel a round mid-flight, press Restore, and the build reopened at the **previous** phase's gate.
+  That is right for one case — you clicked Continue, the next phase started, you changed your mind —
+  and wrong for the case that actually happens: cancelling a fix round on a build that has been parked
+  at Implement for hours. Nothing had advanced, so there was nothing to undo, but the phase dropped
+  anyway. The only way forward from there re-runs Implement as a **fresh** turn, discarding the
+  conversation the fix rounds had built up — so on one real build the human took neither option and
+  kept steering from the Spec gate for **13 turns across 7 hours**, with every "spec" turn quietly
+  rewriting the workflow file instead.
+- Restore now returns to the gate that actually existed: if the cancelled phase had already parked at
+  one, it reopens there; only a phase that never reached a gate rewinds a boundary. Builds cancelled
+  before this shipped are restored correctly too — the evidence is read from the run timeline, not from
+  anything the task had to remember in advance.
+- Cancel and Restore now write their own lines on that timeline. Before, the phase changed with
+  **nothing** recorded between the two entries around it, and a turn killed by Cancel reached the
+  transcript as `process exited code null` — indistinguishable from a crash.
+
+**A Retry that types a word no longer loses the instructions (spec 111)**
+- Retrying a failed phase *with* a message ("what went wrong?", "keep going") stripped the phase's own
+  instructions from the prompt, while retrying with the button and no message kept them. On one build
+  the difference decided the outcome: two retries with text answered in prose, changed no file, and
+  re-failed identically ($2.94); the retry with no text recovered the build on its first attempt.
+- A retry out of error now gets the phase's instructions back **and** the reason it failed, verbatim,
+  including the exact path the backend grades. A retry that believes it already finished can no longer
+  say so without checking — the failing run had built a perfectly good workflow, in another project's
+  folder, and had no way to know that was the problem.
+
+**The gate says what changed outside the build folder (specs 108, 111)**
+- The check that watches for a turn writing outside its own build reads `git status` — and
+  `projects/_drafts/`, where nearly every build runs, is git-ignored wholesale. So cross-project writes
+  were invisible: one build spent **$19.25** editing a neighbouring project while its gate reported
+  success, and an earlier round wrote its entire deliverable next door and died with `artifact missing`,
+  naming a path nobody had written to.
+- Every gate card now leads with a line naming files under `projects/` that changed outside the build's
+  own folder, and says plainly that those files did not go through the phase's checks. It is advisory:
+  nothing is reverted and no phase fails on it. Reverting is not even available here — a file in
+  `_drafts` has no copy in git, so "revert" would mean delete, and on the build above that would have
+  destroyed the only usable artifact it produced.
+- Phase ② is told which phase it is standing in, and asked to say out loud when a request makes it edit
+  a workflow file. It is not stopped from doing so — the workflow edits people ask for mid-spec are
+  real work; they just have to be visible.
+- And they are now **graded**, not merely listed: every workflow file the detector surfaces — in
+  another project, or the build's own `main.yml` edited by a Spec-phase turn — runs through the same
+  four linters Implement uses, with the verdict inline on the gate card ("4 linter xanh" / "lint đỏ:
+  …"), and an off-phase edit to the build's own workflow refreshes the 差分 tab. On the incident build,
+  thirteen "spec" turns had rewritten the workflow without a single linter run; that class of silent
+  edit no longer exists. A red verdict is still advisory — it informs the gate, it does not fail the
+  phase.
+
 **The assistant stops forgetting what you just asked it (spec 100)**
 - Mid-conversation, on a build with a large workflow file, answers kept beginning with "this
   conversation was restarted to keep its cost bounded, so I cannot see your earlier questions". Not

@@ -22,7 +22,7 @@
  * "clean of any write OUTSIDE {…}" is relative to that baseline.
  */
 import { join } from 'node:path';
-import { stat, readFile } from 'node:fs/promises';
+import { stat, readFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { runPython, runGit } from './shell.js';
 import { LINTERS, LINT_DETAIL_LINES, type LintCodes } from './linters.js';
@@ -348,10 +348,17 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
  * `lintCodes: null`); when size > 0 the YAML probe AND the 3 linters ALL run (linters gate on
  * size, not on the probe result, mirroring the declared path); then the idsOk regex. Reasons are
  * path-prefixed so a multi-file failure reads unambiguously at the gate.
+ *
+ * Exported since spec 108 S5: the orchestrator's advisory pass grades fs-detected workflow edits
+ * (stray writes + ①/② own-folder edits) with THIS function, so "graded" means the same four linters
+ * whichever seam found the file. `rp` exists for that caller alone — it must run under the test
+ * runners' fake python (resolveRunners), where this module's own shell import cannot be injected.
+ * postTurnCheck keeps the default.
  */
-async function checkExtraWorkflowFile(
+export async function checkExtraWorkflowFile(
   projectsDir: string,
-  rel: string
+  rel: string,
+  rp: typeof runPython = runPython
 ): Promise<{ yamlOk: boolean; lintCodes: LintCodes | null; idsOk: boolean; reasons: string[] }> {
   const reasons: string[] = [];
   let size = -1;
@@ -366,7 +373,7 @@ async function checkExtraWorkflowFile(
   let nodeIds: string[] | null = null;
   let lintCodes: LintCodes | null = null;
   if (size > 0) {
-    const probe = await runPython(projectsDir, ['-c', YAML_PROBE, rel]);
+    const probe = await rp(projectsDir, ['-c', YAML_PROBE, rel]);
     if (probe.code !== 0) {
       reasons.push(`${rel}: yaml parse failed (truncated/corrupt): ${(probe.stderr || probe.stdout).trim()}`);
     } else {
@@ -379,7 +386,7 @@ async function checkExtraWorkflowFile(
       }
     }
     lintCodes = { validate: 0, lint_refs: 0, lint_plugin_hashes: 0, lint_node_bodies: 0 };
-    const results = await Promise.all(LINTERS.map((lint) => runPython(projectsDir, [lint.script, rel])));
+    const results = await Promise.all(LINTERS.map((lint) => rp(projectsDir, [lint.script, rel])));
     LINTERS.forEach((lint, i) => {
       const r = results[i];
       lintCodes![lint.key] = r.code;
@@ -463,6 +470,101 @@ export async function confinementCheck(p: ConfinementParams): Promise<Confinemen
     reasons.push(`confinement breach (reverted): ${breach}`);
   }
   return { breaches: reasons, touched: turnTouched.filter(isWhitelisted) };
+}
+
+/** Junk that changes under `projects/` without anyone writing code: macOS finder droppings, VCS/tooling
+ *  dirs. Excluded by NAME at every depth — a stray report naming `.DS_Store` teaches people to ignore it. */
+const STRAY_SKIP = new Set(['.git', 'node_modules', '.venv', '.pytest_cache', '.DS_Store']);
+/** A walk that can never become a hang: `projects/` is ~30 folders × a handful of files, and a runaway
+ *  (a turn that unpacked something huge) must degrade to a truncated report, not to a stalled gate. */
+const STRAY_MAX_FILES = 4000;
+
+/**
+ * Spec 111 — files under `projects/` that changed during THIS turn, outside the build's own folder.
+ *
+ * WHY NOT `git status` (what {@link confinementCheck} uses). `.gitignore` holds `projects/_drafts/`
+ * WHOLESALE, and `_drafts` is where 33 of the 35 real runs on the author's machine live — so the git
+ * delta is EMPTY for almost every build, and every cross-project write lands in a blind spot. Two
+ * measured incidents rode it out undetected: run 1787273481220 spent $19.25 editing another project's
+ * folder while its own artifact never moved (the gate said `success`), and its earlier ③ wrote the whole
+ * deliverable next door and died `artifact missing` with nothing naming where the file went. The same
+ * blindness is already documented one function down (`artifactHash`, spec 103) — this closes the other
+ * half of it.
+ *
+ * ADVISORY BY CONSTRUCTION. It returns paths; it neither reverts nor fails a phase. Reverting here is
+ * not even available: a file under `projects/_drafts/` has no copy in git, so "revert" would mean
+ * DELETE, and on run 1787273481220 that would have destroyed the only usable artifact of the build.
+ *
+ * `sinceMs` is the spawn moment (captured next to the confinement baseline), so a file the human edited
+ * in their own editor mid-turn also lands here. That is a false positive the caller must word for —
+ * hence "changed outside the build folder", never "the turn wrote".
+ */
+export async function strayWrites(
+  projectsDir: string,
+  sinceMs: number,
+  ownDir: string | null
+): Promise<string[]> {
+  const out: string[] = [];
+  const walk = async (rel: string): Promise<void> => {
+    if (out.length >= STRAY_MAX_FILES) return;
+    let entries;
+    try {
+      entries = await readdir(join(projectsDir, rel), { withFileTypes: true });
+    } catch {
+      return; // vanished mid-walk / unreadable → nothing to report, never a throw
+    }
+    for (const e of entries) {
+      if (STRAY_SKIP.has(e.name)) continue;
+      const child = `${rel}/${e.name}`;
+      if (ownDir && (child === ownDir || child.startsWith(`${ownDir}/`))) continue; // the build's own folder
+      if (e.isDirectory()) {
+        await walk(child);
+        continue;
+      }
+      if (!e.isFile()) continue;
+      try {
+        if ((await stat(join(projectsDir, child))).mtimeMs > sinceMs) out.push(child);
+      } catch {
+        /* raced away → skip */
+      }
+      if (out.length >= STRAY_MAX_FILES) return;
+    }
+  };
+  await walk('projects');
+  return out.sort();
+}
+
+/**
+ * Spec 108 S5(b) — the build's OWN `workflows/*.ya?ml` files whose bytes changed during this turn.
+ * The complement of {@link strayWrites}, which deliberately SKIPS the build folder: a ③ turn editing
+ * its own workflow is the normal case and postTurnCheck grades it. But a ①/② turn editing it is
+ * graded by NOBODY — their verify stats only their own artifact — and that is exactly what run
+ * 1787544155222 did for 13 turns (every "spec" turn was rewriting main.yml). The caller grades what
+ * this returns with {@link checkExtraWorkflowFile}, so "checked" means the same four linters either way.
+ */
+export async function changedWorkflowYmls(
+  projectsDir: string,
+  workflowsDirRel: string,
+  sinceMs: number
+): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(join(projectsDir, workflowsDirRel), { withFileTypes: true });
+  } catch {
+    return []; // pre-scaffold / no workflows dir → nothing to grade
+  }
+  const out: string[] = [];
+  for (const e of entries) {
+    if (!e.isFile() || !/\.ya?ml$/i.test(e.name)) continue;
+    try {
+      if ((await stat(join(projectsDir, workflowsDirRel, e.name))).mtimeMs > sinceMs) {
+        out.push(`${workflowsDirRel}/${e.name}`);
+      }
+    } catch {
+      /* raced away → skip */
+    }
+  }
+  return out.sort();
 }
 
 /** Parse `git status --porcelain` into a set of dirty repo-relative paths.
