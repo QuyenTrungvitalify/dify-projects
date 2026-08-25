@@ -11,6 +11,19 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**SPEC.md and main.yml are the same kind of object now**
+- main.yml had a proper file header — name, size, and the three actions — and SPEC.md had a bare title
+  with its buttons floating in it. Two files in one panel that look like two different kinds of thing
+  make you re-learn the panel on every tab switch. Both now render the SAME header from the same
+  component: 📄 SPEC.md · markdown · 290 行 · [Finderで開く][パスをコピー][コピー].
+- The header sits ABOVE the view switch rather than inside one view, which also fixes something the
+  previous change broke: switching main.yml to 差分 used to take the three actions away with the code
+  block, so you had to go back to the code to copy the path of the file you were looking at.
+- A diff reports its own size (「差分 · 79 行」 — changed lines), so the header says something true in
+  every view instead of going blank.
+- The header wraps instead of clipping on a narrow panel. The card clips its overflow, so the third
+  button was simply disappearing with nothing on screen to say it existed.
+
 **差分 is a view of a file now, not a tab of its own**
 - The Diff tab had to hold BOTH files' diffs at once, stacked, with a table of contents to get between
   them — that rail existed only to undo the stacking. A diff is a way of reading a document, not a

@@ -393,6 +393,23 @@ không đổi / spec tụt lại) đã có badge và cảnh báo riêng, thêm d
 đổi — một câu khẳng định) · `changed`. Gộp hai cái đầu là để một build đầu **âm thầm tuyên bố** spec đã
 được đối chiếu và giống hệt. Cùng hợp đồng ba trạng thái mà `specStale` giữ ở server.
 
+**Hai file, MỘT hình dạng — `filecard` (2026-08-26).** `SPEC.md` và `main.yml` cùng render một
+`FileHeader`: icon · tên file · kích cỡ (`markdown · 290 行` / `yaml · 1793 行` / `差分 · 79 行`) · ba
+hành động (Finder · パスをコピー · コピー). Trước đó main.yml có header đàng hoàng còn SPEC.md chỉ có
+tiêu đề trơn với mấy nút thả nổi trong đó — hai file trong cùng một panel mà trông như hai loại vật thể
+khác nhau thì mỗi lần đổi tab là học lại panel một lần.
+
+Header nằm **TRÊN** bộ chuyển chế độ xem, không nằm trong một chế độ. Đây không phải chi tiết thẩm mỹ:
+lúc header còn nằm trong code block của main.yml, chuyển sang `差分` là mất luôn ba nút — muốn copy path
+của chính cái file đang xem thì phải quay về chế độ コード.
+
+> **`.cb-head` phải wrap, không được clip.** `.filecard` có `overflow: hidden`, nên một header tràn
+> **không** sinh thanh cuộn — nó **nuốt mất nút cuối** (「コピー」) mà trên màn hình không còn dấu vết nào
+> nói rằng nút đó tồn tại. Đo được: ở cửa sổ 620px, phần dùng được của header là **267px** trong khi ba
+> nút cần **283px**. `.fc-actions` gom ba nút thành **một** đơn vị wrap (thả rời thì chúng wrap lẻ và
+> header phình lên 100px), và tự wrap bên trong như phương án cuối. Ở 1400px cả hai tab đều đúng **44px
+> một dòng**.
+
 **`差分` là một CHẾ ĐỘ XEM, không phải một tab (2026-08-26).** Trước đây nó là tab thứ tư, nên **một** tab
 phải chứa diff của **cả hai** file, xếp chồng, kèm một mục lục để đi qua lại — cái rail đó tồn tại chỉ để
 gỡ hậu quả của việc xếp chồng. Diff là *một cách đọc* một tài liệu, không phải một tài liệu, nên nó nằm

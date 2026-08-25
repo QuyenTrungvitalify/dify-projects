@@ -1175,34 +1175,24 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
    so the active surface grows to the window's available height while the toolbar + Save bar stay
    pinned around it. Falls back to body scroll only when the window is too short for the floor. */
 .spec-tab { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.spec-tab > .spec-edit,
-.spec-tab > .spec-preview,
-.spec-tab > .spec-diff,
-.spec-tab > .spec-split { flex: 1 1 auto; min-height: 160px; }
-/* The 差分 view is a 4th sibling in the same flex column, so it needs the same growth rule — and its own
-   scroller, because a wide diff must not widen the panel. */
-.spec-tab > .spec-diff { overflow: auto; }
-
-/* File actions (Reveal / Copy path / Copy) in a section title row — SPEC.md's equivalent of the slot
-   main.yml's buttons occupy in its code-block header. Same reset as .spec-mode below: the title row is
-   uppercase with wide tracking, which is right for a heading and wrong for a button label. */
-.art-section-title .ast-actions {
-  display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;
-  text-transform: none; letter-spacing: 0;
+/* SPEC.md and main.yml are both a FILECARD: one border, a head that names the file, and a body that
+   holds whichever view is on. Written once so the two tabs cannot drift apart — the panel is a set of
+   files, and a file that looks unlike the file beside it reads as a different kind of thing.
+   `min-height: 0` on both is what lets the body scroll instead of stretching the card past the panel. */
+.filecard {
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--bg-canvas); border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden;
 }
-.art-section-title .cb-copy,
-.art-section-title .cb-reveal {
-  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
-  background: transparent; border: 1px solid var(--border); border-radius: 7px;
-  padding: 3px 8px; color: var(--tx-2); font-family: var(--sans); font-size: 11px;
-  white-space: nowrap; flex-shrink: 0;
-}
-.art-section-title .cb-copy:hover,
-.art-section-title .cb-reveal:hover { border-color: var(--border-strong); color: var(--tx-1); }
-.art-section-title .cb-copy.copied,
-.art-section-title .cb-reveal.copied { border-color: var(--ok-dim); color: var(--ok); }
-.art-section-title .cb-copy svg,
-.art-section-title .cb-reveal svg { width: 12px; height: 12px; }
+.filecard > .fc-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+/* The card is the flex child that grows to the panel's height (the head and the tab row stay pinned). */
+.spec-tab > .filecard { flex: 1 1 auto; min-height: 200px; }
+/* Inside a card the panes give up their own chrome: one border around the file, not two nested. */
+.filecard .spec-edit,
+.filecard .spec-preview { border: none; border-radius: 0; min-height: 0; }
+.filecard .spec-edit { height: 100%; }
+.filecard .spec-diff { padding: 0; }
+.filecard .spec-split { height: 100%; }
 
 /* Edit / Preview / Split mode toggle (reuses .seg). Sits in the SPEC.md title row, so undo the
    title's uppercase + tracking for the control labels. */
@@ -1266,34 +1256,48 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 
 /* code block */
 .codeblock {
-  background: var(--bg-canvas); border: 1px solid var(--border);
-  border-radius: 12px; overflow: hidden; font-family: var(--mono); font-size: 12px;
+  font-family: var(--mono); font-size: 12px;
 }
-.codeblock .cb-head {
-  display: flex; align-items: center; gap: 8px; padding: 9px 13px;
+/* Wraps rather than clips. The card is `overflow: hidden`, so a head that overflows does not scroll —
+   it silently loses its last button, which here is 「コピー」. Measured: below roughly a 620px window the
+   name + size + three actions stop fitting on one line. `.cb-lang` gives up its space first (see below),
+   and only then does the action group drop to a second line. */
+.cb-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 7px;
+  padding: 9px 13px;
   border-bottom: 1px solid var(--border-soft); color: var(--tx-2);
   font-size: 11.5px;
 }
-.codeblock .cb-head .cb-name { color: var(--tx-1); }
-.codeblock .cb-head .cb-lang { margin-left: auto; color: var(--tx-faint); }
+.cb-head .cb-name { color: var(--tx-1); }
+/* One wrapping unit, so the actions move to a second line together rather than splintering — and it may
+   wrap INSIDE itself as a last resort. Measured at a 620px window the panel's head is 267px of usable
+   width against 283px of buttons; without this the third one ('コピー') is simply clipped away by the
+   card's `overflow: hidden`, with nothing on screen to say it exists. Two lines beats a missing button. */
+.cb-head .fc-actions {
+  display: inline-flex; align-items: center; justify-content: flex-end;
+  gap: 8px; flex-wrap: wrap; row-gap: 7px;
+}
+/* `min-width: 0` so the size line can be squeezed before anything is pushed off; it is the least
+   important thing in the row and the only one that is pure information. */
+.cb-head .cb-lang { margin-left: auto; color: var(--tx-faint); min-width: 0; overflow: hidden; white-space: nowrap; }
 /* Reveal-in-Finder + Copy-path + Copy-contents — sit at the right of the code header after the line
    count. `nowrap` + no shrink because a three-button row in a narrow panel would otherwise break a
    label across two lines and take the header's height with it; the line count yields space first. */
-.codeblock .cb-head .cb-copy,
-.codeblock .cb-head .cb-reveal {
+.cb-head .cb-copy,
+.cb-head .cb-reveal {
   display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
   background: transparent; border: 1px solid var(--border); border-radius: 7px;
   padding: 3px 8px; color: var(--tx-2); font-family: var(--sans); font-size: 11px;
   white-space: nowrap; flex-shrink: 0;
 }
-.codeblock .cb-head .cb-copy:hover,
-.codeblock .cb-head .cb-reveal:hover { border-color: var(--border-strong); color: var(--tx-1); }
+.cb-head .cb-copy:hover,
+.cb-head .cb-reveal:hover { border-color: var(--border-strong); color: var(--tx-1); }
 /* The copied-flash is on BOTH: the path button is a .cb-reveal (it belongs with Finder, not with the
    contents copy), and without this it would confirm a copy in the same grey it had before the click. */
-.codeblock .cb-head .cb-copy.copied,
-.codeblock .cb-head .cb-reveal.copied { border-color: var(--ok-dim); color: var(--ok); }
-.codeblock .cb-head .cb-copy svg,
-.codeblock .cb-head .cb-reveal svg { width: 12px; height: 12px; }
+.cb-head .cb-copy.copied,
+.cb-head .cb-reveal.copied { border-color: var(--ok-dim); color: var(--ok); }
+.cb-head .cb-copy svg,
+.cb-head .cb-reveal svg { width: 12px; height: 12px; }
 .codeblock pre { margin: 0; padding: 12px 14px; overflow-x: auto; line-height: 1.65; color: var(--tx-2); }
 .codeblock .ln { color: var(--tx-faint); user-select: none; display: inline-block; width: 24px; }
 .tok-key { color: var(--accent-tx); }

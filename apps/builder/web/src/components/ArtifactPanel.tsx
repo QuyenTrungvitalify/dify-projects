@@ -129,6 +129,39 @@ interface ReportShape {
 }
 
 /**
+ * The bar at the top of a file: what it is, how big it is, and what you can do with it. SPEC.md and
+ * main.yml render the SAME one — the panel is a set of files now, and a file that looks different from
+ * the file beside it reads as a different kind of thing.
+ *
+ * It sits ABOVE the view switch, not inside one view: you still want the path while you are reading a
+ * diff. (It used to live inside main.yml's code block, so switching to 差分 took the three actions away
+ * with it — you had to go back to the code to copy the path of the file you were looking at.)
+ */
+function FileHeader({ icon, name, meta, taskId, which, contents, onReveal }: {
+  icon: VNode;
+  name: string;
+  /** The small grey line after the name — "yaml · 6652 行". Sized off what is ON SCREEN. */
+  meta: string;
+  taskId: string;
+  which: ArtifactFile;
+  contents: string | null;
+  onReveal: (which: ArtifactFile) => void;
+}) {
+  return (
+    <div className="cb-head">
+      {icon}
+      <span className="cb-name">{name}</span>
+      <span className="cb-lang">{meta}</span>
+      {/* The three actions wrap as ONE group. Loose in the flex row they wrap individually, so a narrow
+          panel broke them across two lines of their own and the header grew to 100px. */}
+      <span className="fc-actions">
+        <FileActions taskId={taskId} which={which} contents={contents} onReveal={onReveal} />
+      </span>
+    </div>
+  );
+}
+
+/**
  * The three things you can do with a file the panel is showing: open it in Finder, take its path, take
  * its contents. Shared by SPEC.md and main.yml so the two rows cannot drift into behaving differently —
  * before this, main.yml had all three and SPEC.md had none.
@@ -337,13 +370,6 @@ function SpecTab({ task, content, specDiff, mode, setMode, onSave, onReveal, onD
   return (
     <div className="spec-tab">
       <div className="art-section-title">{draft ? tr('specDraftTitle') : 'SPEC.md'} <span className="ast-line" />
-        {/* The same three file actions main.yml carries, in the same order and from the same component —
-            SPEC.md is a file on disk too, and until now the only way to get at it was to read its path
-            off a Finder window. Copy takes `val`, the text ON SCREEN, so an unsaved edit copies what you
-            are looking at rather than the older thing the server still holds. */}
-        <span className="ast-actions">
-          <FileActions taskId={task.taskId} which="spec" contents={val.trim() ? val : null} onReveal={onReveal} />
-        </span>
         <div className="seg spec-mode">
           {modes.map((m) => (
             <button key={m.key} className={view === m.key ? 'on' : ''} onClick={() => setMode(m.key)}>{tr(m.labelKey)}</button>
@@ -360,9 +386,20 @@ function SpecTab({ task, content, specDiff, mode, setMode, onSave, onReveal, onD
             : <button key={i} className="stb" title={t.title} onMouseDown={(e) => e.preventDefault()} onClick={t.run}>{t.label}</button>)}
         </div>
       )}
-      {view === 'diff' ? diffPane
-        : view === 'split' ? <div className="spec-split">{editor}{preview}</div>
-        : view === 'preview' ? preview : editor}
+      {/* The same card main.yml is in, with the same header: name, size, and the three file actions.
+          SPEC.md is a file on disk exactly like main.yml, and a panel whose two files look like two
+          different kinds of object makes you re-learn it on every tab switch. `val` (not `content`) is
+          both the size and what Copy takes — an unsaved edit shows and copies what is on screen. */}
+      <div className="filecard spec-card">
+        <FileHeader icon={<I.doc style={{ width: 13, height: 13 }} />} name="SPEC.md"
+          meta={tf('mdLines', { n: val ? val.split('\n').length : 0 })}
+          taskId={task.taskId} which="spec" contents={val.trim() ? val : null} onReveal={onReveal} />
+        <div className="fc-body">
+          {view === 'diff' ? diffPane
+            : view === 'split' ? <div className="spec-split">{editor}{preview}</div>
+            : view === 'preview' ? preview : editor}
+        </div>
+      </div>
       {/* Lane B: decide right here. Same three actions as the gate, same ids, same handlers — the gate
           is not replaced, it is duplicated at the one place the human is actually looking. The order
           and weighting mirror the gate exactly (approve primary, decline quiet) so the two doors can
@@ -443,18 +480,20 @@ function YamlTab({ yaml, report, diff, mode, setMode, taskId, onReveal }: {
           </div>
         )}
       </div>
-      {view === 'diff' ? (
-        diff && diff.trim()
-          ? <SplitDiffView file={{ path: 'main.yml', status: 'modified', additions: 0, deletions: 0, diff }} />
-          : <div className="secret-note">{tr('diffWorkflowUnchanged')}</div>
-      ) : yaml ? (
-        <div className="codeblock">
-          <div className="cb-head"><I.yaml style={{ width: 13, height: 13 }} />
-            <span className="cb-name">main.yml</span>
-            <span className="cb-lang">{tf('yamlLines', { n: yaml.split('\n').length })}</span>
-            <FileActions taskId={taskId} which="workflow" contents={yaml} onReveal={onReveal} />
+      {yaml || view === 'diff' ? (
+        <div className="filecard codeblock">
+          <FileHeader icon={<I.yaml style={{ width: 13, height: 13 }} />} name="main.yml"
+            meta={view === 'diff'
+              ? tf('diffLines', { n: (diff ?? '').split('\n').filter((l) => /^[+-][^+-]/.test(l)).length })
+              : tf('yamlLines', { n: (yaml ?? '').split('\n').length })}
+            taskId={taskId} which="workflow" contents={yaml} onReveal={onReveal} />
+          <div className="fc-body">
+            {view === 'diff'
+              ? (diff && diff.trim()
+                ? <SplitDiffView file={{ path: 'main.yml', status: 'modified', additions: 0, deletions: 0, diff }} />
+                : <div className="secret-note">{tr('diffWorkflowUnchanged')}</div>)
+              : <pre>{yaml}</pre>}
           </div>
-          <pre>{yaml}</pre>
         </div>
       ) : (
         <div className="secret-note">{tr('noYamlYet')}</div>
@@ -638,7 +677,7 @@ export function ArtifactPanel({ task, tab, setTab, specMode, setSpecMode, yamlMo
   const resolveScroller = (): HTMLElement | null => {
     const body = bodyRef.current;
     if (!body) return null;
-    const sel = tocSelector(activeTab);
+    const sel = tocSelector(activeTab, view);
     const first = sel
       ? body.querySelector<HTMLElement>(sel)
       : body.querySelector<HTMLElement>('.codeblock pre');
@@ -652,7 +691,7 @@ export function ArtifactPanel({ task, tab, setTab, specMode, setSpecMode, yamlMo
     const scroller = resolveScroller();
     const anchors = anchorsRef.current;
     if (!body || !scroller || anchors.length === 0) return [];
-    const sel = tocSelector(activeTab);
+    const sel = tocSelector(activeTab, view);
     if (sel) {
       const els = body.querySelectorAll<HTMLElement>(sel);
       return anchors.map((a) => {

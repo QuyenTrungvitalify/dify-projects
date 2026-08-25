@@ -561,6 +561,10 @@ const EN: Dict = {
 
   /* yaml tab */
   yamlLines: 'yaml · {n} lines',
+  /* SPEC.md's and a diff's equivalent of the line count — the same slot, so the two files' headers say
+     the same KIND of thing about themselves. A diff counts changed lines, which is its real size. */
+  mdLines: 'markdown · {n} lines',
+  diffLines: 'diff · {n} changed lines',
   noYamlYet: 'No main.yml yet — it appears after the Implement phase.',
   lintResults: 'Lint results',
   lintOk: 'ok',
@@ -1073,6 +1077,8 @@ const JA: Dict = {
 
   /* yaml tab */
   yamlLines: 'yaml · {n} 行',
+  mdLines: 'markdown · {n} 行',
+  diffLines: '差分 · {n} 行',
   noYamlYet: 'main.yml はまだありません — 実装フェーズの後に表示されます。',
   lintResults: 'リンター結果',
   lintOk: 'ok',
