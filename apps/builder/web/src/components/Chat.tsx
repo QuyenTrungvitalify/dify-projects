@@ -652,30 +652,32 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
       )}
 
       {(v.showSpecLink || v.showReportLink || v.showDiffLink || v.showYamlLink || showUndoFix) && (
-        <div className="gate-strip" style={{ background: 'transparent', border: 'none', paddingTop: 0 }}>
+        <div className="gate-actions">
           {v.showSpecLink && (
-            <button className="gs-link" style={{ marginLeft: 0 }} onClick={() => onOpenArtifact('spec')}><I.doc />{tr('openSpec')}</button>
+            <button className="gs-link" onClick={() => onOpenArtifact('spec')}><I.doc />{tr('openSpec')}</button>
           )}
           {v.showYamlLink && (
-            <button className="gs-link" style={{ marginLeft: 0 }} onClick={() => onOpenArtifact('yaml')}><I.yaml />{tr('openPattern')}</button>
+            <button className="gs-link" onClick={() => onOpenArtifact('yaml')}><I.yaml />{tr('openPattern')}</button>
           )}
           {v.showDiffLink && (
             <>
-              <button className="gs-link" style={{ marginLeft: 0 }} onClick={() => onOpenArtifact('yaml')}><I.yaml />main.yml</button>
+              <button className="gs-link" onClick={() => onOpenArtifact('yaml')}><I.yaml />main.yml</button>
               <button className="gs-link" onClick={() => onOpenArtifact('diff')}><I.diff />{tr('viewDiff')}</button>
             </>
           )}
           {v.showReportLink && (
-            <button className="gs-link" style={{ marginLeft: 0 }} onClick={() => onOpenArtifact('report')}><I.report />{tr('openReport')}</button>
+            <button className="gs-link" onClick={() => onOpenArtifact('report')}><I.report />{tr('openReport')}</button>
           )}
           {/* Spec 103 step 1 — "take this fix back". It belongs HERE, in the small read-only link row,
               and NOT in the action foot below: the foot already carries 「ビルドを破棄」, and 破棄 vs
               取り消す are near-synonyms in Japanese whose consequences are a whole build apart. Two
               same-weight buttons with near-identical words is exactly the confusion spec 103 §1.5
               exists to remove — putting one back would be repeating the mistake this spec documents.
-              Different row, smaller type, less visual weight: you can read which one is dangerous. */}
+              Different row, smaller type, less visual weight: you can read which one is dangerous.
+              `gs-undo` carries the trailing margin that keeps it away from the read-only chips — see
+              .gate-actions in surface-blocks.css for why that is a class and not source order. */}
           {showUndoFix && (
-            <button className="gs-link" onClick={onUndoFix}><I.undo />{tr('undoFix')}</button>
+            <button className="gs-link gs-undo" onClick={onUndoFix}><I.undo />{tr('undoFix')}</button>
           )}
         </div>
       )}

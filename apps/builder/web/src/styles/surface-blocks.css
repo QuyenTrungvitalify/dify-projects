@@ -849,19 +849,15 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .gate-list li { display: flex; gap: 9px; align-items: baseline; font-size: 12.5px; color: var(--tx-2); }
 .gate-list li::before { content: "—"; color: var(--tx-faint); flex-shrink: 0; }
 
-/* file/lint strip */
-.gate-strip {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 10px 14px; margin: 2px 16px 13px;
-  background: var(--bg-canvas); border: 1px solid var(--border-soft);
-  border-radius: 10px; font-size: 12.5px;
+/* Gate action row — the read-only chips a gate offers (open SPEC.md / main.yml / the diff / the
+   report) and, trailing, the one chip that CHANGES something (undo this fix). Shares the card's 16px
+   gutter with .gate-head / .gate-body / .gate-foot so all four rows begin on the same line; it used to
+   sit 14px further in, because it was styled as a boxed strip and then had its box cancelled inline at
+   its only call site. */
+.gate-actions {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 0 16px; margin: 2px 0 13px; font-size: 12.5px;
 }
-.gate-strip .gs-file { font-family: var(--mono); color: var(--tx-1); font-size: 12px; white-space: nowrap; }
-.gate-strip .gs-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--tx-faint); }
-.gate-strip .gs-pass { display: inline-flex; align-items: center; gap: 6px; color: var(--ok); }
-.gate-strip .gs-pass svg { width: 13px; height: 13px; }
-.gate-strip .gs-fail { display: inline-flex; align-items: center; gap: 6px; color: var(--warn); }
-.gate-strip .gs-fail svg { width: 13px; height: 13px; }
 /* gs-link: inline action chip (open file / view diff / jump-to-build). Self-contained so it
    neutralizes the UA <button> box; styled as a pill to match .ghost-pill / .empty-crumb. */
 .gs-link {
@@ -873,9 +869,14 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .gs-link:hover { background: var(--accent-dim); border-color: var(--accent-line); color: var(--accent-tx); }
 .gs-link svg { width: 13px; height: 13px; opacity: 0.85; }
-/* layout: in a gate strip the trailing link is pushed to the right edge (leading links
-   cancel this with an inline marginLeft:0). */
-.gate-strip .gs-link { margin-left: auto; }
+/* The undo chip is the only one in this row with a consequence, so it keeps its distance from the
+   read-only group — spec 103 §1.5 is about two same-looking controls whose outcomes are a whole build
+   apart, and distance is half of what makes them un-confusable.
+   This used to be `.gate-strip .gs-link { margin-left: auto }` — EVERY chip, with the leading ones
+   cancelling it via an inline marginLeft:0. The moment a gate showed two chips that did not cancel it,
+   flexbox split the free space BETWEEN them and 差分を表示 came to rest in mid-air. Which chip is the
+   trailing one is a decision, so it is a class, not a side effect of source order. */
+.gate-actions .gs-undo { margin-left: auto; }
 
 .gate-foot {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;

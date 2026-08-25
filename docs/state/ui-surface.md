@@ -333,7 +333,7 @@ chụp của một vòng khác), `phase==='implement' && status==='awaiting_conf
 (bản chụp **đủ cặp**; `undefined` không phải là "có"). Server kiểm lại y hệt và trả 409 — cái này quyết
 **có render không**, không quyết **có an toàn không**.
 
-**Chỗ đặt là quyết định thiết kế, không phải chi tiết CSS.** Link nằm ở hàng `gate-strip` (cùng chỗ với
+**Chỗ đặt là quyết định thiết kế, không phải chi tiết CSS.** Link nằm ở hàng `gate-actions` (cùng chỗ với
 `main.yml` / `差分を表示`), **không** ở `gate-foot`. Hàng foot đã có 「ビルドを破棄」, mà 破棄 và 取り消す
 gần đồng nghĩa trong tiếng Nhật trong khi hậu quả lệch một trời (mất cả build vs mất một vòng). Hai nút
 cùng cỡ với hai chữ gần giống nhau chính là §1.5 — bệnh mà spec 103 lập ra để chữa. Khác hàng, khác cỡ,
