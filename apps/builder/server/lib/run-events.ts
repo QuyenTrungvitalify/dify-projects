@@ -73,10 +73,17 @@ export type RunEventKind =
 //                              SPEC.md by rename and ③ ran from it.
   | 'spec_proposal_dropped' // spec 103 Lane B — the human dropped it. Nothing changed on disk, which
 //                             is the point: reading the plan and saying no costs one ② turn, not a build.
-  | 'spec_stale'; // spec 103 L0 — an ③ REVISION round changed the workflow and left SPEC.md untouched
+  | 'spec_stale' // spec 103 L0 — an ③ REVISION round changed the workflow and left SPEC.md untouched
 //                   (detail: the workflow file). The sibling of the line above: one says the round did
 //                   nothing, this one says the round did something the document never learned about.
 //                   Emitted only when BOTH sides were measured; a first Implement measures neither.
+  // Spec 111 — the two moves that change a build's phase WITHOUT running a turn. Until these existed
+  // the timeline showed `implement phase_start` at 17:00 and `spec phase_start` at 17:06 with NOTHING
+  // between, and the phase drop had to be inferred from file mtimes (run 1787544155222).
+  | 'cancelled' // detail: `killed a running <phase> turn` | `parked at <phase>` — which of the two
+//                  cancel paths ran, so a turn that dies mid-write is distinguishable from a crash.
+  | 'restored'; // detail: `<from> → <to>` (`implement → implement` when the phase's own gate is
+//                 reopened, `implement → spec` when there is no prior gate and the boundary rewinds).
 
 export interface RunEvent {
   ts: number;

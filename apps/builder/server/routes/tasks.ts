@@ -956,13 +956,27 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     }
     // Converge to a terminal cancelled status (idempotent with the orchestrator bail). Leave `done` be.
     const fresh = await loadTask(projectsDir, id);
-    if (fresh.status !== 'done' && fresh.status !== 'cancelled') {
+    const converged = fresh.status !== 'done' && fresh.status !== 'cancelled';
+    if (converged) {
       fresh.status = 'cancelled';
       fresh.gate = undefined;
       fresh.error = fresh.error ?? 'cancelled by user';
       bumpRev(fresh); // D5: strictly increase rev so an in-flight same-rev GET can't resurrect the gate
       await saveTask(projectsDir, fresh);
       broadcast?.(id, 'task:update', fresh); // relay the cancel to the SSE clients (Lát 4)
+    }
+    // Spec 111 — write the cancel on the run timeline. `sess` (captured above, before the kill) is the
+    // one bit forensics cannot recover afterwards: it separates "a turn was killed mid-write" from "a
+    // parked build was closed". Without it a killed turn reaches the transcript as `process exited code
+    // null before a result event` — indistinguishable from a crash (run 1787544155222, 17:00).
+    // Gated on something having HAPPENED: /cancel is idempotent and the UI can fire it twice, and a
+    // timeline that records the same cancel three times is a timeline people stop reading.
+    if (converged || sess) {
+      void logEvent(taskDir(projectsDir, id), {
+        kind: 'cancelled',
+        phase: fresh.phase,
+        detail: sess ? `killed a running ${fresh.phase} turn` : `parked at ${fresh.phase}`,
+      });
     }
     // Bound cancelledTasks (spec 014 D7): a PARKED build's cancel never runs a dispatch (no `finally` to
     // evict), so the flag we just marked would leak. If NO turn is in flight for this id, no orchestrator
@@ -1009,7 +1023,28 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       task.specRevise = undefined;
       task.specReviseFrom = undefined;
     }
-    const target = restoreTargetPhaseFor(task);
+    // Spec 111 — reopen the gate the human was STANDING at, and only rewind a boundary when there is
+    // no such gate. The old rule read `task.phase` alone and always stepped back one, on the premise
+    // (route header above) that a cancel undoes "the /confirm that advanced too far". That premise
+    // holds for exactly one path. A cancelled FIX ROUND crossed no boundary at all: on run
+    // 1787544155222 phase ③ had already reached its gate twice (15:35, 16:32) when the 17:00 fix round
+    // was cancelled — and the rewind dropped the build to ②, whose only way forward re-runs ③ as a
+    // FRESH turn (`confirmAdvance`: "no cross-phase resume"), discarding the ③ session. The human took
+    // neither option and kept steering from the ② gate for 13 turns / 7h, which is how ② came to be
+    // doing ③'s work (spec 108 §7.2).
+    //
+    // `gate_reached` on the cancelled phase IS the evidence that a gate existed to return to — read
+    // from the timeline rather than a new persisted field, so tasks cancelled BEFORE this shipped are
+    // restored correctly too. NOT `sessionIds[phase]`: that is set moments into a turn, so a first ③
+    // killed mid-flight would carry it and this would reopen a gate that never existed.
+    // ④ stays on the old rewind: a `/reply` at a ④ gate is routed to ③ (spec 041), so a cancelled ④
+    // fix round already lands here as phase 'implement' — and reopening a terminal `done` test gate is
+    // a different question than the one this spec measured.
+    const from = task.phase;
+    const ownGateExisted =
+      from !== 'test' &&
+      (await readEvents(taskDir(projectsDir, id))).some((e) => e.phase === from && e.kind === 'gate_reached');
+    const target = ownGateExisted ? from : restoreTargetPhaseFor(task);
     if (target) {
       task.phase = target;
       task.status = 'awaiting_confirm';
@@ -1026,6 +1061,14 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     }
     bumpRev(task); // D5: direct broadcast bypasses emit — bump so a stale GET can't clobber the restored gate
     await saveTask(projectsDir, task);
+    // Spec 111 — say where the build landed. `from → to` reads as a no-op line when the phase's own
+    // gate was reopened, and as the boundary rewind when it was not; either way the phase never moves
+    // again without a line on the timeline explaining it.
+    void logEvent(taskDir(projectsDir, id), {
+      kind: 'restored',
+      phase: task.phase,
+      detail: `${from} → ${task.phase}${ownGateExisted ? '' : ' (no prior gate — rewound a boundary)'}`,
+    });
     broadcast?.(id, 'task:update', task);
     return reply.send(task);
   });
