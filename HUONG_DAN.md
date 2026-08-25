@@ -101,6 +101,22 @@ cần đổi gì. Sửa **ngay trong hội thoại đó**, không cần build l�
 - Workflow cũ **không còn hội thoại nào**: bấm workflow ở thanh bên → nếu có sẵn build thì nó mở build đó;
   nếu không, nó mở màn hình mới với workflow đã chọn sẵn.
 
+**Trường hợp cuối này giờ chạy khác trước.** Nếu workflow đã có **cả `SPEC.md` lẫn file `.yml`** —
+tức là do chính Builder dựng ra — thì build mới **bắt đầu thẳng ở ③ 実装**, không chạy lại ① 分析 và
+② 仕様:
+
+- ① đọc workflow để hiểu nó, ② viết tài liệu mô tả nó. Cả hai thứ đó **đã có sẵn trên đĩa**, nên chạy
+  lại là trả tiền hai lượt để đọc lại thứ mình vừa viết. Nó tiếp nối như đang nối tiếp hội thoại cũ.
+- Thanh bước hiện ①② bằng **gạch ngang trong vòng nét đứt**, không phải tích xanh — vì chúng **không
+  chạy**, chứ không phải "đã xong". Rê chuột lên để xem lý do.
+- Yêu cầu bạn gõ được đưa vào lượt ③ **dưới dạng yêu cầu sửa**, đúng như khi bấm ✎ trên một build
+  đang mở. `SPEC.md` cũ được **chụp lại trước** khi sửa, nên nút 「この修正を取り消す」 (§6.4) vẫn dùng được.
+- Chế độ 「仕様だけ確認」 vẫn **dừng đúng một lần** — nhưng ở **③** thay vì ②, vì build này không có ②.
+
+Ngược lại, **YAML bạn import từ ngoài vào** (「Import base」) thì **vẫn chạy đủ 4 bước**: chưa ai đọc
+file đó, và tài liệu giải thích nó chưa tồn tại. Không có nút nào để bật/tắt — nó tự nhận ra qua việc
+trên đĩa có gì.
+
 ### 6.2 Hai lối gửi — Enter và ✎ khác nhau
 
 | Bấm | Đi đâu | Có sửa file không |
