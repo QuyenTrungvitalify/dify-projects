@@ -8,7 +8,7 @@
    saveSpec/openTask). All gate/verify/phase logic stays backend-side.
    ============================================================ */
 import { signal, computed, effect } from '@preact/signals';
-import { api, confirmModeWire, ApiError, type Attachment } from './api';
+import { api, confirmModeWire, ApiError, type Attachment, type ArtifactFile } from './api';
 import { serializeThread, parseThread, hydrateForReopen } from './lib/thread-persist';
 import { recoverOpenAsk } from './lib/ask-recovery';
 import { isTurnBusy } from './lib/turn-busy';
@@ -1980,11 +1980,13 @@ export async function refreshArtifacts(): Promise<void> {
   }
 }
 
-/** Open the OS file manager (Finder) at the task's workflow YAML file. Fire-and-forget; a failure
- *  (file not scaffolded yet, launcher error) surfaces via the shared error banner. */
-export async function revealWorkflow(taskId: string): Promise<void> {
+/** Open the OS file manager (Finder) at one of the task's two panel files — SPEC.md or the workflow
+ *  YAML. Fire-and-forget; a failure (file not on disk yet, launcher error) surfaces via the shared
+ *  error banner. Defaults to the workflow, which is what every caller meant before SPEC.md got the
+ *  same actions. */
+export async function revealFile(taskId: string, which: ArtifactFile = 'workflow'): Promise<void> {
   try {
-    await api.reveal(taskId);
+    await api.reveal(taskId, which);
   } catch (e) {
     surfaceError(e);
   }

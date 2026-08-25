@@ -50,6 +50,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (text ? JSON.parse(text) : {}) as T;
 }
 
+/** The two on-disk files the artifact panel can reveal or hand you the path of. SPEC.md and the
+ *  workflow YAML — named, not pathed, so the server stays the only thing that resolves a location. */
+export type ArtifactFile = 'spec' | 'workflow';
+
 /** A file attached in the composer (spec 012 → 025): base64 data-URL rides the JSON body, no multipart. */
 export interface Attachment {
   name: string;
@@ -183,13 +187,14 @@ export const api = {
   /** PUT /api/tasks/:id/spec → persist an in-place SPEC.md edit (last-writer, AC #3). */
   putSpec: (id: string, content: string): Promise<{ ok: boolean }> =>
     request('PUT', `/api/tasks/${encodeURIComponent(id)}/spec`, { content }),
-  /** POST /api/tasks/:id/reveal → open the OS file manager (Finder) at the task's workflow YAML. */
-  reveal: (id: string): Promise<{ ok: boolean; path: string }> =>
-    request('POST', `/api/tasks/${encodeURIComponent(id)}/reveal`),
-  /** GET /api/tasks/:id/workflow-path → the absolute path of the task's workflow YAML, no side effect
-   *  (the reveal POST spawns Finder; this one just answers). 404 until the file is scaffolded. */
-  workflowPath: (id: string): Promise<{ path: string }> =>
-    request('GET', `/api/tasks/${encodeURIComponent(id)}/workflow-path`),
+  /** POST /api/tasks/:id/reveal → open the OS file manager (Finder) at one of the task's two panel
+   *  files. A caller names WHICH file, never a path — the server resolves it from the task. */
+  reveal: (id: string, which: ArtifactFile = 'workflow'): Promise<{ ok: boolean; path: string }> =>
+    request('POST', `/api/tasks/${encodeURIComponent(id)}/reveal?which=${which}`),
+  /** GET /api/tasks/:id/artifact-path → that file's absolute path, with no side effect (the reveal POST
+   *  spawns Finder; this one just answers). 404 until the file is actually on disk. */
+  artifactPath: (id: string, which: ArtifactFile): Promise<{ path: string }> =>
+    request('GET', `/api/tasks/${encodeURIComponent(id)}/artifact-path?which=${which}`),
   /** spec 062 follow-up: POST /api/tasks/:id/export-drive → upload the run dossier zip to the team Drive
    *  (exports/). 409 (no drop configured) → the caller falls back to the plain download. */
   exportToDrive: (id: string): Promise<{ ok: boolean; path?: string; unconfirmed?: boolean }> =>

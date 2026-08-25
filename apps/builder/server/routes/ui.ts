@@ -372,55 +372,83 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
     return reply.send({ ok: true, path: out.path, unconfirmed: out.unconfirmed ?? false });
   });
 
-  // ── GET /api/tasks/:id/workflow-path — the ABSOLUTE path of the task's workflow YAML, as text.
-  //    The panel's "copy path" button: Reveal-in-Finder hands you the file in a GUI, this hands you the
-  //    string you paste into a terminal or an editor's open-file box.
+  // ── The two files the artifact panel shows, and the two the "reveal / copy path" actions address.
+  //    A caller names WHICH artifact it means — never a path; both are resolved server-side from the
+  //    task, which is what keeps these routes from becoming arbitrary-file handles.
+  //
+  //    Two literal comparisons rather than a lookup table: `which` is caller-supplied, and `w in TABLE`
+  //    would answer true for 'constructor' and every other Object.prototype key. ──
+  const isArtifactFile = (w: string): w is 'spec' | 'workflow' => w === 'spec' || w === 'workflow';
+  const artifactPathFor = (task: Parameters<typeof specPathFor>[1], which: 'spec' | 'workflow'): string | null =>
+    which === 'spec' ? specPathFor(projectsDir, task) : workflowPathFor(projectsDir, task);
+
+  /** Shared preamble for both routes below: validate the id + `which`, load the task, resolve the file.
+   *  Returns the absolute path, or the reply already sent. SPEC.md and the workflow YAML differ in WHEN
+   *  they exist (a spec lands a phase earlier, and pre-scaffold it lives in the run dir), so "not on
+   *  disk yet" is a normal answer for either — the UI hides the action rather than offering a dead path. */
+  async function resolveArtifactFile(
+    req: { params: { id: string }; query: { which?: string } },
+    // Structural, not `FastifyReply`: the two routes below carry different route generics, and naming
+    // either concrete type here would reject the other. All this needs is the ability to answer.
+    reply: { code: (status: number) => { send: (body: unknown) => unknown } },
+  ): Promise<string | null> {
+    if (!isTaskId(req.params.id)) {
+      void reply.code(400).send({ error: 'invalid task id' });
+      return null;
+    }
+    const which = req.query.which ?? 'workflow'; // absent ⇒ the workflow YAML, as this route always meant
+    if (!isArtifactFile(which)) {
+      void reply.code(400).send({ error: `unknown file: ${which}` });
+      return null;
+    }
+    let task;
+    try {
+      task = await loadTask(projectsDir, req.params.id);
+    } catch {
+      void reply.code(404).send({ error: `no such task: ${req.params.id}` });
+      return null;
+    }
+    const abs = artifactPathFor(task, which);
+    if (!abs || !existsSync(abs)) {
+      void reply.code(404).send({ error: `${which} file not on disk yet` });
+      return null;
+    }
+    return abs;
+  }
+
+  // ── GET /api/tasks/:id/artifact-path?which=spec|workflow — the ABSOLUTE path of one of the panel's
+  //    files, as text. The "copy path" button: Reveal-in-Finder hands you the file in a GUI, this hands
+  //    you the string you paste into a terminal or an editor's open-file box.
   //
   //    Read-only, so a GET and no side effect — deliberately NOT a flag on the reveal POST, which exists
-  //    to spawn the file manager. Wanting the path is not wanting a window.
-  //
-  //    Same path computation and same 404 as reveal: server-side from the task (never a client path), and
-  //    absent until the file is actually scaffolded — the UI hides the button rather than offering a path
-  //    that leads nowhere. ──
-  app.get<{ Params: { id: string } }>('/api/tasks/:id/workflow-path', async (req, reply) => {
-    if (!isTaskId(req.params.id)) return reply.code(400).send({ error: 'invalid task id' });
-    let task;
-    try {
-      task = await loadTask(projectsDir, req.params.id);
-    } catch {
-      return reply.code(404).send({ error: `no such task: ${req.params.id}` });
-    }
-    const abs = workflowPathFor(projectsDir, task);
-    if (!abs || !existsSync(abs)) {
-      return reply.code(404).send({ error: 'workflow file not on disk yet' });
-    }
-    return { path: abs };
-  });
+  //    to spawn the file manager. Wanting the path is not wanting a window. ──
+  app.get<{ Params: { id: string }; Querystring: { which?: string } }>(
+    '/api/tasks/:id/artifact-path',
+    async (req, reply) => {
+      const abs = await resolveArtifactFile(req, reply);
+      return abs === null ? reply : { path: abs };
+    },
+  );
 
-  // ── POST /api/tasks/:id/reveal — open the OS file manager at the task's workflow YAML ("Reveal in
-  //    Finder"). The path is computed SERVER-SIDE from the task (never a client path), so this can't
-  //    reveal an arbitrary file; the launcher is spawned via execFile (no shell). Origin-checked by the
-  //    global mutating-request hook (index.ts). 404 before the file is scaffolded (no slug / not on disk). ──
-  app.post<{ Params: { id: string } }>('/api/tasks/:id/reveal', async (req, reply) => {
-    if (!isTaskId(req.params.id)) return reply.code(400).send({ error: 'invalid task id' });
-    let task;
-    try {
-      task = await loadTask(projectsDir, req.params.id);
-    } catch {
-      return reply.code(404).send({ error: `no such task: ${req.params.id}` });
-    }
-    const abs = workflowPathFor(projectsDir, task);
-    if (!abs || !existsSync(abs)) {
-      return reply.code(404).send({ error: 'workflow file not on disk yet' });
-    }
-    try {
-      await revealInFileManager(abs);
-      return { ok: true, path: abs };
-    } catch (e) {
-      app.log.warn({ err: String(e) }, 'reveal-in-finder failed');
-      return reply.code(500).send({ error: 'could not open the file manager' });
-    }
-  });
+  // ── POST /api/tasks/:id/reveal?which=spec|workflow — open the OS file manager at that file ("Reveal
+  //    in Finder"). The launcher is spawned via execFile (no shell), so even a path with shell
+  //    metacharacters is one argv element. Origin-checked by the global mutating-request hook
+  //    (index.ts). `which` defaults to the workflow YAML: this route predates the parameter, and a
+  //    caller that omits it must keep getting what it always got. ──
+  app.post<{ Params: { id: string }; Querystring: { which?: string } }>(
+    '/api/tasks/:id/reveal',
+    async (req, reply) => {
+      const abs = await resolveArtifactFile(req, reply);
+      if (abs === null) return reply;
+      try {
+        await revealInFileManager(abs);
+        return { ok: true, path: abs };
+      } catch (e) {
+        app.log.warn({ err: String(e) }, 'reveal-in-finder failed');
+        return reply.code(500).send({ error: 'could not open the file manager' });
+      }
+    },
+  );
 };
 
 export default uiRoutes;

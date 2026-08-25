@@ -847,7 +847,7 @@ export function App() {
               available={tabs}
               onClose={() => setArtifactOpen(false)}
               onSaveSpec={store.saveSpec}
-              onReveal={() => store.revealWorkflow(task.taskId)}
+              onReveal={(which) => store.revealFile(task.taskId, which)}
               /* spec 103 Lane B — the panel is a modal, so while it is open the gate's own buttons are
                  unclickable; and the gate tells the human to open it. Route the in-panel decision
                  through the SAME store calls the gate uses (never a parallel path), and close the

@@ -1151,11 +1151,15 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* Narrow windows: the rail would leave the artifact nothing. The expand button still widens the panel. */
 @media (max-width: 900px) { .art-toc { display: none; } }
 .art-section-title {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 8px;
   font-size: 11px; letter-spacing: 0.06em; color: var(--tx-faint);
   text-transform: uppercase; margin: 4px 0 12px;
 }
-.art-section-title .ast-line { flex: 1; height: 1px; background: var(--border-soft); }
+/* The hairline is flex:1 with a 0 basis, so it is the first thing to give up space — and once it has
+   given up all of it the row wraps instead of pushing its controls off the right edge. SPEC.md's title
+   row carries a 3-button file-action group AND the preview/edit/split toggle; below roughly a 560px
+   window the two no longer fit beside the heading, and clipping the last control is not an option. */
+.art-section-title .ast-line { flex: 1; height: 1px; background: var(--border-soft); min-width: 16px; }
 
 /* spec editor */
 .spec-edit {
@@ -1174,6 +1178,27 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .spec-tab > .spec-edit,
 .spec-tab > .spec-preview,
 .spec-tab > .spec-split { flex: 1 1 auto; min-height: 160px; }
+
+/* File actions (Reveal / Copy path / Copy) in a section title row — SPEC.md's equivalent of the slot
+   main.yml's buttons occupy in its code-block header. Same reset as .spec-mode below: the title row is
+   uppercase with wide tracking, which is right for a heading and wrong for a button label. */
+.art-section-title .ast-actions {
+  display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;
+  text-transform: none; letter-spacing: 0;
+}
+.art-section-title .cb-copy,
+.art-section-title .cb-reveal {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border); border-radius: 7px;
+  padding: 3px 8px; color: var(--tx-2); font-family: var(--sans); font-size: 11px;
+  white-space: nowrap; flex-shrink: 0;
+}
+.art-section-title .cb-copy:hover,
+.art-section-title .cb-reveal:hover { border-color: var(--border-strong); color: var(--tx-1); }
+.art-section-title .cb-copy.copied,
+.art-section-title .cb-reveal.copied { border-color: var(--ok-dim); color: var(--ok); }
+.art-section-title .cb-copy svg,
+.art-section-title .cb-reveal svg { width: 12px; height: 12px; }
 
 /* Edit / Preview / Split mode toggle (reuses .seg). Sits in the SPEC.md title row, so undo the
    title's uppercase + tracking for the control labels. */

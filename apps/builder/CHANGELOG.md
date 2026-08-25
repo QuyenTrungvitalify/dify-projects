@@ -11,17 +11,23 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
-**Copy the workflow file's path, not just its contents**
-- The main.yml panel could hand you the file two ways — reveal it in Finder, or copy what is inside it —
-  and neither gives you the one thing a terminal, an editor's open-file box, or a message to a colleague
-  actually needs: the path as text. Reading it off the Finder title bar and retyping it was the workaround.
-- A third button, 「パスをコピー」, sits beside Finder rather than beside Copy: both answer *where is this
-  file*, while Copy answers *what is in it*. It copies the absolute path, and its tooltip shows the path
-  it will copy, so you can read it before you take it.
-- The button is absent — not disabled, not offering a dead string — until the workflow file exists on
-  disk. Before the Implement phase there is no path to give.
+**Open, copy, or take the path of either file the panel shows**
+- The panel could hand you main.yml two ways — reveal it in Finder, or copy what is inside it — and
+  neither gives you the one thing a terminal, an editor's open-file box, or a message to a colleague
+  actually needs: the path as text. Reading it off the Finder title bar and retyping it was the
+  workaround. **SPEC.md had none of the three**: the only way to reach that file was to go looking for it.
+- Both files now carry the same three actions, from the same component, so the two rows cannot drift
+  into behaving differently. 「パスをコピー」 sits beside Finder rather than beside Copy: both of those
+  answer *where is this file*, while Copy answers *what is in it*. Its tooltip is the path itself, so
+  you can read what you are about to take.
+- On SPEC.md, Copy takes the text **on screen** — an unsaved edit copies what you are looking at, not
+  the older thing the server still holds.
+- A button is absent — not disabled, not offering a dead string — until its file exists on disk. The two
+  appear at different times: SPEC.md lands a phase before main.yml does.
 - Copy keeps its one-word label (that is what a code block's copy button says everywhere), but its
   tooltip now says 「ファイルの内容をコピー」, so the two are told apart on hover instead of by guessing.
+- The SPEC.md title row wraps instead of clipping when the window is narrow — it now carries the three
+  file actions *and* the preview/edit/split toggle, which stop fitting beside the heading below ~560px.
 
 **The Workflow chip names the workflow you are actually editing**
 - Editing a workflow out of the sidebar's Build section arms a `_drafts` target, and the composer's

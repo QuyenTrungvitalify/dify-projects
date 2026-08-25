@@ -561,10 +561,11 @@ const EN: Dict = {
   noYamlYet: 'No main.yml yet — it appears after the Implement phase.',
   lintResults: 'Lint results',
   lintOk: 'ok',
-  copyYaml: 'Copy',
-  /* The visible label stays the one word everyone expects on a code block; the TOOLTIP says which of the
-     two copyable things it means, now that a "Copy path" sits beside it. */
-  copyYamlHint: 'Copy the file contents',
+  /* Not `copyYaml` any more: the same button now sits on SPEC.md too. The visible label stays the one
+     word everyone expects on a code block; the TOOLTIP says which of the two copyable things it means,
+     now that a "Copy path" sits beside it. */
+  copyFile: 'Copy',
+  copyFileHint: 'Copy the file contents',
   copied: 'Copied',
   /* the per-code-block copy button the markdown renderer emits (every fenced block, every surface) */
   copyCode: 'Copy this block',
@@ -1074,8 +1075,8 @@ const JA: Dict = {
   noYamlYet: 'main.yml はまだありません — 実装フェーズの後に表示されます。',
   lintResults: 'リンター結果',
   lintOk: 'ok',
-  copyYaml: 'コピー',
-  copyYamlHint: 'ファイルの内容をコピー',
+  copyFile: 'コピー',
+  copyFileHint: 'ファイルの内容をコピー',
   copied: 'コピーしました',
   copyCode: 'このブロックをコピー',
   revealInFinder: 'Finderで開く',
