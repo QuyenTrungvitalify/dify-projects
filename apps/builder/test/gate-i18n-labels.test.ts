@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const GATE = join(HERE, '../server/lib/gate.ts');
 const I18N = join(HERE, '../web/src/lib/i18n.ts');
+const STORE = join(HERE, '../web/src/store.ts');
 
 /** Every label string passed to CONFIRM/REPLY/CANCEL in gate.ts (labels are static single-quoted). */
 function gateLabels(src: string): Set<string> {
@@ -38,6 +39,22 @@ function actionJaKeys(src: string): Set<string> {
   return out;
 }
 
+/** The resolution labels store.ts mints ITSELF — the other half of what reaches `tAction`, and the half
+ *  the gate.ts scrape above is blind to. Three sources, because the label is minted three ways:
+ *  `resolveLabel`'s returns, a literal `resolved:` assignment (the restore path), and the literal passed
+ *  to `optimisticAdvance`. Only capitalised literals count: `optimisticAdvance(res, tr('...'))` passes an
+ *  ALREADY-Japanese string through tAction and must not be scraped as a missing key. */
+function storeResolvedLabels(src: string): Set<string> {
+  const out = new Set<string>();
+  const i = src.indexOf('function resolveLabel');
+  assert.notEqual(i, -1, 'resolveLabel not found in store.ts — update this guard');
+  const body = src.slice(i, src.indexOf('\n}', i));
+  for (const m of body.matchAll(/'([A-Z][^']*)'/g)) out.add(m[1]);
+  for (const m of src.matchAll(/resolved:\s*'([^']+)'/g)) out.add(m[1]);
+  for (const m of src.matchAll(/optimisticAdvance\([^)]*?'([A-Z][^']*)'/g)) out.add(m[1]);
+  return out;
+}
+
 test('every gate action label has a JA translation (no raw-English leak)', () => {
   const labels = gateLabels(readFileSync(GATE, 'utf8'));
   const ja = actionJaKeys(readFileSync(I18N, 'utf8'));
@@ -50,5 +67,26 @@ test('every gate action label has a JA translation (no raw-English leak)', () =>
     missing,
     [],
     `Gate labels with no ACTION_JA entry (JA users would see raw English): ${missing.join(', ')}`,
+  );
+});
+
+// The bug this one locks: a JA user cancelled a build, pressed Restore, and the card's receipt read a
+// bare English 「Restored」 under three lines of Japanese. 'Done' and 'Errored' sat in the same hole.
+// None of them are gate.ts labels — store.ts mints them — so the scrape above was green the whole time.
+// A guard that only watches one producer of a shared dictionary key is a guard with a blind side.
+test('every store-minted resolution label has a JA translation too', () => {
+  const labels = storeResolvedLabels(readFileSync(STORE, 'utf8'));
+  const ja = actionJaKeys(readFileSync(I18N, 'utf8'));
+
+  // Sanity: the scrape must actually find all three mints, or an empty set would pass vacuously.
+  for (const expected of ['Done', 'Errored', 'Cancelled', 'Continued', 'Restored', 'Requested changes']) {
+    assert.ok(labels.has(expected), `sanity: '${expected}' should be scraped from store.ts`);
+  }
+
+  const missing = [...labels].filter((l) => !ja.has(l));
+  assert.deepEqual(
+    missing,
+    [],
+    `Resolution labels with no ACTION_JA entry (JA users would see raw English): ${missing.join(', ')}`,
   );
 });

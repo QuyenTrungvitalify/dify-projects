@@ -1142,10 +1142,16 @@ const ACTION_JA: Dict = {
   'Keep local only': 'ローカルのみに保持',
   'Push to shared repo': '共有リポジトリへ送信',
   'Try push again': 'もう一度送信',
-  /* resolved-state labels (store.ts resolveLabel / reply) */
+  /* Resolved-state labels. These do NOT come from gate.ts like everything above — store.ts mints them
+     client-side (resolveLabel, and the restore path's `resolved: 'Restored'`), which is why they slipped
+     past gate-i18n-labels.test.ts and reached Japanese users in English. That test now scrapes store.ts
+     too; all six live here. */
   Cancelled: 'キャンセル済み',
   Continued: '続行済み',
   'Requested changes': '修正を依頼済み', // spec 103 S1
+  Done: '完了',      // matches gateDoneBadge — the badge and its receipt should say one word
+  Errored: 'エラーで終了',
+  Restored: '復元済み', // restoreBuild is 「ビルドを復元」; this is the receipt for having pressed it
 };
 
 /** Localize a server-provided gate action / resolution label (keyed by its English text). */
