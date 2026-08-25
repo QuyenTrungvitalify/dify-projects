@@ -40,9 +40,17 @@ export function projectDisplayName(tree: WireTreeProject[], project: string): st
  * recent leads) instead of alphabetically — so the workflows you actually touch surface at the top when
  * there are many (the flat A→Z list didn't scale). `_drafts` scratch is excluded. Each option is the
  * spec-030 compound `project/workflow` value + a readable `Project / Workflow` label. Pure (tree-derived).
+ *
+ * `armed` is the workflow the composer currently targets (`settings.workflow`). When it has no option of
+ * its own it is PREPENDED as one, labelled by `wfDisplayName` — the same name the edit crumb shows. Two
+ * things went wrong without it, both observed on a `_drafts` edit (which this list excludes by design):
+ * the chip fell back to printing the RAW compound slug (`_drafts/build_requirement_news_automat…`,
+ * truncated exactly where `_2` would have been — so two sibling folders were indistinguishable), and the
+ * menu, holding no entry for the armed value, could neither highlight it nor re-select it. A workflow you
+ * are editing must be nameable in the control that claims to name it.
  */
-export function workflowOptions(tree: WireTreeProject[]): { v: string; l: string }[] {
-  return tree
+export function workflowOptions(tree: WireTreeProject[], armed?: string | null): { v: string; l: string }[] {
+  const opts = tree
     .filter((p) => p.id !== '_drafts')
     .flatMap((p) =>
       p.workflows.map((w) => ({
@@ -56,6 +64,10 @@ export function workflowOptions(tree: WireTreeProject[]): { v: string; l: string
     )
     .sort((a, b) => b.recent - a.recent)
     .map(({ v, l }) => ({ v, l }));
+  if (armed && armed !== 'none' && !opts.some((o) => o.v === armed)) {
+    opts.unshift({ v: armed, l: wfDisplayName(tree, armed) });
+  }
+  return opts;
 }
 
 /**

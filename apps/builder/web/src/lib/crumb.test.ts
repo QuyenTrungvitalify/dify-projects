@@ -125,6 +125,39 @@ describe('workflowOptions (recency-sorted composer dropdown)', () => {
     const nw = workflowOptions(rtree).find((o) => o.v === 'proj_b/new_wf');
     expect(nw?.l).toBe('Proj B / New WF');
   });
+
+  // The armed workflow must always BE in the list. A `_drafts` edit (the sidebar Build section's rows
+  // are `_drafts` workflows, so this is the common edit) is excluded from the options by design, and a
+  // chip whose value matches no option renders the raw compound slug — `_drafts/build_requirement_news_
+  // automat…`, truncated before the `_2` that distinguishes two sibling folders — while the crumb above
+  // it showed the workflow's NAME. Same target, two names, neither checkable against the other.
+  const dtree: WireTreeProject[] = [
+    { id: '_drafts', name: 'Drafts', workflows: [
+      { id: 'news_2', name: '📦 3 Build Requirement — News Automation APP 1…', tasks: [] },
+    ] },
+    ...rtree.slice(1),
+  ];
+
+  it('prepends the ARMED workflow when the list has no option for it, labelled by its display name', () => {
+    const opts = workflowOptions(dtree, '_drafts/news_2');
+    expect(opts[0]).toEqual({ v: '_drafts/news_2', l: '📦 3 Build Requirement — News Automation APP 1…' });
+  });
+
+  it('does not duplicate an armed workflow that already has an option', () => {
+    const opts = workflowOptions(rtree, 'proj_b/new_wf');
+    expect(opts.filter((o) => o.v === 'proj_b/new_wf')).toHaveLength(1);
+    expect(opts[0].l).toBe('Proj B / New WF'); // still the recency order, not a prepended copy
+  });
+
+  it('adds nothing for "none" / no armed workflow', () => {
+    expect(workflowOptions(dtree, 'none').some((o) => o.v.startsWith('_drafts/'))).toBe(false);
+    expect(workflowOptions(dtree).some((o) => o.v.startsWith('_drafts/'))).toBe(false);
+  });
+
+  it('a deleted/renamed armed target still gets an option (bare slug label, never a dead chip)', () => {
+    const opts = workflowOptions(rtree, 'proj_a/ghost_wf');
+    expect(opts[0]).toEqual({ v: 'proj_a/ghost_wf', l: 'ghost_wf' });
+  });
 });
 
 describe('084 S1.5 · activeSidebar{Project,Workflow} — a distill never co-highlights its source', () => {

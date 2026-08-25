@@ -11,6 +11,17 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**The Workflow chip names the workflow you are actually editing**
+- Editing a workflow out of the sidebar's Build section arms a `_drafts` target, and the composer's
+  Workflow dropdown excludes `_drafts` by design — so the chip had no option matching what it was
+  pointed at and fell back to printing the raw compound slug
+  (`_drafts/build_requirement_news_automat…`), truncated exactly where the `_2` that separates two
+  sibling folders would have been. The breadcrumb directly above it showed the workflow's name: same
+  target, two names, neither checkable against the other. The menu, holding no entry for the armed
+  value, could also neither highlight nor re-select it.
+- The armed target is now always an option of its own, labelled by the same display name the crumb
+  uses. A deleted or renamed target degrades to its bare slug rather than to a dead chip.
+
 **Cancelling a fix no longer sends the build back a step (spec 111)**
 - Cancel a round mid-flight, press Restore, and the build reopened at the **previous** phase's gate.
   That is right for one case — you clicked Continue, the next phase started, you changed your mind —
