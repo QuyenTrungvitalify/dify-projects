@@ -28,6 +28,7 @@ import type {
   WirePhaseCost,
   Seed,
   WireGateAction,
+  PhaseState,
 } from './types';
 
 let _uid = 0;
@@ -68,7 +69,10 @@ function dropThreadItems(...ids: string[]): void {
   thread.value = thread.value.filter((it) => !drop.has(it.id));
 }
 
-export type UiPhaseState = 'pending' | 'running' | 'awaiting' | 'done' | 'error';
+/** The same vocabulary `PhaseTrack` renders, kept as an ALIAS rather than a second copy: these two
+ *  lists were written out separately and drifted the moment one gained a state, which typecheck caught
+ *  and every test missed (the store test never touches the component). One list, two names. */
+export type UiPhaseState = PhaseState;
 const PHASE_ORDER: WirePhase[] = ['analyze', 'spec', 'implement', 'test'];
 
 /** Live chat-thread items, built client-side from SSE transitions (the backend stores no chat log). */
@@ -385,7 +389,10 @@ export const phaseStates = computed<Record<WirePhase, UiPhaseState>>(() => {
   const t = task.value;
   if (!t) return out;
   const ci = PHASE_ORDER.indexOf(t.phase);
-  for (let i = 0; i < ci; i++) out[PHASE_ORDER[i]] = 'done';
+  // Spec 105 — everything before where the build STARTED was never run, not finished. `startPhase` is
+  // absent on every build that began at ①, which reads as 0 and leaves the old behaviour untouched.
+  const si = t.startPhase ? PHASE_ORDER.indexOf(t.startPhase) : 0;
+  for (let i = 0; i < ci; i++) out[PHASE_ORDER[i]] = i < si ? 'skipped' : 'done';
   out[t.phase] =
     t.status === 'running' || t.status === 'scaffolding'
       ? 'running'

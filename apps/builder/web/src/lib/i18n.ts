@@ -204,6 +204,9 @@ const EN: Dict = {
   // spec 105 — a build can now finish `done` with Dify holding an OLDER file: an unattended fix round
   // runs straight through ④, and autonomous builds deliberately skip the Import gate. Saying nothing
   // there means 完了 quietly claims something that is not true of the deployed app.
+  // Spec 105 — the phase track's tooltip on a step that never ran (① / ② on an edit of a workflow
+  // that already had both an analysis and a spec).
+  phaseSkipped: 'Skipped — this workflow already had an analysis and a spec on disk.',
   gateDoneStaleImport: 'Dify still has the version imported at {time}; the workflow has changed since. Importing again sends the current one.',
   gateDoneSummary1: 'Linters re-run on the produced main.yml.',
   gateDoneSummary2: 'Open the report in the panel for the details.',
@@ -754,6 +757,7 @@ const JA: Dict = {
   restoreBuild: 'ビルドを復元',
   gateDoneBadge: '完了',
   gateDoneTitle: 'テスト合格 — ワークフローを更新しました',
+  phaseSkipped: 'スキップ — このワークフローには分析と仕様がすでにありました。',
   gateDoneStaleImport: 'Dify には {time} にインポートした版が残っています。その後ワークフローは変わりました。もう一度インポートすると今の版が送られます。',
   gateDoneSummary1: '生成された main.yml に対してリンターを再実行しました。',
   gateDoneSummary2: '詳細はパネルのレポートを開いてください。',

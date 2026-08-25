@@ -529,6 +529,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .phase-step.done { color: var(--tx-muted); }
 .phase-step.active { background: var(--accent-dim); color: var(--accent-tx); }
 .phase-step.active .phase-num { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 600; }
+/* Spec 105: a step that never ran. Deliberately QUIETER than pending, not louder — nothing is waiting
+   on it, and it must not read as a failure. Dashed ring + dash glyph = "no work here". */
+.phase-step.skipped { color: var(--tx-faint); opacity: 0.55; }
+.phase-step.skipped .phase-num { border-style: dashed; background: transparent; color: var(--tx-faint); }
 .phase-step.error .phase-num { background: var(--danger-dim); border-color: transparent; color: var(--danger); }
 .phase-step.error { color: var(--danger); }
 .phase-sep { color: var(--tx-faint); font-size: 11px; opacity: 0.5; }

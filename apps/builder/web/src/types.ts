@@ -195,6 +195,11 @@ export interface WireTask {
   /** spec 028: whether this build ran in ⚡ Fast mode (merged Analyze+Spec). Start-bound; the
    *  conversation-view composer reflects it read-only. Absent on a pre-028 snapshot ⇒ off. */
   fastMode?: boolean;
+  /** spec 105: the phase this build STARTED at. Absent ⇒ ① (every build before 105, and every build
+   *  from scratch or from an imported YAML). `'implement'` means the workflow already had both an
+   *  analysis and a spec on disk, so ① and ② were skipped on purpose — the phase track must draw them
+   *  as skipped rather than done, or it claims work nobody did. */
+  startPhase?: WirePhase;
   /** spec 032: Phase ④ test mode (start-bound). Absent ⇒ 'static'. */
   testMode?: 'static' | 'live';
   /** spec 032: the latest live-test result (Test-result gate render); test app ids (cleanup). */
@@ -309,7 +314,11 @@ export interface FileChange {
 
 
 export type PhaseKey = 'analyze' | 'spec' | 'implement' | 'test';
-export type PhaseState = 'pending' | 'running' | 'awaiting' | 'done' | 'error';
+/** Spec 105 — `skipped` is the sixth state, and it exists because `done` was lying. A build that edits
+ *  a workflow which already HAS an analysis and a spec starts at ③, so ① and ② never run; the track
+ *  derived their state from position alone and drew both with a green check. The user reads that as
+ *  "the app analysed my workflow", which is exactly the work that was deliberately not done. */
+export type PhaseState = 'pending' | 'running' | 'awaiting' | 'done' | 'error' | 'skipped';
 export type PhaseStates = Record<PhaseKey, PhaseState>;
 
 /** A tab is a FILE (plus the run report), not a view of one. `diff` used to sit here as a fourth tab

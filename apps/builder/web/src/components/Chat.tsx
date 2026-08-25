@@ -95,13 +95,16 @@ export function PhaseTrack({ phaseStates, current }: { phaseStates: PhaseStates;
         const st = phaseStates[ph.key];
         const cls = st === 'done' ? 'done'
           : st === 'error' ? 'error'
+          : st === 'skipped' ? 'skipped'
           : (ph.key === current && (st === 'running' || st === 'awaiting')) ? 'active'
           : '';
         return (
           <Fragment key={ph.key}>
-            <div className={'phase-step ' + cls}>
+            {/* Spec 105: a skipped step keeps its NUMBER and takes a dash — the check mark is reserved
+                for work that ran. `title` says why, because the track has no room for a sentence. */}
+            <div className={'phase-step ' + cls} title={st === 'skipped' ? tr('phaseSkipped') : undefined}>
               <span className="phase-num">
-                {st === 'done' ? <I.check style={{ width: 11, height: 11 }} /> : (i + 1)}
+                {st === 'done' ? <I.check style={{ width: 11, height: 11 }} /> : st === 'skipped' ? '–' : (i + 1)}
               </span>
               {phaseLabel(ph.key)}
             </div>
