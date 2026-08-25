@@ -84,9 +84,107 @@ Mở trình duyệt: **http://127.0.0.1:4123**
 
 > Kể cả chế độ **Tự động**, bước Import **luôn** chờ bạn bấm — đẩy lên Dify luôn là quyết định của người.
 
+> **Build xong rồi mới thấy cần sửa?** Đó là chuyện bình thường và có đường riêng — xem **mục 6**.
+> Đừng build lại từ đầu.
+
 ---
 
-## 6. Lưu ý quan trọng
+## 6. Sửa một workflow đã dựng
+
+Đây là phần **hay dùng nhất sau khi build xong**: bạn import vào Dify, chạy thử, rồi mới phát hiện
+cần đổi gì. Sửa **ngay trong hội thoại đó**, không cần build lại từ đầu.
+
+### 6.1 Mở lại để sửa
+
+- Build còn **đang mở** (dừng ở gate): gõ thẳng vào ô nhập.
+- Build đã **完了 (done)**: bấm **「修正を依頼」 / "Request a fix"** trên thẻ cuối → con trỏ nhảy vào ô nhập.
+- Workflow cũ **không còn hội thoại nào**: bấm workflow ở thanh bên → nếu có sẵn build thì nó mở build đó;
+  nếu không, nó mở màn hình mới với workflow đã chọn sẵn.
+
+### 6.2 Hai lối gửi — Enter và ✎ khác nhau
+
+| Bấm | Đi đâu | Có sửa file không |
+|---|---|---|
+| **Enter** (nút `↵ 送信`) | câu hỏi — nó **trả lời**, đọc file thật để trả lời | ❌ **không** |
+| **✎ 修正を依頼** | yêu cầu sửa — nó **sửa file** | ✅ **có** |
+
+> **Enter luôn là hỏi**, kể cả khi bạn vừa gõ "sửa giúp tôi X". Hỏi nhầm chỉ tốn một câu trả lời;
+> sửa nhầm thì ghi đè file thật. Nếu bạn gõ yêu cầu sửa rồi Enter, nó sẽ trả lời **và nhắc bạn bấm ✎**.
+
+### 6.3 Bấm ✎ có hai lựa chọn (bấm mũi tên ▾ cạnh nút)
+
+- **「すぐ直す」 / "Fix it now"** — sửa luôn. Một lượt.
+- **「先に計画を見せて」 / "Show me the plan first"** — nó **viết kế hoạch ra trước** rồi hỏi bạn.
+  `SPEC.md` **không bị đụng** cho tới khi bạn đồng ý.
+
+Chọn "xem kế hoạch trước" thì build dừng ở một thẻ có **ba nút**:
+
+| Nút | Nghĩa | Giá |
+|---|---|---|
+| **「これで進める」** | duyệt kế hoạch → sửa file luôn | một lượt sửa |
+| **「説明を直す」** | kế hoạch chưa đúng, viết lại | một lượt viết kế hoạch |
+| **「やめる」** | bỏ kế hoạch, về đúng chỗ cũ | **miễn phí** — chưa có gì bị đổi |
+
+> Dùng "xem kế hoạch trước" khi thay đổi **lớn hoặc mơ hồ**. Sửa ba dòng thì "すぐ直す" rẻ hơn.
+> Nếu lượt viết kế hoạch **chết giữa chừng** (hết hạn mức chẳng hạn), thẻ lỗi vẫn có **「やめる」** —
+> bấm là thoát, không tốn thêm lượt nào.
+
+### 6.4 Lỡ tay thì lùi lại được
+
+Sau mỗi lần sửa, thẻ có **「この修正を取り消す」 / "Take this fix back"**.
+
+- Nó trả **CẢ HAI** file về trước lượt sửa: `main.yml` **và** `SPEC.md`. Không bao giờ trả một nửa.
+- **Miễn phí** — chỉ là chép file, không tốn lượt AI nào.
+- **Hội thoại giữ nguyên**; muốn làm lại thì gõ lại và tốn một lượt.
+- Nếu **ai đó/việc khác đã đổi file** kể từ lượt của bạn, nó **từ chối** thay vì xoá đè lên việc của họ.
+
+### 6.5 Chế độ 「自動」 khi sửa
+
+**Đổi lớn nhất**: trước đây `自動` chỉ tự chạy cho **build mới**, còn mỗi lần sửa vẫn dừng lại chờ bấm.
+Giờ **sửa cũng chạy hết** — sửa xong tự kiểm tra rồi báo `完了`.
+
+Nhưng nó **vẫn dừng khi ĐO ĐƯỢC có vấn đề**:
+
+| Build dừng vì | Thẻ nói gì |
+|---|---|
+| **File không đổi một byte nào** | 「ファイル変更なし」 — lượt đó không sửa gì; đọc câu trả lời để biết vì sao |
+| **Kiểm tra kỹ thuật đỏ** sau 5 vòng tự sửa | thẻ `still_failing` — chọn chấp nhận, thử tiếp, hay bỏ |
+| **Lỗi** (hết hạn mức, turn chết…) | thẻ lỗi, kèm lý do ở dòng đầu |
+
+> Nói cách khác: `自動` **không dừng để hỏi ý bạn**, nhưng **luôn dừng khi có gì đó đo được là sai**.
+
+Còn một thứ nó **chỉ cảnh báo, không dừng**: 「ワークフローは変わりましたが、仕様書は更新されていません」
+— file đổi mà tài liệu không đổi. Đôi khi đó là **đúng** (thay đổi không ảnh hưởng mô tả), nên nó
+không chặn; nhưng nếu thay đổi có ảnh hưởng thì tài liệu đang lệch, **kiểm trước khi tin nó**.
+
+### 6.6 「自動」 và "xem kế hoạch trước" không dùng chung được
+
+Đúng như tên: "xem kế hoạch trước" là **một cửa chờ người**, `自動` là **chế độ không có người chờ**.
+
+- Đang ở `自動` → **không hiện** lựa chọn "先に計画を見せて".
+- Đang có kế hoạch treo → chip 確認 **không cho chọn** `自動` (phải quyết định kế hoạch đó trước).
+
+### 6.7 Nếu bạn đã import lên Dify
+
+Sau khi sửa, thẻ 完了 sẽ nói nếu **Dify vẫn đang giữ bản cũ**:
+
+> 「Dify には HH:MM にインポートした版が残っています。その後ワークフローは変わりました。」
+
+⚠️ **`完了` không có nghĩa là Dify đã có bản mới.** Muốn đẩy bản mới lên thì bấm nút test/import trên
+thẻ — Builder **không bao giờ tự đẩy** lên Dify.
+
+### 6.8 Chỗ còn biết là chưa hoàn hảo
+
+Để bạn khỏi tưởng là lỗi mới:
+
+- **Tab 差分 có thể hiện diff to trong khi thẻ nói "lượt này không đổi file"** — với workflow sửa-từ-cái-có-sẵn,
+  tab đang so **với bản gốc lúc bắt đầu build**, còn thẻ nói **về lượt vừa rồi**. Thẻ nói đúng về lượt;
+  tab nói đúng về cả build. Đang chờ sửa (spec 105 T1).
+- Vài thông báo lỗi (409) hiện **tiếng Anh** dù giao diện đang tiếng Nhật/Việt.
+
+---
+
+## 7. Lưu ý quan trọng
 
 - **Import luôn tạo app MỚI.** Chạy lại cùng một workflow sẽ tạo app trùng tên → xóa bản cũ trong Dify nếu cần.
 - **Bảo mật token**: token Dify chỉ nằm ở backend, không lọt vào chat/log. Nếu dùng Admin key, giữ kín và đổi key khi cần.
@@ -99,7 +197,7 @@ Mở trình duyệt: **http://127.0.0.1:4123**
 
 ---
 
-## 7. Lỗi thường gặp
+## 8. Lỗi thường gặp
 
 | Triệu chứng | Cách xử lý |
 |---|---|
@@ -108,4 +206,4 @@ Mở trình duyệt: **http://127.0.0.1:4123**
 | Mở trang trắng / không cập nhật | Hard-refresh trình duyệt (`Cmd/Ctrl+Shift+R`). |
 | `claude` không chạy | Chạy `claude auth login` để đăng nhập lại. |
 | Hay bị *timeout* (phase dài / live-test chạy quá 2 phút) | Tăng `BUILDER_TURN_TIMEOUT_MS` / `BUILDER_LIVE_RUN_TIMEOUT_MS` trong `apps/builder/.env` (đơn vị ms — xem `.env.example`), rồi restart Builder. |
-| Import YAML vào Dify báo lỗi | Copy **nguyên văn** thông báo lỗi của Dify → mở build trong Builder. Build đã xong (done) thì bấm **「このワークフローを編集」(Edit this workflow)** để mở lại; đang dừng ở gate thì bấm thẳng **"Request changes"**. Dán lỗi + ghi rõ "import vào Dify thì bị lỗi này" → build tự sửa → tải lại YAML và import lại. ⚠ KHÔNG dùng Ask — Ask chỉ trả lời, không sửa file. |
+| Import YAML vào Dify báo lỗi | Copy **nguyên văn** thông báo lỗi của Dify → mở build trong Builder. Build đã xong (done) thì bấm **「修正を依頼」(Request a fix)** trên thẻ cuối để sửa **ngay trong hội thoại đó** (mục 6); 「このワークフローを編集」 mở một hội thoại MỚI và chạy lại cả 4 bước — đắt hơn nhiều. Dán lỗi + ghi rõ "import vào Dify thì bị lỗi này" → build tự sửa → tải lại YAML và import lại. ⚠ KHÔNG dùng Ask — Ask chỉ trả lời, không sửa file. |
