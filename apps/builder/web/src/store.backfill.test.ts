@@ -92,7 +92,7 @@ describe('openTask backfills a build whose localStorage thread is gone (spec 099
 
   test('`have` carries the count this browser already holds — the number the gap line is measured against', async () => {
     // Seed a cached thread with one exchange, so `have` must be 1 and only the second is restored.
-    localStorage.setItem('builder.thread.T2', JSON.stringify([
+    localStorage.setItem('builder.thread.v2.T2', JSON.stringify([
       { id: 'u', kind: 'user', text: 'build me a thing' },
       { id: 'q', kind: 'qa', question: 'q1', answer: 'kept', done: true },
     ]));
@@ -160,7 +160,7 @@ describe('openTask backfills a build whose localStorage thread is gone (spec 099
   });
 
   test('nothing missing → the thread is left ALONE, same array reference (no signal write)', async () => {
-    localStorage.setItem('builder.thread.T4', JSON.stringify([
+    localStorage.setItem('builder.thread.v2.T4', JSON.stringify([
       { id: 'q', kind: 'qa', question: 'q1', answer: 'a', done: true },
     ]));
     getTaskMock.mockResolvedValue(mk('T4'));

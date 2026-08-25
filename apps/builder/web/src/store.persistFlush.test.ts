@@ -44,8 +44,12 @@ const mk = (
     rev,
   }) as WireTask;
 
+/** The storage key the store writes under. Versioned (`v2`) since the persisted shape stopped storing
+ *  a question twice — see thread-persist.ts. Spelled once here so a future bump moves one line. */
+const threadKey = (taskId: string): string => `builder.thread.v2.${taskId}`;
+
 const persistedRunOutput = (taskId: string): string | undefined => {
-  const raw = localStorage.getItem(`builder.thread.${taskId}`);
+  const raw = localStorage.getItem(threadKey(taskId));
   if (!raw) return undefined;
   const items = JSON.parse(raw) as Array<{ kind: string; output?: string }>;
   return items.find((it) => it.kind === 'run')?.output;
@@ -128,7 +132,7 @@ describe('persistThreadNow — a throw does not permanently disable persistence 
 
     // >1 call for the thread key is the whole assertion: with the old ordering the second flush
     // short-circuited on `json === _lastPersisted` and never reached setItem at all.
-    const threadWrites = spy.mock.calls.filter((c) => String(c[0]).startsWith('builder.thread.T-quota'));
+    const threadWrites = spy.mock.calls.filter((c) => String(c[0]).startsWith(threadKey('T-quota')));
     expect(threadWrites.length).toBeGreaterThan(1);
     expect(persistedRunOutput('T-quota')).toBe('the phase output'); // and it eventually landed
   });
@@ -141,7 +145,7 @@ describe('persistThreadNow — a throw does not permanently disable persistence 
 
     const spy = vi.spyOn(Storage.prototype, 'setItem');
     persistThreadImmediately(); // nothing changed since the write above
-    const threadWrites = spy.mock.calls.filter((c) => String(c[0]).startsWith('builder.thread.T-dedupe'));
+    const threadWrites = spy.mock.calls.filter((c) => String(c[0]).startsWith(threadKey('T-dedupe')));
     expect(threadWrites).toHaveLength(0); // the dedupe must survive the reorder
   });
 });

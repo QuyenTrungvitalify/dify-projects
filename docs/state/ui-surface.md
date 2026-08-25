@@ -203,17 +203,52 @@ thì **giữ buffer**, không drop.
 ### 4.1 Persist
 
 localStorage, best-effort, mọi truy cập bọc `try/catch` — quota đầy / private mode → không persist, không
-vỡ UI. Ba key thuộc doc này: `builder.thread.<taskId>` · `builder.thread.index` (LRU, trần `THREAD_MAX`) ·
-`builder.lastTask`.
+vỡ UI. Ba key thuộc doc này: `builder.thread.v2.<taskId>` · `builder.thread.v2.index` ·
+`builder.lastTask`. (`v2` vì **hình dạng lưu** đổi — xem dedupe câu hỏi bên dưới; code cũ đọc payload mới
+sẽ ném lỗi, nên đổi namespace thay vì migrate tại chỗ. Key `builder.thread.*` đời cũ được quét bỏ lúc load.)
+
+**Nguyên tắc chi phối: cái gì mở lại là có sẵn thì KHÔNG lưu; chỉ khi hết cách mới cắt, và cắt phần đĩa
+trả lại được.** Nguyên tắc này sinh ra từ một ca đo được: một build đơn lẻ đạt **3,99 triệu ký tự** trên
+quota ~2,6 triệu và ngừng được lưu suốt nhiều giờ, trong đó **hơn 3/4 là bản sao**.
 
 - `serializeThread` — **giữ** `run.output` nhưng cắt theo `RUN_OUTPUT_CAP`, **giữ phần đuôi** (kết quả
-  cuối stream ra sau cùng); **bỏ** `gate.snapshot.artifactContents` (fetch lại được).
+  cuối stream ra sau cùng). Bỏ hai nguồn trùng lặp:
+  - **snapshot gate chỉ giữ hình dạng SSE**: bỏ đúng tập mà `GET /api/tasks/:id` gắn thêm
+    (`artifactContents` · `runs` · `runsDropped` · `runCosts` · `lastAsk` · `chat`). Mỗi gate đều fetch
+    lại một lần, nên trước đó **mỗi thẻ gate** vác theo một bản transcript phase. **Bỏ theo tập
+    GET-thêm, không phải allow-list theo tên**: thẻ gate render bằng cách đưa **cả object** cho
+    `gateView`/`terminalFootActions`/`GateActions` (~27 field) — liệt kê tên là kiểu hỏng âm thầm.
+  - **câu hỏi lưu một lần**: `qa.question` được bỏ khi nó trùng từng ký tự với bubble `user` ngay trên
+    (đúng cách mỗi lượt hỏi được push). `parseThread` dựng lại khi đọc — **bắt buộc trước mọi consumer**,
+    vì `backfillFromTranscript` khớp exchange **theo text câu hỏi**.
+- `serializeThreadCapped` — trần **`PER_BUILD_CAP`** cho một build: giữ **tiền tố dài nhất** vừa trần,
+  tức **cắt từ đuôi**. Đuôi là thứ `GET /api/tasks/:id/chat` trả lại được (50 cặp cuối, đúng thứ tự,
+  không marker); đầu là thứ **chỉ browser có**. Hai ngoại lệ, cả hai đều bắt buộc:
+  - cặp `user`+`qa` **đang mở** luôn được nối lại — transcript chỉ ghi exchange **sau khi lượt kết
+    thúc**, nên câu hỏi đang chạy không nằm ở đâu khác;
+  - cắt **dừng ở `TRIM_MAX_PAIRS`** (< cửa sổ 50 cặp của backend) rồi trả payload **vượt trần** cho caller
+    — quá ngưỡng đó là xoá thứ đĩa không dựng lại được, và thà vượt trần còn hơn mất im lặng.
+- Trần đo được, không phải số tròn: `PER_BUILD_CAP` = **1,4M ký tự** — cap chặt hơn *không* lưu ít hơn
+  (chạm sàn `TRIM_MAX_PAIRS` rồi vẫn lưu 1,26M, sau khi vứt gấp ba lượng lịch sử). Thread nặng nhất có
+  thật: **4,9M ký tự với serializer cũ → 1,62M sau khi bỏ trùng lặp → 1,40M sau khi áp trần**.
+- Ngân sách tổng **`TOTAL_BUDGET`** (1,8M) cưỡng chế **trước** lệnh ghi: evict LRU các build khác (**không bao
+  giờ** build đang mở). `THREAD_MAX` vẫn còn, như trần **đếm**. Index mang theo kích thước từng build
+  (`{id, n}`) để không phải đọc lại toàn bộ storage trên đường ghi nóng.
+- Quét mồ côi lúc load: mọi key `builder.thread.*` không được index nhắc tới đều bị xoá. Trước đó một
+  index hỏng (parse ra `[]`) khiến **mọi** thread key thành rác vĩnh viễn.
+- `QuotaExceededError` → **một** vòng evict-rồi-ghi-lại, có chặn: bỏ qua nếu payload > `PER_BUILD_CAP`
+  (xoá cũng không vừa), không đụng build đang mở, và **đứng im 60s** sau một lần thất bại (ca private
+  mode quota = 0 sẽ xoá sạch mà chẳng được gì). Rate-limit đó **chỉ áp cho vòng retry** — lượt ghi bình
+  thường kế tiếp vẫn chạy, nếu không sẽ tái sinh bug "một lần fail = tắt persist vĩnh viễn". Index được
+  ghi lại **ngay sau khi evict**, trước khi retry: bỏ qua bước này thì một retry thất bại để lại index
+  khai những payload đã bị xoá, và lần sau "evict" lại chính các entry chết đó, giải phóng **0 byte**.
 - `hydrateForReopen` — **bỏ** mọi gate **chưa resolve** và finalize mọi run còn `running`. Gate sống DUY
   NHẤT đến từ `applyTask` tươi; giữ lại gate cũ sẽ render nút bấm ma cho phase build đã đi qua.
 - Ghi debounce, cộng một **max-wait** `PERSIST_MAX_WAIT_MS`: stream liên tục reset debounce mãi mãi
   (starvation), nên quá hạn thì ghi thẳng.
 - `pagehide` + `beforeunload` → `persistThreadImmediately`: huỷ debounce, **flush buffer rAF trước**, rồi
   `localStorage.setItem` đồng bộ.
+- Dev panel (`?dev=1`) có dòng **cache**: tổng ký tự / ngân sách / % + ba build nặng nhất (`storageReadout`).
 
 ## 5. Race
 

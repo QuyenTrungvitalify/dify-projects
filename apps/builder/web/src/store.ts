@@ -9,7 +9,7 @@
    ============================================================ */
 import { signal, computed, effect } from '@preact/signals';
 import { api, confirmModeWire, ApiError, type Attachment, type ArtifactFile } from './api';
-import { serializeThread, parseThread, hydrateForReopen } from './lib/thread-persist';
+import { serializeThreadCapped, parseThread, hydrateForReopen, PER_BUILD_CAP } from './lib/thread-persist';
 import { recoverOpenAsk } from './lib/ask-recovery';
 import { isTurnBusy } from './lib/turn-busy';
 import { backfillFromTranscript } from './lib/ask-backfill';
@@ -868,19 +868,79 @@ export function applyAskDone(d: {
 // Persist the chat thread to localStorage so a HARD reload keeps the Q&A conversation (a soft SSE
 // reconnect already preserves the in-memory thread). Client-only — no backend transcript, so 033 D6
 // holds. Best-effort: every access is try/catch-guarded; slim/reconcile logic lives in thread-persist.ts.
-const THREAD_KEY = (id: string): string => `builder.thread.${id}`;
-const THREAD_INDEX = 'builder.thread.index';
-const THREAD_MAX = 20; // LRU cap across builds
+const THREAD_PREFIX = 'builder.thread.';
+/**
+ * `v2` because the stored SHAPE changed, not because the data did: a `qa` may now omit its `question`
+ * (rebuilt by `parseThread` from the bubble above). Code from before that change reads `question`
+ * without guarding, so an old tab left open across an upgrade would throw on the new payload. A new
+ * namespace makes that impossible in both directions — old code simply finds no thread and falls back
+ * to rebuilding from the server, new code ignores the old keys, and the sweep below reclaims them.
+ */
+const THREAD_KEY = (id: string): string => `${THREAD_PREFIX}v2.${id}`;
+const THREAD_INDEX = `${THREAD_PREFIX}v2.index`;
+const THREAD_MAX = 20; // LRU cap across builds — the COUNT bound; TOTAL_BUDGET is the size one
+/**
+ * Every persisted thread together. The per-build cap alone still allows 20 near-cap builds, which is
+ * several times any browser's quota; this is the bound that actually holds.
+ *
+ * Sized against the two numbers we have rather than a round one: the documented ~5MB/UTF-16 quota works
+ * out to roughly 2.6M characters, and the one hard measurement is a 3.74M-character write that failed.
+ * 1.8M keeps a long build (up to PER_BUILD_CAP) plus a few smaller ones, and still leaves about a third
+ * of the estimated ceiling unused — because the estimate is doctrine, and the cost of being wrong about
+ * it is a browser that saves nothing at all.
+ */
+const TOTAL_BUDGET = 1_800_000; // chars (UTF-16 units)
 const LAST_TASK_KEY = 'builder.lastTask'; // spec 040 D3: the build under view, reopened on a hard reload
 let _persistTimer: ReturnType<typeof setTimeout> | null = null;
 let _lastPersisted = ''; // dedupe: skip a write when the slim serialization is unchanged (stream churn)
 
-function threadIndex(): string[] {
+/** One entry per persisted build, oldest first: the id plus the size of what was written for it.
+ *  The size is CARRIED rather than measured because enforcing the total budget on the write path would
+ *  otherwise mean reading every other build's payload back out of storage on every keystroke-sized
+ *  write. `n` absent/garbage ⇒ 0, which only ever under-counts and self-corrects on that build's next
+ *  write. */
+interface ThreadIndexEntry { id: string; n: number }
+
+function threadIndex(): ThreadIndexEntry[] {
   try {
     const v = JSON.parse(localStorage.getItem(THREAD_INDEX) ?? '[]');
-    return Array.isArray(v) ? (v as string[]) : [];
+    if (!Array.isArray(v)) return [];
+    return v
+      .map((e) =>
+        typeof e === 'string'
+          ? { id: e, n: 0 }
+          : { id: String((e as ThreadIndexEntry)?.id ?? ''), n: Number((e as ThreadIndexEntry)?.n) || 0 }
+      )
+      .filter((e) => e.id);
   } catch {
     return [];
+  }
+}
+
+/**
+ * Delete every `builder.thread.*` key this build does not claim: the pre-`v2` payloads, and any orphan
+ * left behind when a payload was written but its index entry never was.
+ *
+ * Orphans were unreclaimable before this existed. `threadIndex` answers a corrupt index with `[]`, and
+ * the writer then rebuilds the index from that empty list — so one bad parse silently stranded every
+ * thread key in storage, holding quota for a list that no longer mentioned them. Runs once per load,
+ * off the write path.
+ *
+ * A key another TAB wrote a moment ago, in the window before it updated the index, is collateral here.
+ * That tab rewrites on its next thread change, and the alternative (never sweeping) is the leak this
+ * closes — so the trade is deliberate.
+ */
+export function sweepOrphanThreadKeys(): void {
+  try {
+    const live = new Set(threadIndex().map((e) => THREAD_KEY(e.id)));
+    const dead: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(THREAD_PREFIX) && k !== THREAD_INDEX && !live.has(k)) dead.push(k);
+    }
+    for (const k of dead) localStorage.removeItem(k);
+  } catch {
+    /* private mode / disabled storage — nothing to reclaim there anyway */
   }
 }
 
@@ -961,13 +1021,48 @@ export function clearPersistFailure(): void {
   }
 }
 
-/** Write the current thread for the open task (deduped + LRU-bounded). Best-effort — quota/private-mode safe. */
+/**
+ * Bring the index down to both bounds — at most `THREAD_MAX` builds, at most `TOTAL_BUDGET` characters —
+ * by dropping the OLDEST builds, and delete what it drops. `keepId` (the build being written) is never
+ * a candidate: evicting the thread we are in the middle of saving would free space for nothing.
+ *
+ * Mutates `idx` and returns it, so the caller writes the index exactly once.
+ */
+function evictToBudget(idx: ThreadIndexEntry[], keepId: string): ThreadIndexEntry[] {
+  const total = (): number => idx.reduce((n, e) => n + e.n, 0);
+  while (idx.length > THREAD_MAX || total() > TOTAL_BUDGET) {
+    const victim = idx.findIndex((e) => e.id !== keepId);
+    if (victim === -1) break; // only the open build is left — nothing further to give
+    const [gone] = idx.splice(victim, 1);
+    try {
+      localStorage.removeItem(THREAD_KEY(gone.id));
+    } catch {
+      /* nothing to reclaim on a storage that won't even delete */
+    }
+  }
+  return idx;
+}
+
+/** When a quota failure may next try to make room by evicting. Rate-limited because the failure that
+ *  cannot be fixed by evicting — a private window's zero quota, a payload larger than the whole store —
+ *  would otherwise delete every other build, once per write, for nothing. Applies to the RETRY only:
+ *  the next ordinary write still goes ahead, or one failure would switch persistence off for good. */
+let _nextEvictRetryAt = 0;
+const EVICT_RETRY_COOLDOWN_MS = 60_000;
+
+/** Write the current thread for the open task (deduped + budget-bounded). Best-effort — quota/private-mode safe. */
 function persistThreadNow(): void {
   const t = task.value;
   if (!t) return;
   let chars = 0; // UTF-16 units — the unit browsers actually bill localStorage in; see rememberPersistFailure
+  // Serializing stays INSIDE the try with the write it belongs to: this runs from a timer, so a throw
+  // escaping here would be an unhandled rejection on a path whose entire contract is best-effort.
+  let json = '';
   try {
-    const json = serializeThread(thread.value);
+    // Trimming happens BEFORE the write, not in response to a failed one: at the point `setItem` throws,
+    // the browser has told us nothing about how much room there was, so any decision made there is a
+    // guess. A cap applied up front is the same decision made with the numbers in hand.
+    json = serializeThreadCapped(thread.value).json;
     chars = json.length;
     if (json === _lastPersisted) return; // unchanged slim payload (re-render with no thread change) → skip
     localStorage.setItem(THREAD_KEY(t.taskId), json);
@@ -977,24 +1072,83 @@ function persistThreadNow(): void {
     // thread was never written again for the rest of the session. Silently, since the catch below has
     // always swallowed. One write may still fail; it just no longer poisons the next.
     _lastPersisted = json;
-    const idx = threadIndex().filter((x) => x !== t.taskId);
-    idx.push(t.taskId);
-    while (idx.length > THREAD_MAX) {
-      const evict = idx.shift();
-      if (evict) localStorage.removeItem(THREAD_KEY(evict));
-    }
-    localStorage.setItem(THREAD_INDEX, JSON.stringify(idx));
+    const idx = threadIndex().filter((e) => e.id !== t.taskId);
+    idx.push({ id: t.taskId, n: chars });
+    localStorage.setItem(THREAD_INDEX, JSON.stringify(evictToBudget(idx, t.taskId)));
     // Cleared only after a write actually lands, so the banner tracks the CURRENT state rather than
     // "something went wrong once". Assigning unconditionally would publish a signal write on every
     // successful persist — cheap, but it would wake every subscriber for nothing.
     if (persistDegraded.value) persistDegraded.value = null;
   } catch (e) {
+    if (isQuotaError(e) && retryAfterEviction(t.taskId, json, chars)) return;
     // Still swallowed: storage is best-effort and must never block the UI (spec 033 D6). What changed
     // is that it is no longer INVISIBLE — see `persistDegraded`.
     const reason = isQuotaError(e) ? 'quota' : 'other';
     persistDegraded.value = { reason, chars };
     rememberPersistFailure(t.taskId, chars, reason);
   }
+}
+
+/**
+ * Last resort after a quota failure: free room by dropping the oldest OTHER builds, then write once more.
+ * True when the retry landed.
+ *
+ * Deliberately narrow, because the obvious version of this is destructive. It refuses a payload larger
+ * than one build's whole allowance (nothing we could delete would make that fit, so deleting is pure
+ * loss); it never touches the build being written; it makes ONE attempt; and after a failure it stands
+ * down for a minute. The budget enforced on the way in is what should keep this from ever running —
+ * it exists for the quota this code does not control, e.g. storage shared with something else on the
+ * origin, or a browser stricter than the numbers above assume.
+ */
+function retryAfterEviction(taskId: string, json: string, chars: number): boolean {
+  if (chars > PER_BUILD_CAP || Date.now() < _nextEvictRetryAt) return false;
+  const idx = threadIndex().filter((e) => e.id !== taskId);
+  if (!idx.length) return false;
+  _nextEvictRetryAt = Date.now() + EVICT_RETRY_COOLDOWN_MS;
+  // Free at least what this write needs, oldest first.
+  let freed = 0;
+  while (idx.length && freed < chars) {
+    const gone = idx.shift()!;
+    freed += gone.n;
+    try {
+      localStorage.removeItem(THREAD_KEY(gone.id));
+    } catch {
+      return false;
+    }
+  }
+  // The index is written HERE, before the retry, because these builds are already gone. Leaving it for
+  // the success path meant that a retry which failed anyway left the index still listing payloads that
+  // no longer existed — so the next failure "evicted" the same dead entries, freed nothing, and could
+  // repeat that forever while believing it had made room.
+  try {
+    localStorage.setItem(THREAD_INDEX, JSON.stringify(idx));
+  } catch {
+    /* the index write failing is survivable: the sweep on next load reconciles */
+  }
+  try {
+    localStorage.setItem(THREAD_KEY(taskId), json);
+    _lastPersisted = json;
+    idx.push({ id: taskId, n: chars });
+    localStorage.setItem(THREAD_INDEX, JSON.stringify(evictToBudget(idx, taskId)));
+    if (persistDegraded.value) persistDegraded.value = null;
+    return true;
+  } catch {
+    return false; // caller falls through to the banner + the report for the next request
+  }
+}
+
+/**
+ * What the browser is currently holding, for the dev panel.
+ *
+ * Exists because of how the quota failure that prompted all of this had to be diagnosed: the only
+ * number anyone could get was the one the failed write happened to report to the run timeline, and
+ * three separate theories were argued before a user pasted a console expression to settle it. The size
+ * of the cache is not a mystery that needs an investigation — it is a number, and this is where to
+ * look at it.
+ */
+export function storageReadout(): { total: number; budget: number; builds: ThreadIndexEntry[] } {
+  const builds = threadIndex().slice().reverse(); // most recently written first
+  return { total: builds.reduce((n, e) => n + e.n, 0), budget: TOTAL_BUDGET, builds };
 }
 
 /** Restore + reconcile a persisted thread for reopening `taskId`, or null if none/corrupt. */
@@ -1052,6 +1206,9 @@ if (typeof localStorage !== 'undefined') {
     window.addEventListener('beforeunload', persistThreadImmediately);
   }
 
+  // Reclaim what earlier versions stranded (and any orphan of our own) before the first write of the
+  // session, so a browser that is already full does not fail this session's writes over dead payloads.
+  sweepOrphanThreadKeys();
   void restoreLastTask();
 }
 

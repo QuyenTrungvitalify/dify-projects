@@ -15,6 +15,7 @@ import { useEffect, useState } from 'preact/hooks';
 import type { WireTask, WirePhaseCost } from '../types';
 import { cachePct, fmt, diagnose, classify, shares, ls } from '../lib/dev';
 import { api } from '../api';
+import { storageReadout } from '../store';
 import { Twist } from './Sidebar'; // the same chevron twisty the sidebar tree-rows use
 
 const PHASES: Array<WirePhase> = ['analyze', 'spec', 'implement', 'test'];
@@ -142,6 +143,11 @@ export function DevPanel({ task }: { task: WireTask }) {
         ) : (
           <div className="dev-empty">no per-phase cost yet (phase in progress, or pre-059 build)</div>
         ))}
+      {/* What this browser is holding for the builder, and how close that is to the budget the writer
+          enforces. Here because the last time storage filled up, the size of the cache took three
+          rounds of argument and a pasted console expression to establish — a number nobody can see is
+          a number nobody can act on. Read straight off the index; no storage writes. */}
+      {!collapsed && <StorageRow />}
       {/* spec 078 S2 — the self-harvest promote nudge. Dev-surface by construction: this panel only
           mounts under devMode (App.tsx), and the hint is a separate wire field, never a chat note. */}
       {!collapsed && task.promoteHint && (
@@ -170,6 +176,31 @@ export function DevPanel({ task }: { task: WireTask }) {
           <span className="dev-diag-arrow">→</span>
           <span className="dev-diag-lever">{diag.lever}</span>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** Cache size vs the budget, plus the builds paying for it. `M`/`k` because the exact digit never
+ *  matters here — the question is always "is this near the ceiling, and which build is the weight". */
+function StorageRow() {
+  const { total, budget, builds } = storageReadout();
+  const short = (n: number): string => (n >= 100_000 ? `${(n / 1_000_000).toFixed(2)}M` : `${Math.round(n / 1000)}k`);
+  const pct = budget > 0 ? Math.round((100 * total) / budget) : 0;
+  const top = builds.slice().sort((a, b) => b.n - a.n).slice(0, 3);
+  return (
+    <div className={`dev-diag dev-diag--${pct >= 90 ? 'slow' : 'balanced'}`}>
+      <span className="dev-diag-tag">cache</span>
+      <span className="dev-diag-phase">
+        {short(total)} / {short(budget)} ({pct}%) · {builds.length} build{builds.length === 1 ? '' : 's'}
+      </span>
+      {top.length > 0 && (
+        <>
+          <span className="dev-diag-arrow">→</span>
+          <span className="dev-diag-lever" title={top.map((b) => `${b.id} ${b.n.toLocaleString()} chars`).join('\n')}>
+            {top.map((b) => `…${b.id.slice(-6)} ${short(b.n)}`).join(' · ')}
+          </span>
+        </>
       )}
     </div>
   );

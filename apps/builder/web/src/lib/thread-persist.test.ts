@@ -2,7 +2,17 @@
 // stale unresolved gate so a build that advanced/finished while the tab was closed can't render phantom
 // live buttons for a passed phase).
 import { describe, it, expect } from 'vitest';
-import { serializeThread, parseThread, hydrateForReopen, capRunOutput, RUN_OUTPUT_CAP } from './thread-persist';
+import {
+  serializeThread,
+  serializeThreadCapped,
+  parseThread,
+  hydrateForReopen,
+  capRunOutput,
+  RUN_OUTPUT_CAP,
+  PER_BUILD_CAP,
+  TRIM_MAX_PAIRS,
+} from './thread-persist';
+import { gateView } from '../components/Chat';
 import type { LiveThreadItem } from '../store';
 import type { WireTask } from '../types';
 
@@ -158,5 +168,160 @@ describe('a qa item keeps its cost read-out across a reload', () => {
     const qa = back?.[0] as { cost?: { model?: string; cacheReadTokens?: number } };
     expect(qa.cost?.model).toBe('claude-opus-5');
     expect(qa.cost?.cacheReadTokens).toBe(15_600);
+  });
+});
+
+/**
+ * What a gate card is allowed to cost in storage.
+ *
+ * A gate item holds a whole `WireTask`, and `GET /api/tasks/:id` returns a FATTER task than the SSE
+ * broadcast does — it staples on the phase transcript (`runs`), the last ask exchange, and the
+ * per-attempt costs. Every gate refetches once, so every persisted gate card was carrying a copy of
+ * all three. Measured on the build where this was found: 35 gates × up to 48k of `runs` and 88k of
+ * `lastAsk` = ~2.2M characters of duplicated log, against a quota of roughly 2.6M.
+ *
+ * The two tests below guard the same rule from both ends, and the second is the one that survives:
+ * names go stale (the next heavy field will be called something else), a size assertion does not.
+ */
+describe('a persisted gate snapshot keeps only what SSE sends', () => {
+  const fatSnapshot = (): WireTask =>
+    snap({
+      artifactContents: { spec: '# spec' },
+      runs: [{ ts: 1, phase: 'implement', output: 'x'.repeat(48_000) }],
+      runsDropped: 4,
+      runCosts: [{ phase: 'implement', at: 1, cost: { model: 'm' } }],
+      lastAsk: { q: 'why?', a: 'y'.repeat(80_000), ok: true },
+      chat: [{ role: 'user', text: 'hi' }],
+    } as unknown as Partial<WireTask>);
+
+  it('drops every field the GET adds, and keeps the ones the card renders', () => {
+    const items: LiveThreadItem[] = [{ id: 'g', kind: 'gate', phase: 'spec', snapshot: fatSnapshot() }];
+    const stored = (JSON.parse(serializeThread(items)) as { snapshot: Record<string, unknown> }[])[0].snapshot;
+    for (const k of ['artifactContents', 'runs', 'runsDropped', 'runCosts', 'lastAsk', 'chat']) {
+      expect(stored, `GET-only field survived: ${k}`).not.toHaveProperty(k);
+    }
+    expect(stored.taskId).toBe('T1');
+    expect(stored.phase).toBe('spec');
+    expect(stored.status).toBe('awaiting_confirm');
+  });
+
+  it('renders IDENTICALLY after a round-trip — the card is the thing that must not change', () => {
+    // Asserted through `gateView` rather than by listing field names: the card is rendered by handing
+    // the whole task to gateView/GateActions/terminalFootActions, so the honest question is not "which
+    // keys survived" but "does the card still say the same thing".
+    const before = fatSnapshot();
+    const items: LiveThreadItem[] = [{ id: 'g', kind: 'gate', phase: 'spec', snapshot: before }];
+    const after = (parseThread(serializeThread(items)) as (LiveThreadItem & { kind: 'gate' })[])[0].snapshot;
+    expect(gateView(after)).toEqual(gateView(before));
+  });
+
+  it('35 gate cards stay under a quarter-million characters (the mechanical half of the rule)', () => {
+    const items: LiveThreadItem[] = Array.from({ length: 35 }, (_, i) => ({
+      id: `g${i}`, kind: 'gate', phase: 'implement', snapshot: fatSnapshot(), resolved: 'Continued',
+    }));
+    expect(serializeThread(items).length).toBeLessThan(250_000);
+  });
+});
+
+/**
+ * A question was stored twice: once as the `user` bubble, once as the `qa`'s `question` — because that
+ * is how the pair is pushed. On the build that broke the quota the second copy was 874k characters, a
+ * fifth of everything stored. It is now written once and rebuilt on read; the round-trip has to be
+ * exact, because `backfillFromTranscript` matches exchanges BY QUESTION TEXT and a blank one there
+ * would make the disk transcript look entirely missing — appending the whole conversation a second time.
+ */
+describe('a question is stored once, not twice', () => {
+  const pair: LiveThreadItem[] = [
+    { id: 'u', kind: 'user', text: 'why iteration?' },
+    { id: 'q', kind: 'qa', question: 'why iteration?', answer: 'because N items', done: true },
+  ];
+
+  it('writes the text once and rebuilds it on read', () => {
+    const json = serializeThread(pair);
+    expect(json.split('why iteration?').length - 1).toBe(1); // once, not twice
+    expect(parseThread(json)).toEqual(pair); // and the caller cannot tell
+  });
+
+  it('keeps `question` when it is NOT the bubble above (a rebuilt consult chat, where it is empty)', () => {
+    const items: LiveThreadItem[] = [
+      { id: 'u', kind: 'user', text: 'what the user typed' },
+      { id: 'q', kind: 'qa', question: '', answer: 'an answer', done: true },
+    ];
+    expect(parseThread(serializeThread(items))).toEqual(items);
+  });
+
+  it('a payload written before the omission existed is never overwritten', () => {
+    const legacy = JSON.stringify([
+      { id: 'u', kind: 'user', text: 'typed text' },
+      { id: 'q', kind: 'qa', question: 'a DIFFERENT question', answer: 'a', done: true },
+    ]);
+    const back = parseThread(legacy) as (LiveThreadItem & { kind: 'qa' })[];
+    expect(back[1].question).toBe('a DIFFERENT question');
+  });
+
+  it('a qa with no bubble above it survives with an empty question rather than a crash', () => {
+    const orphan = JSON.stringify([{ id: 'q', kind: 'qa', answer: 'a', done: true }]);
+    const back = parseThread(orphan) as (LiveThreadItem & { kind: 'qa' })[];
+    expect(back[0].question).toBe(''); // the two readers of `question` both call .trim() on it
+  });
+});
+
+/**
+ * The size cap, and the direction it cuts in.
+ *
+ * PREFIX-keeping is the whole design: `GET /api/tasks/:id/chat` serves back the LAST 50 exchanges, so
+ * the tail is a cache and the head is the only copy. Cutting the tail is undone by the backfill in the
+ * right order; cutting the head would be silent, permanent loss.
+ */
+describe('serializeThreadCapped — cuts the end, never the start', () => {
+  const exchange = (n: number, size: number): LiveThreadItem[] => [
+    { id: `u${n}`, kind: 'user', text: `q${n} ` + 'x'.repeat(size) },
+    { id: `q${n}`, kind: 'qa', question: `q${n} ` + 'x'.repeat(size), answer: 'a'.repeat(size), done: true },
+  ];
+  const long = (count: number, size = 1_000): LiveThreadItem[] =>
+    Array.from({ length: count }, (_, i) => exchange(i, size)).flat();
+
+  it('fits the cap by dropping whole exchanges off the END', () => {
+    const items = long(30);
+    const { json, droppedPairs } = serializeThreadCapped(items, 20_000);
+    expect(json.length).toBeLessThanOrEqual(20_000);
+    expect(droppedPairs).toBeGreaterThan(0);
+    const kept = parseThread(json)!;
+    expect(kept[0].id).toBe('u0'); // the OLDEST exchange is the one that stays
+    expect(kept.map((i) => i.id)).not.toContain('q29');
+  });
+
+  it('never leaves a question bubble whose answer was cut (the backfill would restore it twice)', () => {
+    const kept = parseThread(serializeThreadCapped(long(30), 20_000).json)!;
+    const last = kept[kept.length - 1];
+    expect(last.kind).not.toBe('user');
+  });
+
+  it('ALWAYS keeps the exchange still in flight — the transcript has not recorded it yet', () => {
+    const items = [
+      ...long(30),
+      { id: 'u-live', kind: 'user', text: 'the question being answered right now' },
+      { id: 'q-live', kind: 'qa', question: 'the question being answered right now', answer: 'partial', done: false },
+    ] as LiveThreadItem[];
+    const kept = parseThread(serializeThreadCapped(items, 20_000).json)!;
+    expect(kept.map((i) => i.id)).toEqual(expect.arrayContaining(['u-live', 'q-live']));
+    expect(kept[0].id).toBe('u0'); // and it is still a prefix + the live pair, not a tail window
+  });
+
+  it('stops cutting at TRIM_MAX_PAIRS even if that means exceeding the cap', () => {
+    // Past the backend's 50-exchange window, cutting stops being a cache eviction and starts being data
+    // loss — so the trimmer gives up and hands the problem to the caller (which frees space by evicting
+    // OTHER builds) rather than quietly deleting history no one else has.
+    const items = long(120, 2_000);
+    const { json, droppedPairs } = serializeThreadCapped(items, 10_000);
+    expect(droppedPairs).toBe(TRIM_MAX_PAIRS);
+    expect(json.length).toBeGreaterThan(10_000);
+  });
+
+  it('leaves a thread that already fits completely alone', () => {
+    const items = long(3);
+    const { json, droppedPairs } = serializeThreadCapped(items, PER_BUILD_CAP);
+    expect(droppedPairs).toBe(0);
+    expect(json).toBe(serializeThread(items));
   });
 });
