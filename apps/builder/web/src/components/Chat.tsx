@@ -371,6 +371,9 @@ export function gateView(t: WireTask): GateView {
       const lines = [tr('gateAnalyzeSummary1'), tr('gateAnalyzeSummary2')];
       if (t.patternAdvisory) lines.unshift(localizeNotes(t.patternAdvisory));
       if (t.analysisPattern) lines.unshift(tf('gatePattern', { pattern: t.analysisPattern }));
+      // Spec 111 — LAST unshift, so it leads: which pattern ① picked is routine, a file nothing
+      // checked is not. Same placement as the ② and ③ cards below.
+      if (t.strayNote) lines.unshift(t.strayNote);
       return { tone: '', badge: tr('gateAnalyzeBadge'), title: tr('gateAnalyzeTitle'), meta, summary: lines };
     }
     case 'spec': {
@@ -384,6 +387,9 @@ export function gateView(t: WireTask): GateView {
       // so the human sees "non-trivial shape — review" before confirming the (possibly under-built) spec.
       const lines = [tr('gateSpecSummary1')];
       if (t.fastReviewNote) lines.unshift(t.fastReviewNote);
+      // Spec 111 — the ② gate is exactly where this was invisible: on run 1787544155222 the "spec"
+      // turns rewrote main.yml + appScript.js and this card said nothing about it.
+      if (t.strayNote) lines.unshift(t.strayNote);
       return { tone: t.fastReviewNote ? 'warn' : '', badge: tr('gateSpecBadge'), title: tr('gateSpecTitle'), meta,
         summary: lines, showSpecLink: true };
     }
@@ -392,6 +398,7 @@ export function gateView(t: WireTask): GateView {
       // precedent at the Analyze gate above) — backend-computed string, rendered as-is.
       const implLines = slugLine([tr('gateImplSummary1')]);
       if (t.preflightNote) implLines.unshift(localizeNotes(t.preflightNote));
+      if (t.strayNote) implLines.unshift(t.strayNote); // spec 111 — rides every ③ branch below
       // Spec 094 S1: a round that changed nothing gets its own badge and LEADS the summary — the
       // measured failure was that it looked exactly like a round that fixed two bugs, so the user
       // re-imported an unchanged file. `=== true` on purpose: `undefined` means "not measured".

@@ -462,6 +462,14 @@ export interface Task {
   // Spec 028 §5: set when an `auto`+fast build's merged draft found a NON-single-LLM shape (features
   // ⊄ {llm}, or absent) — the auto-advance hard-stops at the Spec gate and surfaces this note.
   fastReviewNote?: string;
+  // Spec 111 + 108 S5 — file edits the phase's own verify did not cover, as one user-facing sentence
+  // (or absent when there were none): files under `projects/` OUTSIDE this build's folder, and — on a
+  // ①/② turn — the build's own `workflows/*.yml`. Workflow ymls carry a lint verdict inline, graded
+  // with the same four linters ③ runs. ADVISORY: it never fails a phase and nothing is reverted.
+  // Recomputed every turn, so it always describes the last round only. It exists because `git status`
+  // — what the confinement check reads — is blind inside `projects/_drafts/` (gitignored wholesale),
+  // which is where nearly every real build runs.
+  strayNote?: string;
   // Spec 012: repo-relative paths of images attached via the composer (saved under
   // `.runs/<taskId>/uploads/`). The orchestrator injects these paths into the turn prompt so the turn
   // can `Read` them. Appended across turns (create + each reply); lives/dies with the task dir.
