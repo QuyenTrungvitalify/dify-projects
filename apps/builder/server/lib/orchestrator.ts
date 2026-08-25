@@ -111,7 +111,23 @@ export async function startTask(task: Task, ctx: OrchestratorCtx): Promise<void>
   // routes through the same `runPhaseAndGate('analyze')` the seeded path uses, so it gets the Analyze gate
   // + report card in every mode. Only Fast (028) still starts at Spec (the merged `draft.md`). SEEDED builds
   // keep their full Analyze turn (seed summary/change_points) + gain the overview on top (055 D4).
-  const startPhase: 'analyze' | 'spec' = task.fastMode ? 'spec' : 'analyze';
+  // Spec 105 — a build on a workflow that already has BOTH an analysis and a spec starts at ③: there
+  // is nothing for ① to read that is not on disk, and nothing for ② to write that is not already
+  // written. `createTask` resolved this from the files (`resolveStartPhase`), so by here it is a value,
+  // not a condition to re-derive.
+  const startPhase: 'analyze' | 'spec' | 'implement' =
+    task.startPhase === 'implement' ? 'implement' : task.fastMode ? 'spec' : 'analyze';
+  if (startPhase === 'implement') {
+    // ④ grades against the acceptance criteria ② normally persists on its way past. Skipping ② must
+    // not silently cost the rubric — the existing SPEC.md has the criteria, so read them from there.
+    // Non-fatal by the same contract as its ② call site: a build with no rubric degrades to a smoke
+    // test, and that degradation is reported rather than assumed (runnability/live-test).
+    try {
+      await persistCriteria(ctx.projectsDir, task, join(ctx.projectsDir, specRelFor(task.project!, task.workflowSlug!)));
+    } catch (e) {
+      ctx.log.warn({ taskId: task.taskId, err: errMsg(e) }, 'start-at-implement: could not persist criteria');
+    }
+  }
   await runPhaseAndGate(task, startPhase, ctx);
   if (isCancelled(task.taskId)) return;
   await maybeAutoAdvance(task, ctx);

@@ -443,6 +443,10 @@ export interface Task {
   specEdits?: number;
   /** Spec 094 S1 — sha256 of the artifact as of the last measured ③ verify. Compared with
    *  {@link importedHash} to tell the ④ gate whether the file on disk is the one already imported. */
+  /** Spec 105 — the phase this build STARTED at, `undefined` on every build that began at ①. Read by
+   *  `/restore` (rewinding to a phase that never ran would raise a gate for work nobody did) and by the
+   *  phase track, which must not tick ① and ② as done for a build that skipped them. */
+  startPhase?: Phase;
   artifactHash?: string | null;
   /** Spec 105 — the same idea for `SPEC.md`, and it exists for the same reason: undo restores BOTH
    *  files into a path several tasks legitimately share, so BOTH need a "still what this task left"
@@ -499,8 +503,47 @@ export function toWireTask(task: Task): Task & WireExtras {
   return { ...task, liveTargets: { selfhost: !!difyTargets().selfhost } };
 }
 
+/**
+ * Spec 105 — where a build STARTS.
+ *
+ * ① analyses a workflow and ② writes the document that describes it. Running both on a workflow that
+ * already HAS an analysis and a spec is not caution, it is two paid turns spent re-deriving what is on
+ * disk — and the user watching ① 分析 spin on their own finished workflow reads it, correctly, as the
+ * app not understanding what they asked for.
+ *
+ * The distinction needed here is not "is this an edit" — the base door serves two different things
+ * through one entrance:
+ *
+ *   · a workflow this Builder made — `SPEC.md` beside `workflows/*.yml`, both describing the same
+ *     thing. There is nothing left to analyse or to spec. Start at ③.
+ *   · a YAML someone handed over — imported through `POST /api/bases`, which writes the file and NO
+ *     spec. Nobody has read it yet, and the document that would explain it does not exist. Start at ①.
+ *
+ * So the presence of BOTH artifacts is the signal, and it self-selects: no chip to set, no state to
+ * remember, and an imported base keeps today's behaviour exactly. `requested` exists for the API and
+ * for tests; it can only ever narrow, never widen — a caller cannot ask to skip ① on a workflow that
+ * has no spec to skip it WITH.
+ *
+ * PURE: the caller answers the two filesystem questions.
+ */
+export function resolveStartPhase(opts: {
+  /** an edit-existing target was chosen (`workflow` on the create body), not a from-scratch build. */
+  editingExisting: boolean;
+  hasSpec: boolean;
+  hasWorkflowFile: boolean;
+  /** an explicit `start_phase` off the wire; anything unrecognised is ignored rather than guessed. */
+  requested?: string | null;
+}): Phase {
+  const ready = opts.editingExisting && opts.hasSpec && opts.hasWorkflowFile;
+  if (opts.requested === 'analyze') return 'analyze'; // "re-read it from scratch" is always allowed
+  if (opts.requested === 'implement') return ready ? 'implement' : 'analyze';
+  return ready ? 'implement' : 'analyze';
+}
+
 export interface CreateTaskInput {
   requirement: string;
+  /** spec 105 — public `start_phase`; only ever narrows what {@link resolveStartPhase} already allows. */
+  startPhase?: string | null;
   /** new-workflow path uses "main.yml"; accepted for forward-compat. */
   workflowFile?: string;
   /** existing-workflow name → edit-existing; omitted/"none" → new workflow. */
@@ -623,8 +666,15 @@ export function restoreTargetPhase(phase: Phase): Phase | null {
  * exactly like the standard first phase (`analyze`). Every other case (standard build, OR a fast build
  * cancelled at 'implement' where the scaffold already set the slug) falls through to `restoreTargetPhase`.
  */
-export function restoreTargetPhaseFor(task: Pick<Task, 'fastMode' | 'phase' | 'workflowSlug'>): Phase | null {
+export function restoreTargetPhaseFor(
+  task: Pick<Task, 'fastMode' | 'phase' | 'workflowSlug' | 'startPhase'>
+): Phase | null {
   if (task.fastMode && task.phase === 'spec' && !task.workflowSlug) return null;
+  // Spec 105, same shape one phase over: a build that STARTED at ③ has no ② behind it, so rewinding
+  // one boundary would raise a Spec gate for a turn that never ran — offering 「この仕様で実装」 over a
+  // document nobody wrote in this build, and inviting a paid ② the human never asked for. Reopen it
+  // retryable instead, exactly as the fast path does for its own missing predecessor.
+  if (task.startPhase === 'implement' && task.phase === 'implement') return null;
   return restoreTargetPhase(task.phase);
 }
 
@@ -722,6 +772,10 @@ export async function createTask(projectsDir: string, input: CreateTaskInput): P
   // merged turn's `.runs/`-only artifact path + confinement whitelist to the nested workflow subtree).
   // A `project` target does NOT force it off (like the retired group): it names the folder, not the shape.
   const fastMode = normalizeFastMode(input.fast) && !workflow && !workflowSlug && !seedAppId;
+  // Spec 105 — the caller resolved this from disk (`resolveStartPhase`); anything else is ignored
+  // rather than guessed, and `fastMode` yields to it: 'implement' means the spec already exists, which
+  // is the one thing the merged draft turn is for producing.
+  const startPhase: Phase = input.startPhase === 'implement' && workflow ? 'implement' : 'analyze';
   // Spec 036 D3/N3: `deploy` + `testMode` are NO LONGER start-bound — createTask defaults them and stops
   // reading `input.deploy`/`input.testMode`. They are (re)stamped at GATE-time from what creds are
   // reachable: 'selfhost'/'live' on a `test_live` dispatch (implement gate) or the D5 done-state live
@@ -750,7 +804,10 @@ export async function createTask(projectsDir: string, input: CreateTaskInput): P
     // `langHint` is deliberately NOT seeded from the requirement: the requirement is already the last
     // rung of the resolve chain, so seeding would only duplicate it. The hint exists to carry what the
     // user typed AFTER the requirement into turns that carry no text of their own.
-    phase: 'analyze',
+    // Spec 105: a build that skips ① starts AT the phase it will run, so the phase track and the
+    // artifact tabs never show a step nobody took. `undefined` on every ordinary build.
+    startPhase: startPhase === 'analyze' ? undefined : startPhase,
+    phase: startPhase,
     status: 'running',
     name: input.name && input.name.trim() ? input.name.trim() : null,
     sessionIds: {},

@@ -22,7 +22,7 @@ import { join, dirname } from 'node:path';
 import { startTask, confirmAdvance, replyWithin, type OrchestratorCtx } from '../server/lib/orchestrator.js';
 import { acquireTurn, releaseTurn, markCancelled, unmarkCancelled } from '../server/lib/lock.js';
 import { canRequestFix, mayOpenProposal } from '../server/lib/gate.js';
-import { createTask, type Task } from '../server/state/task.js';
+import { createTask, resolveStartPhase, restoreTargetPhaseFor, type Task } from '../server/state/task.js';
 import { PHASES } from '../server/lib/phases.js';
 import { applyInitFake } from './helpers/scaffold-fake.js';
 import type { ClaudeSession, SessionLogger } from '../server/lib/claude-session.js';
@@ -365,6 +365,79 @@ describe('advance-loop integration (013 D3)', () => {
     assert.equal(task.specStale, true, 'still MEASURED — the gate card says so');
     assert.equal(task.status, 'done', 'but it does not stop an unattended build');
     assert.equal(h.calls.runReport, reportsBefore + 1);
+  });
+
+  // ── spec 105: a workflow that already has an analysis and a spec starts at ③ ──────────────────
+
+  test('resolveStartPhase — both artifacts present is the signal, and it self-selects', () => {
+    const R = (o: Partial<Parameters<typeof resolveStartPhase>[0]>) =>
+      resolveStartPhase({ editingExisting: true, hasSpec: true, hasWorkflowFile: true, ...o });
+
+    assert.equal(R({}), 'implement', 'a workflow this Builder made: nothing left to analyse or spec');
+    // An imported base is the case the full path exists FOR: `POST /api/bases` writes the YAML and no
+    // spec, so nobody has read it yet. Same door, different thing coming through it.
+    assert.equal(R({ hasSpec: false }), 'analyze', 'a YAML someone handed over');
+    assert.equal(R({ hasWorkflowFile: false }), 'analyze', 'a spec with no workflow beside it');
+    assert.equal(R({ editingExisting: false }), 'analyze', 'a from-scratch build is untouched');
+    // `requested` may narrow, never widen: nobody can ask to skip a phase whose output does not exist.
+    assert.equal(R({ requested: 'analyze' }), 'analyze', '"re-read it from scratch" is always allowed');
+    assert.equal(R({ hasSpec: false, requested: 'implement' }), 'analyze', 'cannot skip ② with no spec');
+    assert.equal(R({ requested: 'weird' }), 'implement', 'an unrecognised value is ignored, not guessed');
+  });
+
+  test('spec 105 — editing a specced workflow runs ONE turn, not three', async () => {
+    const dir = fixtureDir();
+    // A workflow as this Builder leaves them: the file, and the document describing it.
+    mkdirSync(join(dir, 'projects', '_drafts', 'specced', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects/_drafts/specced/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(join(dir, 'projects/_drafts/specced/SPEC.md'), '# Spec\n\n## Acceptance Criteria\n- it works\n');
+    const task = await createTask(dir, {
+      requirement: 'use the newest default model',
+      workflow: 'specced',
+      startPhase: 'implement', // what the route resolves from those two files
+      confirmMode: 'each_step',
+      deploy: 'none',
+    });
+    const h = harness(dir, task);
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    assert.equal(h.calls.runTurn, 1, 'only ③ ran — ① and ② had nothing left to derive');
+    assert.equal(task.phase, 'implement');
+    assert.equal(task.status, 'awaiting_confirm', 'parked at the Implement gate for the human');
+    const phasesSeen = new Set(h.events.map((e) => e.phase));
+    assert.deepEqual([...phasesSeen], ['implement'], 'no ①/② gate was ever emitted');
+    // ④ grades against the criteria ② normally persists on the way past; skipping ② must not cost them.
+    assert.ok(task.artifacts.criteria, 'the rubric came from the existing SPEC.md');
+  });
+
+  test('spec 105 — an imported YAML with no spec still runs the full path', async () => {
+    // `POST /api/bases` writes the workflow and NO spec, which is exactly the case ① and ② exist for.
+    // Same door as above; the difference is on disk, so nobody has to remember a setting.
+    const dir = fixtureDir();
+    mkdirSync(join(dir, 'projects', '_drafts', 'imported', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects/_drafts/imported/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    const task = await createTask(dir, {
+      requirement: 'clean this up',
+      workflow: 'imported',
+      startPhase: 'analyze', // what the route resolves when the spec is missing
+      confirmMode: 'auto',
+      deploy: 'none',
+    });
+    const h = harness(dir, task);
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    assert.equal(h.calls.runTurn, 3, 'analyze + spec + implement, as before');
+    assert.equal(task.startPhase, undefined, 'and it is not marked as having skipped anything');
+  });
+
+  test('spec 105 — a build that started at ③ reopens retryable, not at a Spec gate nobody ran', async () => {
+    const task = await createTask(fixtureDir(), { requirement: 'x', workflow: 'w', startPhase: 'implement', deploy: 'none' });
+    task.phase = 'implement';
+    assert.equal(restoreTargetPhaseFor(task), null, 'no ② behind it to rewind to');
+    // An ordinary build is untouched: its ② really did run.
+    assert.equal(restoreTargetPhaseFor({ ...task, startPhase: undefined }), 'spec');
   });
 
   // ── calibration: the harness itself ───────────────────────────────────────────────────────────

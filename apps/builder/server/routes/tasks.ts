@@ -30,6 +30,7 @@ import {
   loadTask,
   normalizeConfirmMode,
   normalizeModel,
+  resolveStartPhase,
   restoreTargetPhaseFor,
   sanitizeSlug,
   saveTask,
@@ -229,8 +230,26 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // NOT block this (turn-level lock) — that is the whole point of Lát 6.
     if (buildTurnBusy()) return reply.code(409).send(turnBusyError());
 
+    // Spec 105 — a workflow this Builder already analysed and specced has nothing left for ① and ② to
+    // derive; re-running them on it is two paid turns spent re-reading the disk. The signal is both
+    // artifacts being present, which self-selects: an imported base has the YAML and no spec, so it
+    // keeps the full path. The decision itself is pure (`resolveStartPhase`); only the two filesystem
+    // questions belong here.
+    const editTarget = (body.workflow as string | null | undefined)?.trim();
+    const editingExisting = !!editTarget && editTarget !== 'none';
+    const editDir = editingExisting
+      ? join(projectsDir, 'projects', sanitizeSlug(String(body.project ?? '').trim() || DRAFTS_PROJECT), sanitizeSlug(editTarget!))
+      : null;
+    const startPhase = resolveStartPhase({
+      editingExisting,
+      hasSpec: !!editDir && existsSync(join(editDir, 'SPEC.md')),
+      hasWorkflowFile: !!editDir && existsSync(join(editDir, 'workflows', wfRaw || 'main.yml')),
+      requested: (body.start_phase ?? body.startPhase) as string | null | undefined,
+    });
+
     const task = await createTask(projectsDir, {
       requirement,
+      startPhase,
       workflow: (body.workflow as string | null | undefined) ?? null,
       // Accept the spec's public `confirm_mode` (verbose) AND the internal token; normalized in createTask.
       confirmMode: (body.confirm_mode ?? body.confirmMode) as string | undefined,
