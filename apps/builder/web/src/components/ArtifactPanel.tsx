@@ -14,6 +14,7 @@ import { specDiffState } from '../lib/diff-parser';
 import { renderMarkdownHtml } from '../lib/markdown';
 import { activeTocIndex, tocSelector, yamlAnchors, type TocEntry } from '../lib/artifact-toc';
 import { t as tr, tAction, tf, lang, localizeNotes } from '../lib/i18n';
+import { api } from '../api';
 import type { ArtifactTab, WireTask, WireArtifacts, FileChange } from '../types';
 
 const EXPANDED_KEY = 'builder.artifactExpanded';
@@ -286,7 +287,12 @@ function SpecTab({ task, content, onSave, onDecide }: {
   );
 }
 
-function YamlTab({ yaml, report, onReveal }: { yaml: string | null; report: ReportShape | null; onReveal: () => void }) {
+function YamlTab({ yaml, report, taskId, onReveal }: {
+  yaml: string | null;
+  report: ReportShape | null;
+  taskId: string;
+  onReveal: () => void;
+}) {
   const lint = report?.lint;
   const linters = lint
     ? [
@@ -295,15 +301,40 @@ function YamlTab({ yaml, report, onReveal }: { yaml: string | null; report: Repo
         { name: 'lint_plugin_hashes', code: lint.lint_plugin_hashes },
       ]
     : [];
+  // The file's ABSOLUTE path, for the "copy path" button beside Reveal-in-Finder — Finder hands you the
+  // file in a GUI, this hands you the string you paste into a terminal or an editor's open-file box.
+  //
+  // Fetched when the tab opens, NOT on click: a fetch sitting between the click and `writeText` is what
+  // a browser's transient-activation rule rejects, and the failure mode is a button that silently does
+  // nothing. Held in state, so the handler writes with no await in front of it.
+  //
+  // The path is computed server-side from the task (the same rule the reveal route follows — a client
+  // never names a path), and 404s until the workflow file is actually scaffolded. That 404 is a normal
+  // state, not an error: `null` simply means no button, rather than a button offering a path to nowhere.
+  const [path, setPath] = useState<string | null>(null);
+  const hasYaml = !!yaml;
+  useEffect(() => {
+    if (!hasYaml) return setPath(null);
+    let live = true;
+    void api.workflowPath(taskId).then(
+      (r) => { if (live) setPath(r.path); },
+      () => { if (live) setPath(null); },
+    );
+    return () => { live = false; };
+  }, [taskId, hasYaml]);
+
   // spec 016 D3: one-click Copy — essential for deploy=cloud (paste into Studio → Import DSL), useful
-  // for every deploy. Transient "Copied" feedback; clipboard failures (e.g. denied permission) no-op.
-  const [copied, setCopied] = useState(false);
-  const copyYaml = async (): Promise<void> => {
-    if (!yaml) return;
+  // for every deploy. Transient feedback; clipboard failures (e.g. denied permission) no-op.
+  // ONE flash state for both buttons: two independent booleans would let both read "copied" at once
+  // after a quick double-press, which is the one moment the label has to say which thing you took.
+  const [flash, setFlash] = useState<'yaml' | 'path' | null>(null);
+  const copy = async (what: 'yaml' | 'path', text: string | null): Promise<void> => {
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(yaml);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      await navigator.clipboard.writeText(text);
+      setFlash(what);
+      // Guarded: a later press of the OTHER button must not have its label cleared by this timer.
+      setTimeout(() => setFlash((f) => (f === what ? null : f)), 1500);
     } catch {
       /* clipboard blocked — leave the button idle */
     }
@@ -320,9 +351,23 @@ function YamlTab({ yaml, report, onReveal }: { yaml: string | null; report: Repo
               title={tr('revealInFinder')} aria-label={tr('revealInFinder')}>
               <I.folder style={{ width: 12, height: 12 }} />{tr('revealInFinder')}
             </button>
-            <button className={'cb-copy' + (copied ? ' copied' : '')} onClick={() => void copyYaml()}
-              title={tr('copyYaml')} aria-label={tr('copyYaml')}>
-              {copied
+            {/* Next to Reveal, not next to Copy: both of these answer "where is this file", while Copy
+                answers "give me what is in it". The tooltip carries the full path, so hovering tells you
+                what you are about to take. */}
+            {path && (
+              <button className={'cb-reveal' + (flash === 'path' ? ' copied' : '')}
+                onClick={() => void copy('path', path)}
+                title={path} aria-label={tr('copyPathHint')}>
+                {flash === 'path'
+                  ? <><I.check style={{ width: 12, height: 12 }} />{tr('pathCopied')}</>
+                  : <><I.copy style={{ width: 12, height: 12 }} />{tr('copyPath')}</>}
+              </button>
+            )}
+            {/* The visible label stays the bare "Copy" a code block always carries; the tooltip is what
+                disambiguates it from the path button now standing beside it. */}
+            <button className={'cb-copy' + (flash === 'yaml' ? ' copied' : '')} onClick={() => void copy('yaml', yaml)}
+              title={tr('copyYamlHint')} aria-label={tr('copyYamlHint')}>
+              {flash === 'yaml'
                 ? <><I.check style={{ width: 12, height: 12 }} />{tr('copied')}</>
                 : <><I.copy style={{ width: 12, height: 12 }} />{tr('copyYaml')}</>}
             </button>
@@ -705,7 +750,7 @@ export function ArtifactPanel({ task, tab, setTab, available, onClose, onSaveSpe
           {activeTab === 'spec' && (
             <SpecTab task={task} content={art.spec ?? ''} onSave={onSaveSpec} onDecide={onProposalDecide} />
           )}
-          {activeTab === 'yaml' && <YamlTab yaml={art.yaml} report={report} onReveal={onReveal} />}
+          {activeTab === 'yaml' && <YamlTab yaml={art.yaml} report={report} taskId={task.taskId} onReveal={onReveal} />}
           {activeTab === 'diff' && <DiffTab diff={art.diff} specDiff={art.specDiff ?? null} />}
           {activeTab === 'report' && <ReportTab report={report} onReveal={onReveal} />}
         </div>

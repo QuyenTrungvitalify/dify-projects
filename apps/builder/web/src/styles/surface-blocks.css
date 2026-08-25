@@ -1247,16 +1247,22 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .codeblock .cb-head .cb-name { color: var(--tx-1); }
 .codeblock .cb-head .cb-lang { margin-left: auto; color: var(--tx-faint); }
-/* Copy-YAML + Reveal-in-Finder buttons — sit at the right of the code header after the line count. */
+/* Reveal-in-Finder + Copy-path + Copy-contents — sit at the right of the code header after the line
+   count. `nowrap` + no shrink because a three-button row in a narrow panel would otherwise break a
+   label across two lines and take the header's height with it; the line count yields space first. */
 .codeblock .cb-head .cb-copy,
 .codeblock .cb-head .cb-reveal {
   display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
   background: transparent; border: 1px solid var(--border); border-radius: 7px;
   padding: 3px 8px; color: var(--tx-2); font-family: var(--sans); font-size: 11px;
+  white-space: nowrap; flex-shrink: 0;
 }
 .codeblock .cb-head .cb-copy:hover,
 .codeblock .cb-head .cb-reveal:hover { border-color: var(--border-strong); color: var(--tx-1); }
-.codeblock .cb-head .cb-copy.copied { border-color: var(--ok-dim); color: var(--ok); }
+/* The copied-flash is on BOTH: the path button is a .cb-reveal (it belongs with Finder, not with the
+   contents copy), and without this it would confirm a copy in the same grey it had before the click. */
+.codeblock .cb-head .cb-copy.copied,
+.codeblock .cb-head .cb-reveal.copied { border-color: var(--ok-dim); color: var(--ok); }
 .codeblock .cb-head .cb-copy svg,
 .codeblock .cb-head .cb-reveal svg { width: 12px; height: 12px; }
 .codeblock pre { margin: 0; padding: 12px 14px; overflow-x: auto; line-height: 1.65; color: var(--tx-2); }

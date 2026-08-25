@@ -186,6 +186,10 @@ export const api = {
   /** POST /api/tasks/:id/reveal → open the OS file manager (Finder) at the task's workflow YAML. */
   reveal: (id: string): Promise<{ ok: boolean; path: string }> =>
     request('POST', `/api/tasks/${encodeURIComponent(id)}/reveal`),
+  /** GET /api/tasks/:id/workflow-path → the absolute path of the task's workflow YAML, no side effect
+   *  (the reveal POST spawns Finder; this one just answers). 404 until the file is scaffolded. */
+  workflowPath: (id: string): Promise<{ path: string }> =>
+    request('GET', `/api/tasks/${encodeURIComponent(id)}/workflow-path`),
   /** spec 062 follow-up: POST /api/tasks/:id/export-drive → upload the run dossier zip to the team Drive
    *  (exports/). 409 (no drop configured) → the caller falls back to the plain download. */
   exportToDrive: (id: string): Promise<{ ok: boolean; path?: string; unconfirmed?: boolean }> =>

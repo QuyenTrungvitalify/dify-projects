@@ -11,6 +11,18 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**Copy the workflow file's path, not just its contents**
+- The main.yml panel could hand you the file two ways — reveal it in Finder, or copy what is inside it —
+  and neither gives you the one thing a terminal, an editor's open-file box, or a message to a colleague
+  actually needs: the path as text. Reading it off the Finder title bar and retyping it was the workaround.
+- A third button, 「パスをコピー」, sits beside Finder rather than beside Copy: both answer *where is this
+  file*, while Copy answers *what is in it*. It copies the absolute path, and its tooltip shows the path
+  it will copy, so you can read it before you take it.
+- The button is absent — not disabled, not offering a dead string — until the workflow file exists on
+  disk. Before the Implement phase there is no path to give.
+- Copy keeps its one-word label (that is what a code block's copy button says everywhere), but its
+  tooltip now says 「ファイルの内容をコピー」, so the two are told apart on hover instead of by guessing.
+
 **The Workflow chip names the workflow you are actually editing**
 - Editing a workflow out of the sidebar's Build section arms a `_drafts` target, and the composer's
   Workflow dropdown excludes `_drafts` by design — so the chip had no option matching what it was

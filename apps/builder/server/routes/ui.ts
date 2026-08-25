@@ -372,6 +372,31 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
     return reply.send({ ok: true, path: out.path, unconfirmed: out.unconfirmed ?? false });
   });
 
+  // ── GET /api/tasks/:id/workflow-path — the ABSOLUTE path of the task's workflow YAML, as text.
+  //    The panel's "copy path" button: Reveal-in-Finder hands you the file in a GUI, this hands you the
+  //    string you paste into a terminal or an editor's open-file box.
+  //
+  //    Read-only, so a GET and no side effect — deliberately NOT a flag on the reveal POST, which exists
+  //    to spawn the file manager. Wanting the path is not wanting a window.
+  //
+  //    Same path computation and same 404 as reveal: server-side from the task (never a client path), and
+  //    absent until the file is actually scaffolded — the UI hides the button rather than offering a path
+  //    that leads nowhere. ──
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/workflow-path', async (req, reply) => {
+    if (!isTaskId(req.params.id)) return reply.code(400).send({ error: 'invalid task id' });
+    let task;
+    try {
+      task = await loadTask(projectsDir, req.params.id);
+    } catch {
+      return reply.code(404).send({ error: `no such task: ${req.params.id}` });
+    }
+    const abs = workflowPathFor(projectsDir, task);
+    if (!abs || !existsSync(abs)) {
+      return reply.code(404).send({ error: 'workflow file not on disk yet' });
+    }
+    return { path: abs };
+  });
+
   // ── POST /api/tasks/:id/reveal — open the OS file manager at the task's workflow YAML ("Reveal in
   //    Finder"). The path is computed SERVER-SIDE from the task (never a client path), so this can't
   //    reveal an arbitrary file; the launcher is spawned via execFile (no shell). Origin-checked by the

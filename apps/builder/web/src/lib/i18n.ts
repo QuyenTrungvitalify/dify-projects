@@ -562,10 +562,16 @@ const EN: Dict = {
   lintResults: 'Lint results',
   lintOk: 'ok',
   copyYaml: 'Copy',
+  /* The visible label stays the one word everyone expects on a code block; the TOOLTIP says which of the
+     two copyable things it means, now that a "Copy path" sits beside it. */
+  copyYamlHint: 'Copy the file contents',
   copied: 'Copied',
   /* the per-code-block copy button the markdown renderer emits (every fenced block, every surface) */
   copyCode: 'Copy this block',
   revealInFinder: 'Reveal in Finder',
+  copyPath: 'Copy path',
+  copyPathHint: 'Copy the full path of this file',
+  pathCopied: 'Path copied',
 
   /* diff tab */
   splitDiff: 'Split diff',
@@ -1069,9 +1075,13 @@ const JA: Dict = {
   lintResults: 'リンター結果',
   lintOk: 'ok',
   copyYaml: 'コピー',
+  copyYamlHint: 'ファイルの内容をコピー',
   copied: 'コピーしました',
   copyCode: 'このブロックをコピー',
   revealInFinder: 'Finderで開く',
+  copyPath: 'パスをコピー',
+  copyPathHint: 'このファイルのフルパスをコピー',
+  pathCopied: 'パスをコピーしました',
 
   /* diff tab */
   splitDiff: '分割差分',
