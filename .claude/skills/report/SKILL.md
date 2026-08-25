@@ -68,6 +68,13 @@ Use its output verbatim for: the node histogram + `histogram_delta` + `mode_matc
 
 Evaluate the phases **as a chain** — each phase vs the requirement, vs the previous phase (drift), AND vs its own transcript (process). Cite the file/transcript for every claim.
 
+> **First, check `task.json`'s `startPhase` (spec 105).** `"implement"` means this build EDITED a
+> workflow that already had an analysis and a spec, so ① and ② were skipped ON PURPOSE and neither
+> `analyze.json` nor a ②-written `SPEC.md` exists for this run. Grade steps 1–2 as **SKIPPED BY
+> DESIGN** — never as a miss — and say so in the scorecard (`phases.analyze.note`). The `SPEC.md` on
+> disk belongs to the EARLIER build; judge it only as ③'s input and as something ③ had to reconcile,
+> not as this run's ② output. Absent `startPhase` ⇒ an ordinary build; grade all four.
+
 1. **① Analyze.** Process: only wrote `analyze.json`, no workflow file. Output honest? from-scratch ⇒ `seed:null`, empty `nodes/var_flow/plugins`, no invented `find_query`/`change_points`. Does `analysisFeatures`/risks sensibly anticipate the requirement (an iteration-shaped ask should hint more than `["llm"]`)?
 2. **② Spec.** Process: searched the pattern library (trace), didn't mint IDs / write YAML. Output: node table covers **every `must_do`**? pattern justified and *reduced* when lean (good) vs over-/under-built? drift from analyze? open questions surfaced?
 3. **③ Implement.** Process: minted IDs via `generate_id.py`, ran all three validators (trace); any REAL mid-run fix? Output: YAML realizes the spec's node table **exactly** (node added/dropped silently = drift)? lint verdict (Step 4)? node IDs = 13-digit ms-timestamp **quoted** strings (§4.1)? every `{{#id.field#}}` ref names a declared upstream `outputs` field (§4.2)? runnability blockers: `model.provider/name` empty? sandbox-illegal code node (`matplotlib`/`requests` — §4.5)? unresolved `# TODO` hash?

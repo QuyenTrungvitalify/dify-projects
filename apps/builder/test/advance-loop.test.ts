@@ -16,7 +16,7 @@
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { startTask, confirmAdvance, replyWithin, type OrchestratorCtx } from '../server/lib/orchestrator.js';
@@ -63,6 +63,9 @@ interface Harness {
   /** spec 105: what the orchestrator asked the ③ check to measure, per call. A test asserting on a
    *  hard-stop can then prove the measurement was REQUESTED, not merely injected. */
   lastPostTurn: Array<{ artifactHashBefore?: string | null; specHashBefore?: string | null }>;
+  /** spec 105: the prompt text each turn was actually SENT. Counting turns proves ①② were skipped; only
+   *  reading the prompt proves the human's request survived the skipping. */
+  prompts: string[];
 }
 
 /** Spec 036: set the self-host console env for the (async) body, then restore it (node --test = one
@@ -95,12 +98,15 @@ function writeArtifact(task: Task, dir: string, o: Overrides, nth: number): void
   // edited"; now that is true rather than merely asserted.
   if (o.implementNoOp) return; // the agent read the workflow and changed nothing
   writeFileSync(abs, `workflow:\n  graph:\n    nodes: []\n# round ${nth}\n`);
-  // ③ also brings SPEC.md back in line with the workflow it just edited. On the FIRST implement ②
-  // has just written the spec for this very change, so there is nothing to reconcile and the document
-  // correctly does not move; on a later round it must. Modelling the well-behaved agent by default is
+  // ③ also brings SPEC.md back in line with the workflow it just edited. The ONE round where a
+  // well-behaved agent leaves it alone is a genuine first Implement, where ② has just written the spec
+  // for this very change — so there is nothing to reconcile and the document correctly does not move.
+  // A build that STARTED at ③ has no such ②: its SPEC.md describes the workflow from before the edit,
+  // so even round 1 must move it (spec 105). Modelling the well-behaved agent by default is
   // load-bearing: without it every fix round here measures as spec-stale, which is a verdict about
   // this fake rather than about the code under test.
-  if (nth > 1 && !o.implementSkipsSpecReconcile && task.project && task.workflowSlug) {
+  const specWasWrittenForThisRound = nth === 1 && task.startPhase !== 'implement';
+  if (!specWasWrittenForThisRound && !o.implementSkipsSpecReconcile && task.project && task.workflowSlug) {
     writeFileSync(join(dir, specRelFor(task.project, task.workflowSlug)), `# SPEC\nbuild it.\n# round ${nth}\n`);
   }
 }
@@ -110,14 +116,16 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
   const events: Harness['events'] = [];
   const reportDeploys: string[] = [];
   const lastPostTurn: Harness['lastPostTurn'] = [];
+  const prompts: string[] = [];
   let implementTurns = 0; // `calls.runTurn` counts every phase; the spec-reconcile rule needs ③'s own index
 
   const runTurn = async (
     _session: ClaudeSession,
-    _prompt: string,
+    prompt: string,
     _onSessionId?: (id: string) => void
   ): Promise<TurnResult> => {
     calls.runTurn++;
+    prompts.push(prompt);
     if (o.cancelDuringTurn === task.phase) markCancelled(task.taskId);
     // NB: we deliberately don't invoke `_onSessionId` — a real turn fires it on the init event, well
     // before the result; calling it synchronously here would race the awaited post-turn saveTask on
@@ -214,7 +222,7 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
     },
     runners: { runTurn, runPython, runReport, postTurnCheck },
   };
-  return { ctx, calls, events, reportDeploys, lastPostTurn };
+  return { ctx, calls, events, reportDeploys, lastPostTurn, prompts };
 }
 
 function fixtureDir(): string {
@@ -383,6 +391,11 @@ describe('advance-loop integration (013 D3)', () => {
     assert.equal(R({ requested: 'analyze' }), 'analyze', '"re-read it from scratch" is always allowed');
     assert.equal(R({ hasSpec: false, requested: 'implement' }), 'analyze', 'cannot skip ② with no spec');
     assert.equal(R({ requested: 'weird' }), 'implement', 'an unrecognised value is ignored, not guessed');
+    // A RECOGNISED phase the system cannot start at is a different thing from garbage: it is a caller
+    // asking for LESS skipping than the files allow. These fell through to the default and were
+    // answered with ③ — more skipping than asked for, the one direction this must never go.
+    assert.equal(R({ requested: 'spec' }), 'analyze', '"start at ② " must never be upgraded to ③');
+    assert.equal(R({ requested: 'test' }), 'analyze', 'nor may an unsupported start silently skip work');
   });
 
   test('spec 105 — editing a specced workflow runs ONE turn, not three', async () => {
@@ -432,10 +445,152 @@ describe('advance-loop integration (013 D3)', () => {
     assert.equal(task.startPhase, undefined, 'and it is not marked as having skipped anything');
   });
 
+  test('spec 105 — the edit request REACHES ③; skipping ② must not lose the ask', async () => {
+    // The whole point of the build. ② is the phase that turns the human's words into the document ③
+    // builds from — skip it and SPEC.md still describes the workflow from BEFORE the edit, while
+    // implement.md step 1 hands that file over as "the source of truth for what to build" and step 6
+    // calls a no-op "a correct outcome". `{{REQUIREMENT}}` is injected, but the skill spends it on
+    // WHICH LANGUAGE to write in, nothing more. So the turn ran, one turn, exactly as the count test
+    // asserts — and had been told to rebuild what was already there.
+    const dir = fixtureDir();
+    mkdirSync(join(dir, 'projects', '_drafts', 'specced', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects/_drafts/specced/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(join(dir, 'projects/_drafts/specced/SPEC.md'), '# Spec\n\n## Acceptance Criteria\n- it works\n');
+    const REQ = 'リトライ分岐を足して';
+    const task = await createTask(dir, {
+      requirement: REQ, workflow: 'specced', startPhase: 'implement',
+      confirmMode: 'each_step', deploy: 'none',
+    });
+    const h = harness(dir, task);
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    assert.equal(h.prompts.length, 1);
+    // Under the SAME header a fix round uses — the words alone would be indistinguishable from the
+    // language banner that already quotes them, and the header is what makes "revise it" unambiguous.
+    const i = h.prompts[0].indexOf('## Change request');
+    assert.ok(i > -1, 'the ask arrives as a request, not as a hint about which language to use');
+    assert.ok(h.prompts[0].slice(i).includes(REQ), 'and it is the request the human actually typed');
+  });
+
+  test('spec 105 — a NORMAL build does not get the change-request header on its first ③', async () => {
+    // ② just wrote SPEC.md from this requirement, so "build what SPEC.md says" already is the ask.
+    // Repeating it under a "revise the EXISTING artifact" header would tell a from-scratch turn to
+    // edit a file that does not exist yet.
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'build me a summariser', deploy: 'none', confirmMode: 'auto' });
+    const h = harness(dir, task);
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    const implementPrompt = h.prompts[2];
+    assert.equal(h.prompts.length >= 3, true, 'analyze + spec + implement');
+    assert.equal(implementPrompt.includes('## Change request'), false);
+  });
+
+  test('spec 105 — ④ grades against the criteria as ③ left them, not the ones it inherited', async () => {
+    // The rubric is seeded from the existing SPEC.md at start, so ④ is never left with none. But that
+    // document belongs to the workflow the human just asked to CHANGE — it never saw their request. If
+    // it stood, the one thing they asked for would be the one thing the judge never checks. ③ reconciles
+    // SPEC.md with what it built; the rubric has to be re-derived from the reconciled file.
+    const dir = fixtureDir();
+    mkdirSync(join(dir, 'projects', '_drafts', 'specced', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects/_drafts/specced/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(
+      join(dir, 'projects/_drafts/specced/SPEC.md'),
+      '# Spec\n\n## Acceptance Criteria\n- the summary is returned\n'
+    );
+    const task = await createTask(dir, {
+      requirement: 'add a retry branch', workflow: 'specced', startPhase: 'implement',
+      confirmMode: 'each_step', deploy: 'none',
+    });
+    // The reconcile a well-behaved ③ performs: SPEC.md gains the criterion for what was just added.
+    const h = harness(dir, task);
+    const inner = h.ctx.runners!.runTurn!;
+    h.ctx.runners!.runTurn = async (...args: Parameters<typeof inner>) => {
+      const r = await inner(...args);
+      writeFileSync(
+        join(dir, 'projects/_drafts/specced/SPEC.md'),
+        '# Spec\n\n## Acceptance Criteria\n- the summary is returned\n- a failed fetch retries once\n'
+      );
+      return r;
+    };
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    const rubric = JSON.parse(readFileSync(join(dir, `apps/builder/.runs/${task.taskId}/criteria.json`), 'utf8'));
+    const text = JSON.stringify(rubric);
+    assert.ok(text.includes('retries once'), 'the criterion for the change the human asked for');
+  });
+
+  test('spec 105 — the first ③ of a start-at-③ build is measured and undoable, like the fix round it is', async () => {
+    // The three spec mechanisms (reconcile instruction, undo snapshot, staleness measurement) were
+    // gated on `replyText` — a proxy for "SPEC.md predates this round". A build that starts at ③
+    // satisfies that as loudly as any fix round and types nothing: ② never ran, so the spec on disk
+    // describes the workflow from BEFORE the edit. It used to read as a first Implement and get none
+    // of the three: no undo button on the one round that overwrites a real workflow, and no tripwire
+    // on the one round most likely to leave the document behind.
+    const dir = fixtureDir();
+    mkdirSync(join(dir, 'projects', '_drafts', 'specced', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects/_drafts/specced/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(join(dir, 'projects/_drafts/specced/SPEC.md'), '# Spec\n\n## Acceptance Criteria\n- it works\n');
+    const task = await createTask(dir, {
+      requirement: 'add a retry branch', workflow: 'specced', startPhase: 'implement',
+      confirmMode: 'each_step', deploy: 'none',
+    });
+    const h = harness(dir, task);
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    assert.equal(h.lastPostTurn.length, 1);
+    assert.notEqual(h.lastPostTurn[0].specHashBefore, undefined, 'the spec was hashed before the turn');
+    assert.equal(task.fixUndoable, true, 'and the round can be taken back');
+    assert.equal(task.specStale, false, 'the agent reconciled, so the document is not behind');
+  });
+
+  test('spec 105 — and the tripwire actually fires there when the agent skips the reconcile', async () => {
+    // The half that proves the measurement is a measurement: same build, an agent that edits the
+    // workflow and leaves SPEC.md untouched. Without the widened gate `specHashBefore` is undefined,
+    // `isSpecStale` reads "not measured", and this silently returns undefined instead of true.
+    const dir = fixtureDir();
+    mkdirSync(join(dir, 'projects', '_drafts', 'specced', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects/_drafts/specced/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(join(dir, 'projects/_drafts/specced/SPEC.md'), '# Spec\n\n## Acceptance Criteria\n- it works\n');
+    const task = await createTask(dir, {
+      requirement: 'add a retry branch', workflow: 'specced', startPhase: 'implement',
+      confirmMode: 'each_step', deploy: 'none',
+    });
+    const h = harness(dir, task, { implementSkipsSpecReconcile: true });
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    assert.equal(task.specStale, true, 'the workflow moved and the document did not — say so');
+  });
+
+  test('spec 105 — a Dify-seed build never skips ①②, even with a workflow target beside it', async () => {
+    // The seed picker and the workflow chip are separate controls and neither disables the other, so a
+    // payload can carry both. `startTask` resolves that pair seed-first: it pulls the YAML from Dify and
+    // `localEditSeed` never runs. The route, meanwhile, decided to skip ①② by looking at
+    // `projects/<project>/<workflow>/` — a directory with nothing to do with the app about to arrive.
+    // Two components answering "which workflow is this" differently is how a build skips its analysis
+    // on the strength of some other workflow's files.
+    const task = await createTask(fixtureDir(), {
+      requirement: 'x', workflow: 'specced', seed: 'app-123', startPhase: 'implement', deploy: 'none',
+    });
+    assert.equal(task.startPhase, undefined, 'the seed decides, and it says start at ①');
+    assert.equal(task.phase, 'analyze');
+  });
+
   test('spec 105 — a build that started at ③ reopens retryable, not at a Spec gate nobody ran', async () => {
     const task = await createTask(fixtureDir(), { requirement: 'x', workflow: 'w', startPhase: 'implement', deploy: 'none' });
     task.phase = 'implement';
     assert.equal(restoreTargetPhaseFor(task), null, 'no ② behind it to rewind to');
+    // ③ is not the only place such a build can be cancelled. Asking for a plan runs a ② revise, so
+    // `task.phase` is legitimately 'spec' — and rewinding one boundary from there lands on ①, a gate
+    // this build never reached either. The rule is about the whole prefix, not about one phase.
+    assert.equal(restoreTargetPhaseFor({ ...task, phase: 'spec' }), null, 'nor any ① behind THAT');
+    // Past its own start, the boundaries are real again: ③ ran, ③ gated, ④ may rewind to it.
+    assert.equal(restoreTargetPhaseFor({ ...task, phase: 'test' }), 'implement');
     // An ordinary build is untouched: its ② really did run.
     assert.equal(restoreTargetPhaseFor({ ...task, startPhase: undefined }), 'spec');
   });

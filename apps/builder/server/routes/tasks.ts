@@ -206,10 +206,18 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // `workflow` TARGETS an existing one. Same sanitize as createTask/localEditSeed, so the checked
     // path is the path the build would use.
     const wfTarget = (body.workflow as string | null | undefined)?.trim();
-    if (wfTarget && wfTarget !== 'none') {
-      const targetProject = sanitizeSlug(String(body.project ?? '').trim() || DRAFTS_PROJECT);
-      const targetSlug = sanitizeSlug(wfTarget);
-      if (!existsSync(join(projectsDir, 'projects', targetProject, targetSlug))) {
+    const editingExisting = !!wfTarget && wfTarget !== 'none';
+    // Resolved once and reused by the spec-105 start-phase question below, so the directory this
+    // refuses on and the directory that gets searched for a spec can never be two different places.
+    const editDir = editingExisting
+      ? join(
+          projectsDir, 'projects',
+          sanitizeSlug(String(body.project ?? '').trim() || DRAFTS_PROJECT),
+          sanitizeSlug(wfTarget!)
+        )
+      : null;
+    if (editDir) {
+      if (!existsSync(editDir)) {
         const hasYamlAttachment =
           Array.isArray(body.files) &&
           (body.files as { name?: string }[]).some((f) => /\.ya?ml$/i.test(String(f?.name ?? '')));
@@ -234,12 +242,7 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // derive; re-running them on it is two paid turns spent re-reading the disk. The signal is both
     // artifacts being present, which self-selects: an imported base has the YAML and no spec, so it
     // keeps the full path. The decision itself is pure (`resolveStartPhase`); only the two filesystem
-    // questions belong here.
-    const editTarget = (body.workflow as string | null | undefined)?.trim();
-    const editingExisting = !!editTarget && editTarget !== 'none';
-    const editDir = editingExisting
-      ? join(projectsDir, 'projects', sanitizeSlug(String(body.project ?? '').trim() || DRAFTS_PROJECT), sanitizeSlug(editTarget!))
-      : null;
+    // questions belong here — asked against the `editDir` the guard above already proved exists.
     const startPhase = resolveStartPhase({
       editingExisting,
       hasSpec: !!editDir && existsSync(join(editDir, 'SPEC.md')),
@@ -1070,13 +1073,22 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
       task.gate = computeGate(target, { outcome: 'success' }, task.deploy);
       task.error = undefined;
     } else {
-      // No prior gate: the standard first phase (analyze), OR the fast merged-draft first turn
-      // (phase stays 'spec'). Reopen as a retryable error targeting the current phase.
+      // No prior gate: the standard first phase (analyze), the fast merged-draft first turn (phase
+      // stays 'spec'), or — spec 105 — a build that STARTED at ③ and so has no boundary behind it.
+      // Reopen as a retryable error targeting the current phase.
       task.status = 'error';
       task.gate = computeGate(task.phase, { outcome: 'error' }, task.deploy);
-      task.error = task.phase === 'spec'
-        ? 'restored — Retry to re-run the merged draft'
-        : 'restored — Retry to re-run analyze';
+      // Name the turn Retry will actually spend money on. This used to read the case rather than the
+      // phase, so a start-at-③ build cancelled at ③ was told "Retry to re-run analyze" — a phase that
+      // had never run and never would. The sentence exists to set an expectation about a paid click.
+      task.error =
+        task.phase === 'implement'
+          ? 'restored — Retry to re-run implement'
+          : task.phase === 'spec'
+            ? task.fastMode
+              ? 'restored — Retry to re-run the merged draft'
+              : 'restored — Retry to re-run spec'
+            : 'restored — Retry to re-run analyze';
     }
     bumpRev(task); // D5: direct broadcast bypasses emit — bump so a stale GET can't clobber the restored gate
     await saveTask(projectsDir, task);

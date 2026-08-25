@@ -517,7 +517,7 @@ async function maybeAutoAdvance(
   // behaviour the prompt asks for, and blocking on it hangs an unattended build for doing as it was
   // told. Spec 103 had already decided this on purpose (see the ADVISORY note at the verify) and left
   // promotion to a block as a question for the measured rate — not for a guess. Guessing was the bug.
-  if (!boundaryAutoAdvances(task.confirmMode, task.phase)) return;
+  if (!boundaryAutoAdvances(task.confirmMode, task.phase, task.startPhase)) return;
   // Spec 028 §5: the auto+fast structural sanity-check — the ONE config with no human gate. Before
   // auto-confirming the MERGED Spec gate, require the draft's analyze.json.features (folded onto
   // task.analysisFeatures by the merged verify) to be a non-empty subset of {llm}. If the merged draft
@@ -539,12 +539,22 @@ async function maybeAutoAdvance(
   await confirmAdvance(task, primary.id, ctx, undefined, internal);
 }
 
-/** auto → always; spec_only → pause only after Spec (② pauses, ①/③ auto); else (each_step OR any
+/** auto → always; spec_only → pause only at the REVIEW boundary; else (each_step OR any
  *  corrupt/unrecognized persisted value) → never auto. Fail-SAFE toward pausing, never toward an
- *  autonomous `auto` run (a stale `confirmMode:null` in a reconciled task.json must not silently run). */
-export function boundaryAutoAdvances(mode: Task['confirmMode'], phase: Task['phase']): boolean {
+ *  autonomous `auto` run (a stale `confirmMode:null` in a reconciled task.json must not silently run).
+ *
+ *  Spec 105 — the review boundary is ② for every build that HAS one, and ③ for a build that starts at
+ *  ③. `spec_only` is a promise of exactly one stop; on an edit of an already-specced workflow there is
+ *  no ② to make it at, and the mode silently collapsed into `auto` — the user picked 「仕様だけ確認」
+ *  and got an unattended run straight through ④ on a workflow that already existed. Sliding the stop
+ *  down to ③ keeps the promise: one look before it goes further. */
+export function boundaryAutoAdvances(
+  mode: Task['confirmMode'],
+  phase: Task['phase'],
+  startPhase?: Task['startPhase']
+): boolean {
   if (mode === 'auto') return true;
-  if (mode === 'spec_only') return phase !== 'spec';
+  if (mode === 'spec_only') return phase !== (startPhase === 'implement' ? 'implement' : 'spec');
   return false; // each_step (and any unknown/corrupt value)
 }
 
@@ -693,8 +703,30 @@ async function runPhase(
         'part could not be built and why, update SPEC.md to describe what you actually built, and ' +
         'make the difference explicit in your reply.'
       : '';
+  // Spec 105 — the ask needs a CARRIER, and skipping ② took the only one away.
+  //
+  // On the ①②③ path the human's words reach ③ through SPEC.md: ② rewrote the document from the new
+  // requirement, so "build what SPEC.md says" IS "build what they asked for". `{{REQUIREMENT}}` is
+  // injected too, but implement.md spends it purely on WHICH LANGUAGE to write in (three uses, all
+  // "the language of {{REQUIREMENT}}") — phases.ts says as much out loud, and it was right to.
+  //
+  // A build that starts at ③ has no ②. Its SPEC.md describes the workflow as it stood BEFORE the edit,
+  // step 1 hands that file over as "the source of truth for what to build", and step 6 makes a no-op
+  // "a correct outcome" when the file already matches. So the user types 「リトライ分岐を足して」, and
+  // the turn is told to build the workflow that is already there — with their sentence present only as
+  // a hint about which language to use. The likeliest outcome is that nothing happens.
+  //
+  // Same header a fix round uses, because that is what this turn is: a change requested against an
+  // existing workflow. Excluded when something else already carries the ask — `replyText` (the human
+  // just typed it) or an approved plan (`specApplied`: SPEC.md now IS the request, and re-appending the
+  // original words would argue with the document the human signed off on).
+  const changeRequestText =
+    opts?.replyText ??
+    (phaseId === 'implement' && task.startPhase === 'implement' && !task.specApplied
+      ? task.requirement
+      : undefined);
   const freshPrompt =
-    langPin + (opts?.replyText ? `${renderedFresh}\n\n${CHANGE_REQUEST}\n${opts.replyText}` : renderedFresh) + block + approvedTail;
+    langPin + (changeRequestText ? `${renderedFresh}\n\n${CHANGE_REQUEST}\n${changeRequestText}` : renderedFresh) + block + approvedTail;
   // Spec 037 D6(b): the RESUME prompt skips phases.ts injectVars entirely, so the facts ride the
   // same fresh+resume seam as the attachment block — appended on the replyText branch only (a fresh
   // turn already carries them via the token; appending here too would double them).
@@ -715,8 +747,21 @@ async function runPhase(
   // The gate is deliberately IDENTICAL to `specHashBefore`'s below: the instruction is delivered on
   // exactly the turns the measurement judges. Duplicated in `implement.md` step 6 for the fresh path,
   // the same way CHANGE_REQUEST is stated on both paths — see the comment there.
-  const reconcileTail =
-    phaseId === 'implement' && opts?.replyText ? `\n\n${SPEC_RECONCILE}` : '';
+  //
+  // Spec 105 — `replyText` was a PROXY for the real question, and the proxy stopped covering it. The
+  // question these three ask is: *is the SPEC.md on disk a document written before this round, which
+  // this round is about to falsify?* A fix round answers yes, which is why "the human typed words"
+  // worked. A build that STARTS at ③ answers yes just as loudly and types nothing: ② never ran, so
+  // SPEC.md describes the workflow as it stood before the edit — the exact state the tripwire exists
+  // for. It read as a first Implement and got none of the three.
+  //
+  // `startPhase` is a start-bound value, so this stays true for the build's whole life; on later
+  // rounds `replyText` is set anyway and nothing changes. The one turn it newly covers besides the
+  // first is an APPROVED-plan ③ (no `replyText`) — and that turn is already exempted downstream by
+  // `task.specApplied`, which suppresses `specStale` explicitly rather than by omission.
+  const specPredatesThisRound =
+    phaseId === 'implement' && (!!opts?.replyText || task.startPhase === 'implement');
+  const reconcileTail = specPredatesThisRound ? `\n\n${SPEC_RECONCILE}` : '';
   // Spec 103 step 1 — an undo rewrote the files UNDER a live session. The resumed model still has its
   // own edits in context and would otherwise patch on top of a state that no longer exists (a resume
   // prompt carries no skill body, so implement.md's "re-read it fresh" never reaches it). Say so, once,
@@ -795,10 +840,10 @@ async function runPhase(
   if (phaseId === 'implement') {
     await snapshotDiffBase(projectsDir, task, { restart: !!opts?.replyText && !retryFromError });
   }
-  // Spec 103 step 1 — and SPEC.md, on fix rounds ONLY. Same gate as `specHashBefore` below and as
-  // SPEC_RECONCILE above, so three things stay one fact: this round is instructed to reconcile the
-  // spec, measured on whether it did, and undoable if it did it wrong.
-  if (phaseId === 'implement' && opts?.replyText) {
+  // Spec 103 step 1 — and SPEC.md, on the rounds `specPredatesThisRound` names. Same gate as
+  // `specHashBefore` below and as SPEC_RECONCILE above, so three things stay one fact: this round is
+  // instructed to reconcile the spec, measured on whether it did, and undoable if it did it wrong.
+  if (specPredatesThisRound) {
     if (!retryFromError) await snapshotSpecBase(projectsDir, task);
     // A HINT for the FE, re-checked by the route before it acts (the route is the authority; a
     // disagreement surfaces as a 409, never as a partial restore). Recomputed from disk rather than
@@ -820,13 +865,13 @@ async function runPhase(
   const artifactHashBefore =
     phaseId === 'implement' ? await artifactHash(projectsDir, phase.artifactRel(task)) : undefined;
 
-  // Spec 103 L0 — the SPEC.md hash, same moment, but ONLY on a REVISION round (`replyText`). On a first
-  // Implement ② has just written SPEC.md from the requirement, so the document already describes the
-  // workflow about to be built; measuring there would mark every new build stale on its first turn.
-  // A revision is the case the spec exists for: the workflow moves on a free-text request, and until
-  // now nothing moved the document with it (spec 103 §1.2).
+  // Spec 103 L0 — the SPEC.md hash, same moment, on the rounds `specPredatesThisRound` names. The one
+  // case that must NOT be measured is a genuine first Implement: ② has just written SPEC.md from the
+  // requirement, so the document already describes the workflow about to be built, and measuring there
+  // would mark every new build stale on its first turn. Every other ③ inherits a document written
+  // earlier — the case the tripwire exists for (spec 103 §1.2).
   const specHashBefore =
-    phaseId === 'implement' && opts?.replyText && task.project && task.workflowSlug
+    specPredatesThisRound && task.project && task.workflowSlug
       ? await artifactHash(projectsDir, specRelFor(task.project, task.workflowSlug))
       : undefined;
 
@@ -1235,6 +1280,26 @@ async function verifyPhase(
       task.sourceContractNote = sourceContractNote(pf) ?? undefined; // spec 072 S2 — rides the reuse hop like preflightNote
     } catch (e) {
       log.warn({ taskId: task.taskId, err: errMsg(e) }, 'runnability preflight failed (advisory, non-fatal)');
+    }
+
+    // Spec 105 — the acceptance rubric, for the build that has no ② to derive it. `startTask` seeded it
+    // from the EXISTING SPEC.md so ④ is not left with none; but that document was written for the
+    // workflow the human has just asked to CHANGE, and it never saw their request at all. Grading the
+    // edit against it means the one thing they asked for is the one thing the judge does not check.
+    // ③ was told to reconcile SPEC.md with what it built (implement.md step 6), so by here the file
+    // describes the delivered workflow — re-derive from it. Non-fatal, exactly as at the ② verify and
+    // the apply-plan refresh: a bad rubric degrades the live-test judge, it must not fail a build.
+    //
+    // This does let ③ author the rubric ④ grades it by, a weaker separation than ②→③→④. It is the
+    // lesser of two: a rubric from a different workflow is not a check, it is a check-shaped absence.
+    // (An ordinary fix round is stale the same way, but its rubric at least came from THIS build's ②
+    // and this user's requirement. Widening it there is a separate question — spec 105 §8.2.)
+    if (task.startPhase === 'implement' && task.project && task.workflowSlug) {
+      try {
+        await persistCriteria(projectsDir, task, join(projectsDir, specRelFor(task.project, task.workflowSlug)));
+      } catch (e) {
+        log.warn({ taskId: task.taskId, err: errMsg(e) }, 'criteria refresh after start-at-implement failed (non-fatal)');
+      }
     }
 
     const outcome = resolveImplementOutcome(check.detail, turnNote, noteAdvisory);

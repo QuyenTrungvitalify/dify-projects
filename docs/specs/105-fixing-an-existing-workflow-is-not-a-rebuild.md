@@ -985,6 +985,47 @@ dưới đây. Không cái nào chặn; ghi ra để không rơi. Neo theo **tê
 > **Ghi chú về T8**: cùng lớp với việc §5.5 đã ghi cho LOẠI 2 (*"nói ra đã bỏ gì"*) — app nói đúng
 > nhưng nói bằng ngôn ngữ người dùng không đọc. Nếu làm, làm một lần cho cả `store.ts` chứ đừng vá lẻ.
 
+### 8.3 Vòng soát `startPhase` (2026-08-26) — **11 vá, 3 để ngỏ**
+
+Commit `57dca56` ship `startPhase` (edit một workflow đã có cả spec lẫn yml ⇒ bắt đầu thẳng ③) và
+**xanh toàn bộ 1239 test + typecheck**. Vòng soát 3-góc sau đó tìm ra **một lỗi chặn** và tám lỗi
+khác. Ghi lại vì hình dạng của lỗi chặn đáng nhớ hơn bản thân nó.
+
+**Lỗi chặn — bỏ ② là bỏ mất *người mang* yêu cầu.** Trên đường ①②③, câu người dùng gõ tới ③ qua
+`SPEC.md`: ② vừa viết lại tài liệu từ requirement mới, nên *"build theo SPEC.md"* **chính là**
+*"build theo cái họ xin"*. `{{REQUIREMENT}}` cũng được tiêm, nhưng `implement.md` tiêu nó **hoàn toàn
+vào việc chọn ngôn ngữ** (3 lần xuất hiện, cả 3 đều là *"the language of {{REQUIREMENT}}"*) — và
+`phases.ts` nói thẳng ra như vậy trong comment, hoàn toàn đúng vào lúc nó được viết.
+
+Build bắt-đầu-③ không có ②. `SPEC.md` của nó tả workflow **trước khi sửa**; bước 1 của `implement.md`
+trao file đó cho model như *"the source of truth for what to build"*; bước 6 nói *"nếu SPEC.md đã tả
+đúng thứ bạn build — không đổi gì, no-op là kết quả đúng"*. Người dùng gõ 「リトライ分岐を足して」 và
+lượt ③ được bảo hãy dựng lại workflow **đã có sẵn**, với câu của họ hiện diện duy nhất dưới dạng gợi ý
+ngôn ngữ. Kết cục khả dĩ nhất: **không có gì xảy ra**.
+
+Test `runs ONE turn, not three` xanh suốt — nó đếm **số lượt**, và số lượt thì đúng.
+
+> **Bài học (đã ghi `AGENTS.md` §9):** bỏ một bước thì phải hỏi *bước đó MANG gì* chứ không chỉ *bước
+> đó LÀM gì*. ② "viết spec" là việc nó làm; "biến lời người dùng thành chỉ thị cho ③" là thứ nó mang.
+> Đếm lượt đo được việc; chỉ đọc **prompt thật sự gửi đi** mới đo được vật mang.
+
+| # | Vấn đề | Trạng thái |
+|---|---|---|
+| **U1** | ⛔ Yêu cầu sửa không tới ③ dưới dạng chỉ thị nào (trên) | ✅ vá — `changeRequestText` gấp `task.requirement` vào cùng header `CHANGE_REQUEST` mà fix round dùng; loại trừ khi `replyText` hoặc `specApplied` đã mang nó |
+| **U2** | `snapshotSpecBase` + `fixUndoable` + `specHashBefore` khoá vào `replyText` ⇒ lượt ③ đầu **đè `SPEC.md` của người dùng không bản sao, không nút hoàn tác, không phép đo** (`projects/_drafts/` bị gitignore ⇒ git cũng không giữ) | ✅ vá — một biểu thức chung `specPredatesThisRound` |
+| **U3** | `confirm_mode: spec_only` **âm thầm thành `auto`**: không còn ② nên `boundaryAutoAdvances` cho chạy thẳng ③→④, người dùng chọn "chỉ dừng ở spec" mà không dừng ở đâu cả | ✅ vá — điểm dừng duy nhất trượt xuống ③ |
+| **U4** | ④ chấm bằng rubric của **build trước** — tài liệu chưa từng thấy yêu cầu này ⇒ đúng thứ họ đặt hàng là đúng thứ judge không kiểm | ✅ vá — `persistCriteria` chạy lại sau ③ (③ đã hoà giải `SPEC.md`) |
+| **U5** | `seed` + `workflow` gửi cùng nhau: route quyết định bỏ ①② theo `projects/<p>/<w>/`, còn `startTask` đi nhánh Dify-seed ⇒ **bỏ phân tích dựa trên file của một workflow KHÁC** | ✅ vá — `!seedAppId` trong clamp của `createTask` |
+| **U6** | Carve-out `/restore` hụt nhánh: mở 提案 rồi huỷ ⇒ `phase='spec'` ⇒ rewind về gate ① **chưa từng chạy** | ✅ vá — so **vị trí** với `startPhase` thay vì ghim vào `phase === 'implement'` |
+| **U7** | `implement.md` bước 6 tự vô hiệu hoá: carve-out *"the normal case on a first build, where ② wrote it minutes ago — change nothing"* đọc như đang mô tả chính build này | ✅ vá — điều kiện nói theo `{{SEED_PATH}}`, không theo "first build" |
+| **U8** | `{{PATTERN_PATH}}` rỗng đẩy ③ vào nhánh *"custom — chạy find.py tìm pattern"*, trong khi bước 4 bảo nó **sửa `{{SEED_PATH}}`**. Hai câu mâu thuẫn, cùng sinh từ một sự vắng mặt (`analyze.json`) | ✅ vá — bước 2 bỏ qua hoàn toàn khi `{{SEED_PATH}}` khác rỗng |
+| **U9** | `resolveStartPhase` phá chính bất biến nó tuyên bố: `start_phase:'spec'` rơi xuống default ⇒ trả `'implement'`, tức **bỏ nhiều hơn** mức được xin | ✅ vá — mọi phase **nhận diện được** mà hệ chưa hỗ trợ ⇒ `'analyze'` (an toàn về phía làm nhiều hơn) |
+| **U10** | `/report` chấm ① và ② của build ③-start như **thiếu**, không phải như **bỏ có chủ đích** | ✅ vá — SKILL.md đọc `startPhase` trước khi chấm |
+| **U11** | Thanh phase vẽ ①② **tích xanh** cho build chưa từng chạy chúng (§5.5 đã đoán trước) | ✅ vá — trạng thái thứ sáu `skipped`, gạch ngang + vòng nét đứt + tooltip. Kèm việc hợp nhất `UiPhaseState`/`PhaseState` vốn là hai bản sao đã trôi khỏi nhau |
+| **V1** | `ensureScaffold` không chạy ⇒ build ③-start không tự bảo đảm `.dify-workspace.yaml` tầng project | ⏸ để ngỏ — route đã đòi thư mục tồn tại; thêm một subprocess vào đường sạch để bù một ca biên chưa từng đo là đổi rủi ro lấy rủi ro |
+| **V2** | Mất lớp provenance ① đặt lên task (`analysisPattern`, `analysisFeatures`, `patternAdvisory`) ⇒ vài bề mặt lặng lẽ trống | ⏸ để ngỏ — `report.ts` và `dossier.ts` **đều đã** bỏ dòng khi thiếu (kiểm rồi), nên là *trống*, không phải *nói dối* |
+| **V3** | Rubric giờ do ③ tự viết rồi ④ chấm theo (U4) — tách bạch yếu hơn ②→③→④. Cùng bệnh tồn tại ở fix round thường, nơi rubric ít ra đến từ ② **của chính build này** | ⏸ để ngỏ — mở rộng sang fix round là câu hỏi riêng, bán kính khác |
+
 ---
 
 ## 9. Khi đóng spec — loại tri thức → nhà

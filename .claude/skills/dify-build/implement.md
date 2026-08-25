@@ -126,6 +126,13 @@ sentence — or the sentence should not be written.
 ## Do — follow AGENTS.md §3 exactly
 1. **Re-read `{{PRIOR_ARTIFACT}}` (`SPEC.md`)** — treat it as the source of truth for what to build.
 2. **Pick/confirm the pattern:**
+   > **If `{{SEED_PATH}}` is non-blank, SKIP THIS STEP ENTIRELY** — you are editing a workflow that
+   > already exists, so its structure is the seed file, not a pattern. Do **not** run `find.py` and do
+   > **not** open `templates/patterns/*`; go to step 4's edit-existing branch. (Spec 105: an edit of an
+   > already-specced workflow starts at ③, so `{{PATTERN_PATH}}` is blank simply because ① never ran —
+   > blank there means "nobody picked one", never "no pattern fits". Without this line the blank branch
+   > below sent the turn hunting for a template it has no use for.)
+   >
    > **If `{{DEPTH}}` is `trivial` (spec 028 fast build):** the shape is a fixed single-LLM transform
    > (`start → llm → end`, or `→ answer` for advanced-chat) with no plugins/branches/iteration — do
    > **NOT** run `find.py` or read `templates/patterns/*`; build directly from `SPEC.md`'s node table.
@@ -326,9 +333,11 @@ sentence — or the sentence should not be written.
      one real project drifted so far this way that its user hand-wrote a rival 582-line "current spec"
      and abandoned the original.
    - **Touch only what moved.** Edit the sections the workflow change actually affects. If `SPEC.md`
-     already describes what you built — the normal case on a first build, where Phase ② wrote it from
-     the same requirement minutes ago — **change nothing**. A no-op here is a correct outcome, not a
-     skipped step.
+     already describes what you built, **change nothing** — a no-op here is a correct outcome, not a
+     skipped step. That is the normal case when Phase ② wrote this document from the same requirement
+     minutes ago. It is **not** the case when `{{SEED_PATH}}` is set: there the document was written for
+     the workflow as it stood *before* your edit, so the parts your change touched are now false and
+     re-reading the whole file is the job (spec 105 — such a build has no ② of its own).
    - **The one place history belongs** is a `変更履歴` (change-log) table as the **last** section of the
      file. Append exactly **one row** per fix round, and never rewrite an existing row:
 

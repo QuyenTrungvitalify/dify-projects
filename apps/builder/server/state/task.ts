@@ -441,12 +441,18 @@ export interface Task {
    * left behind) already have their own badge and warning, and a "0 places" line would just be noise.
    */
   specEdits?: number;
+  /**
+   * Spec 105 — the phase this build STARTED at; `undefined` on every build that began at ①.
+   *
+   * Start-bound, and read as "these phases never ran in this build" rather than as a mere setting:
+   * `/restore` must not rewind onto a boundary nobody crossed; the phase track must not tick ① and ②
+   * as done; `spec_only`'s single stop slides to ③ because there is no ② to make it at; and the three
+   * SPEC.md mechanisms at ③ (reconcile instruction, undo snapshot, staleness measurement) key off it
+   * because the document on disk predates the round.
+   */
+  startPhase?: Phase;
   /** Spec 094 S1 — sha256 of the artifact as of the last measured ③ verify. Compared with
    *  {@link importedHash} to tell the ④ gate whether the file on disk is the one already imported. */
-  /** Spec 105 — the phase this build STARTED at, `undefined` on every build that began at ①. Read by
-   *  `/restore` (rewinding to a phase that never ran would raise a gate for work nobody did) and by the
-   *  phase track, which must not tick ① and ② as done for a build that skipped them. */
-  startPhase?: Phase;
   artifactHash?: string | null;
   /** Spec 105 — the same idea for `SPEC.md`, and it exists for the same reason: undo restores BOTH
    *  files into a path several tasks legitimately share, so BOTH need a "still what this task left"
@@ -535,8 +541,13 @@ export function resolveStartPhase(opts: {
   requested?: string | null;
 }): Phase {
   const ready = opts.editingExisting && opts.hasSpec && opts.hasWorkflowFile;
-  if (opts.requested === 'analyze') return 'analyze'; // "re-read it from scratch" is always allowed
   if (opts.requested === 'implement') return ready ? 'implement' : 'analyze';
+  // Any OTHER phase named EXPLICITLY means "do not skip on my behalf" — 'analyze' says so directly,
+  // and 'spec'/'test' say it by naming a start nothing supports yet. Answering 'spec' with ③ would
+  // skip MORE than was asked for, the one direction this function promises never to go; it did,
+  // because those two fell through to the default alongside genuine garbage. A recognised value the
+  // system cannot honour costs turns. Silently honouring a bigger skip costs the human's workflow.
+  if (opts.requested && (PHASE_ORDER as string[]).includes(opts.requested)) return 'analyze';
   return ready ? 'implement' : 'analyze';
 }
 
@@ -670,12 +681,21 @@ export function restoreTargetPhaseFor(
   task: Pick<Task, 'fastMode' | 'phase' | 'workflowSlug' | 'startPhase'>
 ): Phase | null {
   if (task.fastMode && task.phase === 'spec' && !task.workflowSlug) return null;
-  // Spec 105, same shape one phase over: a build that STARTED at ③ has no ② behind it, so rewinding
-  // one boundary would raise a Spec gate for a turn that never ran — offering 「この仕様で実装」 over a
-  // document nobody wrote in this build, and inviting a paid ② the human never asked for. Reopen it
-  // retryable instead, exactly as the fast path does for its own missing predecessor.
-  if (task.startPhase === 'implement' && task.phase === 'implement') return null;
-  return restoreTargetPhase(task.phase);
+  const target = restoreTargetPhase(task.phase);
+  // Spec 105, same shape one phase over: rewinding lands on the PREVIOUS boundary, and a build that
+  // started at ③ has no boundary before ③ — it was never crossed, because those phases never ran.
+  // Landing there raises a gate for a turn nobody performed: 「この仕様で実装」 over a document this
+  // build did not write, and a paid ② the human never asked for. Reopen retryable instead, exactly as
+  // the fast path does for its own missing predecessor.
+  //
+  // Compared as POSITIONS rather than pinned to `phase === 'implement'`, because ③ is not the only
+  // place such a build can be cancelled: asking for a plan (Lane B) runs a ② revise, so `task.phase`
+  // is legitimately 'spec' — and a cancel there rewound to a ① gate. The rule is one sentence, and it
+  // is about the whole prefix: nothing before the start ever happened.
+  if (task.startPhase && target && PHASE_ORDER.indexOf(target) < PHASE_ORDER.indexOf(task.startPhase)) {
+    return null;
+  }
+  return target;
 }
 
 /**
@@ -775,7 +795,17 @@ export async function createTask(projectsDir: string, input: CreateTaskInput): P
   // Spec 105 — the caller resolved this from disk (`resolveStartPhase`); anything else is ignored
   // rather than guessed, and `fastMode` yields to it: 'implement' means the spec already exists, which
   // is the one thing the merged draft turn is for producing.
-  const startPhase: Phase = input.startPhase === 'implement' && workflow ? 'implement' : 'analyze';
+  //
+  // `!seedAppId` is not belt-and-braces. A payload carrying BOTH a Dify seed and a workflow target is
+  // accepted today (the seed picker and the workflow chip are separate controls, neither disabling the
+  // other), and `startTask` resolves that pair the other way round: `if (task.seedAppId)` wins, so the
+  // build pulls its YAML from Dify and `localEditSeed` never runs. The route, meanwhile, decided to
+  // skip ①② by looking at `projects/<project>/<workflow>/` — a directory that has nothing to do with
+  // the app about to be pulled. Two components answering "which workflow is this" differently is how a
+  // build skips its analysis on the strength of some other workflow's files. Resolve it here, once, on
+  // the same side that owns `seedAppId`, and in the direction `startTask` already goes.
+  const startPhase: Phase =
+    input.startPhase === 'implement' && workflow && !seedAppId ? 'implement' : 'analyze';
   // Spec 036 D3/N3: `deploy` + `testMode` are NO LONGER start-bound — createTask defaults them and stops
   // reading `input.deploy`/`input.testMode`. They are (re)stamped at GATE-time from what creds are
   // reachable: 'selfhost'/'live' on a `test_live` dispatch (implement gate) or the D5 done-state live
