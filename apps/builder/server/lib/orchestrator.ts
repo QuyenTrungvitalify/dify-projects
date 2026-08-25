@@ -44,7 +44,7 @@ import { applyAnalysisToTask, gapReferences } from './analysis.js';
 // these are pure wording (spec 066 S4), shared so the two probes cannot drift apart again.
 import { probeVerdict } from './report.js';
 import { checkRunnability, preflightNote, sourceContractNote } from './runnability.js';
-import { persistCriteria } from './criteria.js';
+import { persistCriteria, parseAcceptanceCriteria } from './criteria.js';
 import { AttemptRecorder } from './run-transcript.js';
 import { logEvent } from './run-events.js';
 import { bumpRev, noteUserLang, saveTask, taskDir, workflowDir, type Task } from '../state/task.js';
@@ -1293,6 +1293,8 @@ async function verifyPhase(
       log.warn({ taskId: task.taskId, err: errMsg(e) }, 'runnability preflight failed (advisory, non-fatal)');
     }
 
+    const outcome = resolveImplementOutcome(check.detail, turnNote, noteAdvisory);
+
     // Spec 105 — the acceptance rubric, for the build that has no ② to derive it. `startTask` seeded it
     // from the EXISTING SPEC.md so ④ is not left with none; but that document was written for the
     // workflow the human has just asked to CHANGE, and it never saw their request at all. Grading the
@@ -1301,19 +1303,30 @@ async function verifyPhase(
     // describes the delivered workflow — re-derive from it. Non-fatal, exactly as at the ② verify and
     // the apply-plan refresh: a bad rubric degrades the live-test judge, it must not fail a build.
     //
-    // This does let ③ author the rubric ④ grades it by, a weaker separation than ②→③→④. It is the
-    // lesser of two: a rubric from a different workflow is not a check, it is a check-shaped absence.
-    // (An ordinary fix round is stale the same way, but its rubric at least came from THIS build's ②
-    // and this user's requirement. Widening it there is a separate question — spec 105 §8.2.)
-    if (task.startPhase === 'implement' && task.project && task.workflowSlug) {
+    // KNOWINGLY against the grain of `criteria.ts`'s own note — *"parse HERE, not at judge time … so a
+    // later SPEC.md edit during Implement can't silently change the rubric mid-test"*. That rule keeps
+    // ③ from moving the goalposts it is measured by, and it is right whenever ② set them. Here nobody
+    // did: the alternative is not a stricter bar, it is a bar belonging to different work. The same
+    // trade is already made one artifact over, where `apply_spec` re-derives because SPEC.md changed —
+    // with a human approving it, which is the part this path does not have.
+    //
+    // So it is fenced to the two conditions that make it a refresh rather than an erasure:
+    //   · the turn SUCCEEDED. A ③ that died mid-write leaves a truncated SPEC.md (the common ③ death),
+    //     and re-deriving from a corpse would replace a real rubric with whatever survived.
+    //   · the parse found SOMETHING. An empty result means "no criteria section here", which after a
+    //     model restructured the document is a failure to find them, never a finding that there are
+    //     none — and the seeded rubric is the better answer to that than silence.
+    if (outcome === 'success' && task.startPhase === 'implement' && task.project && task.workflowSlug) {
       try {
-        await persistCriteria(projectsDir, task, join(projectsDir, specRelFor(task.project, task.workflowSlug)));
+        const specAbs = join(projectsDir, specRelFor(task.project, task.workflowSlug));
+        const found = parseAcceptanceCriteria(await readFile(specAbs, 'utf8'));
+        if (found.length) await persistCriteria(projectsDir, task, specAbs);
+        else log.info({ taskId: task.taskId }, 'start-at-implement: reconciled SPEC.md has no criteria section — keeping the seeded rubric');
       } catch (e) {
         log.warn({ taskId: task.taskId, err: errMsg(e) }, 'criteria refresh after start-at-implement failed (non-fatal)');
       }
     }
 
-    const outcome = resolveImplementOutcome(check.detail, turnNote, noteAdvisory);
     // 048 D2: expose ③'s lint codes for the windowless hop. `?? undefined` — detail.lintCodes is
     // null when the artifact was missing/empty, but that maps to 'error' (never hops) anyway.
     return {

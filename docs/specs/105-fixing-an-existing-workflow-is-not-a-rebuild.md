@@ -985,7 +985,7 @@ dưới đây. Không cái nào chặn; ghi ra để không rơi. Neo theo **tê
 > **Ghi chú về T8**: cùng lớp với việc §5.5 đã ghi cho LOẠI 2 (*"nói ra đã bỏ gì"*) — app nói đúng
 > nhưng nói bằng ngôn ngữ người dùng không đọc. Nếu làm, làm một lần cho cả `store.ts` chứ đừng vá lẻ.
 
-### 8.3 Vòng soát `startPhase` (2026-08-26) — **11 vá, 3 để ngỏ**
+### 8.3 Vòng soát `startPhase` (2026-08-26) — **12 vá, 3 để ngỏ**
 
 Commit `57dca56` ship `startPhase` (edit một workflow đã có cả spec lẫn yml ⇒ bắt đầu thẳng ③) và
 **xanh toàn bộ 1239 test + typecheck**. Vòng soát 3-góc sau đó tìm ra **một lỗi chặn** và tám lỗi
@@ -1024,7 +1024,8 @@ Test `runs ONE turn, not three` xanh suốt — nó đếm **số lượt**, và
 | **U11** | Thanh phase vẽ ①② **tích xanh** cho build chưa từng chạy chúng (§5.5 đã đoán trước) | ✅ vá — trạng thái thứ sáu `skipped`, gạch ngang + vòng nét đứt + tooltip. Kèm việc hợp nhất `UiPhaseState`/`PhaseState` vốn là hai bản sao đã trôi khỏi nhau |
 | **V1** | `ensureScaffold` không chạy ⇒ build ③-start không tự bảo đảm `.dify-workspace.yaml` tầng project | ⏸ để ngỏ — route đã đòi thư mục tồn tại; thêm một subprocess vào đường sạch để bù một ca biên chưa từng đo là đổi rủi ro lấy rủi ro |
 | **V2** | Mất lớp provenance ① đặt lên task (`analysisPattern`, `analysisFeatures`, `patternAdvisory`) ⇒ vài bề mặt lặng lẽ trống | ⏸ để ngỏ — `report.ts` và `dossier.ts` **đều đã** bỏ dòng khi thiếu (kiểm rồi), nên là *trống*, không phải *nói dối* |
-| **V3** | Rubric giờ do ③ tự viết rồi ④ chấm theo (U4) — tách bạch yếu hơn ②→③→④. Cùng bệnh tồn tại ở fix round thường, nơi rubric ít ra đến từ ② **của chính build này** | ⏸ để ngỏ — mở rộng sang fix round là câu hỏi riêng, bán kính khác |
+| **V3** | Rubric giờ do ③ tự viết rồi ④ chấm theo (U4) — tách bạch yếu hơn ②→③→④, và **đi ngược ghi chú của chính `criteria.ts`**: *"parse HERE … so a later SPEC.md edit during Implement can't silently change the rubric mid-test"*. Luật đó đúng **khi ② đã đặt chuẩn**; ở đây không ai đặt, nên lựa chọn không phải "chuẩn chặt hơn" mà là "chuẩn của việc khác". Cùng đánh đổi đã có sẵn ở `apply_spec` — chỉ khác là ở đó **có người duyệt** | ⏸ giữ, có rào — chỉ chạy khi lượt ③ **thành công** và khi parse **tìm thấy** tiêu chí (rỗng = "không tìm ra", không phải "không có"), nên không bao giờ xoá rubric thành `[]`. Mở rộng sang fix round thường là câu hỏi riêng |
+| **U12** | ⛔ Bản vá U2 nới `reconcileTail` sang đường ③-start — nhưng prompt TƯƠI **không bao giờ nối tail đó** (`opts?.resumeId ? resumePrompt : freshPrompt`). Nới xong thành **code chết** trên đúng đường nó được nới cho: đúng hình dạng lỗi mà `AGENTS.md` đã ghi một commit trước đó | ✅ vá — tách hai câu hỏi: *giao hàng* theo **hình dạng prompt** (resume ⇒ tail, tươi ⇒ thân skill), *phép đo* theo **vòng**. Việc giao trên đường ③-start do `implement.md` bước 6 gánh, nên U7 mới là mảnh chịu lực — và giờ có test **đọc chính tài liệu đã ship** |
 
 ---
 

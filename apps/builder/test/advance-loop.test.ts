@@ -523,6 +523,37 @@ describe('advance-loop integration (013 D3)', () => {
     assert.ok(text.includes('retries once'), 'the criterion for the change the human asked for');
   });
 
+  test('spec 105 — a reconciled spec with no criteria section keeps the seeded rubric, not an empty one', async () => {
+    // The refresh above goes deliberately against `criteria.ts`'s freeze-at-② rule, so it is fenced to
+    // being a REFRESH rather than an erasure. An empty parse means "no criteria section found here" —
+    // after a model restructured the document that is a failure to find them, never a finding that
+    // there are none. Wiping a real rubric to `[]` would silently downgrade ④ to a smoke test.
+    const dir = fixtureDir();
+    mkdirSync(join(dir, 'projects', '_drafts', 'specced', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects/_drafts/specced/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(
+      join(dir, 'projects/_drafts/specced/SPEC.md'),
+      '# Spec\n\n## Acceptance Criteria\n- the summary is returned\n'
+    );
+    const task = await createTask(dir, {
+      requirement: 'add a retry branch', workflow: 'specced', startPhase: 'implement',
+      confirmMode: 'each_step', deploy: 'none',
+    });
+    // A ③ that rewrites SPEC.md into a shape with no criteria heading at all.
+    const h = harness(dir, task);
+    const inner = h.ctx.runners!.runTurn!;
+    h.ctx.runners!.runTurn = async (...args: Parameters<typeof inner>) => {
+      const r = await inner(...args);
+      writeFileSync(join(dir, 'projects/_drafts/specced/SPEC.md'), '# Spec\n\nIt summarises things.\n');
+      return r;
+    };
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    const rubric = JSON.parse(readFileSync(join(dir, `apps/builder/.runs/${task.taskId}/criteria.json`), 'utf8'));
+    assert.deepEqual(rubric.criteria, ['the summary is returned'], 'the seeded rubric survived');
+  });
+
   test('spec 105 — the first ③ of a start-at-③ build is measured and undoable, like the fix round it is', async () => {
     // The three spec mechanisms (reconcile instruction, undo snapshot, staleness measurement) were
     // gated on `replyText` — a proxy for "SPEC.md predates this round". A build that starts at ③
