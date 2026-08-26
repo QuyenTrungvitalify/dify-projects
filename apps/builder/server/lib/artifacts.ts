@@ -130,6 +130,17 @@ export interface TreeWorkflowNode {
    *  folder exists, so it must never be selectable as an edit-existing base. One field, additive —
    *  absent (old server / real workflow) reads falsy and every consumer behaves as before. */
   synthetic?: true;
+  /**
+   * Spec 105 — arming this workflow starts the build at ③, because ① and ② have nothing left to
+   * derive. The DECISION still belongs to `POST /api/tasks` (`resolveStartPhase` against the same two
+   * files); this is the same question asked early so the composer can say so BEFORE the send, instead
+   * of the user discovering it from a phase track that has already skipped two steps.
+   *
+   * Exact rather than approximate for the path that reads it: the composer's start body carries no
+   * `workflowFile`, so the route asks about `main.yml` too. A build that names a different file goes
+   * through a surface that does not consult this bit.
+   */
+  startsAtImplement?: true;
 }
 export interface TreeProjectNode {
   id: string; // project folder name (spec 030)
@@ -451,10 +462,16 @@ export async function buildTree(projectsDir: string, nowMs: number): Promise<Tre
         const k = keyOf(projectFolder, wfFolder);
         claimedKeys.add(k);
         const wfTasks = (tasksByKey.get(k) ?? []).sort(byTaskIdDesc);
+        // Spec 105 — the same two files `resolveStartPhase` asks about, asked here so the composer can
+        // say where a build on this workflow would BEGIN. Two `existsSync` calls on a loop already doing
+        // one plus a file read; `undefined` rather than `false` so the wire keeps the additive shape.
+        const startsAtImplement =
+          existsSync(join(wfAbs, 'SPEC.md')) && existsSync(join(wfAbs, 'workflows', 'main.yml'));
         proj.workflows.push({
           id: wfFolder,
           name: await workflowDisplayName(wfAbs, wfFolder, wfTasks),
           tasks: wfTasks,
+          ...(startsAtImplement ? { startsAtImplement: true as const } : {}),
         });
       }
     }

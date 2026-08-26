@@ -289,6 +289,11 @@ export interface WireTreeWorkflow {
   /** Spec 090 S2: display-only grouping row (the `(unsaved)` bucket) — never an edit-existing base.
    *  Optional: an older server omits it and every row stays selectable (pre-090 behavior). */
   synthetic?: boolean;
+  /** Spec 105: arming this workflow starts the build at ③ — ① and ② have nothing left to derive, so
+   *  they will not run. The server answers the same two filesystem questions `POST /api/tasks` will,
+   *  so the composer can say so BEFORE the send instead of leaving the user to infer it from a phase
+   *  track that has already skipped two steps. Absent ⇒ the full four phases (or an older server). */
+  startsAtImplement?: boolean;
 }
 export interface WireTreeProject {
   id: string;

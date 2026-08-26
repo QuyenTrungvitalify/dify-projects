@@ -30,6 +30,29 @@ export function wfDisplayName(tree: WireTreeProject[], slug: string): string {
   return slug;
 }
 
+/**
+ * Spec 105 — would a build armed on this workflow start at ③?
+ *
+ * The server answers it per row (`startsAtImplement`, from the same two files `POST /api/tasks` asks
+ * about), and this reads the answer for whatever the composer currently has armed. Same lookup shape
+ * as {@link wfDisplayName}, and the same fallbacks: a bare legacy slug matches the first row of that
+ * name across projects, and anything unresolved is `false`.
+ *
+ * FALSE on no match is deliberate and directional. An unknown row means "we could not check" — and a
+ * badge promising a skip that then does not happen is worse than no badge, since the user has nothing
+ * to tell which surface lied. Silence degrades to today's behaviour; a wrong claim does not.
+ */
+export function armedStartsAtImplement(tree: WireTreeProject[], slug: string | null | undefined): boolean {
+  if (!slug || slug === 'none') return false;
+  const slash = slug.indexOf('/');
+  if (slash !== -1) {
+    const proj = tree.find((p) => p.id === slug.slice(0, slash));
+    return proj?.workflows.find((w) => w.id === slug.slice(slash + 1))?.startsAtImplement === true;
+  }
+  for (const p of tree) for (const w of p.workflows) if (w.id === slug) return w.startsAtImplement === true;
+  return false;
+}
+
 /** Look up a project's display name by folder in the tree; falls back to the raw folder on no match. */
 export function projectDisplayName(tree: WireTreeProject[], project: string): string {
   return tree.find((p) => p.id === project)?.name ?? project;

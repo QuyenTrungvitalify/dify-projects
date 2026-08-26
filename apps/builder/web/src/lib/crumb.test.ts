@@ -5,7 +5,7 @@
  * by store.test.ts (resetToNew) and manual QA.
  */
 import { describe, it, expect } from 'vitest';
-import { newTaskCrumb, wfDisplayName, runContextCrumb, workflowOptions, activeSidebarProject, activeSidebarWorkflow } from './crumb';
+import { newTaskCrumb, wfDisplayName, runContextCrumb, workflowOptions, activeSidebarProject, activeSidebarWorkflow, armedStartsAtImplement } from './crumb';
 import { setLang } from './i18n';
 import type { WireTreeProject, WireTreeTask, WireTask } from '../types';
 
@@ -185,5 +185,45 @@ describe('029 · newTaskCrumb (JA localization + {name} interpolation)', () => {
     expect(newTaskCrumb('none', 'my_app', tree).label).toBe('My App 内に新規タスク'); // spec 030: display name
     expect(newTaskCrumb('none', null, tree).label).toBe('新規タスク');
     setLang('en'); // restore for other suites
+  });
+});
+
+describe('105 · armedStartsAtImplement — will this send skip ① and ②?', () => {
+  const t: WireTreeProject[] = [
+    { id: 'my_app', name: 'My App', workflows: [
+      { id: 'specced', name: 'Specced', tasks: [], startsAtImplement: true },
+      { id: 'imported', name: 'Imported', tasks: [] },
+    ] },
+    { id: 'other', name: 'Other', workflows: [{ id: 'specced', name: 'Namesake', tasks: [] }] },
+  ];
+
+  it('reads the armed row, scoped to its project', () => {
+    // The same workflow NAME exists in two projects and only one of them is ready. The compound form
+    // is what the composer arms, and it is the only thing that can tell them apart.
+    expect(armedStartsAtImplement(t, 'my_app/specced')).toBe(true);
+    expect(armedStartsAtImplement(t, 'other/specced')).toBe(false);
+  });
+
+  it('says no for a workflow the full four phases still apply to', () => {
+    expect(armedStartsAtImplement(t, 'my_app/imported')).toBe(false);
+  });
+
+  it('says no when nothing is armed', () => {
+    expect(armedStartsAtImplement(t, 'none')).toBe(false);
+    expect(armedStartsAtImplement(t, null)).toBe(false);
+    expect(armedStartsAtImplement(t, undefined)).toBe(false);
+  });
+
+  it('says no for a row it cannot find, and for a server that never sent the field', () => {
+    // "Could not check" must read as "no badge", never as a promise. A badge claiming a skip that then
+    // does not happen leaves the user with two surfaces disagreeing and no way to tell which lied.
+    expect(armedStartsAtImplement(t, 'my_app/ghost')).toBe(false);
+    expect(armedStartsAtImplement(t, 'ghost/specced')).toBe(false);
+    expect(armedStartsAtImplement([], 'my_app/specced')).toBe(false);
+  });
+
+  it('still resolves a bare legacy slug', () => {
+    expect(armedStartsAtImplement(t, 'specced')).toBe(true);
+    expect(armedStartsAtImplement(t, 'imported')).toBe(false);
   });
 });
