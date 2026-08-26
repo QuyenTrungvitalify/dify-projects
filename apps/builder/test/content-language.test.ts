@@ -93,6 +93,35 @@ describe('030 · Output-language directive (drift + render guard)', () => {
       });
     }
   }
+
+  /**
+   * Spec 105 — the same contract for `implement.md`, which was outside this loop and so had nothing
+   * holding its tokens to the map. It gained `{{START_PHASE}}` (a doc must be able to ask "does this
+   * build have a ② of its own?" — `{{SEED_PATH}}` cannot answer that, it is set on every edit-existing
+   * and dify-seed build), and a token named in the doc but absent from `injectVars` renders as a
+   * literal `{{START_PHASE}}` for the model to puzzle over. Both directions are one assertion here.
+   */
+  for (const [label, startPhase, expect] of [
+    ['a build that skipped ①②', 'implement', 'implement'],
+    ['an ordinary build', undefined, ''],
+  ] as const) {
+    test(`implement.md · ${label}: every token substituted, START_PHASE carries the fact`, () => {
+      const vars = PHASES.find((p) => p.id === 'implement')!.injectVars({
+        taskId: '1751000000000',
+        project: 'p',
+        workflowSlug: 'wf',
+        workflowFile: 'main.yml',
+        requirement: 'add a retry branch',
+        artifacts: {},
+        seedPath: 'apps/builder/.runs/1751000000000/seed.yml',
+        startPhase,
+      } as Task);
+      assert.equal(vars.START_PHASE, expect, 'the token reports where the build began');
+
+      const rendered = renderPrompt(read('implement.md'), vars);
+      assert.equal(rendered.match(/\{\{[A-Z_]+\}\}/g), null, 'no un-substituted inject token remains');
+    });
+  }
 });
 
 /**

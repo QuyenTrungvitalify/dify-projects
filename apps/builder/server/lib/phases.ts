@@ -96,6 +96,11 @@ const vars = (partial: Partial<Record<string, string>>): Record<string, string> 
   // is io-free by contract — so, exactly like KNOWLEDGE above, it stays '' here and the orchestrator
   // (which owns the render seam) fills it for Implement. '' = the pattern covers everything.
   REFERENCES: '',
+  // Spec 105 — the phase this build STARTED at, so a doc can ask "does this build have a ② of its own?"
+  // `{{SEED_PATH}}` cannot answer that: it is set for EVERY edit-existing and Dify-seed build, including
+  // the ①②③ ones whose ② wrote SPEC.md from the new requirement minutes ago. Two different questions
+  // that happened to share an answer until a build could start at ③. '' ⇒ started at ①, the normal case.
+  START_PHASE: '',
   // Spec 103 Lane B — only the ② revise doc uses these; '' everywhere else keeps the
   // "every known token is always substituted" contract (no stray {{...}} survives a render).
   CURRENT_SPEC: '',
@@ -169,6 +174,11 @@ export const PHASES: PhaseDef[] = [
         // Spec 065: hand ③ the path of the pattern ① chose instead of making it hunt (18/32 tool
         // calls on run 1784185934247). '' for custom/trivial — implement.md then keeps today's wording.
         PATTERN_PATH: patternPath(t),
+        // Spec 105: 'implement' ⇒ ① and ② never ran, so SPEC.md predates the edit and no pattern was
+        // ever picked. implement.md branches on it in steps 2 and 6.
+        START_PHASE: t.startPhase ?? '',
+        // Spec 105: 'implement' ⇒ ① and ② never ran, so SPEC.md predates the edit and no pattern was
+        // ever picked. implement.md branches on it in steps 2 and 6.
       }),
   },
   {

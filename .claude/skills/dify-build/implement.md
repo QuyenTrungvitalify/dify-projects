@@ -30,6 +30,10 @@ You are producing a valid Dify workflow YAML that satisfies `SPEC.md`. Read
 - `{{PRIOR_ARTIFACT}}` — path to `SPEC.md`. **Re-read it fresh at the start** — a human may
   have edited it at the gate; the file wins (last-writer).
 - `{{SEED_PATH}}` — for edit-existing / dify-seed, the base file to modify (else empty).
+- `{{START_PHASE}}` — `implement` when this build SKIPPED ① and ② (spec 105: the workflow already had
+  both an analysis and a spec on disk, so the build starts here). Empty otherwise. This is **not** the
+  same question as `{{SEED_PATH}}`, which is set for *every* edit-existing and dify-seed build —
+  including the ones whose ② ran and wrote `SPEC.md` from the current requirement minutes ago.
 - **Pattern** → `{{PATTERN_PATH}}` — the ready path of the pattern the Spec gate approved (blank for
   `custom`, or a trivial fast build). **When it names a file, open exactly that — never search for it.**
 - **Reference shapes** → `{{REFERENCES}}` — vetted files carrying what the Pattern does **not** (e.g. an
@@ -126,12 +130,15 @@ sentence — or the sentence should not be written.
 ## Do — follow AGENTS.md §3 exactly
 1. **Re-read `{{PRIOR_ARTIFACT}}` (`SPEC.md`)** — treat it as the source of truth for what to build.
 2. **Pick/confirm the pattern:**
-   > **If `{{SEED_PATH}}` is non-blank, SKIP THIS STEP ENTIRELY** — you are editing a workflow that
-   > already exists, so its structure is the seed file, not a pattern. Do **not** run `find.py` and do
-   > **not** open `templates/patterns/*`; go to step 4's edit-existing branch. (Spec 105: an edit of an
-   > already-specced workflow starts at ③, so `{{PATTERN_PATH}}` is blank simply because ① never ran —
-   > blank there means "nobody picked one", never "no pattern fits". Without this line the blank branch
-   > below sent the turn hunting for a template it has no use for.)
+   > **If `{{START_PHASE}}` is `implement`, SKIP THE PATTERN CHOICE** and go straight to step 3. ① never
+   > ran on this build, so `{{PATTERN_PATH}}` and `{{REFERENCES}}` are blank because **nobody picked
+   > one** — never because "no pattern fits" or "the Pattern covers everything". You are editing a
+   > workflow that already exists; its structure is `{{SEED_PATH}}`, not a template. Do **not** run
+   > `find.py`, do **not** open `templates/patterns/*`. (Without this the blank branch below sent the
+   > turn hunting for a pattern it has no use for.)
+   >
+   > Keyed on `{{START_PHASE}}`, **not** on `{{SEED_PATH}}`: an ordinary edit-existing build has a seed
+   > too, and its ① *did* pick a pattern — reading its non-blank `{{PATTERN_PATH}}` is still the job.
    >
    > **If `{{DEPTH}}` is `trivial` (spec 028 fast build):** the shape is a fixed single-LLM transform
    > (`start → llm → end`, or `→ answer` for advanced-chat) with no plugins/branches/iteration — do
@@ -335,9 +342,11 @@ sentence — or the sentence should not be written.
    - **Touch only what moved.** Edit the sections the workflow change actually affects. If `SPEC.md`
      already describes what you built, **change nothing** — a no-op here is a correct outcome, not a
      skipped step. That is the normal case when Phase ② wrote this document from the same requirement
-     minutes ago. It is **not** the case when `{{SEED_PATH}}` is set: there the document was written for
-     the workflow as it stood *before* your edit, so the parts your change touched are now false and
-     re-reading the whole file is the job (spec 105 — such a build has no ② of its own).
+     minutes ago. It is **not** the case when `{{START_PHASE}}` is `implement`: that build has no ② of
+     its own (spec 105), so the document on disk was written for the workflow as it stood *before* your
+     edit — the parts your change touched are false now, and re-reading the whole file is the job.
+     Keyed on `{{START_PHASE}}`, **not** on `{{SEED_PATH}}`: an ordinary edit-existing build has a seed
+     too, and its ② *did* write this document for the change you are making.
    - **The one place history belongs** is a `変更履歴` (change-log) table as the **last** section of the
      file. Append exactly **one row** per fix round, and never rewrite an existing row:
 
