@@ -196,3 +196,50 @@ export function renderPrompt(body: string, v: Record<string, string>): string {
   return out;
 }
 
+/**
+ * `inputHeader` — the resolved values THIS turn is running on, stated as named values, above the
+ * phase manual.
+ *
+ * Token substitution is not delivery. After `renderPrompt`, `analyze.md`'s Inputs section reads
+ * ``- `簡単LLMチャットボット作成お願いします。` — what the user wants to end up with.`` — a value with no name,
+ * inside a payload the prompt itself introduces as "the file `.claude/skills/dify-build/analyze.md`,
+ * inlined here". A strong model infers that the value IS the requirement. A weak one reads the whole
+ * thing as a manual it has been SHOWN, and waits for the user's turn to arrive.
+ *
+ * Measured on run 1787725122513 (haiku-4-5; the requirement appears EIGHT times in the rendered
+ * prompt): the turn replied "tôi chưa nhận được yêu cầu cụ thể", made zero tool calls, and died
+ * `artifact missing`. The Retry re-sent the same body plus the verdict (spec 111) and produced the
+ * same answer — the failure is DETERMINISTIC, so no retry could ever clear it. Replaying that exact
+ * prompt isolates the cause: haiku asks (1 turn); sonnet, same prompt, writes the overview (8 turns);
+ * haiku WITH this header writes it (11 turns); haiku with only the empty `{{SEED_PATH}}` slot filled
+ * in still asks. So it is the missing NAME on the value, not the empty slot.
+ *
+ * ①② only. ③'s carrier is `SPEC.md` — the document ② wrote from this requirement and a human
+ * approved — and hoisting the raw sentence above it would argue with the file ③ is ordered to build
+ * from. Same ground spec 105 stands on when it hands a start-at-③ build the requirement as a change
+ * request and nothing else.
+ */
+export function inputHeader(phase: PhaseDef, task: Task): string {
+  if (phase.id !== 'analyze' && phase.id !== 'spec') return '';
+  const seed = (task.seedPath ?? '').trim();
+  // `?? ''` on a field the type declares required: a Task is JSON re-read off disk, and this header
+  // now runs on EVERY ①② turn — a field missing from one hand-edited/legacy task.json would throw
+  // here and take down every build, to save nothing.
+  const requirement = task.requirement ?? '';
+  // A multi-line requirement is pasted text (a spec, an error dump) and must survive VERBATIM — the
+  // one string this header exists to carry. Indent it as list-continuation rather than inlining it,
+  // so its later lines cannot read as prose of this header's own.
+  const req = requirement.includes('\n')
+    ? `\n${requirement.split('\n').map((l) => `  ${l}`).join('\n')}`
+    : ` ${requirement}`;
+  return (
+    '## Inputs for THIS turn — real values, already resolved\n' +
+    'The manual below is a phase document whose `{{TOKEN}}` slots are ALREADY filled in with the ' +
+    'values named here. They are this build\'s own data, not an example to be replaced: do not ask ' +
+    'the user to supply them again. (ONE clarifying question about an ambiguity INSIDE the ' +
+    'requirement is still fine wherever the manual asks for one.)\n' +
+    `- REQUIREMENT — what the user asked for, verbatim:${req}\n` +
+    `- SEED_PATH — ${seed ? `the existing workflow this build edits: \`${seed}\`` : 'EMPTY: no seed workflow, this is a from-scratch build'}\n` +
+    `- The artifact this turn must write, and the path the backend grades: \`${phase.artifactRel(task)}\`\n\n`
+  );
+}

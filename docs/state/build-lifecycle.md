@@ -40,6 +40,22 @@ ghi đè cho ③ (§2). `PATTERN_PATH` đi qua allowlist `^[A-Za-z0-9_-]+(\.yml)
 tự ghi (không tin được), tên không lọt allowlist thoái hoá thành `''` chứ không thành đường dẫn
 traversal.
 
+**Header đầu vào** (`inputHeader`, `phases.ts`) — chèn giữa language pin và thân skill, **chỉ ①②**:
+gọi TÊN ba thứ mà lượt đang chạy trên đó — requirement nguyên văn, seed (có file nào / **nói bằng chữ**
+là không có), và đường dẫn artifact backend sẽ chấm. Thay token **không phải là bàn giao**: sau render,
+`analyze.md` chỉ còn một *giá trị* trần trong danh sách `## Inputs`, nằm trong payload mà chính prompt
+giới thiệu là "file `analyze.md` được inline vào đây" — model mạnh suy ra được, model yếu đọc cả gói như
+một cuốn cẩm nang **được cho xem** rồi ngồi đợi lượt của user. Run 1787725122513 (haiku-4-5, requirement
+xuất hiện **8 lần** trong prompt): trả lời 「tôi chưa nhận được yêu cầu cụ thể」, 0 tool call, chết
+`artifact missing` — và Retry gửi lại đúng thân đó (§7) nên hỏng **tất định**, retry không bao giờ gỡ
+được. Phát lại đúng prompt đó, đổi từng biến một: haiku hỏi lại (1 lượt) · sonnet cùng prompt viết
+overview (8 lượt) · haiku **có header** viết được (11 lượt) · haiku chỉ điền slot `{{SEED_PATH}}` rỗng thì
+vẫn hỏi lại. Tức thứ gánh việc là **cái tên đặt trên giá trị**, không phải slot rỗng. Header đi theo
+`freshPrompt` nên Retry-ra-khỏi-error có luôn — đúng lượt cần nó nhất. **③ cố ý không có**: vật mang của
+③ là `SPEC.md` mà ② viết ra và người đã duyệt; hoisting câu gốc lên trên tài liệu đó là cãi nhau với
+chính file ③ được lệnh dựng theo (cùng lý lẽ spec 105 chỉ đưa requirement cho build khởi động thẳng ở ③,
+và đưa dưới dạng change request). Ghim: `test/turn-inputs.test.ts`.
+
 **Ngôn ngữ hội thoại** (`lib/language.ts` — module lá, không import gì, nên `state/task.ts` dùng được
 mà không tạo vòng): `languagePin` chèn chỉ thị viết **bằng chính ngôn ngữ đích** lên **đầu** prompt của
 mọi surface có người đọc — 4 phase turn (fresh lẫn `/reply`), cả hai đường `/ask`, consult, distill và
@@ -674,6 +690,7 @@ tránh vòng import) và mang seam:
 | `apps/builder/test/task-id-mint.test.ts` | `mintTaskId` đơn điệu (§5): ba `createTask` trong **cùng một ms** (Date.now đóng băng) → id khác nhau, tăng nghiêm ngặt |
 | `apps/builder/test/workflow-file.test.ts` | `isValidWorkflowFile` nhận tên thật, chặn traversal |
 | `apps/builder/test/timeout-knobs.test.ts` · `timeout-knobs-env.test.ts` | default các knob timeout; env override đọc lúc load; turn treo chết đúng note timeout |
+| `apps/builder/test/turn-inputs.test.ts` | header đầu vào §2: ① nhận requirement **có tên**, seed vắng nói bằng chữ, đường dẫn backend chấm được trao tay; thứ tự (dưới language pin, trên `docOrigin`); Retry-ra-khỏi-error vẫn mang header + verdict; ③ **không** có; requirement nhiều dòng giữ nguyên văn (thụt lề dưới bullet) |
 | `apps/builder/test/knowledge-inject.test.ts` | seam render §2: facts chỉ vào prompt ③ (fresh qua token, resume qua đuôi), phạm vi `languagePin` (JA + VI, còn lại rỗng) |
 | `apps/builder/test/content-language.test.ts` | chuỗi resolve ngôn ngữ + `detectLang` (Việt thắng kana, VN không dấu ⇒ rỗng); banner Output-language hai tầng của `draft.md`/`spec.md` không trôi |
 | `apps/builder/test/chat-lang-wire.test.ts` | `chat_lang` đi hết đường: wire → task.json → **prompt thật** mà turn nhận, cả cửa build lẫn consult; `/reply` tiếng Việt stamp `langHint` |

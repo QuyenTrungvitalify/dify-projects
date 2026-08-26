@@ -23,7 +23,7 @@ import {
 } from './post-turn.js';
 import { type TurnResult, isTimeoutNote } from './turn-runner.js';
 import { costFromResult } from './cost.js';
-import { PHASES, renderPrompt, type PhaseDef } from './phases.js';
+import { PHASES, renderPrompt, inputHeader, type PhaseDef } from './phases.js';
 import { languagePin } from './language.js';
 import { attachmentBlock } from './attachments.js';
 import {
@@ -732,8 +732,13 @@ async function runPhase(
     (phaseId === 'implement' && task.startPhase === 'implement' && !task.specApplied
       ? task.requirement
       : undefined);
+  // The input header (phases.ts) sits between the language pin — which must stay token-one — and the
+  // phase manual, so `docOrigin`'s "the document below" still names the body directly beneath it. It
+  // rides `freshPrompt`, which is also what a Retry-out-of-error gets (spec 111): the round that died
+  // asking for its own inputs is precisely the round that must be re-sent WITH them named.
   const freshPrompt =
-    langPin + (changeRequestText ? `${renderedFresh}\n\n${CHANGE_REQUEST}\n${changeRequestText}` : renderedFresh) + block + approvedTail;
+    langPin + inputHeader(phase, task) +
+    (changeRequestText ? `${renderedFresh}\n\n${CHANGE_REQUEST}\n${changeRequestText}` : renderedFresh) + block + approvedTail;
   // Spec 037 D6(b): the RESUME prompt skips phases.ts injectVars entirely, so the facts ride the
   // same fresh+resume seam as the attachment block — appended on the replyText branch only (a fresh
   // turn already carries them via the token; appending here too would double them).
