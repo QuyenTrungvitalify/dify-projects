@@ -47,6 +47,17 @@ describe('105 · the phase track and the steps that never ran', () => {
     expect(st.test).toBe('done');
   });
 
+  it('un-dashes ② once a plan turn really ran there', () => {
+    // `startPhase` says where the build BEGAN — not that a phase never happened. Asking for a plan from
+    // the ③ gate runs a real ② revise turn: the human reads it and approves or drops it, and the build
+    // returns to ③. Position alone then drew a dash over work that had genuinely been done, under a
+    // tooltip saying it never was. A session id is written the moment a phase's turn starts.
+    task.value = mk({ startPhase: 'implement', sessionIds: { spec: 'sess-spec' } });
+    const st = phaseStates.value;
+    expect(st.spec).toBe('done');
+    expect(st.analyze).toBe('skipped'); // ① still never ran — one signal per phase, not one per build
+  });
+
   it('never marks the phase the build is standing IN as skipped', () => {
     // `startPhase` is where it began, not a claim about the present. If a start-at-③ build is parked at
     // ③, ③ is live — the dash belongs only strictly before it.

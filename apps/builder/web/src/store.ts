@@ -391,8 +391,18 @@ export const phaseStates = computed<Record<WirePhase, UiPhaseState>>(() => {
   const ci = PHASE_ORDER.indexOf(t.phase);
   // Spec 105 — everything before where the build STARTED was never run, not finished. `startPhase` is
   // absent on every build that began at ①, which reads as 0 and leaves the old behaviour untouched.
+  //
+  // `sessionIds` is the second half, and it is not belt-and-braces: `startPhase` says where the build
+  // BEGAN, which is not the same as "this phase never happened". Asking for a plan from the ③ gate runs
+  // a real ② revise turn — the human reads it, approves or drops it — and the build returns to ③.
+  // Position alone then drew a dash over a phase that had genuinely run, with a tooltip saying it did
+  // not.
+  // A session id is written the moment a phase's turn starts, so it answers the actual question.
   const si = t.startPhase ? PHASE_ORDER.indexOf(t.startPhase) : 0;
-  for (let i = 0; i < ci; i++) out[PHASE_ORDER[i]] = i < si ? 'skipped' : 'done';
+  for (let i = 0; i < ci; i++) {
+    const ph = PHASE_ORDER[i];
+    out[ph] = i < si && !t.sessionIds?.[ph] ? 'skipped' : 'done';
+  }
   out[t.phase] =
     t.status === 'running' || t.status === 'scaffolding'
       ? 'running'
