@@ -8,6 +8,11 @@
 import { t as tr, tf } from './i18n';
 import type { WireTreeProject, WireTask } from '../types';
 
+/** Mirrors the server's `DRAFTS_PROJECT` (state/task.ts): the folder a create with no `project` lands
+ *  in. Duplicated rather than imported — `web/` does not reach into `server/` — so it is named here
+ *  once and read by anything that has to predict where a send will go. */
+const DRAFTS_PROJECT = '_drafts';
+
 export interface NewTaskCrumb {
   icon: 'edit' | 'folder';
   label: string;
@@ -42,15 +47,22 @@ export function wfDisplayName(tree: WireTreeProject[], slug: string): string {
  * badge promising a skip that then does not happen is worse than no badge, since the user has nothing
  * to tell which surface lied. Silence degrades to today's behaviour; a wrong claim does not.
  */
-export function armedStartsAtImplement(tree: WireTreeProject[], slug: string | null | undefined): boolean {
+export function armedStartsAtImplement(
+  tree: WireTreeProject[],
+  slug: string | null | undefined,
+  /** `settings.targetProject` — what `store.start()` sends when the slug names no project of its own. */
+  targetProject?: string | null
+): boolean {
   if (!slug || slug === 'none') return false;
   const slash = slug.indexOf('/');
-  if (slash !== -1) {
-    const proj = tree.find((p) => p.id === slug.slice(0, slash));
-    return proj?.workflows.find((w) => w.id === slug.slice(slash + 1))?.startsAtImplement === true;
-  }
-  for (const p of tree) for (const w of p.workflows) if (w.id === slug) return w.startsAtImplement === true;
-  return false;
+  // A BARE slug must resolve the way `start()` resolves it — `editing?.project ?? targetProject ?? null`,
+  // with the server reading a null as `_drafts`. The first draft of this copied `wfDisplayName`'s scan
+  // across every project instead, which is right for a NAME (guessing wrong is cosmetic) and wrong for
+  // a PROMISE: it could answer `true` from `my_app/specced` while the send targets `_drafts/specced`,
+  // producing exactly the two-surfaces-disagree failure this bit exists to avoid.
+  const project = slash !== -1 ? slug.slice(0, slash) : targetProject || DRAFTS_PROJECT;
+  const wf = slash !== -1 ? slug.slice(slash + 1) : slug;
+  return tree.find((p) => p.id === project)?.workflows.find((w) => w.id === wf)?.startsAtImplement === true;
 }
 
 /** Look up a project's display name by folder in the tree; falls back to the raw folder on no match. */

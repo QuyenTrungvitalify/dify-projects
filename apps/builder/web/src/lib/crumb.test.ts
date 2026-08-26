@@ -222,8 +222,18 @@ describe('105 · armedStartsAtImplement — will this send skip ① and ②?', (
     expect(armedStartsAtImplement([], 'my_app/specced')).toBe(false);
   });
 
-  it('still resolves a bare legacy slug', () => {
-    expect(armedStartsAtImplement(t, 'specced')).toBe(true);
-    expect(armedStartsAtImplement(t, 'imported')).toBe(false);
+  it('resolves a bare slug where the SEND would go, not wherever the name first appears', () => {
+    // The trap this pinned backwards on the first pass. `start()` resolves a bare slug against
+    // `settings.targetProject`, falling back to `_drafts` server-side — so scanning every project and
+    // taking the first name match (which is right for a display NAME) can answer `true` from
+    // `my_app/specced` while the send targets `_drafts/specced`. That is the two-surfaces-disagree
+    // failure the whole bit exists to avoid, manufactured by the thing meant to prevent it.
+    const withDrafts: WireTreeProject[] = [
+      ...t,
+      { id: '_drafts', name: 'Drafts', workflows: [{ id: 'specced', name: 'Specced', tasks: [] }] },
+    ];
+    expect(armedStartsAtImplement(withDrafts, 'specced')).toBe(false); // → _drafts/specced, no spec
+    expect(armedStartsAtImplement(withDrafts, 'specced', 'my_app')).toBe(true); // the armed target
+    expect(armedStartsAtImplement(t, 'specced', 'other')).toBe(false); // the namesake, correctly
   });
 });

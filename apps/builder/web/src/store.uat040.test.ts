@@ -98,4 +98,26 @@ describe('D4 — a status transition refreshes the sidebar in-progress list', ()
     applyTask(mk('t9', 3, 'awaiting_confirm')); // same status (e.g. reconnect re-emit) → no extra refresh
     expect(activeSpy.mock.calls.length).toBe(afterRunning + 1);
   });
+
+  it('spec 105 — and the TREE, on the same gate: its rows now carry a promise', async () => {
+    // Tree rows gained `startsAtImplement`, which the composer reads to say whether a send will skip
+    // ① and ②. The workflow FOLDER is created at the ② scaffold — after `start()`'s own loadTree — so
+    // without a refresh here the tree holds no row for the workflow the build just made, and the badge
+    // stays silent on exactly the flow spec 105 exists for: finish a build, click 「このワークフローを編集」.
+    // It was wrong by one whole build. Same gate as loadActive: `buildTree` walks the disk, so this
+    // must never ride a streaming rev.
+    vi.spyOn(api, 'active').mockResolvedValue({ active: [] });
+    vi.spyOn(api, 'getTask').mockRejectedValue(new Error('no network in unit'));
+    const treeSpy = vi.spyOn(api, 'tree').mockResolvedValue({ projects: [] });
+    resetToNew();
+
+    applyTask(mk('t10', 1, 'running'));
+    const afterRunning = treeSpy.mock.calls.length;
+
+    applyTask(mk('t10', 2, 'done'));
+    expect(treeSpy.mock.calls.length).toBe(afterRunning + 1);
+
+    applyTask(mk('t10', 3, 'done')); // a reconnect re-emit must not re-walk the disk
+    expect(treeSpy.mock.calls.length).toBe(afterRunning + 1);
+  });
 });

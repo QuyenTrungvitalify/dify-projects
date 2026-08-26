@@ -532,6 +532,14 @@ export function applyTask(t: WireTask): void {
   // Gated on the change so it fires a handful of times per build, not on every streaming rev.
   if (prevStatus !== t.status) {
     void loadActive();
+    // Spec 105 — the TREE too, and for a reason beyond a stale hint. Its rows now carry
+    // `startsAtImplement`, which the composer reads to say whether a send will skip ① and ②. The
+    // workflow folder is created at the ② scaffold — AFTER `start()`'s own loadTree — so without this
+    // the tree has no row for the workflow the build just made, `armedStartsAtImplement` finds nothing,
+    // and the badge stays silent on exactly the flow spec 105 exists for: finish a build, click
+    // 「このワークフローを編集」. It was wrong by one whole build. Same gate as `loadActive` above (a
+    // handful of times per build, never per streaming rev — `buildTree` walks the disk).
+    void loadTree();
     // spec 088: badge the tab / fire a notification when a phase settles while the tab is hidden.
     // Guards (run-ish prev only, no cancelled, hidden-only) live in notify.ts.
     notifyTransition(prevStatus, t);
