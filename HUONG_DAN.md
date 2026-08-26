@@ -106,12 +106,15 @@ tức là do chính Builder dựng ra — thì build mới **bắt đầu thẳn
 ② 仕様:
 
 - ① đọc workflow để hiểu nó, ② viết tài liệu mô tả nó. Cả hai thứ đó **đã có sẵn trên đĩa**, nên chạy
-  lại là trả tiền hai lượt để đọc lại thứ mình vừa viết. Nó tiếp nối như đang nối tiếp hội thoại cũ.
+  lại là trả tiền hai lượt để đọc lại thứ mình vừa viết. Nói rõ: đây **vẫn là một task mới** (hội thoại
+  mới, thư mục `.runs/` mới, không nhớ gì từ hội thoại trước) — chỉ là nó **bắt đầu từ file đã có**
+  thay vì phân tích lại từ đầu.
 - Thanh bước hiện ①② bằng **gạch ngang trong vòng nét đứt**, không phải tích xanh — vì chúng **không
   chạy**, chứ không phải "đã xong". Rê chuột lên để xem lý do.
 - Yêu cầu bạn gõ được đưa vào lượt ③ **dưới dạng yêu cầu sửa**, đúng như khi bấm ✎ trên một build
   đang mở. `SPEC.md` cũ được **chụp lại trước** khi sửa, nên nút 「この修正を取り消す」 (§6.4) vẫn dùng được.
-- Chế độ 「仕様だけ確認」 vẫn **dừng đúng một lần** — nhưng ở **③** thay vì ②, vì build này không có ②.
+- Chế độ 「仕様のみ」/`spec only` vẫn **dừng đúng một lần** — nhưng ở **③** thay vì ②, vì build này
+  không có ②. (Đúng lời hứa của nó: một lần dừng để bạn xem trước khi đi tiếp.)
 
 Ngược lại, **YAML bạn import từ ngoài vào** (「Import base」) thì **vẫn chạy đủ 4 bước**: chưa ai đọc
 file đó, và tài liệu giải thích nó chưa tồn tại. Không có nút nào để bật/tắt — nó tự nhận ra qua việc

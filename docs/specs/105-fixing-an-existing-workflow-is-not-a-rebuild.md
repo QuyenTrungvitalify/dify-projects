@@ -985,11 +985,13 @@ dưới đây. Không cái nào chặn; ghi ra để không rơi. Neo theo **tê
 > **Ghi chú về T8**: cùng lớp với việc §5.5 đã ghi cho LOẠI 2 (*"nói ra đã bỏ gì"*) — app nói đúng
 > nhưng nói bằng ngôn ngữ người dùng không đọc. Nếu làm, làm một lần cho cả `store.ts` chứ đừng vá lẻ.
 
-### 8.3 Vòng soát `startPhase` (2026-08-26) — **12 vá, 3 để ngỏ**
+### 8.3 Vòng soát `startPhase` (2026-08-26) — **16 vá, 3 để ngỏ**
 
 Commit `57dca56` ship `startPhase` (edit một workflow đã có cả spec lẫn yml ⇒ bắt đầu thẳng ③) và
-**xanh toàn bộ 1239 test + typecheck**. Vòng soát 3-góc sau đó tìm ra **một lỗi chặn** và tám lỗi
-khác. Ghi lại vì hình dạng của lỗi chặn đáng nhớ hơn bản thân nó.
+**xanh toàn bộ 1239 test + typecheck**. Hai vòng soát đối nghịch sau đó tìm ra **hai lỗi chặn** (U1 và
+U13) cùng mười ba lỗi khác — bảng dưới. Đáng chú ý: vòng soát **thứ hai** tìm ra lỗi chặn nằm trong
+chính bản vá của vòng thứ nhất, nên **U2, U7, U8 đều phải sửa lại sau khi đã "xong"**. Ghi lại vì hình
+dạng của các lỗi này đáng nhớ hơn bản thân chúng.
 
 **Lỗi chặn — bỏ ② là bỏ mất *người mang* yêu cầu.** Trên đường ①②③, câu người dùng gõ tới ③ qua
 `SPEC.md`: ② vừa viết lại tài liệu từ requirement mới, nên *"build theo SPEC.md"* **chính là**
@@ -1022,6 +1024,10 @@ Test `runs ONE turn, not three` xanh suốt — nó đếm **số lượt**, và
 | **U9** | `resolveStartPhase` phá chính bất biến nó tuyên bố: `start_phase:'spec'` rơi xuống default ⇒ trả `'implement'`, tức **bỏ nhiều hơn** mức được xin | ✅ vá — mọi phase **nhận diện được** mà hệ chưa hỗ trợ ⇒ `'analyze'` (an toàn về phía làm nhiều hơn) |
 | **U10** | `/report` chấm ① và ② của build ③-start như **thiếu**, không phải như **bỏ có chủ đích** | ✅ vá — SKILL.md đọc `startPhase` trước khi chấm |
 | **U11** | Thanh phase vẽ ①② **tích xanh** cho build chưa từng chạy chúng (§5.5 đã đoán trước) | ✅ vá — trạng thái thứ sáu `skipped`, gạch ngang + vòng nét đứt + tooltip. Kèm việc hợp nhất `UiPhaseState`/`PhaseState` vốn là hai bản sao đã trôi khỏi nhau |
+| **U13** | ⛔ **Bản vá U2 làm MẤT DỮ LIỆU qua chính lưới an toàn.** `specPredatesThisRound` là start-bound nên nó TRUE cả ở lượt ③ ngay sau `apply_spec` — đúng lượt duy nhất mà `confirmAdvance` tự chụp ảnh undo **trước** rename, kèm comment *"runPhase's own arming … never fires for this path. This is the only place it can."* U2 làm nó fire, **sau** rename. `copyFile` không kiểm, còn nửa kia (`snapshotDiffBase`) có rào `restart` ⇒ **chỉ nửa SPEC lệch**. `fixRoundUndoable` chỉ hỏi hai file có tồn tại ⇒ nút undo vẫn sáng; bấm thì lùi `main.yml` còn `SPEC.md` ở lại bản vừa duyệt, và bản trước đề xuất **mất vĩnh viễn** (apply là rename, `_drafts/` không có git). `TRAP 4` canh đúng bất biến này nhưng harness của nó luôn dựng build thường ⇒ vẫn xanh | ✅ vá — `&& !task.specApplied`. Kèm `TRAP 4b` lái từ build ③-start |
+| **U14** | Bản vá U1 dùng `??`, nhưng nút **Retry** ở gate lỗi gửi `text` **rỗng** (route cố ý cho qua: `if (!text && task.status !== 'error')`). `''` không phải null/undefined nên `??` không rơi xuống nhánh sau ⇒ khối `## Change request` bị bỏ ⇒ **U1 sống lại** đúng vào cú bấm người ta tìm đến khi lượt đầu vừa hỏng | ✅ vá — `opts?.replyText?.trim() ? … : undefined` |
+| **U15** | Bản vá U7 + U8 khoá vào `{{SEED_PATH}}` — token đó được đặt ở **CẢ** `localEditSeed` **LẪN** `difySeedScaffoldAndPull`, nên bật cho MỌI build edit-existing/Dify-seed, kể cả build chạy đủ ①②③ mà ② vừa viết `SPEC.md` từ đúng requirement này. Hệ quả: bước 2 tước mất `{{PATTERN_PATH}}`/`{{REFERENCES}}` mà ① đã chọn cho lớp build đó, và bước 6 mắng tài liệu vừa viết là đồ cũ — lại còn mâu thuẫn với `SPEC_RECONCILE` vẫn cấp quyền no-op cho chính build đó | ✅ vá — token mới `{{START_PHASE}}` trả lời đúng câu hỏi *"build này có ② của riêng nó không"*; `implement.md` đổi khoá ở cả hai bước. Kèm canh render `implement.md` không còn token thừa (nó vốn nằm ngoài bộ canh đó) |
+| **U16** | Thanh phase vẽ ② là **bỏ qua** cả khi Lane B đã chạy một lượt ② revise **thật** — `startPhase` nói về lúc BẮT ĐẦU, không phải "phase này chưa từng xảy ra" | ✅ vá — chỉ `skipped` khi ở trước `startPhase` **và** không có `sessionIds[phase]` (ghi ngay khi lượt của phase đó khởi động) |
 | **V1** | `ensureScaffold` không chạy ⇒ build ③-start không tự bảo đảm `.dify-workspace.yaml` tầng project | ⏸ để ngỏ — route đã đòi thư mục tồn tại; thêm một subprocess vào đường sạch để bù một ca biên chưa từng đo là đổi rủi ro lấy rủi ro |
 | **V2** | Mất lớp provenance ① đặt lên task (`analysisPattern`, `analysisFeatures`, `patternAdvisory`) ⇒ vài bề mặt lặng lẽ trống | ⏸ để ngỏ — `report.ts` và `dossier.ts` **đều đã** bỏ dòng khi thiếu (kiểm rồi), nên là *trống*, không phải *nói dối* |
 | **V3** | Rubric giờ do ③ tự viết rồi ④ chấm theo (U4) — tách bạch yếu hơn ②→③→④, và **đi ngược ghi chú của chính `criteria.ts`**: *"parse HERE … so a later SPEC.md edit during Implement can't silently change the rubric mid-test"*. Luật đó đúng **khi ② đã đặt chuẩn**; ở đây không ai đặt, nên lựa chọn không phải "chuẩn chặt hơn" mà là "chuẩn của việc khác". Cùng đánh đổi đã có sẵn ở `apply_spec` — chỉ khác là ở đó **có người duyệt** | ⏸ giữ, có rào — chỉ chạy khi lượt ③ **thành công** và khi parse **tìm thấy** tiêu chí (rỗng = "không tìm ra", không phải "không có"), nên không bao giờ xoá rubric thành `[]`. Mở rộng sang fix round thường là câu hỏi riêng |
