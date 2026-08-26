@@ -164,6 +164,9 @@ const EN: Dict = {
   stopBuildTitle: 'Stop this build?',
   stopBuildMsg: "Cancel <c>{name}</c>? Its running turn will be stopped and this phase's progress discarded.",
   stopBuild: 'Stop build',
+  /* the same × on a build parked at a gate: nothing is running, so the copy names what survives. */
+  cancelGateTitle: 'Cancel this build?',
+  cancelGateMsg: 'Cancel <c>{name}</c>? It is waiting at a gate — the spec and artifacts so far are kept, and you can restore the build from its conversation.',
 
   /* destructive gate confirms (spec 016 D4) */
   acceptAnywayTitle: 'Ship a workflow that failed validation?',
@@ -306,6 +309,10 @@ const EN: Dict = {
   phAskOrChange: 'Ask a question or request changes…',
   phChangeMode: 'What should change?',
   sendAskTip: 'Send as question (Enter)',
+  // The single-button composer (a promote build): there is no question lane to contrast with and no
+  // modifier to press, so the tip states what the ONE button does rather than borrowing the two-button
+  // wording — which would promise a shortcut that does nothing here.
+  sendChangeOnlyTip: 'Every message here is sent as a change request',
   sendChangeTip: 'Send as change request (⌘Enter / Ctrl+Enter) — re-runs the phase with your instruction',
   /* the send button's label: next to the change pill it must say WHAT it sends (a bare "Send" there
      would read as the submit for an armed "Request changes", re-creating the old mode-toggle trap). */
@@ -358,9 +365,9 @@ const EN: Dict = {
   cardTitle: 'Machine check',
   cardLintClean: 'Structure is valid — importable as-is',
   // spec 035: the done/cancelled gate-foot "Edit this workflow" button.
-  // Both edit affordances name their COST up front: they open a NEW conversation (a fresh edit-existing
-  // build — new session, empty thread, all four phases again). The cheap in-place path is `requestFix`
-  // on the same card, so the two must never read alike.
+  // It names its COST up front: it opens a NEW conversation (a fresh edit-existing build — new session,
+  // empty thread). The cheap in-place path is the composer's ✎ `modeChange` pill, so the two must never
+  // read alike.
   // Artifact panel — expand is a panel-level display option (every tab), the contents rail rides with it.
   expandPanel: 'Expand',
   collapsePanel: 'Collapse',
@@ -370,12 +377,10 @@ const EN: Dict = {
   contentsEmpty: 'No sections to jump to',
   editThisWorkflow: 'Edit in a new conversation',
   // The post-import fix loop — the done card's "keep working here" action (arms change-mode → /reply).
-  requestFix: 'Request a fix',
-  requestFixHint: 'Keep this conversation going — describe what to change and the workflow is revised here, with everything this build already knows',
   // Short label for the header pill (the tooltip `editThisWorkflowHint` still spells it out). It says
   // "new" because that is the distinction that matters now: this pill leaves the current conversation.
   editWorkflowShort: 'Edit (new)',
-  editThisWorkflowHint: 'Open a NEW conversation that edits this workflow. To keep this one going, use “Request a fix” on the last card instead.',
+  editThisWorkflowHint: 'Open a NEW conversation that edits this workflow. To keep this one going, type the change below and send it with ✎ Request changes instead.',
   // spec 036 D5: the done-state "Run test with workflow" foot action (autonomous builds + self-host creds).
   runTestWithWorkflow: 'Run test with workflow',
   // Discoverability change: the foot action is always shown; clicking it without a self-host target
@@ -455,7 +460,7 @@ const EN: Dict = {
   promoteSharePushedLine: 'Shared: branch {branch} was pushed — a PR opens automatically and the owner will review it.',
   promoteShareSentLine: 'Shared to the team shelf — the admin will review it and add it to the shared patterns.',
   askAnomalyTitle: 'Ask reverted an unexpected write',
-  askAnomalyMsg: 'The Ask turn attempted to write despite the guard — reverted: {files}. Nothing was kept; use Request changes if you want that edit.',
+  askAnomalyMsg: 'The Ask turn attempted to write despite the guard — reverted: {files}. Nothing was kept; send it with ✎ Request changes if you want that edit.',
   askAnomalyOk: 'OK',
   askAnomalyKindModified: 'modified, reverted',
   askAnomalyKindCreated: 'created, removed',
@@ -582,6 +587,9 @@ const EN: Dict = {
   revealInFinder: 'Reveal in Finder',
   copyPath: 'Copy path',
   copyPathHint: 'Copy the full path of this file',
+  /* The panel head's pair points at a DIRECTORY, so "this file" would be a small lie in the one place a
+     screen reader has to rely on the label alone. */
+  copyFolderPathHint: "Copy the full path of this build's folder",
   pathCopied: 'Path copied',
 
   /* diff tab */
@@ -720,6 +728,8 @@ const JA: Dict = {
   stopBuildTitle: 'このビルドを停止しますか？',
   stopBuildMsg: '<c>{name}</c> をキャンセルしますか？ 実行中のターンが停止され、このフェーズの進捗は破棄されます。',
   stopBuild: 'ビルドを停止',
+  cancelGateTitle: 'このビルドをキャンセルしますか？',
+  cancelGateMsg: '<c>{name}</c> をキャンセルしますか？ ゲートで待機中です — これまでの仕様・成果物は保持され、会話画面からビルドを復元できます。',
 
   /* destructive gate confirms (spec 016 D4) */
   acceptAnywayTitle: '検証に失敗したワークフローを出力しますか？',
@@ -838,6 +848,7 @@ const JA: Dict = {
   phAskOrChange: '質問または修正依頼を入力…',
   phChangeMode: '何を修正しますか？',
   sendAskTip: '質問として送信 (Enter)',
+  sendChangeOnlyTip: 'ここでの送信はすべて修正依頼として届きます',
   sendChangeTip: '修正依頼として送信 (⌘Enter / Ctrl+Enter) — 指示に沿ってフェーズを再実行します',
   sendAskBtn: '質問を送信',
   sendBtn: '送信',
@@ -887,8 +898,8 @@ const JA: Dict = {
   stopConsultAnswer: 'この回答を停止',
   cardTitle: '機械チェック',
   cardLintClean: '構造は有効 — そのままインポート可能',
-  // spec 035 — どちらの「編集」も、新しい会話が始まることを名前で先に伝える（同じ会話で直す道は
-  // 同じカードの `requestFix`）。
+  // spec 035 — 「編集」は新しい会話が始まることを名前で先に伝える（同じ会話で直す道は入力欄の
+  // ✎ `modeChange`）。
   expandPanel: '拡大',
   collapsePanel: '元に戻す',
   expandPanelHint: 'パネルをウィンドウ幅まで拡大します — 見出し一覧が表示され、セクション間を移動できます',
@@ -897,10 +908,8 @@ const JA: Dict = {
   contentsEmpty: '移動できる見出しがありません',
   editThisWorkflow: '新しい会話で編集',
   editWorkflowShort: '編集（新規）',
-  editThisWorkflowHint: 'このワークフローを編集する新しい会話を開きます。この会話のまま直す場合は、最後のカードの「修正を依頼」を使ってください。',
+  editThisWorkflowHint: 'このワークフローを編集する新しい会話を開きます。この会話のまま直す場合は、下の入力欄に変更内容を書いて「✎ 修正を依頼」で送信してください。',
   // 完了後の修正ループ — 完了カードの「この会話のまま直す」アクション。
-  requestFix: '修正を依頼',
-  requestFixHint: 'この会話を続けます — 変更点を伝えると、このビルドが把握している内容をそのまま引き継いでワークフローを修正します',
   // spec 036 D5
   runTestWithWorkflow: 'ワークフローでテスト実行',
   liveTestNeedsSelfhost:
@@ -976,7 +985,7 @@ const JA: Dict = {
   promoteSharePushedLine: '共有しました: ブランチ {branch} を送信 — PR が自動作成され、オーナーがレビューします。',
   promoteShareSentLine: 'チームの棚に共有しました — 管理者がレビューのうえ共有パターンに追加します。',
   askAnomalyTitle: '予期しない書き込みを元に戻しました',
-  askAnomalyMsg: 'ガードにもかかわらず質問ターンが書き込みを試みたため、元に戻しました: {files}。変更は反映されていません — その内容が必要な場合は「修正を依頼」を使ってください。',
+  askAnomalyMsg: 'ガードにもかかわらず質問ターンが書き込みを試みたため、元に戻しました: {files}。変更は反映されていません — その内容が必要な場合は「✎ 修正を依頼」で送信してください。',
   askAnomalyOk: 'OK',
   askAnomalyKindModified: '変更を元に戻しました',
   askAnomalyKindCreated: '作成されたため削除しました',
@@ -1093,6 +1102,7 @@ const JA: Dict = {
   revealInFinder: 'Finderで開く',
   copyPath: 'パスをコピー',
   copyPathHint: 'このファイルのフルパスをコピー',
+  copyFolderPathHint: 'このビルドのフォルダのフルパスをコピー',
   pathCopied: 'パスをコピーしました',
 
   /* diff tab */

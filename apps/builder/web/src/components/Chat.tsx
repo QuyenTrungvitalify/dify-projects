@@ -506,9 +506,11 @@ export function GateActions({ task, busy, onConfirm, onArmChange, onCancel, onRe
         if (a.kind === 'reply') {
           // spec 053: the error gate's `retry` action is a one-click re-run (primary/green + ↻), NOT a
           // composer-arm — `replyButtonKind` scopes the carve-out to `id==='retry' && status==='error'`.
-          if (replyButtonKind(a, task.status) === 'retry') {
+          const how = replyButtonKind(a, task.status);
+          if (how === 'retry') {
             return <button key={a.id} className="btn ok" disabled={busy} onClick={() => onRetry?.()}><I.retry />{tAction(a.label)}</button>;
           }
+          if (how === 'hidden') return null; // `changes` — see replyButtonKind for why
           return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => onArmChange(a.label)}><I.message />{tAction(a.label)}</button>;
         }
         if (a.kind === 'cancel') {
@@ -585,7 +587,7 @@ export function QaAnswer({ answer, done, seededFrom, cost, sessionReset, onStop 
   );
 }
 
-export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCancel, onRetry, onRestore, onEditAgain, onRunTest, onRequestFix, onUndoFix, onOpenArtifact }: {
+export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCancel, onRetry, onRestore, onEditAgain, onRunTest, onUndoFix, onOpenArtifact }: {
   task: WireTask;
   resolved?: string;
   busy?: boolean;
@@ -607,7 +609,6 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
   /** The post-import fix loop: arm change-mode on a DONE build so the fix found while testing in Dify is
    *  typed into THIS conversation (→ POST /reply, which resumes the implement session) instead of
    *  starting a new build. Contrast with `onEditAgain`, which deliberately opens a NEW conversation. */
-  onRequestFix?: () => void;
   /** spec 103 step 1 — take back the last fix round (both files). Absent ⇒ the link never renders. */
   onUndoFix?: () => void;
   onOpenArtifact: (tab: ArtifactTab, view?: 'diff') => void;
@@ -632,12 +633,11 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
   // Run-test / Restore) — its source project/workflowSlug would otherwise wrongly light Edit-again on a
   // done promotion. Suppress them so only the promote gate's own actions render.
   const isPromote = task.kind === 'promote';
-  const { restore: canRestore, editAgain: canEditAgain, runTest: canRunTest, requestFix: canRequestFix } =
+  const { restore: canRestore, editAgain: canEditAgain, runTest: canRunTest } =
     terminalFootActions(task, {
       restore: !!onRestore && !isPromote,
       editAgain: !!onEditAgain && !isPromote,
       runTest: !!onRunTest && !isPromote,
-      requestFix: !!onRequestFix && !isPromote,
     });
 
   return (
@@ -701,18 +701,14 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
             <I.check style={{ width: 13, height: 13 }} />{tAction(resolved)}
           </span>
         </div>
-      ) : canRestore || canEditAgain || canRunTest || canRequestFix ? (
+      ) : canRestore || canEditAgain || canRunTest ? (
         // spec 035 D2 / 036 D5: Restore (cancelled-only — reopens THIS build), Edit-this-workflow (both
         // statuses — starts a NEW edit-existing build), and Run-test-with-workflow (done autonomous +
         // creds — re-enters the live sub-orchestrator) coexist as independent actions in one foot.
-        // Request-a-fix (done-only) leads: it is the "keep working right here" action, and the one the
-        // user reaches for after importing into Dify and finding something to change.
+        // A "Request a fix" button used to lead this foot. It is gone: the post-import fix loop it served
+        // is reached from the composer's ✎ pill, which is already on screen for the same build under the
+        // same label (修正を依頼). Two identically-labelled buttons where one only pointed at the other.
         <div className="gate-foot">
-          {canRequestFix && (
-            <button className="btn ghost" disabled={busy} onClick={() => onRequestFix!()} title={tr('requestFixHint')}>
-              <I.message />{tr('requestFix')}
-            </button>
-          )}
           {canRestore && (
             <button className="btn ghost" disabled={busy} onClick={() => onRestore!()}>
               <I.undo />{tr('restoreBuild')}
@@ -1205,12 +1201,20 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
         {/* Labeled like its sibling pill so the pair reads as two SENDS, not toggle+send. Next to the
             change pill the label says WHAT it sends (質問を送信) — a bare 送信 there would re-create the
             old trap: click the change pill expecting a mode, type, press "送信", message leaves as a
-            question. */}
+            question.
+
+            `sendGlyph === 'edit'` marks a composer whose SINGLE button is a change request: a promote
+            build has no ask lane at all (`composerTarget` routes it to /reply whatever the intent), so
+            there is nothing for a second button to do. It carries the change LABEL too, not just the
+            pencil. One act, one name, everywhere: a bare 送信 there made promote the one surface where
+            asking for a fix was called something else. */}
         <button className={'composer-send' + (ready ? ' ready' : '')}
           onClick={() => { if (ready) onSend('ask'); }} disabled={!ready}
-          title={canChange ? tr('sendAskTip') : undefined}>
+          title={canChange ? tr('sendAskTip') : sendGlyph === 'edit' ? tr('sendChangeOnlyTip') : undefined}>
           {sendGlyph === 'edit' ? <I.edit /> : <I.enter />}
-          <span className="cs-label">{canChange ? tr('sendAskBtn') : tr('sendBtn')}</span>
+          <span className="cs-label">
+            {canChange ? tr('sendAskBtn') : sendGlyph === 'edit' ? tr('modeChange') : tr('sendBtn')}
+          </span>
         </button>
       </div>
     </div>

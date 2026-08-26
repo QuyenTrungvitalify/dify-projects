@@ -12,13 +12,25 @@ import type { WireGateAction, WireTask } from '../types';
 /** spec 053: a `kind:'reply'` gate button normally ARMS the composer (onArmChange). The one exception is
  *  the error gate's sole `retry` action, which fires a one-click, text-less re-run of the failed phase
  *  instead. Pure so gate-foot.test.ts can pin that the carve-out is scoped to `id==='retry' && error` and
- *  never leaks to another gate's reply buttons (still_failing "Keep trying", awaiting_import "Request
- *  changes", …). Returns which behavior the reply button should take. */
+ *  never leaks to another gate's reply buttons (still_failing "Keep trying", …).
+ *
+ *  `'hidden'` is the third answer and it belongs to `changes` alone. Since spec 092 that button sent
+ *  nothing: it focused the composer and highlighted the ✎ pill already sitting there, under the SAME
+ *  label — `modeChange` and `ACTION_JA['Request changes']` are both 修正を依頼. So every parked gate drew
+ *  two identically-worded buttons where one existed only to point at the other, and they behaved
+ *  differently: one armed, one sent. The pill is the door; the signpost is gone.
+ *
+ *  Scoped to the ID, never to `kind`. `keep` ("Keep trying") is a reply action too, and the
+ *  still-failing card NAMES it in its own summary line — hiding by kind would leave that card listing
+ *  three choices above two buttons. And this is a RENDER decision only: `gate.actions` still carries
+ *  `changes` on the wire, because the promote `/reply` route validates against it and the spec panel's
+ *  own three-button row looks it up there. */
 export function replyButtonKind(
   action: Pick<WireGateAction, 'id' | 'kind'>,
   status: WireTask['status'],
-): 'retry' | 'arm' {
-  return action.id === 'retry' && status === 'error' ? 'retry' : 'arm';
+): 'retry' | 'arm' | 'hidden' {
+  if (action.id === 'retry' && status === 'error') return 'retry';
+  return action.id === 'changes' ? 'hidden' : 'arm';
 }
 
 /**
@@ -57,21 +69,20 @@ function isAutonomous(mode: WireTask['confirmMode'] | undefined): boolean {
   return mode === 'auto' || mode === 'spec_only';
 }
 
-/** `has.restore`/`has.editAgain`/`has.runTest`/`has.requestFix` = whether the parent wired that handler
- *  (GateCard passes `!!onRestore` / `!!onEditAgain` / `!!onRunTest` / `!!onRequestFix`). Returns which
- *  terminal-foot actions should render. Pure. */
+/** `has.restore`/`has.editAgain`/`has.runTest` = whether the parent wired that handler
+ *  (GateCard passes `!!onRestore` / `!!onEditAgain` / `!!onRunTest`). Returns which terminal-foot
+ *  actions should render. Pure.
+ *
+ *  A `requestFix` action used to live here — a "Request a fix" button on the done card, arming the
+ *  composer for the post-import fix loop. It is gone, and the loop is not: on a done build the composer
+ *  already renders the ✎ pill (`terminalFixable`) under the SAME label, 修正を依頼. The button pointed at
+ *  a button on the same screen, and the two read identically while behaving differently — one armed,
+ *  one sent. One door per act. */
 export function terminalFootActions(
   task: Pick<WireTask, 'status' | 'project' | 'workflowSlug' | 'confirmMode' | 'liveTargets'>,
-  has: { restore: boolean; editAgain: boolean; runTest: boolean; requestFix?: boolean }
-): { restore: boolean; editAgain: boolean; runTest: boolean; requestFix: boolean } {
+  has: { restore: boolean; editAgain: boolean; runTest: boolean }
+): { restore: boolean; editAgain: boolean; runTest: boolean } {
   return {
-    // The post-import fix loop: a DONE build keeps a "Request a fix" button, because the human's real
-    // acceptance test — importing into Dify and running it — happens after this card says 完了. It arms
-    // the composer's change-mode, so the fix is typed into THIS conversation (server: POST /reply, which
-    // resumes the implement session). `done` only: a CANCELLED build's re-entry is Restore, and its
-    // implement session may never have existed. Requires an on-disk target, exactly like Edit-again.
-    requestFix:
-      task.status === 'done' && !!task.project && !!task.workflowSlug && !!has.requestFix,
     restore: task.status === 'cancelled' && has.restore,
     editAgain:
       (task.status === 'cancelled' || task.status === 'done') &&

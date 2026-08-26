@@ -97,7 +97,8 @@ cần đổi gì. Sửa **ngay trong hội thoại đó**, không cần build l�
 ### 6.1 Mở lại để sửa
 
 - Build còn **đang mở** (dừng ở gate): gõ thẳng vào ô nhập.
-- Build đã **完了 (done)**: bấm **「修正を依頼」 / "Request a fix"** trên thẻ cuối → con trỏ nhảy vào ô nhập.
+- Build đã **完了 (done)**: cũng gõ thẳng vào ô nhập rồi bấm **✎ 修正を依頼** — hội thoại chưa đóng,
+  workflow vẫn sửa được tại chỗ.
 - Workflow cũ **không còn hội thoại nào**: bấm workflow ở thanh bên → nếu có sẵn build thì nó mở build đó;
   nếu không, nó mở màn hình mới với workflow đã chọn sẵn.
 
@@ -129,6 +130,11 @@ trên đĩa có gì.
 
 > **Enter luôn là hỏi**, kể cả khi bạn vừa gõ "sửa giúp tôi X". Hỏi nhầm chỉ tốn một câu trả lời;
 > sửa nhầm thì ghi đè file thật. Nếu bạn gõ yêu cầu sửa rồi Enter, nó sẽ trả lời **và nhắc bạn bấm ✎**.
+
+> **Chỉ còn MỘT nút 修正を依頼 trên màn hình.** Trước đây thẻ gate cũng có một nút cùng tên, nhưng nó
+> không gửi gì — chỉ đưa con trỏ xuống ô nhập rồi tô sáng đúng nút ✎ vốn đã nằm sẵn ở đó. Hai nút
+> cùng chữ, khác việc. Giờ nút ✎ cạnh ô nhập là cửa duy nhất, ở **mọi** trạng thái: gate đang chạy,
+> build đã xong, và cả build promote (ở đó ô nhập chỉ có một nút và nó cũng mang tên 修正を依頼).
 
 ### 6.3 Bấm ✎ có hai lựa chọn (bấm mũi tên ▾ cạnh nút)
 
@@ -225,4 +231,4 @@ thẻ — Builder **không bao giờ tự đẩy** lên Dify.
 | Mở trang trắng / không cập nhật | Hard-refresh trình duyệt (`Cmd/Ctrl+Shift+R`). |
 | `claude` không chạy | Chạy `claude auth login` để đăng nhập lại. |
 | Hay bị *timeout* (phase dài / live-test chạy quá 2 phút) | Tăng `BUILDER_TURN_TIMEOUT_MS` / `BUILDER_LIVE_RUN_TIMEOUT_MS` trong `apps/builder/.env` (đơn vị ms — xem `.env.example`), rồi restart Builder. |
-| Import YAML vào Dify báo lỗi | Copy **nguyên văn** thông báo lỗi của Dify → mở build trong Builder. Build đã xong (done) thì bấm **「修正を依頼」(Request a fix)** trên thẻ cuối để sửa **ngay trong hội thoại đó** (mục 6); 「このワークフローを編集」 mở một hội thoại MỚI và chạy lại cả 4 bước — đắt hơn nhiều. Dán lỗi + ghi rõ "import vào Dify thì bị lỗi này" → build tự sửa → tải lại YAML và import lại. ⚠ KHÔNG dùng Ask — Ask chỉ trả lời, không sửa file. |
+| Import YAML vào Dify báo lỗi | Copy **nguyên văn** thông báo lỗi của Dify → mở build trong Builder. Build đã xong (done) thì gõ vào ô nhập rồi bấm **✎ 修正を依頼** để sửa **ngay trong hội thoại đó** (mục 6); 「このワークフローを編集」 mở một hội thoại MỚI và chạy lại cả 4 bước — đắt hơn nhiều. Dán lỗi + ghi rõ "import vào Dify thì bị lỗi này" → build tự sửa → tải lại YAML và import lại. ⚠ KHÔNG dùng Ask — Ask chỉ trả lời, không sửa file. |

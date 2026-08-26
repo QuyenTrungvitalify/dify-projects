@@ -12,7 +12,7 @@ const t = (over: Partial<WireTask>): Pick<WireTask, 'status' | 'project' | 'work
   ({ status: 'done', project: null, workflowSlug: null, confirmMode: 'each_step', liveTargets: { selfhost: false }, ...over }) as WireTask;
 
 // all handlers wired; the point is the TASK-FIELD logic, not handler presence.
-const all = { restore: true, editAgain: true, runTest: true, requestFix: true };
+const all = { restore: true, editAgain: true, runTest: true };
 
 describe('terminalFootActions (spec 035 — independent Restore / Edit-again guards)', () => {
   it('(a) cancelled + no on-disk workflow (pre-scaffold) → Restore stays, Edit-again hidden [the regression guard]', () => {
@@ -20,7 +20,6 @@ describe('terminalFootActions (spec 035 — independent Restore / Edit-again gua
       restore: true,
       editAgain: false,
       runTest: false,
-      requestFix: false,
     });
   });
 
@@ -29,7 +28,6 @@ describe('terminalFootActions (spec 035 — independent Restore / Edit-again gua
       restore: true,
       editAgain: true,
       runTest: false,
-      requestFix: false,
     });
   });
 
@@ -38,7 +36,6 @@ describe('terminalFootActions (spec 035 — independent Restore / Edit-again gua
       restore: false,
       editAgain: true,
       runTest: false,
-      requestFix: true,
     });
   });
 
@@ -47,46 +44,72 @@ describe('terminalFootActions (spec 035 — independent Restore / Edit-again gua
       restore: false,
       editAgain: false,
       runTest: false,
-      requestFix: false,
     });
   });
 
   it('a missing handler hides its own action even when the task fields qualify', () => {
     expect(
-      terminalFootActions(t({ status: 'cancelled', project: 'p', workflowSlug: 'wf' }), { restore: false, editAgain: true, runTest: true, requestFix: true })
-    ).toEqual({ restore: false, editAgain: true, runTest: false, requestFix: false });
+      terminalFootActions(t({ status: 'cancelled', project: 'p', workflowSlug: 'wf' }), { restore: false, editAgain: true, runTest: true })
+    ).toEqual({ restore: false, editAgain: true, runTest: false });
   });
 });
 
-// The post-import fix loop: the done card's "Request a fix" button — the one action that keeps the user
-// in THIS conversation (arms change-mode → POST /reply → the implement session resumes). It is
-// deliberately done-ONLY and, unlike runTest, confirm-mode-blind: every finished build gets fixed the
-// same way, whoever confirmed the gates.
-describe('terminalFootActions — requestFix (the post-import fix loop)', () => {
-  it('done + on-disk workflow → shown, at ANY confirm-mode (unlike runTest)', () => {
-    for (const confirmMode of ['each_step', 'spec_only', 'auto'] as const) {
-      expect(terminalFootActions(t({ status: 'done', project: 'p', workflowSlug: 'wf', confirmMode }), all).requestFix).toBe(true);
+/**
+ * The done card's "Request a fix" button is GONE, and this is the guard that says so on purpose.
+ *
+ * It armed the composer for the post-import fix loop — the loop is untouched. On a done build the
+ * composer already renders the ✎ change pill (`terminalFixable` in App.tsx), under the SAME label the
+ * button carried: `requestFix` and `modeChange` were both 修正を依頼 in JA. So the card showed a button
+ * whose only job was to point at another button on the same screen, and the two read identically while
+ * behaving differently — one armed, one sent.
+ *
+ * What must not come back is the FIELD: a foot action nobody renders is dead weight that reads as a
+ * feature. If a future change needs a done-card fix affordance, it should be argued for, not revived by
+ * a merge.
+ */
+describe('terminalFootActions — the done card carries no fix button', () => {
+  it('returns exactly three actions, and requestFix is not one of them', () => {
+    const out = terminalFootActions(t({ status: 'done', project: 'p', workflowSlug: 'wf' }), all);
+    expect(Object.keys(out).sort()).toEqual(['editAgain', 'restore', 'runTest']);
+  });
+
+  it('a done build still has its way back in: Edit-again on the foot, the ✎ pill in the composer', () => {
+    // Edit-again is the OTHER door and it is not a substitute — it starts a NEW build. The in-place fix
+    // is the composer pill, which `terminalFixable` (not this helper) governs. Pinned here so removing
+    // the button cannot be read as removing the loop.
+    expect(terminalFootActions(t({ status: 'done', project: 'p', workflowSlug: 'wf' }), all).editAgain).toBe(true);
+  });
+});
+
+/**
+ * The gate card no longer draws 「修正を依頼」.
+ *
+ * Since spec 092 that button sent nothing: it focused the composer and highlighted the ✎ pill already on
+ * screen, under the SAME label. Every parked gate therefore showed two identically-worded buttons where
+ * one existed only to point at the other — one armed, one sent. The pill is the door.
+ *
+ * The two traps this pins:
+ *   · hide by ID, never by KIND. `keep` is a reply action too, and the still-failing card names it in
+ *     its own summary line — going by kind would leave that card listing three choices above two buttons.
+ *   · `retry` is untouched: it is the one-click re-run, not a signpost.
+ */
+describe('replyButtonKind — which reply actions still get drawn', () => {
+  const a = (id: string) => ({ id, kind: 'reply' as const });
+
+  it('`changes` is hidden at every gate that offers it', () => {
+    for (const status of ['awaiting_confirm', 'error', 'done'] as const) {
+      expect(replyButtonKind(a('changes'), status)).toBe('hidden');
     }
   });
 
-  it('done but NO on-disk workflow → hidden (nothing to revise)', () => {
-    expect(terminalFootActions(t({ status: 'done', project: 'p', workflowSlug: null }), all).requestFix).toBe(false);
-    expect(terminalFootActions(t({ status: 'done', project: null, workflowSlug: 'wf' }), all).requestFix).toBe(false);
+  it('`keep` still arms — the still-failing card names it by label', () => {
+    expect(replyButtonKind(a('keep'), 'awaiting_confirm')).toBe('arm');
   });
 
-  it('cancelled → hidden (a cancelled build re-enters via Restore, and may have no implement session)', () => {
-    expect(terminalFootActions(t({ status: 'cancelled', project: 'p', workflowSlug: 'wf' }), all).requestFix).toBe(false);
-  });
-
-  it('not terminal (running / awaiting_confirm) → hidden (the gate already offers Request changes)', () => {
-    expect(terminalFootActions(t({ status: 'awaiting_confirm', project: 'p', workflowSlug: 'wf' }), all).requestFix).toBe(false);
-    expect(terminalFootActions(t({ status: 'running', project: 'p', workflowSlug: 'wf' }), all).requestFix).toBe(false);
-  });
-
-  it('qualified but handler NOT wired (e.g. a promote build) → hidden', () => {
-    expect(
-      terminalFootActions(t({ status: 'done', project: 'p', workflowSlug: 'wf' }), { ...all, requestFix: false }).requestFix
-    ).toBe(false);
+  it('`retry` on an errored build is still the one-click re-run', () => {
+    expect(replyButtonKind(a('retry'), 'error')).toBe('retry');
+    // …and only there: the same id at a live gate would be an arm, as before.
+    expect(replyButtonKind(a('retry'), 'awaiting_confirm')).toBe('arm');
   });
 });
 
@@ -148,14 +171,17 @@ describe('replyButtonKind (spec 053 — one-click retry vs arm-composer)', () =>
     expect(replyButtonKind(a('retry'), 'running')).toBe('arm');
   });
 
-  it("other reply ids at an error status → 'arm' (only id 'retry' is the retry button)", () => {
+  it("other reply ids at an error status do NOT become the retry button", () => {
     // (defensive — ERROR_GATE only ever emits id 'retry', but the guard must not fire on a hypothetical
-    //  other reply action co-present at an error status)
-    expect(replyButtonKind(a('changes'), 'error')).toBe('arm');
+    //  other reply action co-present at an error status). `changes` answers 'hidden' rather than 'arm'
+    //  now; what matters here is that it is not 'retry'.
+    expect(replyButtonKind(a('changes'), 'error')).not.toBe('retry');
   });
 
-  it("the OTHER gates' reply ids (Keep trying / Request changes / Edit spec) → 'arm' — no leak", () => {
+  it("the OTHER gates' reply ids do not leak into the retry carve-out", () => {
     expect(replyButtonKind(a('keep'), 'awaiting_confirm')).toBe('arm'); // still_failing "Keep trying"
-    expect(replyButtonKind(a('changes'), 'awaiting_confirm')).toBe('arm'); // awaiting_import/spec "Request changes"
+    // `changes` is hidden everywhere now (see the block above) — asserted here only as "not retry", so
+    // this spec-053 guard keeps testing the carve-out rather than doubling as a render assertion.
+    expect(replyButtonKind(a('changes'), 'awaiting_confirm')).not.toBe('retry');
   });
 });

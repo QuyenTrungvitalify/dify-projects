@@ -14,11 +14,15 @@ import { describe, it, expect } from 'vitest';
 import { t, tAction, lang, type Lang } from './i18n';
 
 describe('103 S1 · one root word for "change this build"', () => {
-  it('the composer pill and the gate button now say the SAME thing in Japanese', () => {
-    // These were the two surfaces that rendered side by side on a finished build.
+  it('one surface carries the word now — the two that read alike are down to one', () => {
+    // This used to assert that the composer pill and the done card's button said the same thing. They
+    // did, which was the point AND the problem: two identically-labelled buttons on one screen, where
+    // the card's only job was to point at the composer's. The card's button is gone; the pill is the
+    // door, and it keeps the word.
     lang.value = 'ja';
     expect(t('modeChange')).toBe('修正を依頼');
-    expect(t('requestFix')).toBe('修正を依頼');
+    // The label the deleted button used must not quietly come back under its old key.
+    expect(t('requestFix')).toBe('requestFix'); // absent keys render as the key itself
   });
 
   it('the ② gate reply keeps its own noun but joins the same verb', () => {

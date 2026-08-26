@@ -463,14 +463,6 @@ export function App() {
   // which is not on the wire; the impossible session-less case 409s rather than silently doing nothing.
   const terminalFixable = !!task && task.status === 'done' && task.kind !== 'promote' &&
     task.kind !== 'consult' && !!task.project && !!task.workflowSlug;
-  // Arm the change hint on a finished build (the post-import fix loop) — fired by the done card's
-  // Request-a-fix button. spec 092: a hint only (focus + pill highlight + placeholder); the old mode-row
-  // indicator and its composer-side arm button are gone — the ✎ change pill is always visible wherever a
-  // change send is legal, so no separate door is needed.
-  function armFix(): void {
-    setArmed('Request changes');
-    setFocusToken((x) => x + 1);
-  }
   // spec 092: typing-away the whole draft dissolves the arm hint — emptying the box reads as "never
   // mind", and a hint that lingers past it would mislabel an unrelated later send. Only a NON-empty →
   // empty edit counts: arming legitimately happens over an empty box (focus first, type second).
@@ -749,7 +741,6 @@ export function App() {
                         /* The post-import fix loop: keep working in THIS conversation — arm change-mode so
                            the next message is a revision (POST /reply resumes the implement session),
                            instead of onEditAgain's new build. */
-                        onRequestFix={armFix}
                         onOpenArtifact={openArtifact}
                       />
                     </div>;
