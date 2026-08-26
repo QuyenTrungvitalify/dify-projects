@@ -720,8 +720,15 @@ async function runPhase(
   // existing workflow. Excluded when something else already carries the ask — `replyText` (the human
   // just typed it) or an approved plan (`specApplied`: SPEC.md now IS the request, and re-appending the
   // original words would argue with the document the human signed off on).
+  //
+  // `|| undefined` rather than a bare `??`: a Retry-out-of-error is a text-LESS one-click re-run, and
+  // the route lets it through as an EMPTY STRING on purpose (`if (!text && task.status !== 'error')`).
+  // `??` only falls through on null/undefined, so `''` won a truthiness test it then lost — the block
+  // was dropped and the retry went in carrying no request at all. The same bug this line exists to fix,
+  // one click later, on the click a human reaches for precisely when the first turn went wrong.
+  const askedInThisMessage = opts?.replyText?.trim() ? opts.replyText : undefined;
   const changeRequestText =
-    opts?.replyText ??
+    askedInThisMessage ??
     (phaseId === 'implement' && task.startPhase === 'implement' && !task.specApplied
       ? task.requirement
       : undefined);
@@ -760,8 +767,19 @@ async function runPhase(
   // rounds `replyText` is set anyway and nothing changes. The one turn it newly covers besides the
   // first is an APPROVED-plan ③ (no `replyText`) — and that turn is already exempted downstream by
   // `task.specApplied`, which suppresses `specStale` explicitly rather than by omission.
+  // `!task.specApplied` is the difference between an undo and a lie. The ③ that follows an APPROVED
+  // plan is the one turn `confirmAdvance` arms by hand, deliberately BEFORE `applySpecProposal`,
+  // because the rename IS that round's first mutation — its comment says the arming here "never fires
+  // for this path", and the widening above made it fire, after the rename. `copyFile` does not check,
+  // so `spec-base.md` would then hold the ALREADY-APPROVED spec while `base.yml` (guarded by its own
+  // `restart` flag) still held the true pre-round workflow. `fixRoundUndoable` only asks whether both
+  // files exist, so the button stays lit — and pressing it rolls `main.yml` back while leaving SPEC.md
+  // describing the change that was just erased. That is precisely the drift `undoFixRound` exists to
+  // prevent, reached through the one control offered as the way out of a bad round, and the
+  // pre-proposal spec is gone for good (`applySpecProposal` is a rename, and `_drafts/` has no git).
   const specPredatesThisRound =
-    phaseId === 'implement' && (!!opts?.replyText || task.startPhase === 'implement');
+    phaseId === 'implement' &&
+    (!!opts?.replyText || (task.startPhase === 'implement' && !task.specApplied));
   // The TAIL, however, answers a different question, and conflating the two put dead code on the very
   // path the widening was for. Its question is "does this prompt carry the skill body?" — a resume does
   // not, so the rule has to ride the tail; a fresh turn does, and `implement.md` step 6 states it in

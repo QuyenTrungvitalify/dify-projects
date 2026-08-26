@@ -238,10 +238,47 @@ describe('103 L0 · the reconcile directive reaches the turn that is measured', 
     ).split('\n6. **Reconcile')[1] ?? '';
     assert.ok(step6, 'precondition: step 6 is where the reconcile rule lives');
     assert.ok(
-      step6.includes('{{SEED_PATH}}'),
-      'the no-op excuse must be stated against SEED_PATH — a turn editing an existing workflow is ' +
-      'never excused from re-reading the document written for the workflow it replaced'
+      step6.includes('{{START_PHASE}}'),
+      'the no-op excuse must be stated against START_PHASE — a turn whose build had no ② is never ' +
+      'excused from re-reading the document written for the workflow it replaced'
     );
+    // And NOT against `{{SEED_PATH}}`, which was the first attempt. That token is set by BOTH
+    // `localEditSeed` and `difySeedScaffoldAndPull`, so it is non-blank on every edit-existing and
+    // dify-seed build — including the ①②③ ones whose ② wrote this very document from this very
+    // requirement minutes ago. Keying on it told those turns their fresh spec was stale, and
+    // contradicted `SPEC_RECONCILE`, which still grants them the no-op on the resume seam.
+    assert.ok(
+      !/It is \*\*not\*\* the case when `\{\{SEED_PATH\}\}`/.test(step6),
+      'the excuse must not be withdrawn from builds whose ② really did write the document'
+    );
+  });
+
+  test('spec 105 — a text-less RETRY still carries the request; an empty string is not an answer', async () => {
+    // The Retry button on an error gate is a one-click re-run and sends NO text — the route lets that
+    // through as an empty string on purpose. The carrier fix read it with `??`, which only falls
+    // through on null/undefined, so `''` passed a truthiness test it then failed: the change-request
+    // block was dropped and the retry went in carrying no request at all. On the exact click a human
+    // reaches for when the first turn already went wrong, the ask evaporated a second time.
+    dir = fixtureDir();
+    mkdirSync(join(dir, 'projects', '_drafts', 'specced', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects/_drafts/specced/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(join(dir, 'projects/_drafts/specced/SPEC.md'), '# Spec\n\n## Acceptance Criteria\n- it works\n');
+    const seen: Seen = { prompts: [], specHashes: [] };
+    const ctx = harness(dir, seen, { dieMidWrite: true });
+    const task = await createTask(dir, {
+      requirement: 'add a retry branch', workflow: 'specced', startPhase: 'implement', deploy: 'none',
+    });
+    current = task;
+
+    await withTurn(task.taskId, () => startTask(task, ctx));
+    assert.equal(task.status, 'error', 'precondition: the first ③ died');
+
+    await withTurn(task.taskId, () => replyWithin(task, '', ctx)); // the Retry button: no text
+
+    const retry = seen.prompts[seen.prompts.length - 1];
+    const i = retry.indexOf('## Change request');
+    assert.ok(i > -1, 'the retry is still told what was asked for');
+    assert.ok(retry.slice(i).includes('add a retry branch'), 'and it is the request the human typed');
   });
 
   test('a /reply at the ② gate gets no directive — it is not an Implement turn', async () => {

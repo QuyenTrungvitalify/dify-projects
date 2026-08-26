@@ -430,6 +430,38 @@ describe('103 Lane B · deciding', () => {
       'the snapshot is the PRE-PROPOSAL spec — taken before the rename, which is this round\'s first mutation');
   });
 
+  test('TRAP 4b — spec 105: the same holds for a build that STARTED at ③', async () => {
+    // TRAP 4's harness always builds through ①②③, so it never exercised the one config that broke it.
+    // Spec 105 widened runPhase's arming to cover a build with no ② — and that widening is start-bound,
+    // so it was true on THIS turn too: the arming the comment above says "never fires for this path"
+    // fired, after the rename. `copyFile` does not check, so `spec-base.md` took the ALREADY-APPROVED
+    // spec while `base.yml` (guarded by its own `restart` flag) kept the true pre-round workflow.
+    // `fixRoundUndoable` only asks whether both files exist, so the button stayed lit and pressing it
+    // rolled the workflow back while leaving SPEC.md describing the change that was just erased — with
+    // the pre-proposal spec gone for good (the apply is a rename; `_drafts/` has no git behind it).
+    dir = fixtureDir();
+    mkdirSync(join(dir, 'projects', '_drafts', 'specced', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects/_drafts/specced/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(join(dir, 'projects/_drafts/specced/SPEC.md'), '# Spec\n\nThreshold 0.5.\n\n## Acceptance Criteria\n- it works\n');
+    const seen: Seen = { prompts: [], specHashes: [] };
+    const ctx = harness(dir, seen);
+    const task = await createTask(dir, {
+      requirement: 'lower the threshold', workflow: 'specced', startPhase: 'implement',
+      confirmMode: 'each_step', deploy: 'none',
+    });
+    current = task;
+    await withTurn(task.taskId, () => startTask(task, ctx));
+    assert.equal(task.phase, 'implement', 'precondition: it started at ③');
+    const preProposal = readFileSync(specPath(task), 'utf8');
+
+    await propose(task, ctx);
+    await withTurn(task.taskId, () => confirmAdvance(task, 'apply_spec', ctx));
+
+    assert.equal(task.fixUndoable, true, 'the button is offered');
+    const snap = readFileSync(join(dir, `apps/builder/.runs/${task.taskId}/spec-base.md`), 'utf8');
+    assert.equal(snap, preProposal, 'and it restores the PRE-PROPOSAL spec, not the one just approved');
+  });
+
   test('TRAP 7 — `specStale` does not false-alarm on an approved plan', async () => {
     // The spec changed by rename BEFORE the turn, so specHashBefore is taken after it and the turn
     // legitimately leaves the file alone. Measuring here would raise a warning on EVERY apply.
