@@ -18,13 +18,15 @@ import { PrefsMenu } from './PrefsMenu';
 import { devMode } from '../lib/dev';
 import { I } from './Icon';
 import { suggestions } from '../data';
-import { t as tr, tf, lang } from '../lib/i18n';
+import { t as tr, tf, lang, phaseLabel } from '../lib/i18n';
 import { notifyOn, notifyBlocked, toggleNotify, notifyNudge, notifyNudgeKind, dismissNudge } from '../lib/notify';
 import * as store from '../store';
 import { type ComposerAttachment, MAX_ATTACHMENTS, isAcceptedFile, fileToDataUrl, toWire } from '../lib/attachments';
 import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed, NewTaskOpts } from '../types';
 import { armedStartsAtImplement, newTaskCrumb, runContextCrumb, workflowOptions, activeSidebarProject, activeSidebarWorkflow, type NewTaskCrumb } from '../lib/crumb';
 import { canPromoteFromConversation } from '../lib/promote-visibility';
+import { pendingConversation } from '../lib/pending-conversation';
+import { phaseIndex } from '../lib/phase';
 import { composerTarget, replyLabel, type ComposerIntent } from '../lib/composer-route';
 import { canPropose, confirmModeOptions } from '../lib/propose-lane';
 import { gateOffersCancel, terminalFootActions, visibleGateActions } from '../lib/gate-foot';
@@ -364,7 +366,26 @@ export function App() {
   // spec 029: the two sidebar "+" intents flow in via opts. resetToNew() first (clears prior state incl.
   // any stale pre-selection), THEN re-apply this launch's opts — that ordering IS the non-clobber (the
   // footer/manual "New task" passes no opts → a clean from-scratch slate).
-  function newTask(opts?: NewTaskOpts): void {
+  async function newTask(opts?: NewTaskOpts): Promise<void> {
+    // Spec 105 M4 — a workflow parked at a gate is waiting for an answer, and starting a second
+    // conversation on it leaves that one stranded while both write the same `main.yml` and `SPEC.md`.
+    // Asked ONLY there: `done`/`cancelled` have nothing to walk away from (the common path — finish a
+    // build, click the pencil, start the next round), and a running turn is already refused by the
+    // create route's 409. Two doors rather than yes/no, because a reader usually cannot remember what
+    // state the old conversation is in — so the dialog says it, and offers the thing they likely wanted.
+    if (opts?.baseWorkflow) {
+      const slug = `${opts.baseWorkflow.project}/${opts.baseWorkflow.workflow}`;
+      const waiting = pendingConversation(tree, slug, null);
+      if (waiting) {
+        const goNew = await store.askConfirm({
+          title: tr('pendingConvTitle'),
+          message: tf('pendingConvMsg', { phase: `${phaseIndex(waiting.phase as never)}. ${phaseLabel(waiting.phase as never)}` }),
+          okLabel: tr('pendingConvNew'),
+          cancelLabel: tr('pendingConvOpen'),
+        });
+        if (!goNew) { void store.openTask(waiting.id); return; }
+      }
+    }
     store.resetToNew();
     // spec 082 §4.5 rev: every newTask entry (Build "+", a workflow-row edit, a project preselect) is a
     // BUILD action — force the composer's entry mode to build so the empty surface shows the build chips.

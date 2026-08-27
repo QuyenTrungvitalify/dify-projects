@@ -144,6 +144,13 @@ const EN: Dict = {
   // the ordinary path there is nothing surprising to announce, and a line that fires on the normal
   // case is a line nobody reads.
   startsAtImplement: 'Starts at ③ Implement — this workflow already has an analysis and a spec',
+  // Spec 105 M4 — asked ONLY when the existing conversation is parked at a gate, i.e. actually waiting
+  // for an answer. Two doors, not yes/no: the reader usually cannot remember what state the old one is
+  // in, so the dialog says it and offers the thing they probably wanted.
+  pendingConvTitle: 'This workflow already has a conversation open',
+  pendingConvMsg: 'It is waiting at {phase} for your decision. Starting a new conversation leaves it there, and both will be writing the same workflow file.',
+  pendingConvOpen: 'Open the existing one',
+  pendingConvNew: 'Start a new one anyway',
   runContextHint: 'Where this build lands',
   // spec 051-followup: the run-crumb "running with a base" badge (edit-existing / Dify-seed builds).
   baseLabel: 'base:',
@@ -161,7 +168,7 @@ const EN: Dict = {
   phImportBaseName: 'defaults to the YAML’s app.name',
   importBaseProject: 'Target project (optional)',
   importBaseDrafts: '_drafts — staging (not committed)',
-  importBaseSubmit: 'Add base',
+  importBaseSubmit: 'Import',
   importBaseEmpty: 'Upload or paste a workflow YAML first.',
   importBaseLanded: 'Imported as {workflow} in {project}.',
   importBaseUse: 'Use this base',
@@ -170,7 +177,7 @@ const EN: Dict = {
   intakeTitle: 'Add external workflow YAML',
   intakeHint: 'Pick what to do with an external workflow YAML, then upload or paste it. It is validated first.',
   intakeActionLabel: 'What to do',
-  intakeActionBase: 'Edit as a base',
+  intakeActionBase: 'Import and edit',
   intakeActionDistill: 'Distill to shelf',
   intakeBaseHint: 'Lands it in a project as a base, ready for a build that edits it.',
   intakeDistillHint: 'Distills it into a pattern later builds can reuse. A review opens — nothing is saved until you approve it.',
@@ -360,7 +367,9 @@ const EN: Dict = {
   sectionChat: 'Chat',
   sectionBuild: 'Build',
   sectionProjects: 'Projects',
-  sectionDistill: 'Distill', // spec 084 S1.5 — the promote/distill task section
+  // The section is named for what its rows PRODUCE, not for one of the two ways in: a proven local
+  // build promoted, and an external YAML distilled, both land here. Its "+" is the external-YAML door.
+  sectionDistill: 'Patterns',
   sbShowMore: 'Show {n} more', // spec 084 follow-up — sidebar section load-more
   sbShowLess: 'Show less',
   removeTask: 'Remove', // spec 084 follow-up — the sidebar row-× (permanent delete)
@@ -540,7 +549,7 @@ const EN: Dict = {
   inProgress: 'In progress',
   noProjectsYet: 'No projects yet',
   noChatsYet: 'No chats yet',
-  noDistillsYet: 'No distills yet',
+  noDistillsYet: 'No promotes or distills yet',
   noBuildsYet: 'No builds yet',
   cancelThisBuild: 'Cancel this build',
   hintGate: 'gate',
@@ -726,6 +735,10 @@ const JA: Dict = {
   newTaskInProjectName: '{name} 内に新規タスク',
   clearPreselection: '選択を解除して新規タスク',
   startsAtImplement: '③ 実装から開始 — このワークフローには分析と仕様がすでにあります',
+  pendingConvTitle: 'このワークフローには開いたままの会話があります',
+  pendingConvMsg: '{phase} であなたの判断を待っています。新しい会話を始めると、そちらはそのまま残り、同じワークフローファイルを二つの会話が書くことになります。',
+  pendingConvOpen: '既存の会話を開く',
+  pendingConvNew: 'それでも新規で始める',
   runContextHint: 'このビルドの保存先',
   // spec 051-followup
   baseLabel: 'ベース:',
@@ -743,7 +756,7 @@ const JA: Dict = {
   phImportBaseName: '未入力の場合は YAML の app.name を使用',
   importBaseProject: '対象プロジェクト（任意）',
   importBaseDrafts: '_drafts — ステージング（コミットされません）',
-  importBaseSubmit: 'ベースに追加',
+  importBaseSubmit: '取り込む',
   importBaseEmpty: 'まずワークフローのYAMLをアップロードまたは貼り付けてください。',
   importBaseLanded: '{project} に {workflow} として取り込みました。',
   importBaseUse: 'このベースを使う',
@@ -752,7 +765,7 @@ const JA: Dict = {
   intakeTitle: '外部ワークフローYAMLを追加',
   intakeHint: '外部ワークフローYAMLの用途を選んでから、アップロードまたは貼り付けてください。先に検証されます。',
   intakeActionLabel: '用途',
-  intakeActionBase: 'ベースにして編集',
+  intakeActionBase: '取り込んで編集',
   intakeActionDistill: 'パターン棚に蒸留',
   intakeBaseHint: 'プロジェクトにベースとして取り込み、それを編集するビルドを始められます。',
   intakeDistillHint: '今後のビルドで再利用できるパターンに蒸留します。レビューが開き、承認するまで保存されません。',
@@ -912,7 +925,7 @@ const JA: Dict = {
   sectionChat: 'チャット',
   sectionBuild: 'ビルド',
   sectionProjects: 'プロジェクト',
-  sectionDistill: '蒸留', // spec 084 S1.5
+  sectionDistill: 'パターン',
   sbShowMore: 'あと{n}件を表示', // spec 084 follow-up
   sbShowLess: '折りたたむ',
   removeTask: '削除', // spec 084 follow-up — サイドバー行の×（完全削除）
@@ -1080,7 +1093,7 @@ const JA: Dict = {
   inProgress: '進行中',
   noProjectsYet: 'プロジェクトはまだありません',
   noChatsYet: 'チャットはまだありません',
-  noDistillsYet: '蒸留はまだありません',
+  noDistillsYet: '昇格・蒸留はまだありません',
   noBuildsYet: 'ビルドはまだありません',
   cancelThisBuild: 'このビルドをキャンセル',
   hintGate: 'ゲート',
