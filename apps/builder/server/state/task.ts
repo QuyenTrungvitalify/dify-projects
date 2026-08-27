@@ -882,7 +882,13 @@ export async function createTask(projectsDir: string, input: CreateTaskInput): P
     // revise. Anywhere else a plan has nothing to draft against and `beginSpecProposal` would decline
     // it silently, turning an explicit choice into an ordinary fix with no word said.
     specProposeAtStart: input.proposeAtStart && startPhase === 'implement' ? true : undefined,
-    phase: startPhase,
+    // The FIRST snapshot the browser sees, and it is read as "this phase is happening". On the plan
+    // lane it is not: `startTask` routes that build to ② revise, and ③ will not run until a human
+    // approves. Publishing `implement` here put a ③ block in the thread for a turn that had not
+    // started and might never — the same shape as a phase track ticking a step nobody ran, which this
+    // spec has spent its length removing. `startPhase` still records where the build WOULD have begun;
+    // only the phase it is standing in right now is corrected.
+    phase: input.proposeAtStart && startPhase === 'implement' ? 'spec' : startPhase,
     status: 'running',
     name: input.name && input.name.trim() ? input.name.trim() : null,
     sessionIds: {},

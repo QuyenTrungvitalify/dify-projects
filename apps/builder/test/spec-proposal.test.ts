@@ -448,6 +448,12 @@ describe('103 Lane B · deciding', () => {
     });
     current = task;
     assert.equal(task.specProposeAtStart, true, 'precondition: the lane survived createTask');
+    // The FIRST snapshot the browser sees, and it is read as "this phase is happening". Publishing
+    // `implement` here put a ③ block in the thread for a turn that had not started and might never —
+    // the same shape as a phase track ticking a step nobody ran. `startPhase` still records where the
+    // build WOULD have begun; only the phase it is standing in right now is corrected.
+    assert.equal(task.phase, 'spec', 'the snapshot says where it IS, not where it would have gone');
+    assert.equal(task.startPhase, 'implement', 'and still records where it would have begun');
 
     await withTurn(task.taskId, () => startTask(task, ctx));
 
