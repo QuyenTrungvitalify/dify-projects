@@ -1,9 +1,7 @@
 # Cài đặt Dify Builder
 
-> ⚠️ **Chưa phát cho user.** Các script đã có và đã chạy được (spec 110 đã ship), nhưng còn **chưa
-> nghiệm thu trên máy sạch** và **chưa kiểm trên Windows/WSL2** — xem §9.5 của
-> [spec 110](docs/specs/110-cai-dat-khong-duoc-phu-thuoc-may-nguoi-dung.md). Làm xong hai việc đó rồi
-> hãy gửi tài liệu này đi.
+> ⚠️ **Chưa phát cho user.** Các script đã có và đã chạy được, nhưng còn **chưa nghiệm thu trên máy
+> sạch** và **chưa kiểm trên Windows/WSL2**. Làm xong hai việc đó rồi hãy gửi tài liệu này đi.
 
 Bạn cần đúng **hai** thứ. Không cần cài Node, không cần cài Python, không cần quyền admin.
 
@@ -75,20 +73,6 @@ Lần đầu macOS có thể chặn: chuột phải vào file → **Open** → *
 Một cửa sổ Terminal hiện ra, chạy vài chục giây, rồi trình duyệt tự mở **http://127.0.0.1:4123**.
 
 **Đừng đóng cửa sổ Terminal đó** — đóng là app tắt.
-
-### A5. Dùng
-
-Gõ yêu cầu của bạn bằng tiếng Nhật hoặc tiếng Việt, ví dụ *"Tóm tắt file PDF rồi gửi kết quả qua
-Slack"*. App sẽ đi qua 4 bước và **dừng lại hỏi bạn** ở mỗi bước.
-
-Ở bước cuối, chọn cách nhận kết quả:
-
-| Chọn | Nghĩa là |
-|---|---|
-| **デプロイなし** (không deploy) | Xong. File YAML nằm ở `projects/<tên>/workflows/main.yml`, bạn tự import vào Dify. |
-| **セルフホスト** (Dify riêng) | App tự đẩy thẳng vào Dify của bạn. Cần làm thêm **Phần B**. |
-
-**Nếu bạn chọn「デプロイなし」thì bạn đã xong. Không cần đọc Phần B.**
 
 ---
 

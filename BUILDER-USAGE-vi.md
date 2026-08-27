@@ -1,17 +1,16 @@
 # Builder — hướng dẫn dùng
 
 
-## 0. Bắt đầu trong 5 phút
-
+## 0. Bắt đầu sử dụng thử ngay
 > 　
 
 1. Mở app, chọn một trong hai cách:
+   - Hoặc mở Terminal ở thư mục dự án rồi gõ: `bash scripts/update-and-run.command`
    - Vào Finder, thư mục `dify-projects/scripts/`, **double-click** `update-and-run.command`
      (Windows: `update-and-run.bat`).
-   - Hoặc mở Terminal ở thư mục dự án rồi gõ: `bash scripts/update-and-run.command`
-2. Một cửa sổ Terminal hiện ra và chạy vài chục giây. **Đừng đóng nó** — đóng là tắt app.
+2. Một cửa sổ Terminal hiện ra và chạy vài chục giây và luôn run dưới local. **Đừng đóng nó** — đóng là tắt app.
 3. Trình duyệt tự mở **http://127.0.0.1:4123**. Nếu không tự mở, bạn gõ địa chỉ đó vào trình duyệt.
-4. Ở ô nhập giữa màn hình, gõ điều bạn muốn — bằng tiếng Việt cũng được. Ví dụ:
+4. Ở ô nhập giữa màn hình, gõ điều bạn muốn tạo workflow ví dụ:
    *"Nhận một đoạn văn, trả về bản tóm tắt 3 câu."*
 5. Bấm `送信` (gửi). Máy bắt đầu làm và dừng lại ở từng chặng để hỏi ý bạn.
 6. Bấm nút xanh ở mỗi chặng để đi tiếp — tên nút đổi theo chặng:
@@ -21,12 +20,9 @@
    | ① Đọc yêu cầu xong | `仕様へ進む` |
    | ② Viết xong bản mô tả | `この仕様で実装` |
    | ③ Dựng xong file | `テストへ進む` |
-   | ④ Kiểm xong | `Dify にインポート` — hoặc `インポートせず完了` nếu chưa muốn gửi sang Dify |
+   | ④ Kiểm xong | `Dify にインポート` nếu đã config key của môi trường dify — hoặc `インポートせず完了` nếu chưa muốn gửi sang Dify |
 
-7. Xong. Xem file ở panel bên phải, tab `main.yml`. Không cần tải về — file thật đã nằm sẵn
-   trên máy tại `projects/_drafts/<tên workflow>/workflows/main.yml`, mở Finder là thấy.
-
-Muốn hiểu từng nút thì đọc tiếp.
+7. Xong xem báo cáo và các file ở panel bên phải từ menu 成果物.
 
 ---
 
@@ -85,7 +81,7 @@ Khi máy dừng lại chờ bạn, ngoài nút đi tiếp còn có ba nút:
 
 | Nút | Bấm khi |
 |---|---|
-| `修正を依頼` | Muốn máy **sửa lại** — lượt này file sẽ đổi |
+| `修正を依頼` | Muốn máy **sửa lại** — lượt này file sẽ đổi. Mũi tên `⌄` cạnh nút cho chọn cách: `すぐ直す` (sửa luôn rồi cho xem) hoặc `先に計画を見せて` (nói trước sẽ đổi gì, bạn duyệt rồi mới sửa — tốn thêm **1 lượt chạy**) |
 | `質問を送信` | Chỉ muốn **hỏi cho rõ** — máy trả lời, **không sửa gì**. Đây là nút mặc định. |
 | `仕様を修正` | (chặng ②) Muốn tự tay sửa bản mô tả ở panel bên phải |
 
@@ -121,7 +117,7 @@ Kho `パターン` chứa các khuôn mẫu để những lần dựng sau tham 
 
 | Đường | Từ đâu | Làm gì |
 |---|---|---|
-| `パターンに昇格` | Nút ở đầu một cuộc đã xong | Đưa chính cái vừa dựng thành khuôn mẫu |
+| `パターンに昇格` | Nút ở đầu một cuộc đã xong | Đưa **một** workflow — chính cái của cuộc đó — thành khuôn mẫu |
 | `外部YAMLを追加` | Nút `+` của khối `パターン` | Nạp một file YAML từ bên ngoài |
 
 Ở cửa `外部YAMLを追加`, mục `用途` bắt bạn chọn trước:
@@ -146,18 +142,36 @@ và chỉ lưu khi bạn bấm duyệt ở cổng. Muốn sửa chính file đó
 | Tab `仕様` | Panel `成果物` | Bản mô tả: cái này sẽ làm gì. Sửa tay được. |
 | Tab `main.yml` | Panel `成果物` | File thật. Xem được cả bản so sánh với lần trước. |
 | Tab `レポート` | Panel `成果物` | Kết quả kiểm ở chặng ④ |
-| `エクスポート` | Panel `成果物` | Tải về hồ sơ lần dựng: diễn biến từng chặng, dòng thời gian, file đính kèm. Không phải cách lấy file — file đã có sẵn trên máy. |
+| `エクスポート` | Header | Tải về hoặc share hồ sơ quá trình dựng: diễn biến từng chặng, dòng thời gian. |
+| `停止` / `ビルドを破棄` | Header | Kết thúc lần dựng. Cùng **một nút**, đổi mặt theo tình trạng — xem bên dưới |
 | `Dify にインポート` | Cổng chặng ④ | Gửi sang Dify của bạn |
-| `フェーズ完了通知` | Nút chuông trên đầu | Bật thì trình duyệt báo mỗi khi xong một chặng |
 | Nút cập nhật | Trên đầu sidebar | Tải bản mới của Builder rồi tự khởi động lại |
 
-**Dễ nhầm:** `Dify にインポート` **tạo một app mới** trong Dify. Bấm lại lần nữa **từ cùng lần
+**Nút kết thúc có hai mặt, hậu quả khác nhau** (hộp thoại nói rõ trước khi xác nhận): bấm lúc **đang chạy** → `停止`, **tiến độ chặng đó bị bỏ**;
+bấm lúc **đang dừng chờ bạn** → `ビルドを破棄`, bản mô tả và file **vẫn còn**, mở lại lần dựng đó được.
+
+**Dễ nhầm:** `Dify にインポート` **tạo một app mới** trong Dify đã được config các key của dify. Bấm lại lần nữa **từ cùng lần
 dựng đó** thì app vừa tạo được cập nhật, không sinh thêm. Nhưng nó không bao giờ ghi đè lên
 một app khác mà bạn đã có sẵn.
 
 ---
 
-## 7. Từ ngữ hay gặp
+## 7. Thông báo
+
+> 【画像】Nút chuông trên đầu màn hình, đang bật
+
+Một lần dựng mất vài phút. Bật chuông để khỏi ngồi canh màn hình.
+
+| | |
+|---|---|
+| Bật/tắt | Nút chuông trên đầu — `フェーズ完了通知` |
+| Khi nào báo | **Chỉ khi bạn đang ở tab khác.** Đang nhìn màn hình thì không báo. |
+| Báo gì | Xong một chặng và đang chờ bạn · dựng xong · dựng hỏng |
+| Bật rồi mà không thấy | Trình duyệt đang chặn — vào cài đặt trang của trình duyệt cho phép |
+
+---
+
+## 8. Từ ngữ hay gặp
 
 | Từ | Nghĩa |
 |---|---|
