@@ -13,9 +13,18 @@
  *   run 1787544155222 — the turns labelled ② rewrote `main.yml` and `appScript.js`; ②'s verify checks
  *                       only SPEC.md, so none of it met a linter, a diff, or the undo button.
  *
- * ADVISORY BY CONSTRUCTION, and the tests pin that: nothing is reverted, no phase fails. A file under
- * `projects/_drafts/` has no copy in git, so "revert" would mean DELETE — on the first run above that
- * would have destroyed the only usable artifact the build produced.
+ * NOTHING IS EVER REVERTED, and the tests pin that: a file under `projects/_drafts/` has no copy in
+ * git, so "revert" would mean DELETE — on the first run above that would have destroyed the only
+ * usable artifact the build produced.
+ *
+ * Spec 114 split the rest in two, and the tests pin the LINE as much as the behaviour:
+ *   · a stray WORKFLOW YAML fails the phase. Spec 111 left it passing, and "passing" is what the money
+ *     went to — the gate said `success` over a build whose deliverable was in another folder, and four
+ *     more turns were spent on top of that.
+ *   · anything else stays advisory, because this scan is mtime-based and the BUILDER can trip it:
+ *     `PUT /api/tasks/:id/spec` lets a human save another task's spec while this turn runs. That is the
+ *     only writer of its kind and it writes SPEC.md, so the yaml scope puts it out of reach by
+ *     construction rather than by luck.
  */
 import { test, describe, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -144,6 +153,9 @@ describe('111 · the gate says what changed outside the build folder', () => {
     strayDuringImplement?: boolean;
     /** the 1787544155222 shape: a "spec" turn edits the build's own main.yml. */
     specEditsWorkflow?: boolean;
+    /** spec 114: a stray that is NOT a workflow yaml — the class that must stay advisory, because the
+     *  builder itself can produce it (`PUT /api/tasks/:id/spec` while this turn runs). */
+    strayNonYamlDuringImplement?: boolean;
     /** grading fake: validate_workflow.py exits 1 on every graded file. */
     lintFail?: boolean;
   }
@@ -157,13 +169,21 @@ describe('111 · the gate says what changed outside the build folder', () => {
       if (task.phase === 'analyze') writeFileSync(abs, '{"seed": null, "summary": "ok"}');
       else if (task.phase === 'spec') {
         writeFileSync(abs, '# SPEC\n');
-        if (ctl.specEditsWorkflow) {
+        // Only once the folder EXISTS. Pre-scaffold `task.project`/`workflowSlug` are null, and writing
+        // `projects/null/null/workflows/main.yml` is not something a ② turn can do — it is the fixture
+        // interpolating nulls. Spec 114 surfaced it by failing on stray yaml: a pre-scaffold turn has no
+        // folder of its own, so ANY workflow yaml under `projects/` is out of bounds there, exactly as
+        // `confinementCheck` already treats it (confinement.test.ts, project/workflowSlug=null).
+        if (ctl.specEditsWorkflow && task.project && task.workflowSlug) {
           turnWrite(join(d, `projects/${task.project}/${task.workflowSlug}/workflows/main.yml`), 'workflow: edited by phase 2\n');
         }
       } else {
         writeFileSync(abs, 'workflow:\n  graph:\n    nodes: []\n');
         if (ctl.strayDuringImplement) {
           turnWrite(join(d, 'projects/_drafts/app2/workflows/main.yml'), 'workflow: the deliverable, in the wrong folder\n');
+        }
+        if (ctl.strayNonYamlDuringImplement) {
+          turnWrite(join(d, 'projects/_drafts/app2/SPEC.md'), '# someone else spec, saved from the panel\n');
         }
       }
       return { sessionId: `sess-${task.phase}`, result: { type: 'result', is_error: false }, isError: false };
@@ -207,19 +227,38 @@ describe('111 · the gate says what changed outside the build folder', () => {
     return { task, ctx };
   }
 
-  test('a ③ that builds into another project is REPORTED with a lint verdict — and the file is left alone', async () => {
+  // Spec 114 — this is the run-1787273481220 shape, and the assertion that changed. Under spec 111 the
+  // phase still PASSED here: the gate said `success` over a build whose deliverable had gone to another
+  // folder, and four more turns spent $19.25 on top of that. Failing is the third option between
+  // "say nothing" and "revert" — the file stays put, and the gate stops vouching for the build.
+  test('a ③ that builds into another project FAILS the phase — and the file is still left alone', async () => {
     dir = fixtureDir();
     const { task } = await driveToImplement({ strayDuringImplement: true });
 
     assert.equal(task.phase, 'implement');
-    assert.equal(task.status, 'awaiting_confirm', 'advisory: the phase still passes');
-    assert.ok(task.strayNote, 'but the gate no longer says only "success"');
+    assert.equal(task.status, 'error', 'the gate no longer vouches for a build that went elsewhere');
+    assert.match(task.error ?? '', /app2\/workflows\/main\.yml/, 'the error NAMES the misplaced file');
+    assert.ok(task.strayNote, 'and the human-readable note is still there beside it');
     assert.match(task.strayNote!, /app2\/workflows\/main\.yml \(4 linter xanh\)/, 'graded, not merely listed');
     assert.equal(
       existsSync(join(dir, 'projects/_drafts/app2/workflows/main.yml')),
       true,
-      'and the work is still on disk — a revert here would delete the one artifact that has no git copy',
+      'still on disk — a revert here would delete the one artifact that has no git copy',
     );
+  });
+
+  // The other half of the rule, and the reason the failure is scoped to yaml at all. `strayWrites` is
+  // mtime-based, so ANY writer under `projects/` lands in it mid-turn — including the builder itself:
+  // `PUT /api/tasks/:id/spec` lets a human save ANOTHER task's spec from the panel while this turn
+  // runs. That route is the only writer of its kind and it writes SPEC.md, so keeping the failure to
+  // `workflows/*.ya?ml` puts it out of reach by construction rather than by luck.
+  test('a stray that is NOT a workflow yaml is still only REPORTED — the builder can write those itself', async () => {
+    dir = fixtureDir();
+    const { task } = await driveToImplement({ strayNonYamlDuringImplement: true });
+
+    assert.equal(task.status, 'awaiting_confirm', 'a SPEC.md next door must not be able to kill a build');
+    assert.ok(task.strayNote, 'but it is still reported');
+    assert.match(task.strayNote!, /app2\/SPEC\.md/, 'and named');
   });
 
   test('an ordinary turn says nothing at all', async () => {

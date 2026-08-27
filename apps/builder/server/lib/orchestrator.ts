@@ -932,10 +932,9 @@ async function runPhase(
 
   // Confinement baseline for THIS turn (captured just before spawn — after any scaffold).
   const baseline = await gitDirtyPaths(projectsDir);
-  // Spec 111 — the same moment, as a clock reading. Spec 112 un-ignored `projects/_drafts/`, so the git
-  // baseline above is no longer blind there; what it still cannot see is an IN-PLACE overwrite of an
-  // untracked neighbour (`?? <path>` before AND after ⇒ it sits in `baseline` and never becomes a
-  // breach). The stray-write scan compares mtimes against this instead, which is what catches that.
+  // Spec 111 — the same moment, as a clock reading: the git baseline above cannot see
+  // `projects/_drafts/` (gitignored wholesale), so the stray-write scan after the turn compares mtimes
+  // against this instead. Spec 114 — that scan can now fail the phase, so this reading is load-bearing.
   const turnStartedAtMs = Date.now();
 
   // Spec 094 S1 — the artifact's content hash for THIS turn, same moment as the baseline (after any
@@ -1087,7 +1086,7 @@ async function runPhase(
     return { outcome: 'error', reasons: ['cancelled by user'] };
   }
 
-  const verify = await verifyPhase(phase, task, ctx, baseline, turn.note, artifactHashBefore, specHashBefore, turn.noteAdvisory);
+  let verify = await verifyPhase(phase, task, ctx, baseline, turn.note, artifactHashBefore, specHashBefore, turn.noteAdvisory);
   // verifyPhase awaits python/git subprocesses — a /cancel can land in that window. Re-check (mirrors
   // the guard at the spawn boundary above) so the success save below can't clobber `cancelled`→`running`.
   if (isCancelled(task.taskId)) {
@@ -1096,12 +1095,14 @@ async function runPhase(
     await emit(task, ctx);
     return { outcome: 'error', reasons: ['cancelled by user'] };
   }
-  // Spec 111 — what this turn changed under `projects/` OUTSIDE the build's own folder. Advisory only:
-  // it never fails the phase and never touches a file (see `strayWrites` for why a revert is not even
-  // available here). It exists because the two things a gate could previously say about a misplaced
-  // build were both wrong — `artifact missing`, naming a path nobody wrote, and `success`, on a turn
-  // whose own artifact never moved. Computed for EVERY phase, not just ③: on run 1787544155222 it was
-  // the ② turns that rewrote `main.yml` + `appScript.js`, and ①/②'s verify checks only their own file.
+  // Spec 111 — what this turn changed under `projects/` OUTSIDE the build's own folder. It exists
+  // because the two things a gate could previously say about a misplaced build were both wrong —
+  // `artifact missing`, naming a path nobody wrote, and `success`, on a turn whose own artifact never
+  // moved. Computed for EVERY phase, not just ③: on run 1787544155222 it was the ② turns that rewrote
+  // `main.yml` + `appScript.js`, and ①/②'s verify checks only their own file.
+  //
+  // Spec 114 — one slice of it now STOPS the phase (below); the rest stays advisory. Nothing here ever
+  // touches a file: see `strayWrites` for why reverting is not available.
   try {
     const ownDir = workflowDir(task);
     const strays = await strayWrites(projectsDir, turnStartedAtMs, ownDir);
@@ -1150,8 +1151,36 @@ async function runPhase(
       );
     }
     task.strayNote = parts.length ? parts.join(' ') : undefined;
+    // Spec 114 — a stray WORKFLOW YAML fails the phase. Spec 111 left the whole scan advisory because
+    // the only alternative then available was `confinementCheck`'s revert, and under `projects/_drafts/`
+    // (gitignored, so nothing is in git) "revert" means DELETE — on run 1787273481220 that would have
+    // destroyed the build's only usable artifact. Failing is the third option: the misplaced file stays
+    // on disk for a human to move, and the gate stops claiming `success` over it. That claim is what the
+    // money went to: $19.25 on a turn editing another project's folder while its gate said the build
+    // was fine.
+    //
+    // Only the YAML slice, and the line between them is measured rather than guessed. `sinceMs` is a
+    // clock reading, so anything that writes under `projects/` mid-turn lands in `strays` — including a
+    // human, and including the BUILDER: `PUT /api/tasks/:id/spec` (routes/ui.ts) lets someone save
+    // another task's spec from the panel while this turn runs. That route is the only writer of its
+    // kind, and it writes SPEC.md — so scoping the failure to `workflows/*.ya?ml` puts it out of reach
+    // by construction, while still covering both measured incidents (a deliverable written next door,
+    // and ② turns rewriting a neighbour's `main.yml`). Everything else keeps saying its piece in
+    // `strayNote` without stopping anyone.
+    const strayYmls = ymlOf(strays);
+    if (strayYmls.length) {
+      verify = {
+        ...verify,
+        outcome: 'error',
+        reasons: [
+          ...verify.reasons,
+          `stray workflow file written outside this build's folder: ${strayYmls.slice(0, 3).map(describe).join(' · ')}` +
+            `${strayYmls.length > 3 ? ` (+${strayYmls.length - 3})` : ''}`,
+        ],
+      };
+    }
   } catch (e) {
-    log.warn({ taskId: task.taskId, err: errMsg(e) }, 'stray-write scan failed (advisory, non-fatal)');
+    log.warn({ taskId: task.taskId, err: errMsg(e) }, 'stray-write scan failed (non-fatal)');
   }
   if (verify.outcome !== 'error') {
     // Spec 103 Lane B — a REVISE must NOT publish its draft as "the spec". `artifacts.spec` is read by

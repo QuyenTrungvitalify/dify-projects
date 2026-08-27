@@ -91,12 +91,11 @@ export function specRelFor(project: string, workflowSlug: string): string {
  *
  * Content, deliberately — NOT git, and NOT `diff.json`:
  *
- *  - **git is a poor witness for this file.** A from-scratch build defaults to `projects/_drafts/`
- *    (`DRAFTS_PROJECT`). That folder was gitignored WHOLESALE until spec 112 un-ignored it, so the
- *    confinement check could police cross-workflow writes there — but un-ignoring only makes git
- *    LOOK. Nothing under `projects/` is committed, so there is still no blob to compare against.
- *    Measured on run 1786089321835 (which built into `projects/_drafts/…`): a git-derived flag read
- *    "unchanged" for all six attempts, including the one that wrote the file.
+ *  - **git is blind to this file.** `projects/_drafts/` is gitignored WHOLESALE (.gitignore) and a
+ *    from-scratch build defaults there (`DRAFTS_PROJECT`), so `gitDirtyPaths` returns nothing for the
+ *    artifact and the `turnTouched` delta below can never contain it. Measured on run 1786089321835
+ *    (which built into `projects/_drafts/…`): a git-derived flag reads "unchanged" for all six
+ *    attempts, including the one that wrote the file.
  *  - **even where git DOES see it**, a `/reply` turn's artifact is already dirty from the previous
  *    turn, so it sits in `baseline` and drops out of `turnTouched` — the flag would read "unchanged"
  *    for a round that really did fix something. The Builder never commits between turns.
@@ -322,9 +321,8 @@ export async function postTurnCheck(p: PostTurnParams): Promise<PostTurnResult> 
 
   // Spec 103 L0 — the same measurement for SPEC.md, gated on its own before-hash so "not measured"
   // stays distinguishable from "measured, unchanged". Content-hash and NOT git, for the reason spelled
-  // out on `artifactHash` above: nothing under `projects/` is committed — spec 112 un-ignored
-  // `_drafts`, which lets git SEE the folder but gives it no history — so a git-derived flag would
-  // read "unchanged" for a file the turn really did rewrite.
+  // out on `artifactHash` above: `projects/_drafts/` is gitignored wholesale, so a git-derived flag
+  // reads "unchanged" for a file the turn really did rewrite.
   const specChanged =
     p.specHashBefore === undefined
       ? undefined
@@ -484,28 +482,26 @@ const STRAY_MAX_FILES = 4000;
 /**
  * Spec 111 — files under `projects/` that changed during THIS turn, outside the build's own folder.
  *
- * WHY STILL, NOW THAT git CAN SEE `_drafts`. This scan was born because `.gitignore` held
- * `projects/_drafts/` WHOLESALE — the folder where 33 of the 35 real runs on the author's machine
- * live — so `confinementCheck`'s git delta was EMPTY for almost every build and every cross-workflow
- * write landed in a blind spot. Two measured incidents rode it out undetected: run 1787273481220
- * spent $19.25 editing another project's folder while its own artifact never moved (the gate said
- * `success`), and its earlier ③ wrote the whole deliverable next door and died `artifact missing`
- * with nothing naming where the file went.
+ * WHY NOT `git status` (what {@link confinementCheck} uses). `.gitignore` holds `projects/_drafts/`
+ * WHOLESALE, and `_drafts` is where 33 of the 35 real runs on the author's machine live — so the git
+ * delta is EMPTY for almost every build, and every cross-workflow write lands in a blind spot. Two
+ * measured incidents rode it out undetected: run 1787273481220 spent $19.25 editing another project's
+ * folder while its own artifact never moved (the gate said `success`), and its earlier ③ wrote the
+ * whole deliverable next door and died `artifact missing` with nothing naming where the file went.
  *
- * Spec 112 un-ignored the folder, which closes the half of that hole made of NEWLY-CREATED paths:
- * confinement now sees them, reverts them, and fails the phase. The other half does not close, and
- * cannot close by un-ignoring alone. `turnTouched` is `after − baseline`, and porcelain prints an
- * untracked file as `?? <path>` BOTH before and after the turn — so a turn that OVERWRITES a
- * neighbour's existing draft in place produces an identical path on both sides, sits in `baseline`,
- * and is structurally invisible to the git delta. That is the case this walk still owns, and it is
- * the more destructive of the two. (It closes only when the drafts are actually COMMITTED, at which
- * point the overwrite shows as `M`.)
+ * Spec 112 tried removing that ignore so `confinementCheck` could see the folder, and spec 114 put it
+ * back: an un-ignored `_drafts` leaves every user's clone permanently dirty, and — the sharp edge —
+ * every project folder carries a generated README.md, so one upstream commit at `projects/_drafts/
+ * README.md` would abort `git pull --ff-only` for everyone holding a local copy. This walk was always
+ * the better instrument for the job; it just was not allowed to stop anything.
  *
- * ADVISORY BY CONSTRUCTION, and now for a sharper reason than before. Confinement reverts what it
- * catches, and that is safe precisely because it only ever catches paths that did NOT exist when the
- * turn began. What this walk reports is the opposite class — files that DID exist and were changed —
- * so "revert" here would mean overwriting or deleting work that pre-dates the build. It returns
- * paths; it neither reverts nor fails a phase.
+ * STILL NEVER REVERTS. A file under `projects/_drafts/` has no copy in git, so "revert" would mean
+ * DELETE, and on run 1787273481220 that would have destroyed the only usable artifact of the build.
+ * Spec 114 takes the third option instead of the two spec 111 had: it returns paths, the CALLER fails
+ * the phase on the WORKFLOW-YAML slice of them (orchestrator.ts), and the misplaced file stays on disk
+ * for a human to move. What that ends is the gate reporting `success` over a build that went elsewhere.
+ * Everything outside that slice — including a SPEC.md, which `PUT /api/tasks/:id/spec` lets a human
+ * write for another task WHILE this turn runs — stays advisory, and the caller words it that way.
  *
  * `sinceMs` is the spawn moment (captured next to the confinement baseline), so a file the human edited
  * in their own editor mid-turn also lands here. That is a false positive the caller must word for —

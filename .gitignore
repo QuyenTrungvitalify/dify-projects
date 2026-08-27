@@ -54,24 +54,37 @@ apps/*/.env*
 # apps/builder/.runs/ — see orchestrator.relocateRunArtifacts — but the empty/leftover root one is junk).
 /.runs/
 
-# Builder scratch under projects/ is NO LONGER ignored (spec 112). It was, via two patterns:
-# `projects/_drafts/` (spec 011 R2 / spec 030) and `projects/*/workflow_*/`.
+# Builder scratch under projects/: `projects/_drafts/` (spec 011 R2 / spec 030) and the depth-2
+# `projects/*/workflow_*/`. Ignored — and this pair went out and came back, so the round trip is
+# written down rather than left for someone to repeat.
 #
-# The ignore turned out to be load-bearing in a way it never advertised. `confinementCheck` polices
-# cross-workflow writes through `git status`, which cannot see an ignored path — so `_drafts`, where
-# nearly every real run lives, was the ONE place a turn could scribble into a NEIGHBOURING workflow
-# unseen. Run 1787273481220 rode that blind spot for $19.25 with its gate still reporting `success`.
-# Ignoring also made `git clean -fd` skip the area, so a breach could not be undone even once noticed.
-# Tracking turns both back on. What stays open until the drafts are actually COMMITTED: an in-place
-# OVERWRITE of a neighbour is baseline-covered and still invisible — only newly-created strays are
-# caught (pinned in apps/builder/test/confinement.test.ts).
+# Spec 112 UN-ignored them. `confinementCheck` polices cross-workflow writes through `git status`,
+# which cannot see an ignored path, so `_drafts` — where nearly every build runs — was the one place a
+# turn could scribble into a neighbouring workflow unseen. Run 1787273481220 rode that for $19.25 with
+# its gate reporting `success`.
 #
-# BOTH patterns go, not just the first: 4 of the 23 drafts are named `workflow_*` (slug.ts derives
-# slugs from the requirement, so the collision recurs), and leaving the depth-2 pattern would have
-# kept exactly those in the blind spot while the change appeared to close it.
-# Keeping drafts out of the generated INDEX.md is now build_index.py's job, done by NAME in
-# collect_entries() — which is what the exclusion always MEANT; it merely borrowed `git check-ignore`
-# to say it.
+# Spec 114 put them back, because the price was three things and the goods were already on the shelf:
+#   - `git status` is permanently dirty on every user's clone, from their first build onward;
+#   - `git add -A` sweeps megabytes of scratch into a commit;
+#   - and the sharp one: every project folder gets a generated README.md, so
+#     `projects/_drafts/README.md` exists untracked on EVERY machine. Commit that path once upstream
+#     and every user's `git pull --ff-only` aborts with "untracked working tree files would be
+#     overwritten". Measured, not feared.
+# Meanwhile `strayWrites` (spec 111) already detected these writes WITHOUT git, by mtime, and catches
+# the in-place overwrite git could not see either way. What un-ignoring uniquely bought was git's
+# revert - which spec 111 had already declined, since with nothing committed a revert is a delete.
+# Spec 114 takes the third option: a stray workflow YAML now FAILS the phase (orchestrator.ts). The
+# file stays put for a human to move, and the gate stops calling it success.
+#
+# Also tried and rejected: `git status --ignored=matching`, to keep the ignore AND let confinement
+# look. Git collapses an ignored directory to ONE entry (`!! projects/_drafts/`), and a narrower
+# `projects/_drafts/**` only collapses a level lower - so a new file inside an existing folder yields
+# the same string before and after the turn, sits in `baseline`, and is never a delta. Unusable.
+#
+# Keeping drafts out of the generated INDEX.md no longer rides on this: build_index.py excludes them
+# by NAME (`DRAFTS_DIR` in collect_entries), which is what the exclusion always meant.
+projects/_drafts/
+projects/*/workflow_*/
 
 # Ad-hoc build-output / phase-transcript dumps saved at repo root (scratch — never committed).
 # Root-anchored so tracked files like requirements.txt / assets/*.txt are unaffected.

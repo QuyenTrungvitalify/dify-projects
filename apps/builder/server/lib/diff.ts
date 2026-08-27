@@ -124,8 +124,8 @@ export async function dropSpecProposal(projectsDir: string, task: Task): Promise
  * Spec 103 step 1 — snapshot `SPEC.md` before a FIX ROUND overwrites it.
  *
  * Only fix rounds, and that is the whole point: ③ began writing `SPEC.md` when L0 shipped, and before
- * this there was no way back — nothing under `projects/_drafts/` is committed (spec 112 un-ignored
- * the folder, but un-ignoring is not committing), so git holds no history, and no `.bak` existed. A bad reconcile destroyed the previous spec permanently. This is the undo
+ * this there was no way back — `projects/_drafts/` is gitignored wholesale, so git holds no history,
+ * and no `.bak` existed. A bad reconcile destroyed the previous spec permanently. This is the undo
  * L0 shipped without.
  *
  * A FIRST implement is deliberately NOT snapshotted: ② wrote that spec from the requirement minutes

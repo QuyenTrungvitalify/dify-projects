@@ -156,42 +156,41 @@ describe('confinementCheck (013 D3 + spec 030 §2 — per-workflow subtree)', ()
     assert.equal(existsSync(join(dir, `projects/${PROJECT}/${WF}/leaked.yml`)), false, 'reverted');
   });
   /**
-   * Spec 112 — `projects/_drafts/` leaves `.gitignore`, so confinementCheck stops being a no-op there.
+   * The baseline delta is what makes `revertPath` safe to run at all, and until spec 112 went looking
+   * nothing tested it. `revertPath` ends in `git clean -fd`, which DELETES untracked files — so if the
+   * delta ever widened from "paths that became dirty during the turn" to "paths that are dirty", a
+   * confinement pass would start deleting work that pre-dates the build.
    *
-   * The worry that has to be settled before that flip: `revertPath` ends in `git clean -fd`, which
-   * DELETES untracked files, and every file under `_drafts` is untracked. Spec 111 declined to revert
-   * there for exactly this reason ("revert would mean DELETE"). What makes the flip safe is the
-   * baseline delta, not the whitelist: `turnTouched = after − baseline`, and porcelain prints an
-   * untracked file as `?? <path>` BOTH before and after the turn — so a draft that already existed is
-   * in the baseline and can never be a breach, no matter what the turn does to it.
+   * It cannot, because `turnTouched = after − baseline` and porcelain prints an untracked file as
+   * `?? <path>` BOTH before and after: anything already there is in the baseline and can never be a
+   * breach, no matter what the turn does to it. Asserted here directly, since the property is load-
+   * bearing and invisible — the four tests above all pass with the subtraction removed.
    *
-   * This test proves that property directly, because the whole flip rests on it: a NEIGHBOUR draft's
-   * pre-existing file survives untouched, while a file the turn newly creates next door is reverted.
+   * (Spec 112 raised this while un-ignoring `projects/_drafts/`; spec 114 put that ignore back — see
+   * `.gitignore` — but the property is about `confinementCheck`, not about which folders git watches,
+   * so it is pinned here on an ordinary project.)
    */
-  test('spec 112: un-ignored _drafts — a neighbour draft that pre-dates the turn survives; only the turn-created stray is reverted', async () => {
+  test('a file that pre-dates the turn is never a breach — only what the turn newly created is', async () => {
     const dir = makeRepo();
-    const MINE = `projects/_drafts/mine`;
-    const NEIGHBOUR = `projects/_drafts/neighbour`;
+    const NEIGHBOUR = `projects/${PROJECT}/other`;
 
-    // A neighbour draft that already exists — untracked, exactly as an un-ignored `_drafts` would be.
+    // Untracked and already present when the turn starts — the state every draft is in.
     put(dir, `${NEIGHBOUR}/workflows/main.yml`, 'the human work that must not be deleted\n');
-    put(dir, `${MINE}/workflows/main.yml`, 'my draft, pre-existing\n');
 
     const baseline = await gitDirtyPaths(dir);
-    assert.ok(baseline.has(`${NEIGHBOUR}/workflows/main.yml`), 'porcelain -uall reports the untracked neighbour into the baseline');
+    assert.ok(baseline.has(`${NEIGHBOUR}/workflows/main.yml`), 'porcelain -uall reports it into the baseline');
 
-    // The turn: writes its own folder (whitelisted), OVERWRITES the neighbour's existing file
-    // (baseline-covered → invisible, unchanged from today), and CREATES a new file next door (breach).
-    put(dir, `${MINE}/workflows/main.yml`, 'my draft, edited by the turn\n');
+    // The turn OVERWRITES that file (baseline-covered → invisible) and CREATES a new one (a breach).
     put(dir, `${NEIGHBOUR}/workflows/main.yml`, 'OVERWRITTEN by a stray turn\n');
     put(dir, `${NEIGHBOUR}/workflows/stray.yml`, 'created next door by the turn\n');
 
     const { breaches: reasons } = await confinementCheck({
-      projectsDir: dir, project: '_drafts', workflowSlug: 'mine', taskId: TASK, baseline, log,
+      projectsDir: dir, project: PROJECT, workflowSlug: WF, taskId: TASK, baseline, log,
     });
 
-    // Only the NEW path is a breach. The overwrite is not — that half of the hole stays open until the
-    // drafts are actually committed, and saying so here keeps the limit honest rather than implied.
+    // Only the NEW path. The overwrite is structurally invisible to a git delta — which is precisely
+    // the hole `strayWrites` (mtime) exists to cover, and why it, not this, is the detector that fails
+    // a phase over a stray workflow file.
     assert.equal(reasons.length, 1, `only the turn-created path breaches: ${reasons.join(' | ')}`);
     assert.ok(reasons[0].includes(`${NEIGHBOUR}/workflows/stray.yml`), 'the stray is named');
     assert.equal(existsSync(join(dir, `${NEIGHBOUR}/workflows/stray.yml`)), false, 'turn-created stray reverted');
@@ -200,9 +199,7 @@ describe('confinementCheck (013 D3 + spec 030 §2 — per-workflow subtree)', ()
     assert.equal(
       readFileSync(join(dir, `${NEIGHBOUR}/workflows/main.yml`), 'utf8'),
       'OVERWRITTEN by a stray turn\n',
-      'the pre-existing neighbour file is baseline-covered — neither reverted nor deleted'
+      'the pre-existing file is baseline-covered — neither reverted nor deleted',
     );
-    // And the build's own folder is untouched by the sweep.
-    assert.equal(readFileSync(join(dir, `${MINE}/workflows/main.yml`), 'utf8'), 'my draft, edited by the turn\n', 'own folder kept');
   });
 });

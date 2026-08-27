@@ -148,15 +148,14 @@ because `TRIGGER_ENTRY_NOTE` only reaches `report.notes` on selfhost/cloud (repo
 
 Add an entry when a new capability ships: give it the prompt, the mechanical `expect` predicates
 you CAN check, and a `manual:` list of everything you can't. Unit-tested by
-`tests/test_e2e_check.py` against sanitized fixtures in `tests/fixtures/e2e/` (since `.runs/` is
-gitignored, and `projects/_drafts/` — un-ignored by spec 112 — is still never committed).
+`tests/test_e2e_check.py` against sanitized fixtures in `tests/fixtures/e2e/` (since `.runs/` and
+`projects/_drafts/` are gitignored).
 
 ## Caveats box
 
 - **Cost**: 2–4 real turns per build. Confirm before a suite run (>3 entries).
 - **Serial**: the Builder turn lock serializes builds — the suite runs one at a time.
-- **No cleanup needed**: builds land in `projects/_drafts/` — un-ignored (spec 112) so the builder's
-  confinement check can police it, but never committed. Re-grade later with
+- **No cleanup needed**: builds land in gitignored `projects/_drafts/`. Re-grade later with
   `/report <taskId>` or re-`check` without re-running (offline).
 - **Not CI**: this is on-demand. Spec 021 (creds-gated pytest) is the CI-able sibling.
 - **Trigger runtime**: a `/workflows/run` (and the ④ live test) is a MANUAL fire; the schedule
