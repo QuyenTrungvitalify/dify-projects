@@ -147,10 +147,13 @@ const EN: Dict = {
   // Spec 105 M4 — asked ONLY when the existing conversation is parked at a gate, i.e. actually waiting
   // for an answer. Two doors, not yes/no: the reader usually cannot remember what state the old one is
   // in, so the dialog says it and offers the thing they probably wanted.
-  /** spec 113 — the Project chip at the door: where a from-scratch build gets created. */
-  project: 'Project',
+  /** spec 113 — the destination chip at the door. Named for what it DECIDES, not for the kind of
+   *  thing it holds: 'Project' beside a Workflow dropdown reads as a SCOPE, and the first person to
+   *  use it expected picking one to filter the workflow list. The two chips are alternatives, not a
+   *  filter and a selection — so the label has to say destination out loud. */
+  project: 'New in',
   projectNew: '+ New project…',
-  projectHint: 'Where a new workflow is created. Leave it on Drafts to decide later.',
+  projectHint: 'The folder a new workflow is created in. It does not filter the workflow list — an edit takes its project from the workflow itself.',
   pendingConvTitle: 'This workflow already has a conversation open',
   pendingConvMsg: 'It is waiting at {phase} for your decision. Starting a new conversation leaves it there, and both will be writing the same workflow file.',
   /** The same fact as `pendingConvMsg`, worded for a STANDING line rather than a dialog: nothing has
@@ -742,9 +745,9 @@ const JA: Dict = {
   newTaskInProjectName: '{name} 内に新規タスク',
   clearPreselection: '選択を解除して新規タスク',
   startsAtImplement: '③ 実装から開始 — このワークフローには分析と仕様がすでにあります',
-  project: 'プロジェクト',
+  project: '作成先',
   projectNew: '＋ 新しいプロジェクト…',
-  projectHint: '新しいワークフローの作成先。決めていないうちは Drafts のままで構いません。',
+  projectHint: '新しいワークフローを作るフォルダー。ワークフロー一覧を絞り込むものではありません（既存を直す場合、所属先はそのワークフローから決まります）。',
   pendingConvTitle: 'このワークフローには開いたままの会話があります',
   pendingConvMsg: '{phase} であなたの判断を待っています。新しい会話を始めると、そちらはそのまま残り、同じワークフローファイルを二つの会話が書くことになります。',
   pendingConvHint: 'このワークフローの会話が {phase} で待機中です。ここから送ると、二つ目の会話が始まります。',

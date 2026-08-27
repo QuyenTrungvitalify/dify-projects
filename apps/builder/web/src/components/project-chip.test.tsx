@@ -56,7 +56,7 @@ afterEach(() => {
 describe('113 · the Project chip at the door', () => {
   it('shows the unfiled default, so where the build lands is visible before it is spent', () => {
     const spy = { settings: [] as Partial<Settings>[], newProject: 0 };
-    const chip = chipOf(mount({}, spy), 'Project');
+    const chip = chipOf(mount({}, spy), 'New in');
     expect(chip).toBeTruthy();
     expect(chip!.querySelector('.sc-val')?.textContent).toBe('Drafts');
   });
@@ -67,7 +67,7 @@ describe('113 · the Project chip at the door', () => {
   it('is absent while a workflow is armed — the Workflow chip already names that project', () => {
     const spy = { settings: [] as Partial<Settings>[], newProject: 0 };
     const el = mount({ workflow: '_drafts/news' }, spy);
-    expect(chipOf(el, 'Project')).toBeUndefined();
+    expect(chipOf(el, 'New in')).toBeUndefined();
     // and the row did not simply lose a control: the remaining chips are all still there
     expect(el.querySelectorAll('button.setting-chip').length).toBeGreaterThan(0);
   });
@@ -75,7 +75,7 @@ describe('113 · the Project chip at the door', () => {
   it('routes "+ New project…" to the create door and NEVER into settings (it is not a folder name)', async () => {
     const spy = { settings: [] as Partial<Settings>[], newProject: 0 };
     const el = mount({}, spy);
-    chipOf(el, 'Project')!.click();
+    chipOf(el, 'New in')!.click();
     await tick();
     const opt = [...el.querySelectorAll<HTMLButtonElement>('.setting-menu .setting-opt')]
       .find((b) => b.textContent?.includes('New project'));
@@ -89,7 +89,7 @@ describe('113 · the Project chip at the door', () => {
     const spy = { settings: [] as Partial<Settings>[], newProject: 0 };
     const el = mount({}, spy);
     const pick = async (label: string): Promise<void> => {
-      chipOf(el, 'Project')!.click();
+      chipOf(el, 'New in')!.click();
       await tick();
       [...el.querySelectorAll<HTMLButtonElement>('.setting-menu .setting-opt')]
         .find((b) => b.textContent === label)!.click();
