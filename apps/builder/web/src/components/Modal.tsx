@@ -10,6 +10,7 @@ import { richText } from './Chat';
 import { t as tr, tf } from '../lib/i18n';
 import { createProject, importBase, promoteExternalYaml, tree } from '../store';
 import { isValidProjectName, projectSlug } from '../lib/slug';
+import { devMode } from '../lib/dev';
 
 /**
  * CreateProjectModal (spec 031) — type an English name → POST /api/projects makes a real, empty
@@ -103,10 +104,19 @@ const INTAKE_LICENSES = ['unknown', 'MIT', 'Apache-2.0', 'BSD-3-Clause', 'ISC', 
  *
  * The Japanese `app.name` is preserved as the display label (the slug is a separate ASCII concern, derived
  * server-side). A validation reject returns the linter's verbatim message, shown inline for either action.
+ *
+ * `advanced` (defaults to the runtime dev flag) decides how much of the form a reader sees. The provenance
+ * pair — source label + license — is hidden by default because it asks a REDISTRIBUTION question at intake
+ * time, before there is anything to redistribute: neither field changes whether the YAML validates, distills,
+ * or lands on the shelf. License only decides whether the finished pattern may later be offered to the team
+ * shelf, and the hidden default (`unknown`) is exactly the conservative answer — the offer stays closed. A
+ * reader who needs to claim a permissive license opens the same modal with `?dev=1`.
  */
-export function IntakeYamlModal({ onClose, onImported }: {
+export function IntakeYamlModal({ onClose, onImported, advanced = devMode }: {
   onClose: () => void;
   onImported: (r: { project: string; workflow: string }) => void;
+  /** Show the provenance fields (source label + license) and the shelf path. Defaults to dev mode. */
+  advanced?: boolean;
 }) {
   const [yaml, setYaml] = useState('');
   const [fileName, setFileName] = useState<string | null>(null);
@@ -126,6 +136,9 @@ export function IntakeYamlModal({ onClose, onImported }: {
   // Existing projects for the override select, minus the reserved `_drafts` (it IS the blank default).
   const projects = tree.value.filter((p) => p.id !== '_drafts');
   const canSubmit = yaml.trim().length > 0 && !submitting;
+  // A target-project select with nothing but the `_drafts` default is a question with one answer: it can
+  // only teach the reader a word they don't need yet. It appears once there is a second project to pick.
+  const showProject = advanced || projects.length > 0;
   const setAct = (a: 'base' | 'distill'): void => { setAction(a); if (error) setError(null); };
 
   function onFile(e: Event): void {
@@ -209,11 +222,30 @@ export function IntakeYamlModal({ onClose, onImported }: {
         <div className="modal-field">
           <div className="modal-hint" style={{ marginBottom: 10 }}>{tr('intakeHint')}</div>
 
-          <label className="btn ghost" style={{ display: 'inline-flex', cursor: 'pointer' }}>
-            <I.paperclip />{tr('importBaseFile')}
-            <input type="file" accept=".yml,.yaml" style={{ display: 'none' }} onChange={onFile} />
-          </label>
-          {fileName && <span className="modal-hint" style={{ marginLeft: 8 }}>{fileName}</span>}
+          {/* What to DO with this YAML comes FIRST: it decides which fields below exist, and the reader
+              who pastes before choosing has to re-read the form once the choice swaps them out. The input
+              itself is shared by both actions (no re-paste when the choice changes). */}
+          <div className="modal-label">{tr('intakeActionLabel')}</div>
+          <div className="artifact-tabs intake-actions" style={{ marginTop: 4 }}>
+            <button className={'atab' + (action === 'distill' ? ' active' : '')} onClick={() => setAct('distill')}>{tr('intakeActionDistill')}</button>
+            <button className={'atab' + (action === 'base' ? ' active' : '')} onClick={() => setAct('base')}>{tr('intakeActionBase')}</button>
+          </div>
+          {/* Both actions say what they LEAVE BEHIND — the two labels name mechanisms, and a reader meeting
+              the shelf for the first time cannot tell from them which one ends in a file they can edit. */}
+          <div className="modal-hint" style={{ marginTop: 8 }}>
+            {action === 'distill' ? tr('intakeDistillHint') : tr('intakeBaseHint')}
+          </div>
+          {advanced && action === 'distill' && (
+            <div className="modal-hint" style={{ marginTop: 4 }}>{tr('intakeDistillPath')}</div>
+          )}
+
+          <div style={{ marginTop: 14 }}>
+            <label className="btn ghost" style={{ display: 'inline-flex', cursor: 'pointer' }}>
+              <I.paperclip />{tr('importBaseFile')}
+              <input type="file" accept=".yml,.yaml" style={{ display: 'none' }} onChange={onFile} />
+            </label>
+            {fileName && <span className="modal-hint" style={{ marginLeft: 8 }}>{fileName}</span>}
+          </div>
 
           <div className="modal-label" style={{ marginTop: 12 }}>{tr('importBasePaste')}</div>
           <textarea className="modal-input" rows={7} value={yaml} spellcheck={false}
@@ -222,29 +254,24 @@ export function IntakeYamlModal({ onClose, onImported }: {
             onInput={(e) => { setYaml(e.currentTarget.value); setFileName(null); if (error) setError(null); }}
           />
 
-          {/* spec 070: pick what to DO with this external YAML — the input above is shared (no re-paste). */}
-          <div className="modal-label" style={{ marginTop: 14 }}>{tr('intakeActionLabel')}</div>
-          <div className="artifact-tabs intake-actions" style={{ marginTop: 4 }}>
-            <button className={'atab' + (action === 'distill' ? ' active' : '')} onClick={() => setAct('distill')}>{tr('intakeActionDistill')}</button>
-            <button className={'atab' + (action === 'base' ? ' active' : '')} onClick={() => setAct('base')}>{tr('intakeActionBase')}</button>
-          </div>
-
           {action === 'base' ? (
             <>
               <div className="modal-label" style={{ marginTop: 12 }}>{tr('importBaseName')}</div>
               <input className="modal-input" value={name} placeholder={tr('phImportBaseName')}
                 onInput={(e) => setName(e.currentTarget.value)} />
 
-              <div className="modal-label" style={{ marginTop: 12 }}>{tr('importBaseProject')}</div>
-              <select className="modal-input" value={project} onChange={(e) => setProject(e.currentTarget.value)}>
-                <option value="">{tr('importBaseDrafts')}</option>
-                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+              {showProject && (
+                <>
+                  <div className="modal-label" style={{ marginTop: 12 }}>{tr('importBaseProject')}</div>
+                  <select className="modal-input" value={project} onChange={(e) => setProject(e.currentTarget.value)}>
+                    <option value="">{tr('importBaseDrafts')}</option>
+                    {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </>
+              )}
             </>
-          ) : (
+          ) : advanced ? (
             <>
-              <div className="modal-hint" style={{ marginTop: 10 }}>{tr('intakeDistillHint')}</div>
-
               <div className="modal-label" style={{ marginTop: 12 }}>{tr('intakeSourceLabel')}</div>
               <input className="modal-input" value={sourceLabel} placeholder={tr('phIntakeSourceLabel')}
                 onInput={(e) => setSourceLabel(e.currentTarget.value)} />
@@ -253,8 +280,9 @@ export function IntakeYamlModal({ onClose, onImported }: {
               <select className="modal-input" value={license} onChange={(e) => setLicense(e.currentTarget.value)}>
                 {INTAKE_LICENSES.map((l) => <option key={l} value={l}>{l}</option>)}
               </select>
+              <div className="modal-hint" style={{ marginTop: 6 }}>{tr('intakeLicenseHint')}</div>
             </>
-          )}
+          ) : null}
 
           {error && (
             <div className="modal-error" role="alert" style={{ whiteSpace: 'pre-wrap', maxHeight: 160, overflowY: 'auto' }}>

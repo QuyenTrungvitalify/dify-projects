@@ -11,6 +11,22 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**The external-YAML form stopped asking for a license**
+
+- 「出典ラベル」 and 「ライセンス」 were the first two questions a reader met after pasting a YAML, and
+  neither one decides anything about that YAML: it validates, distills and reaches the shelf identically
+  whatever they say. License decides one thing only — whether the FINISHED pattern may later be offered
+  to the team shelf — and its hidden default (`unknown`) is the conservative answer to that question, so
+  nothing is lost by not asking. Both fields now appear in dev mode (`?dev=1`) only, where a permissive
+  license can still be claimed deliberately.
+- 「用途」 moved above the paste box. It decides which fields exist below it, so asking it last meant the
+  form rearranged itself under a reader who had already filled it in.
+- Each choice now says what it LEAVES BEHIND — a base you can edit, or a pattern later builds reuse —
+  because the two labels name mechanisms (ベース / 蒸留) that a first-time reader cannot rank. The
+  `templates/patterns/` path stays, in dev mode, where the reader knows what that folder is.
+- 「対象プロジェクト」 is hidden while `_drafts` is its only answer: a select with one option teaches a
+  word (ステージング) that a reader with no projects has no use for yet.
+
 **SPEC.md and main.yml are the same kind of object now**
 - main.yml had a proper file header — name, size, and the three actions — and SPEC.md had a bare title
   with its buttons floating in it. Two files in one panel that look like two different kinds of thing
