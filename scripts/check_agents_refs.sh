@@ -52,6 +52,9 @@ while IFS= read -r p; do
     *'@'*) continue ;;            # plugin hash format
     *'{{'*|*'}}'*) continue ;;    # variable ref syntax
     *'*'*) continue ;;            # glob
+    *'('*|*')'*) continue ;;      # regex capture group, e.g. `projects/(\w+)/(\w+)/`
+    *'\'*) continue ;;            # regex escape, e.g. \w \d
+    *'…'*) continue ;;            # elided path in prose, e.g. `dify-projects/projects/…`
     .venv/*) continue ;;          # gitignored local venv (e.g. .venv/bin/python)
   esac
   if [ ! -e "$p" ]; then

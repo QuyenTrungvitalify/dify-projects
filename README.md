@@ -247,7 +247,7 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **E2E simulation harness** ([apps/builder/scripts/e2e-run.sh](apps/builder/scripts/e2e-run.sh) + skill `/e2e`) — bắn prompt vào Builder như user thật, chấm cơ học theo 3 bucket **AUTO-PASS / AUTO-FAIL / MANUAL** (phần không tự test được luôn được báo cáo, không im lặng bỏ qua), tái dùng `/report` để chấm nội dung
 - ⏳ **Polish 1.A** — `http_request` schema-dump đang **fail** (`_error: SchemaSerializer` trên default `dify_config.HTTP_REQUEST_MAX_*`); 25/25 node module import được và 29 schema generate được, nhưng cái này ship kèm marker `_error` thay vì dump sạch.
 
-Specs 001–067 đã hoàn thành và retire khỏi cây (xem `git show ca5e39e:docs/specs/`). Spec đang mở: [docs/specs/](docs/specs/) (mới từ 071).
+Specs 001–067 đã hoàn thành và retire khỏi cây (xem `git show ca5e39e:docs/specs/`). Spec đang mở nằm ở repo tài liệu riêng của maintainer.
 
 Chi tiết design: xem [docs/architecture.md](docs/architecture.md).
 

@@ -178,7 +178,7 @@ export function contributionMessage(p: PromoteState): { subject: string; body: s
     `- near-dup: ${share?.dup ?? 'not run'}`,
     ...(share?.note ? [`- preflight note: ${share.note}`] : []),
     '',
-    'Reviewer checklist (docs/state/templates-and-promotion.md):',
+    'Reviewer checklist:',
     '- [ ] x-provenance header valid (source=original, or external + permissive license)',
     '- [ ] placeholders clean — no internal URLs / tokens / hostnames left',
     '- [ ] not a near-duplicate of an existing shelf pattern',

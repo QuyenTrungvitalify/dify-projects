@@ -606,7 +606,7 @@ credited the new numbers to the code that produced the old ones.
 
 ## 0.2.0 — 2026-07-18
 
-Shipped after the [v0.1.0 12-prompt campaign](../../docs/prompts/runs/CAMPAIGNS.md) surfaced them.
+Shipped after the v0.1.0 12-prompt campaign surfaced them.
 
 **Build quality**
 - ④ notes now state the **external-input contract** for webhook builds — which fields the client's
@@ -644,7 +644,7 @@ Shipped after the [v0.1.0 12-prompt campaign](../../docs/prompts/runs/CAMPAIGNS.
 
 ## 0.1.0 — 2026-07-17 (retroactive tag)
 
-The version the [12-prompt campaign](../../docs/prompts/runs/CAMPAIGNS.md) was run against. Not
+The version the 12-prompt campaign was run against. Not
 released separately — recorded so that campaign's numbers have a name. Includes the workspace reset
 (specs 001–067 retired), tool-node support, run dossier export, cost instrumentation, readiness
 checklist, and the naive-user comprehension oracle.
