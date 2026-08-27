@@ -94,23 +94,31 @@ function TaskRow({ task, activeTask, onOpen }: {
   );
 }
 
-function WorkflowRow({ wf, projectId, activeTask, active, defaultOpen, onOpen, onNewTask }: {
+export function WorkflowRow({ wf, projectId, activeTask, active, reveal, defaultOpen, onOpen, onNewTask }: {
   wf: WireTreeWorkflow;
   projectId: string;
   activeTask: string | null;
   /** UX: this workflow is the active/selected menu node (open build's workflow, or the pre-selected
-   *  edit target). Adds the highlight + reveals it in the scroll region. */
+   *  edit target). Adds the highlight. */
   active: boolean;
+  /** Whether becoming `active` should also SCROLL this row into view. Highlighting and revealing are
+   *  two different things and were one; see the note on the effect below. */
+  reveal: boolean;
   defaultOpen: boolean;
   onOpen: (taskId: string) => void;
   onNewTask: (opts?: NewTaskOpts) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const rowRef = useRef<HTMLDivElement>(null);
-  // Reveal the selected workflow when it becomes active (block:'nearest' → a no-op when already visible).
+  // Reveal the selected workflow — but only when `reveal` says the activation was an act of AIMING at
+  // this node, not a reflection of which build happens to be open. Opening a running task from 進行中
+  // lights its copy down in Build too, and that copy used to drag the whole sidebar to itself: measured,
+  // the list jumped 158px under the pointer, moving the row you had just clicked from y=167 to y=9.
+  // The highlight is what tells you where the build lives; the scroll was never part of that message.
+  // (block:'nearest' → still a no-op when the row is already visible.)
   useEffect(() => {
-    if (active) rowRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [active]);
+    if (active && reveal) rowRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [active, reveal]);
   // Clicking the row always expands it so its builds show; `workflowRowAction` decides what else —
   // open the sole build, arm a new edit-build, or (a synthetic `(unsaved)` group) nothing at all.
   // The reasoning for each branch lives with the helper. The twist chevron alone toggles collapse
@@ -153,13 +161,16 @@ function WorkflowRow({ wf, projectId, activeTask, active, defaultOpen, onOpen, o
   );
 }
 
-function ProjectRow({ project, activeTask, activeProject, activeWorkflow, defaultOpen, onOpen, onNewTask }: {
+function ProjectRow({ project, activeTask, activeProject, activeWorkflow, reveal, defaultOpen, onOpen, onNewTask }: {
   project: WireTreeProject;
   activeTask: string | null;
   /** UX: the active/selected project folder — the open build's project or the pre-selected target. */
   activeProject: string | null;
   /** UX: the active/selected workflow as the compound `project/workflow` key (null when none). */
   activeWorkflow: string | null;
+  /** See WorkflowRow: whether activation should scroll, not merely highlight. Passed on to the
+   *  workflows inside, so a project and its workflows never disagree about it. */
+  reveal: boolean;
   defaultOpen: boolean;
   onOpen: (taskId: string) => void;
   onNewTask: (opts?: NewTaskOpts) => void;
@@ -169,10 +180,12 @@ function ProjectRow({ project, activeTask, activeProject, activeWorkflow, defaul
   const active = project.id === activeProject;
   const isDrafts = project.id === '_drafts';
   // Reveal the selected project when it becomes active — this is what makes a freshly-CREATED project
-  // scroll into view + light up the moment createProject pre-targets it (req #2).
+  // scroll into view + light up the moment createProject pre-targets it (req #2). `reveal` is what keeps
+  // that case working while the OTHER way a project lights up — a build being open inside it — no longer
+  // scrolls: that one is a reflection, not a request.
   useEffect(() => {
-    if (active) rowRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [active]);
+    if (active && reveal) rowRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [active, reveal]);
   // Clicking the row SELECTS this project: a from-scratch new task targeting it (menu-style, "start
   // right away"), and expand it. `_drafts` is not a real target → degrade to a plain new task. The twist
   // chevron alone toggles collapse (stopPropagation below).
@@ -203,7 +216,8 @@ function ProjectRow({ project, activeTask, activeProject, activeWorkflow, defaul
             const compound = `${project.id}/${wf.id}`;
             return (
               <WorkflowRow key={wf.id} wf={wf} projectId={project.id} activeTask={activeTask}
-                active={activeWorkflow === compound} defaultOpen={defaultOpen || activeWorkflow === compound}
+                active={activeWorkflow === compound} reveal={reveal}
+                defaultOpen={defaultOpen || activeWorkflow === compound}
                 onOpen={onOpen} onNewTask={onNewTask} />
             );
           })}
@@ -341,13 +355,22 @@ function PromoteRow({ promote, activeTask, onOpen }: {
   );
 }
 
-export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, tree, active, consults, promotes, onOpen, onCancel, onNewTask, onNewChat, onNewProject, onAddYaml }: {
+export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, revealActive, tree, active, consults, promotes, onOpen, onCancel, onNewTask, onNewChat, onNewProject, onAddYaml }: {
   collapsed: boolean;
   activeTask: string | null;
   /** The active/selected project folder (open build's project, or the pre-selected target). */
   activeProject: string | null;
   /** The active/selected workflow as the compound `project/workflow` key. */
   activeWorkflow: string | null;
+  /**
+   * Should the active node be SCROLLED to, or only highlighted?
+   *
+   * True when the active node was AIMED at — the composer is targeting a project/workflow, which is
+   * also the state `createProject` leaves behind, and what makes a new project reveal itself. False
+   * when it merely mirrors the build that is open: opening a running task from 進行中 lights its copy
+   * in Build as well, and scrolling to that copy yanks the list out from under the click that caused it.
+   */
+  revealActive: boolean;
   tree: WireTreeProject[];
   active: WireTreeTask[];
   /** spec 082: the consult chats for the Chat section. */
@@ -417,7 +440,7 @@ export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, 
         {(!draftsProject || draftsProject.workflows.length === 0) && <div className="tree-row tree-empty"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noBuildsYet')}</span></div>}
         <CollapsibleList items={draftsProject?.workflows ?? []} render={(wf) => (
           <WorkflowRow key={wf.id} wf={wf} projectId="_drafts" activeTask={activeTask}
-            active={activeWorkflow === `_drafts/${wf.id}`}
+            active={activeWorkflow === `_drafts/${wf.id}`} reveal={revealActive}
             defaultOpen={activeWorkflow === `_drafts/${wf.id}` || taskProjectId === '_drafts'}
             onOpen={onOpen} onNewTask={onNewTask} />
         )} />
@@ -427,7 +450,7 @@ export function Sidebar({ collapsed, activeTask, activeProject, activeWorkflow, 
         {namedProjects.length === 0 && <div className="tree-row tree-empty"><span className="tw-name" style={{ color: 'var(--tx-faint)' }}>{tr('noProjectsYet')}</span></div>}
         <CollapsibleList items={namedProjects} render={(p) => (
           <ProjectRow key={p.id} project={p} activeTask={activeTask}
-            activeProject={activeProject} activeWorkflow={activeWorkflow}
+            activeProject={activeProject} activeWorkflow={activeWorkflow} reveal={revealActive}
             defaultOpen={p.id === openProjectId}
             onOpen={onOpen} onNewTask={onNewTask} />
         )} />

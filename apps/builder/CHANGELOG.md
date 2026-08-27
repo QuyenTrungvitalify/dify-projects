@@ -11,6 +11,15 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**Clicking a build no longer yanks the sidebar**
+- A build appears twice: under 進行中 and under ビルド. Opening the 進行中 copy lit the ビルド copy too,
+  and that copy scrolled itself into view — dragging the whole list. Measured: `scrollTop` went 0 → 158
+  in one step, and the row the pointer had just clicked slid from y=167 to y=9.
+- The co-highlight stays; only the scroll is gone. Being highlighted and being scrolled to were one
+  thing in the code and are two things to a reader.
+- A node the user AIMED at still reveals itself — a freshly-created project, or a workflow armed as an
+  edit target. That case is what the scroll was written for, and it is unchanged.
+
 **Signing in to Claude is something you do in the app now**
 
 - A logged-out machine could not run one turn, and the only way out was a terminal: the failure note

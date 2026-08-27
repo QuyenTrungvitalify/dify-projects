@@ -406,6 +406,21 @@ không đổi / spec tụt lại) đã có badge và cảnh báo riêng, thêm d
 đổi — một câu khẳng định) · `changed`. Gộp hai cái đầu là để một build đầu **âm thầm tuyên bố** spec đã
 được đối chiếu và giống hệt. Cùng hợp đồng ba trạng thái mà `specStale` giữ ở server.
 
+**Sáng lên ≠ cuộn tới — prop `reveal` (2026-08-26).** Một build xuất hiện **hai lần** trong sidebar:
+ở 進行中 và ở ビルド. Mở bản ở 進行中 làm bản ở ビルド cũng `active`, và bản đó tự gọi `scrollIntoView`
+— kéo cả danh sách đi. Đo thật: `scrollTop` nhảy **0 → 158** trong một nhịp, hàng vừa bấm trôi từ
+y=167 lên y=9.
+
+Giữ nguyên co-highlight, chỉ bỏ cú cuộn. `reveal` chia đôi hai việc từng bị gộp làm một:
+
+| `reveal` | Khi nào | Hành vi |
+|---|---|---|
+| `true` | Node được **NHẮM tới** — composer đang trỏ vào project/workflow, cũng là trạng thái `createProject` để lại | Sáng **và** cuộn tới (req #2 giữ nguyên) |
+| `false` | Node chỉ **PHẢN CHIẾU** build đang mở | Chỉ sáng |
+
+`App.tsx` truyền `revealActive={!task}` — đúng ranh giới đã có sẵn trong `activeProject`/`activeWorkflow`:
+nhánh `task ? …` là phản chiếu, nhánh `: (editingSel ?? targetProject)` là nhắm tới.
+
 **Cột hội thoại và ô nhập PHẢI cùng một cột (2026-08-26).** Cả `.thread` lẫn `.composer-dock` đều là
 *một hộp ngoài có lề 26px, bên trong là cột `--thread-w` căn giữa*. Viết cùng một hình dạng vì hai thứ
 này nằm chồng nhau trên màn hình — lệch bao nhiêu cũng thấy.
