@@ -11,7 +11,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { computeGate } from './gate.js';
-import { TRIGGER_ENTRY_NOTE } from './report.js';
+import { TRIGGER_ENTRY_NOTE, NO_RUBRIC_NOTE } from './report.js';
 import { difyCreds, appUrlFrom, unregisterSecret, type InputVar } from './dify-io.js';
 import { emit, resolveRunners, resolveLiveOps, type OrchestratorCtx } from './orchestrator-shared.js';
 import { isCancelled, setSession, clearSession } from './lock.js';
@@ -394,6 +394,16 @@ export async function runLiveTest(
   // Append the shared advisory to the reason channel the ④ card renders — ADDITIVE only, the
   // verdict/label/gate flag are untouched. Absent entryTypes (older sync.py) ⇒ assume start ⇒ no note.
   const isTriggerEntry = (dep.entryTypes ?? []).some((t) => t.startsWith('trigger-'));
+  // Spec 105 — same additive channel, for the other thing this card silently overstates. `runJudge`
+  // returns null on an empty rubric, so with no criteria the per-criterion ✓/✗ lines are simply
+  // ABSENT — which reads, at a glance, exactly like a rubric that found nothing to complain about.
+  // The verdict still says `live-verified`, and the only honest difference is that one check ran
+  // instead of that check plus the list. Say which happened. Additive only: verdict/label/gate flag
+  // are untouched, exactly as the trigger note above leaves them.
+  const noRubric = t1Pass && !judge;
+  const notes = [reasonCore, isTriggerEntry ? TRIGGER_ENTRY_NOTE : '', noRubric ? NO_RUBRIC_NOTE : '']
+    .filter(Boolean)
+    .join(' ');
   return parkResult({
     verdict: t1Pass ? 'passed' : 'workflow_fail',
     label: t1Pass ? 'live-verified' : 'live-verified-fail',
@@ -402,7 +412,7 @@ export async function runLiveTest(
     runError: run.error,
     t1Pass,
     judge,
-    reason: isTriggerEntry ? `${reasonCore} ${TRIGGER_ENTRY_NOTE}` : reasonCore,
+    reason: notes,
   });
 }
 

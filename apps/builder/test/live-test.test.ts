@@ -250,6 +250,27 @@ describe('runLiveTest verdict → gate', () => {
     assert.match(task.liveTest?.reason ?? '', /no model needed/);
   }));
 
+  test('spec 105 — a pass with no rubric SAYS so instead of looking like a clean sweep', withCreds(async () => {
+    // `runJudge` returns null on an empty rubric, so the per-criterion ✓/✗ lines are simply ABSENT —
+    // which reads, at a glance, exactly like a rubric that found nothing to complain about. The verdict
+    // still says `live-verified`. The only honest difference is that ONE check ran (it executed) rather
+    // than that check plus the list, and a reader has no way to tell which they are looking at.
+    //
+    // A rubric goes missing for reasons invisible here: a base imported and edited directly so no ②
+    // ever wrote a spec, a criteria heading that got translated, a section that parsed empty.
+    const { task, ctx } = await harness({
+      resolveLlmModels: async () => ({ enabled: [], pick: null }),
+      deployWithModel: async (_d, _s, outRel) => ({ ok: true, nodeCount: 0, llmCount: 0, patched: [], outFile: outRel, inputs: [], mode: 'workflow', stderr: '' }),
+    });
+    // No criteria.json is written by this harness, so the judge never runs — the real shape.
+    await runLiveTest(task, ctx);
+
+    assert.equal(task.liveTest?.verdict, 'passed', 'precondition: T1 passed');
+    assert.equal(task.liveTest?.judge, undefined, 'precondition: no judge ran');
+    assert.match(task.liveTest?.reason ?? '', /no acceptance criteria were found/,
+      'the card must say only one thing was checked — silence here reads as a clean grade');
+  }));
+
   test('transport error (status null) → infra_degraded (not workflow_fail)', withCreds(async () => {
     const { task, ctx } = await harness({
       runWorkflow: async () => ({ ok: false, status: null, outputs: null, error: 'timeout', totalTokens: null }),

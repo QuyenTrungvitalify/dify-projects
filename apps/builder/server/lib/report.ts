@@ -74,6 +74,24 @@ export { hasUnresolvedPluginTodo };
 /** Spec 057 S4 — the trigger-entry manual-enable advisory. ONE string, shared by the report notes
  *  (below) and the ④ live gate card (live-test.ts appends it to the parked result's reason). */
 /**
+ * Spec 105 — the ④ judge grades against `## Acceptance Criteria`, and when there are none it does not
+ * run at all (`runJudge` returns null on an empty rubric). Everything downstream then reads as a clean
+ * pass: the verdict stays `live-verified`, and the per-criterion ✓/✗ lines the reviewer looks for are
+ * simply absent — which is indistinguishable, at a glance, from a rubric that had nothing to complain
+ * about. The only honest difference is that ONE check ran (did it execute without erroring) instead of
+ * that check plus the list.
+ *
+ * A rubric goes missing for reasons the reader cannot see: a workflow imported as a base and edited
+ * directly (no ② ever wrote a spec), a spec whose criteria heading was translated, a parse that found
+ * the section empty. None of those surface anywhere else, so the run says it here.
+ */
+// wording-stable (NOTE_JA keys off this)
+export const NO_RUBRIC_NOTE =
+  'no acceptance criteria were found for this build, so only ONE thing was checked: that the workflow ' +
+  'ran without erroring. Nobody graded WHAT it produced. Add an `## Acceptance Criteria` section to ' +
+  'SPEC.md and test again to have the output judged against it.';
+
+/**
  * Spec 095 (2026-08-12) — CORRECTED. The previous wording sent users to Quick Settings right after
  * import to "ENABLE the trigger", and both halves of that were wrong:
  *
