@@ -101,24 +101,45 @@ describe('030 · runContextCrumb (open-build context)', () => {
 describe('workflowOptions (recency-sorted composer dropdown)', () => {
   const mkTask = (id: string): WireTreeTask => ({ id, name: 't', time: '', status: 'done', phase: 'test' });
   const rtree: WireTreeProject[] = [
-    // _drafts must be excluded even though its task is the "newest".
-    { id: '_drafts', name: 'Drafts', workflows: [{ id: '(unsaved)', name: '(unsaved)', tasks: [mkTask('9999999999999')] }] },
+    // buildTree ALWAYS marks this bucket `synthetic` — it names no folder, so arming it 400s.
+    // Its task is the "newest", so if it were ever listed it would lead the list.
+    { id: '_drafts', name: 'Drafts', workflows: [
+      { id: '(unsaved)', name: '(unsaved)', synthetic: true, tasks: [mkTask('9999999999999')] },
+      { id: 'real_draft', name: 'Real Draft', tasks: [mkTask('1500000000000')] }, // a REAL folder in _drafts
+    ] },
     { id: 'proj_a', name: 'Proj A', workflows: [
       { id: 'old_wf', name: 'Old WF', tasks: [mkTask('1000000000001')] },       // oldest activity
       { id: 'no_task_wf', name: 'No Task WF', tasks: [] },                       // never built → sorts last
+      // buildTree step 3 attaches an orphan row to ANY project on disk, not just _drafts. The old
+      // project-level filter never covered this one, so it WAS listed and armed a 400.
+      { id: 'ghost', name: 'Ghost', synthetic: true, tasks: [mkTask('9999999999998')] },
     ] },
     { id: 'proj_b', name: 'Proj B', workflows: [
       { id: 'new_wf', name: 'New WF', tasks: [mkTask('1783000000000'), mkTask('1000000000000')] }, // newest (tasks newest-first)
     ] },
   ];
 
-  it('sorts by newest-task recency ACROSS projects; excludes _drafts; a no-task workflow sorts last', () => {
+  it('sorts by newest-task recency ACROSS projects; a no-task workflow sorts last', () => {
     expect(workflowOptions(rtree).map((o) => o.v)).toEqual([
       'proj_b/new_wf',      // newest task 1783…
+      '_drafts/real_draft', // 1500000000000 — a real draft folder is a first-class option now
       'proj_a/old_wf',      // 1000000000001
       'proj_a/no_task_wf',  // no task → 0 → last
     ]);
-    expect(workflowOptions(rtree).some((o) => o.v.startsWith('_drafts/'))).toBe(false);
+  });
+
+  // The reason the `_drafts` project stopped being filtered: a from-scratch build lands there by
+  // default, so for anyone who has not hand-made a project it holds ALL their work, and the dropdown
+  // offered only 「なし（新規）」.
+  it('lists REAL workflows inside _drafts (they are where from-scratch builds land)', () => {
+    expect(workflowOptions(rtree).map((o) => o.v)).toContain('_drafts/real_draft');
+  });
+
+  // Both synthetic generators, including the one the old project-level filter never reached.
+  it('never lists a SYNTHETIC row — not the _drafts/(unsaved) bucket, not an orphan in a real project', () => {
+    const vs = workflowOptions(rtree).map((o) => o.v);
+    expect(vs).not.toContain('_drafts/(unsaved)'); // would have LED the list (newest task)
+    expect(vs).not.toContain('proj_a/ghost');      // the pre-existing hole: listed, and armed a 400
   });
 
   it('value is the compound "project/workflow"; label is "Project / Workflow"', () => {
@@ -126,21 +147,25 @@ describe('workflowOptions (recency-sorted composer dropdown)', () => {
     expect(nw?.l).toBe('Proj B / New WF');
   });
 
-  // The armed workflow must always BE in the list. A `_drafts` edit (the sidebar Build section's rows
-  // are `_drafts` workflows, so this is the common edit) is excluded from the options by design, and a
-  // chip whose value matches no option renders the raw compound slug — `_drafts/build_requirement_news_
-  // automat…`, truncated before the `_2` that distinguishes two sibling folders — while the crumb above
-  // it showed the workflow's NAME. Same target, two names, neither checkable against the other.
-  const dtree: WireTreeProject[] = [
-    { id: '_drafts', name: 'Drafts', workflows: [
-      { id: 'news_2', name: '📦 3 Build Requirement — News Automation APP 1…', tasks: [] },
-    ] },
-    ...rtree.slice(1),
-  ];
+  // The armed workflow must always BE in the list, or the chip renders the raw compound slug —
+  // `_drafts/build_requirement_news_automat…`, truncated before the `_2` that distinguishes two sibling
+  // folders — while the crumb above it shows the workflow's NAME. Same target, two names, neither
+  // checkable against the other. Listing `_drafts` removed the COMMON reason this fired (a draft edit),
+  // so the two cases below are what is left of it.
 
-  it('prepends the ARMED workflow when the list has no option for it, labelled by its display name', () => {
-    const opts = workflowOptions(dtree, '_drafts/news_2');
-    expect(opts[0]).toEqual({ v: '_drafts/news_2', l: '📦 3 Build Requirement — News Automation APP 1…' });
+  it('a REAL draft that is now listed needs no prepend — it is simply an option, once', () => {
+    const opts = workflowOptions(rtree, '_drafts/real_draft');
+    expect(opts.filter((o) => o.v === '_drafts/real_draft')).toHaveLength(1);
+    expect(opts.find((o) => o.v === '_drafts/real_draft')!.l).toBe('Drafts / Real Draft');
+  });
+
+  // A synthetic row is the only value still IN the tree but NOT in the options, so it is the one case
+  // where the prepend can label from the tree. Naming what is armed beats printing a slug at it; the
+  // build itself is refused by the route (400 "does not exist"), not by hiding the name.
+  it('an armed SYNTHETIC value is prepended so the chip can still NAME it', () => {
+    const opts = workflowOptions(rtree, '_drafts/(unsaved)');
+    expect(opts[0]).toEqual({ v: '_drafts/(unsaved)', l: '(unsaved)' });
+    expect(workflowOptions(rtree).some((o) => o.v === '_drafts/(unsaved)')).toBe(false); // unarmed: absent
   });
 
   it('does not duplicate an armed workflow that already has an option', () => {
@@ -150,8 +175,9 @@ describe('workflowOptions (recency-sorted composer dropdown)', () => {
   });
 
   it('adds nothing for "none" / no armed workflow', () => {
-    expect(workflowOptions(dtree, 'none').some((o) => o.v.startsWith('_drafts/'))).toBe(false);
-    expect(workflowOptions(dtree).some((o) => o.v.startsWith('_drafts/'))).toBe(false);
+    const base = workflowOptions(rtree);
+    expect(workflowOptions(rtree, 'none')).toEqual(base);
+    expect(workflowOptions(rtree, null)).toEqual(base);
   });
 
   it('a deleted/renamed armed target still gets an option (bare slug label, never a dead chip)', () => {

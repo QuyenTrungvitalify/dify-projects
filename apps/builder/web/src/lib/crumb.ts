@@ -73,29 +73,46 @@ export function projectDisplayName(tree: WireTreeProject[], project: string): st
 /**
  * Options for the composer's Workflow dropdown, sorted by RECENCY (the workflow whose NEWEST task is most
  * recent leads) instead of alphabetically — so the workflows you actually touch surface at the top when
- * there are many (the flat A→Z list didn't scale). `_drafts` scratch is excluded. Each option is the
- * spec-030 compound `project/workflow` value + a readable `Project / Workflow` label. Pure (tree-derived).
+ * there are many (the flat A→Z list didn't scale). Each option is the spec-030 compound `project/workflow`
+ * value + a readable `Project / Workflow` label. Pure (tree-derived).
+ *
+ * WHAT IS EXCLUDED, and why it changed. This list used to drop the whole `_drafts` PROJECT, on the
+ * premise that drafts are QA scratch nobody would want to edit. That premise does not survive contact
+ * with use: a from-scratch build lands in `_drafts` BY DEFAULT (`DRAFTS_PROJECT`), so for anyone who has
+ * not hand-made a project, `_drafts` holds all of their work and this dropdown listed nothing but
+ * 「なし（新規）」 — the one control whose job is "pick a workflow to edit", offering none. It reads as a
+ * broken control rather than an empty one.
+ *
+ * What actually must not be offered is a SYNTHETIC row, and that was never the same set. `buildTree`
+ * mints synthetic rows in two places: the `_drafts/(unsaved)` bucket for pre-scaffold tasks, and — the
+ * one the old filter never covered — an orphan row inside ANY real project on disk whose folder has
+ * vanished. Both name no folder, so arming one is a target `POST /api/tasks` refuses (400, "does not
+ * exist"). Dropping the project hid the first by accident and left the second listed. Filtering by
+ * `synthetic` states the real rule and covers both. The sidebar has always said it this way
+ * (`workflowRowAction`: a synthetic row expands, never arms).
  *
  * `armed` is the workflow the composer currently targets (`settings.workflow`). When it has no option of
- * its own it is PREPENDED as one, labelled by `wfDisplayName` — the same name the edit crumb shows. Two
- * things went wrong without it, both observed on a `_drafts` edit (which this list excludes by design):
- * the chip fell back to printing the RAW compound slug (`_drafts/build_requirement_news_automat…`,
- * truncated exactly where `_2` would have been — so two sibling folders were indistinguishable), and the
- * menu, holding no entry for the armed value, could neither highlight it nor re-select it. A workflow you
- * are editing must be nameable in the control that claims to name it.
+ * its own it is PREPENDED as one, labelled by `wfDisplayName` — the same name the edit crumb shows. It is
+ * still needed even now that drafts are listed: a target can be deleted or renamed out from under the
+ * chip. Without it, the chip fell back to printing the RAW compound slug
+ * (`_drafts/build_requirement_news_automat…`, truncated exactly where `_2` would have been — so two
+ * sibling folders were indistinguishable), and the menu, holding no entry for the armed value, could
+ * neither highlight it nor re-select it. A workflow you are editing must be nameable in the control that
+ * claims to name it.
  */
 export function workflowOptions(tree: WireTreeProject[], armed?: string | null): { v: string; l: string }[] {
   const opts = tree
-    .filter((p) => p.id !== '_drafts')
     .flatMap((p) =>
-      p.workflows.map((w) => ({
-        v: `${p.id}/${w.id}`,
-        l: `${p.name} / ${w.name}`,
-        // buildTree returns a workflow's tasks NEWEST-first, so tasks[0].id (a 13-digit ms timestamp) is
-        // its most recent activity. A workflow with no tasks sorts last (0). Number compare is exact for
-        // 13-digit ids (< 2^53).
-        recent: Number(w.tasks[0]?.id ?? 0),
-      })),
+      p.workflows
+        .filter((w) => !w.synthetic)
+        .map((w) => ({
+          v: `${p.id}/${w.id}`,
+          l: `${p.name} / ${w.name}`,
+          // buildTree returns a workflow's tasks NEWEST-first, so tasks[0].id (a 13-digit ms timestamp)
+          // is its most recent activity. A workflow with no tasks sorts last (0). Number compare is
+          // exact for 13-digit ids (< 2^53).
+          recent: Number(w.tasks[0]?.id ?? 0),
+        })),
     )
     .sort((a, b) => b.recent - a.recent)
     .map(({ v, l }) => ({ v, l }));
