@@ -61,12 +61,15 @@ describe('113 · the Project chip at the door', () => {
     expect(chip!.querySelector('.sc-val')?.textContent).toBe('Drafts');
   });
 
-  // Disabled, NOT hidden — same choice Fast build makes one chip over. An edit takes its project from
-  // the workflow (`newTask` nulls targetProject); a chip that vanishes teaches nothing about why.
-  it('goes inert while a workflow is armed — an edit takes its project from the workflow', () => {
+  // GONE, not greyed. An edit takes its project from the workflow, and the Workflow chip's own value is
+  // the compound `Project / Workflow` — so a disabled chip here would repeat what the neighbour already
+  // says, in the one state where it cannot be acted on, on a row that is already tight in Japanese.
+  it('is absent while a workflow is armed — the Workflow chip already names that project', () => {
     const spy = { settings: [] as Partial<Settings>[], newProject: 0 };
-    const chip = chipOf(mount({ workflow: '_drafts/news' }, spy), 'Project');
-    expect(chip!.disabled).toBe(true);
+    const el = mount({ workflow: '_drafts/news' }, spy);
+    expect(chipOf(el, 'Project')).toBeUndefined();
+    // and the row did not simply lose a control: the remaining chips are all still there
+    expect(el.querySelectorAll('button.setting-chip').length).toBeGreaterThan(0);
   });
 
   it('routes "+ New project…" to the create door and NEVER into settings (it is not a folder name)', async () => {

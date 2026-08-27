@@ -1101,10 +1101,16 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
     )}
     {/* spec 113 — WHERE a from-scratch build is created. `store.start` has read `targetProject` since
         spec 029/031 and the crumb has shown it, but the only control that set it was the sidebar's
-        per-project "+", so the default (`_drafts`) was never a choice anyone made. Disabled — not
-        hidden — while a workflow is armed, exactly like Fast build beside it: an edit takes its
-        project FROM the workflow, and a chip that vanishes teaches nothing about why. */}
-    {!lockStartBound && projects && projects.length > 0 && (
+        per-project "+", so the default (`_drafts`) was never a choice anyone made.
+        GONE, not greyed, once a workflow is armed. It shipped disabled-with-a-tooltip on the Fast
+        build precedent, and that was the wrong read of this row: an edit takes its project FROM the
+        workflow, and the Workflow chip beside it already SHOWS that project — its value is the
+        compound `Project / Workflow`. So a greyed chip here repeats a fact the neighbour is already
+        telling, in the one state where it cannot be acted on. That is the "lying control" the
+        start-bound chips above are hidden to avoid, and the row cannot afford it: Japanese labels
+        (「ワークフロー:」「高速ビルド:」) are wider than the English they were measured in, and with a
+        compound workflow value every chip on the line was truncating. */}
+    {!lockStartBound && projects && projects.length > 0 && settings.workflow === 'none' && (
       <SettingSelect shrink icon={<I.folder style={{ width: 12, height: 12 }} />} label={tr('project')}
         value={settings.targetProject ?? '_drafts'}
         options={[...projects, { v: NEW_PROJECT, l: tr('projectNew') }]}
@@ -1112,8 +1118,7 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
           if (v === NEW_PROJECT) { onNewProject?.(); return; } // an action, never a settings value
           onSettings({ targetProject: v === '_drafts' ? null : v });
         }}
-        disabled={settings.workflow !== 'none'}
-        title={settings.workflow !== 'none' ? tr('projectFixed') : tr('projectHint')} />
+        title={tr('projectHint')} />
     )}
     {/* Shown only while a boundary this value governs is still ahead — from ③ on it decides nothing
         (see lib/confirm-chip.ts), and the row needs its 137px for the gate's own buttons there.
