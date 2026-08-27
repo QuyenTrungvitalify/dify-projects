@@ -35,7 +35,7 @@ describe('096 · normalizeModel', () => {
 
   test('case and padding are tolerated (a hand-typed curl / a copied value)', () => {
     assert.equal(normalizeModel('  OPUS '), 'opus');
-    assert.equal(normalizeModel('Haiku'), 'haiku');
+    assert.equal(normalizeModel('Sonnet'), 'sonnet');
   });
 
   test('a full model id maps back to its family alias', () => {
@@ -43,8 +43,15 @@ describe('096 · normalizeModel', () => {
     // family's newest model, not a version frozen at the moment someone clicked.
     assert.equal(normalizeModel('claude-opus-5'), 'opus');
     assert.equal(normalizeModel('claude-sonnet-5'), 'sonnet');
-    assert.equal(normalizeModel('claude-haiku-4-5-20251001'), 'haiku');
     assert.equal(normalizeModel('claude-fable-5'), 'fable');
+  });
+
+  test('a RETIRED alias normalizes to nothing — it is not quietly promoted to the default', () => {
+    // `haiku` left MODEL_CHOICES after run 1787826393000 (③ made zero tool calls and the build died
+    // `artifact missing`). What a create/patch carrying it must NOT do is silently become opus: the
+    // whole point of `undefined` here is that a value nobody can pick never turns into one they did.
+    assert.equal(normalizeModel('haiku'), undefined);
+    assert.equal(normalizeModel('claude-haiku-4-5-20251001'), undefined);
   });
 
   test('absent / unknown ⇒ undefined, NOT the default', () => {
@@ -91,7 +98,7 @@ describe('096 · the spawn passes --model only when chosen', () => {
   });
 
   test('--resume still precedes everything (the one ordering that matters)', () => {
-    const argv = buildSpawnArgs({ ...base, model: 'haiku', resumeSessionId: 'sess-1' });
+    const argv = buildSpawnArgs({ ...base, model: 'sonnet', resumeSessionId: 'sess-1' });
     assert.deepEqual(argv.slice(0, 2), ['--resume', 'sess-1']);
     assert.ok(argv.indexOf('--model') > 1);
   });

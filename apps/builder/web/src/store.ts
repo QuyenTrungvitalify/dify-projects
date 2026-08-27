@@ -160,7 +160,10 @@ function withChatLang<T extends object>(body: T): T & { chat_lang?: string } {
 /** spec 096 — the offered models, newest-capability first; MUST mirror the server's MODEL_CHOICES
  *  (state/task.ts), which is where an unknown value is dropped. `opus` leads because ③ Implement is
  *  where the graph, the cost and the risk are. */
-export const MODEL_OPTIONS = ['opus', 'sonnet', 'haiku', 'fable'] as const;
+/* `haiku` removed — see the server's MODEL_CHOICES for the run that decided it. A machine that had
+ * remembered `haiku` heals itself: `readModel` keeps a saved value only if it is still in this list,
+ * so the next load falls back to MODEL_OPTIONS[0] (opus) without anyone touching localStorage. */
+export const MODEL_OPTIONS = ['opus', 'sonnet', 'fable'] as const;
 const MODEL_KEY = 'builder.model';
 function initialModel(): string {
   try {

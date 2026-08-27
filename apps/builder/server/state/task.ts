@@ -653,7 +653,15 @@ export function normalizeConfirmMode(raw: unknown): ConfirmMode {
  * and that is where the money and the risk are; the resolved id still lands in `task.cost[*].model`,
  * so a dossier keeps proving what actually ran rather than what was requested.
  */
-export const MODEL_CHOICES = ['opus', 'sonnet', 'haiku', 'fable'] as const;
+/* `haiku` was REMOVED (2026-08-27). It is not a capability opinion in the abstract — it is what run
+ * 1787826393000 did: ① and ② completed on haiku-4-5 (5 and 6 turns), then ③ ran for ONE turn, 20
+ * seconds, and made ZERO tool calls. It answered the phase prompt conversationally — "Để bắt đầu, tôi
+ * cần biết: đây là task nào? requirement là gì?" — with the requirement and the SPEC.md path both
+ * present in that very prompt. No file was written, so the gate could only report `artifact missing`,
+ * naming a path nobody had tried to create. Offering a model that reads ③ as a briefing costs a user
+ * two working phases and tells them nothing about why. A model list is a set of choices the app stands
+ * behind; this one it does not. */
+export const MODEL_CHOICES = ['opus', 'sonnet', 'fable'] as const;
 export type ModelChoice = (typeof MODEL_CHOICES)[number];
 export const DEFAULT_MODEL: ModelChoice = MODEL_CHOICES[0];
 

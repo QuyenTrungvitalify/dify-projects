@@ -31,8 +31,10 @@ describe('096 · what the Model chip displays', () => {
   it('a picked model shows that model — never a default', () => {
     expect(shown('opus')).toBe('Opus');
     expect(shown('sonnet')).toBe('Sonnet');
-    expect(shown('haiku')).toBe('Haiku');
     expect(shown('fable')).toBe('Fable');
+    // A build that RAN on the retired alias still shows what it ran on, verbatim. The chip's job is to
+    // report, and rewriting history to a model the task never used is the exact lie the test below pins.
+    expect(shown('haiku')).toBe('haiku');
   });
 
   it('no model recorded ⇒ says so, and does NOT claim Opus', () => {
@@ -65,9 +67,11 @@ describe('096 · what the Model chip displays', () => {
     }
   });
 
-  it('the offered list is exactly the four aliases, most capable first', () => {
+  it('the offered list mirrors the server, most capable first — and no longer offers haiku', () => {
     // Mirrors the server's MODEL_CHOICES; the server is what drops an unknown value, so a list that
-    // drifted from it would offer something the backend silently discards.
-    expect([...MODEL_OPTIONS]).toEqual(['opus', 'sonnet', 'haiku', 'fable']);
+    // drifted from it would offer something the backend silently discards. `haiku` left after run
+    // 1787826393000, where ③ made zero tool calls and the build died `artifact missing`.
+    expect([...MODEL_OPTIONS]).toEqual(['opus', 'sonnet', 'fable']);
+    expect(MODEL_OPTIONS[0]).toBe('opus'); // the default every fresh machine lands on
   });
 });
