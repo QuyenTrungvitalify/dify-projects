@@ -270,12 +270,20 @@ def write_markdown(entries, out_path):
         f.write('\n'.join(lines))
 
 
+#: The builder's reserved scratch project — never indexed (see collect_entries).
+DRAFTS_DIR = BASE / "projects" / "_drafts"
+
+
 def _filter_gitignored(paths):
     """Drop paths git would ignore, so the index mirrors the repo rather than local scratch.
 
-    The builder writes each QA run to projects/<slug>/ (gitignored — spec 011 R2); without this,
-    rglob would scan those throwaways and leak them into the tracked INDEX.md. Safe fallback: if git
-    is unavailable (or errors), keep all paths — the index is never worse than today.
+    This used to be what kept builder scratch out of the index: QA runs land in projects/_drafts/,
+    which was gitignored (spec 011 R2). Spec 112 un-ignored that folder — git has to SEE it for the
+    builder's confinement check to police cross-workflow writes there — so the drafts exclusion moved
+    to collect_entries() as an explicit DRAFTS_DIR test. What remains here is the general net: any
+    OTHER path under projects/ that git ignores (env files, per-project throwaways someone adds) still
+    has no business in a tracked index. Safe fallback: if git is unavailable (or errors), keep all
+    paths — the index is never worse than today.
     """
     if not paths:
         return paths
@@ -315,6 +323,13 @@ def collect_entries():
         # DO want indexed — filtering them silently dropped real reference workflows (every
         # ASCII-named file, since git check-ignore quotes only non-ASCII paths).
         if source_tag == "project":
+            # Builder scratch lands in the reserved `projects/_drafts/` project (spec 030). It used to
+            # be excluded here for free, because it was gitignored and `_filter_gitignored` swept it
+            # up. Spec 112 un-ignored it (git had to be able to SEE the folder for the builder's
+            # cross-workflow confinement check to work there at all), so the exclusion has to be said
+            # out loud — by name, which is what it always meant. 26 throwaway YAMLs next to 47 real
+            # workflows would be the majority of the index.
+            matches = [p for p in matches if DRAFTS_DIR not in p.parents]
             matches = _filter_gitignored(matches)
         for yml in matches:
             try:

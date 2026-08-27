@@ -932,8 +932,10 @@ async function runPhase(
 
   // Confinement baseline for THIS turn (captured just before spawn — after any scaffold).
   const baseline = await gitDirtyPaths(projectsDir);
-  // Spec 111 — the same moment, as a clock reading: the git baseline above cannot see `projects/_drafts/`
-  // (gitignored wholesale), so the stray-write scan after the turn compares mtimes against this instead.
+  // Spec 111 — the same moment, as a clock reading. Spec 112 un-ignored `projects/_drafts/`, so the git
+  // baseline above is no longer blind there; what it still cannot see is an IN-PLACE overwrite of an
+  // untracked neighbour (`?? <path>` before AND after ⇒ it sits in `baseline` and never becomes a
+  // breach). The stray-write scan compares mtimes against this instead, which is what catches that.
   const turnStartedAtMs = Date.now();
 
   // Spec 094 S1 — the artifact's content hash for THIS turn, same moment as the baseline (after any

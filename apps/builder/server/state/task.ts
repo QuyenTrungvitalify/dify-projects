@@ -487,9 +487,11 @@ export interface Task {
   // (or absent when there were none): files under `projects/` OUTSIDE this build's folder, and — on a
   // ①/② turn — the build's own `workflows/*.yml`. Workflow ymls carry a lint verdict inline, graded
   // with the same four linters ③ runs. ADVISORY: it never fails a phase and nothing is reverted.
-  // Recomputed every turn, so it always describes the last round only. It exists because `git status`
-  // — what the confinement check reads — is blind inside `projects/_drafts/` (gitignored wholesale),
-  // which is where nearly every real build runs.
+  // Recomputed every turn, so it always describes the last round only. It exists because the
+  // confinement check's git delta structurally misses one class: spec 112 un-ignored
+  // `projects/_drafts/` so `git status` can see it, but an in-place overwrite of an untracked
+  // neighbour reads `?? <path>` both before and after the turn, so it sits in `baseline` and never
+  // becomes a breach. mtimes catch that; git cannot until the drafts are committed.
   strayNote?: string;
   // Spec 012: repo-relative paths of images attached via the composer (saved under
   // `.runs/<taskId>/uploads/`). The orchestrator injects these paths into the turn prompt so the turn

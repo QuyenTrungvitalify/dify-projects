@@ -263,8 +263,14 @@ the npm test suites (§7) and the CI `builder` job ([.github/workflows/ci.yml](.
   adds an "Edit this workflow" button on the done/cancelled gate foot that starts a new edit-existing
   build via the same `newTask({baseWorkflow})` the sidebar "+" uses.
 - **Builder QA writes scratch workflows** into the reserved `projects/_drafts/<workflow>/` project
-  (spec 030) — gitignored regenerable throwaways (spec 011 R2; `build_index.py` skips gitignored
-  YAMLs). Don't commit them. Real projects live at `projects/<project>/<workflow>/` and are indexed.
+  (spec 030) — regenerable throwaways. **Don't commit them.** They are NO LONGER gitignored (spec 112):
+  the builder's confinement check polices cross-workflow writes through `git status`, which cannot see
+  an ignored path, so ignoring the folder was hiding real breaches — one cost $19.25 while its gate
+  still said `success`. `build_index.py` now keeps drafts out of INDEX.md by NAME (`DRAFTS_DIR` in
+  `collect_entries`), not via `git check-ignore`. Consequence to respect: `projects/_drafts/` is now a
+  permanent `??` entry in `git status`, so `git add -A` / `git add projects` will sweep 6.5 MB of
+  scratch into a commit — stage by intent, never by folder. Real projects live at
+  `projects/<project>/<workflow>/` and are indexed.
 - **The ③ gate lints every turn-touched `workflows/*.ya?ml`** (spec 039), not just the declared
   file; an extension twin of the declared file (`main.yaml` beside `main.yml`) is a hard error.
 - **The gate runs 4 linters** (spec 038): `validate_workflow.py` + `lint_refs.py` +
