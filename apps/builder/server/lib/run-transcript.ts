@@ -58,6 +58,13 @@ export class AttemptRecorder {
   }
 
   /** Accumulate an assistant text fragment (the same fragments the SSE relay gets). */
+  /** Spec 115 — how many tool calls this attempt made. ZERO is the interesting value: no file can be
+   *  written without a tool, so a phase that ends with its artifact missing AND no tool calls did not
+   *  fail at writing — it never started. Read by the orchestrator to say which of those happened. */
+  get toolCount(): number {
+    return this.tools.length;
+  }
+
   onText(text: string): void {
     this.receivedLen += text.length;
     this.out += text;

@@ -1039,7 +1039,9 @@ async function runPhase(
       task.sessionIds[sessKey] = turn.sessionId;
       await saveTask(projectsDir, task);
     }
-    return turn;
+    // Spec 115 — the recorder is scoped to this attempt, so the count leaves with the result or not at
+    // all. Additive: everything that reads TurnResult ignores a field it does not know.
+    return { ...turn, toolCalls: rec.toolCount };
   };
 
   // NEVER spawn a turn for a build that no longer owns the TURN lock. The primary guard is the live
@@ -1182,6 +1184,24 @@ async function runPhase(
   } catch (e) {
     log.warn({ taskId: task.taskId, err: errMsg(e) }, 'stray-write scan failed (non-fatal)');
   }
+  // Spec 115 — WHY the phase failed, when the answer is "the turn never began". `artifact missing`
+  // names a path nobody tried to create, which is true and useless: on run 1787826393000 it was the
+  // only thing a user saw after ① and ② had already succeeded, and the actual event — ③ replied once,
+  // in 20 seconds, asking what the task was, with the requirement and the SPEC.md path both in its
+  // own prompt — was visible only inside the exported bundle. No file can be written without a tool,
+  // so zero tool calls beside a missing artifact is not a diagnosis by inference; it is the event.
+  // `undefined` means the count was not taken (the 013 D2 test seam) and must stay silent — a
+  // confident wrong sentence about why a build failed is worse than the bare path it replaces.
+  if (verify.outcome === 'error' && turn.toolCalls === 0) {
+    verify = {
+      ...verify,
+      reasons: [
+        ...verify.reasons,
+        'the turn made no tool calls — it answered without building anything, so nothing was ever written',
+      ],
+    };
+  }
+
   if (verify.outcome !== 'error') {
     // Spec 103 Lane B — a REVISE must NOT publish its draft as "the spec". `artifacts.spec` is read by
     // ③ as `{{PRIOR_ARTIFACT}}` (phases.ts) and by Ask as the spec to answer from; pointing either at

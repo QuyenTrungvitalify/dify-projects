@@ -28,6 +28,10 @@ export interface TurnResult {
    *  the exact cost spec 104 exists to prevent. Keeping this separate preserves spec 045's standing
    *  contract that classification is cosmetic and never changes status/outcome routing. */
   noteAdvisory?: boolean;
+  /** Spec 115 — tool calls this turn made, when the caller recorded them (the orchestrator does; the
+   *  013 D2 test seam may not, hence optional — `undefined` means NOT COUNTED and must never be read
+   *  as zero). Zero is what separates "the turn tried and failed" from "the turn never began". */
+  toolCalls?: number;
 }
 
 /**

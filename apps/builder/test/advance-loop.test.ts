@@ -47,6 +47,10 @@ interface Overrides {
    *  needed. Models what the AGENT did, never what the check reports — the measurement stays derived
    *  from the files, so this cannot manufacture a verdict the system could not reach on its own. */
   implementNoOp?: boolean;
+  /** spec 115 — the ③ turn USES a tool and still lands nothing usable (a write that failed, a read-only
+   *  poke). Distinct from `implementNoOp`, which is a turn that never reached for one at all: the two
+   *  produce the same missing artifact and must NOT produce the same explanation. */
+  implementUsesTools?: boolean;
   /** spec 105 — the ③ turn edits the workflow but leaves `SPEC.md` behind, i.e. it ignores the
    *  reconcile instruction. Also an AGENT behaviour, and the exact one `specStale` exists to catch. */
   implementSkipsSpecReconcile?: boolean;
@@ -122,10 +126,21 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
   const runTurn = async (
     _session: ClaudeSession,
     prompt: string,
-    _onSessionId?: (id: string) => void
+    _onSessionId?: (id: string) => void,
+    // spec 115: the orchestrator wires `onEvent` straight into the transcript recorder, and the
+    // recorder's tool count is what tells "never began" apart from "tried and failed". A stub that
+    // ignores this argument reports ZERO calls for every turn — true of a no-op, a lie about any
+    // other, so the flag above has to be able to speak through it.
+    opts?: { onEvent?: (event: unknown) => void }
   ): Promise<TurnResult> => {
     calls.runTurn++;
     prompts.push(prompt);
+    if (o.implementUsesTools && task.phase === 'implement') {
+      opts?.onEvent?.({
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', id: 'tu_1', name: 'Write', input: { file_path: 'x' } }] },
+      });
+    }
     if (o.cancelDuringTurn === task.phase) markCancelled(task.taskId);
     // NB: we deliberately don't invoke `_onSessionId` — a real turn fires it on the init event, well
     // before the result; calling it synchronously here would race the awaited post-turn saveTask on
@@ -682,6 +697,26 @@ describe('advance-loop integration (013 D3)', () => {
 
     assert.equal(task.status, 'error', 'no artifact ⇒ hard error, not success');
     assert.match(task.error ?? '', /artifact missing/, 'and it says which file');
+    // Spec 115 — and WHY, not only which file. `artifact missing` names a path nobody tried to create;
+    // on run 1787826393000 it was the whole of what a user saw after ① and ② had already succeeded.
+    assert.match(task.error ?? '', /no tool calls/, 'the cause, not only the symptom');
+  });
+
+  // The line above is only worth printing if it can be WITHHELD. A turn that reached for a tool and
+  // still produced nothing failed at a different point, and telling that person "it answered without
+  // building anything" would send them looking for a conversation that did not happen.
+  test('spec 115 — a turn that DID use a tool gets the missing artifact WITHOUT the no-tool-calls line', async () => {
+    const dir = fixtureDir();
+    const task = await createTask(dir, { requirement: 'x', confirmMode: 'each_step', deploy: 'none' });
+    const h = harness(dir, task, { implementNoOp: true, implementUsesTools: true });
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx));
+    await withTurn(task.taskId, () => confirmAdvance(task, 'continue', h.ctx));
+
+    assert.equal(task.status, 'error', 'still a hard error — the artifact is still missing');
+    assert.match(task.error ?? '', /artifact missing/);
+    assert.doesNotMatch(task.error ?? '', /no tool calls/, 'it reached for one, so do not say it did not');
   });
 
   test('calibration — the FOURTH linter counts, exactly as in production', async () => {
