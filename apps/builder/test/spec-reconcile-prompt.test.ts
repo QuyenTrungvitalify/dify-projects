@@ -303,6 +303,14 @@ describe('103 L0 · the reconcile directive reaches the turn that is measured', 
     assert.ok(step6, 'precondition: step 6 is where the spec is written back');
     assert.match(step6, /did not exist at step 1/, 'step 6 must cover the same case');
     assert.match(step6, /Acceptance Criteria/, 'and ask for the section ④ grades against');
+    // And pin the heading to English, the way `spec.md` already pins it for ②. Measured on the first
+    // real run of this branch (task 1787801569541): the turn wrote a correct spec with a correct
+    // criteria list under 「## Tiêu chí nghiệm thu」 — obeying the output-language rule — and
+    // `parseAcceptanceCriteria` matches `/^acceptance criteria\b/i` and nothing else, so it found
+    // none. `criteria.json` was never written and ④ would have graded against an empty rubric,
+    // silently. The heading is machine text; only the prose follows the requirement's language.
+    assert.match(step6, /EXACT `## Acceptance Criteria` heading, in English/,
+      'the heading is a parser anchor — a translated one costs ④ its rubric with no error anywhere');
   });
 
   test('a /reply at the ② gate gets no directive — it is not an Implement turn', async () => {

@@ -326,8 +326,15 @@ sentence — or the sentence should not be written.
    > degrades to a smoke test, the 仕様 tab opens empty, the run dossier says "(no acceptance rubric)",
    > and the next edit of this workflow starts from nothing all over again. Writing it costs no extra
    > turn — you are already here, and you already know what you built. Four sections is enough:
-   > `## Goal` (one paragraph, from the change request), the node table, `## Acceptance Criteria`
+   > a goal paragraph (from the change request), the node table, `## Acceptance Criteria`
    > (what a reviewer would check — ④ grades against exactly this list), and the `変更履歴` row below.
+   >
+   > **Use that EXACT `## Acceptance Criteria` heading, in English, whatever language the rest of the
+   > document is in** — the backend parses it (`parseAcceptanceCriteria` matches that string and nothing
+   > else), so a translated heading means ④ finds no rubric and silently degrades to a smoke test. The
+   > criteria PROSE follows the requirement's language as usual; only the heading is machine text. Same
+   > rule `spec.md` states for ②, and the reason is the same reader.
+   >
    > Everything after this line then applies normally.
 
    > On a **fix round** the backend restates this rule in the prompt itself, because a `/reply` resume
