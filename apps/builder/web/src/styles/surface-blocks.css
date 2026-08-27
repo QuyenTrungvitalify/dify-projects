@@ -613,6 +613,25 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   cursor: default; /* spec 029: the plain (inert) crumb is not interactive */
   transition: background 0.14s, border-color 0.14s;
 }
+/* Spec 105 — "this send starts at ③". Sits UNDER the crumb, above the composer, and is deliberately
+   not a chip: `.composer-row` is pinned to exactly two flex children (composer-row.test.tsx) and a
+   third puts the send button on a line of its own at narrow widths. Quiet by design — it reports a
+   saving, not a problem — and it borrows the phase track's own grammar so the dashes here and the
+   dashes there read as the same statement. */
+.empty-startphase {
+  display: inline-flex; align-items: center; gap: 9px;
+  margin: -12px 0 22px; padding: 5px 12px; border-radius: var(--r-pill);
+  background: var(--accent-dim); border: 1px solid var(--accent-line);
+  color: var(--accent-tx); font-size: 12.5px; line-height: 1.35; max-width: 100%;
+}
+.track-mini { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }
+.track-mini i {
+  width: 15px; height: 15px; border-radius: 50%; display: grid; place-items: center;
+  font-family: var(--mono); font-size: 9px; font-style: normal; line-height: 1;
+  border: 1px dashed var(--accent-line); color: var(--accent-tx);
+}
+.track-mini i.on { background: var(--accent); border-style: solid; border-color: transparent; color: var(--bg-canvas); font-weight: 600; }
+
 /* spec 029: only a "+"-preselection crumb is clickable-to-clear — it alone reads as interactive. */
 .empty-crumb.clearable { cursor: pointer; }
 .empty-crumb.clearable:hover { background: var(--bg-elevated-2); border-color: var(--border-strong); }

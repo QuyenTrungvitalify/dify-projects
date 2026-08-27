@@ -23,7 +23,7 @@ import { notifyOn, notifyBlocked, toggleNotify, notifyNudge, notifyNudgeKind, di
 import * as store from '../store';
 import { type ComposerAttachment, MAX_ATTACHMENTS, isAcceptedFile, fileToDataUrl, toWire } from '../lib/attachments';
 import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed, NewTaskOpts } from '../types';
-import { newTaskCrumb, runContextCrumb, workflowOptions, activeSidebarProject, activeSidebarWorkflow, type NewTaskCrumb } from '../lib/crumb';
+import { armedStartsAtImplement, newTaskCrumb, runContextCrumb, workflowOptions, activeSidebarProject, activeSidebarWorkflow, type NewTaskCrumb } from '../lib/crumb';
 import { canPromoteFromConversation } from '../lib/promote-visibility';
 import { composerTarget, replyLabel, type ComposerIntent } from '../lib/composer-route';
 import { canPropose, confirmModeOptions } from '../lib/propose-lane';
@@ -217,6 +217,11 @@ export function App() {
   };
   // spec 029: the new-task crumb + its clear action (reads the FULL signal, incl. targetProject).
   const crumb = newTaskCrumb(settings.workflow, settings.targetProject, tree);
+  // Spec 105 — would a send from this surface skip ① and ②? Read from the tree row the composer is
+  // armed against, resolved the same way `store.start()` resolves it (crumb.ts explains why a bare slug
+  // has to follow `targetProject` rather than the first name match). The bit itself has been on the
+  // wire since 034cc15 with nothing reading it; this is the surface it was put there for.
+  const startsAtImplement = armedStartsAtImplement(tree, settings.workflow, settings.targetProject);
   const clearNewTaskCrumb = (): void => {
     store.settings.value = { ...store.settings.value, workflow: 'none', targetProject: null };
   };
@@ -720,7 +725,7 @@ export function App() {
             <EmptyState draft={draft} setDraft={setDraft} send={send}
               settings={settingsSubset} onSettings={onSettings}
               model={settings.model} onModel={onEntryModel} workflows={workflows}
-              crumb={crumb} onClearCrumb={clearNewTaskCrumb}
+              crumb={crumb} onClearCrumb={clearNewTaskCrumb} startsAtImplement={startsAtImplement}
               seeds={seeds} selectedSeed={settings.seed}
               onSeed={(id) => { store.settings.value = { ...store.settings.value, seed: id }; }}
               startError={startError} busyHolder={busyHolder}
@@ -1014,7 +1019,9 @@ function PersistDegradedBanner() {
 }
 
 /* ---------- empty / new-task surface ---------- */
-function EmptyState({ draft, setDraft, send, settings, onSettings, model, onModel, workflows, crumb, onClearCrumb, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile, mode }: {
+/** Exported for tests (the `GateActions` / `gateView` precedent): the entry surface owns the
+ *  start-phase badge, and a test reading props would pass against a render that never drew it. */
+export function EmptyState({ draft, setDraft, send, settings, onSettings, model, onModel, workflows, crumb, onClearCrumb, startsAtImplement, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile, mode }: {
   draft: string;
   setDraft: (s: string) => void;
   send: (text?: string) => void;
@@ -1026,6 +1033,9 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, model, onMode
   onModel: (v: string) => void;
   workflows: { v: string; l: string }[];
   crumb: NewTaskCrumb;
+  /** spec 105 — would a send from here skip ① and ②? Decided in App from the tree row the
+   *  composer is armed against; EmptyState only draws it. */
+  startsAtImplement: boolean;
   onClearCrumb: () => void;
   seeds: Seed[];
   selectedSeed: string | null;
@@ -1058,6 +1068,21 @@ function EmptyState({ draft, setDraft, send, settings, onSettings, model, onMode
           {crumb.icon === 'edit' ? <I.edit className="crumb-ic" /> : <I.folder className="crumb-ic" />}
           <span>{crumb.label}</span>
         </button>
+        )}
+
+        {/* Spec 105 — where this send would BEGIN, said before it is spent. A workflow that already has
+            an analysis and a spec skips ① and ②, and until now the only way to learn that was to press
+            send and read the dashes on the phase track afterwards.
+
+            Shown ONLY when steps really are skipped: the full path is the unsurprising case, and a line
+            that fires on it is a line nobody reads. Deliberately its own element under the crumb, not a
+            chip — `.composer-row` is pinned to exactly two flex children (composer-row.test.tsx) and a
+            third would put the send button on a line of its own at narrow widths. */}
+        {!consult && startsAtImplement && (
+          <div className="empty-startphase">
+            <span className="track-mini" aria-hidden="true"><i>–</i><i>–</i><i className="on">3</i></span>
+            <span>{tr('startsAtImplement')}</span>
+          </div>
         )}
 
         <Composer value={draft} onChange={setDraft} onSend={() => send()}

@@ -140,6 +140,10 @@ const EN: Dict = {
   editingWorkflow: 'Editing {name}',
   newTaskInProjectName: 'New task in {name}',
   clearPreselection: 'Clear — start a plain new task',
+  // Spec 105 — said at the DOOR, before the send. Shown only when steps will actually be skipped: on
+  // the ordinary path there is nothing surprising to announce, and a line that fires on the normal
+  // case is a line nobody reads.
+  startsAtImplement: 'Starts at ③ Implement — this workflow already has an analysis and a spec',
   runContextHint: 'Where this build lands',
   // spec 051-followup: the run-crumb "running with a base" badge (edit-existing / Dify-seed builds).
   baseLabel: 'base:',
@@ -721,6 +725,7 @@ const JA: Dict = {
   editingWorkflow: '{name} を編集',
   newTaskInProjectName: '{name} 内に新規タスク',
   clearPreselection: '選択を解除して新規タスク',
+  startsAtImplement: '③ 実装から開始 — このワークフローには分析と仕様がすでにあります',
   runContextHint: 'このビルドの保存先',
   // spec 051-followup
   baseLabel: 'ベース:',
