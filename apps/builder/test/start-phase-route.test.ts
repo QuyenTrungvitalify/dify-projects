@@ -140,13 +140,25 @@ describe('POST /api/tasks — where the build starts (spec 105)', () => {
     assert.equal(t.phase, 'implement');
   });
 
-  test('...but only when there is a file to edit', async () => {
-    // A workflow folder with a spec and no YAML: ③ would have no artifact and no seed. The ask is
-    // refused, not honoured into a turn that cannot write anything.
-    await mkdir(join(dir, 'projects', 'p1', 'specless'), { recursive: true });
-    await writeFile(join(dir, 'projects', 'p1', 'specless', 'SPEC.md'), '# Spec\n');
+  test('...or a spec with no file yet — ③ BUILDS instead of editing', async () => {
+    // ② finished and ③ never ran: a build that died or was abandoned after the spec gate leaves
+    // exactly this on disk. Re-running ①② there spends two turns re-deriving a document that is
+    // already written — and ① has no workflow file to read in the first place.
+    await mkdir(join(dir, 'projects', 'p1', 'speconly'), { recursive: true });
+    await writeFile(join(dir, 'projects', 'p1', 'speconly', 'SPEC.md'), '# Spec\n');
 
-    const t = (await post({ workflow: 'specless', project: 'p1', start_phase: 'implement' })).json();
+    const t = (await post({ workflow: 'speconly', project: 'p1', start_phase: 'implement' })).json();
+
+    assert.equal(t.startPhase, 'implement');
+    assert.equal(t.phase, 'implement');
+  });
+
+  test('...but not when there is neither', async () => {
+    // An empty workflow folder: no file to edit, no spec to build from. ③ would have nothing to work
+    // from at all, so the ask is refused rather than honoured into a turn that cannot write anything.
+    await mkdir(join(dir, 'projects', 'p1', 'empty'), { recursive: true });
+
+    const t = (await post({ workflow: 'empty', project: 'p1', start_phase: 'implement' })).json();
 
     assert.equal(t.startPhase, undefined);
     assert.equal(t.phase, 'analyze');

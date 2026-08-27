@@ -560,7 +560,12 @@ export function resolveStartPhase(opts: {
   // what `POST /api/bases` produces every time it runs — a file to edit, and no document about it.
   // Refusing that was refusing the commonest imported-workflow shape in the app.
   const ready = opts.editingExisting && opts.hasSpec && opts.hasWorkflowFile;
-  const runnable = opts.editingExisting && opts.hasWorkflowFile;
+  // ③ needs SOMETHING to work from, and there are two somethings. A workflow FILE it can edit — the
+  // imported-base case. Or a SPEC it can build from — a workflow whose ② finished and whose ③ never
+  // ran, which is a real state on disk (a build that died or was abandoned after the spec gate leaves
+  // exactly this: a complete document beside an empty `workflows/`). Re-running ①② on that spends two
+  // turns to re-derive a document that is already written, and ① has no file to read in the first place.
+  const runnable = opts.editingExisting && (opts.hasWorkflowFile || opts.hasSpec);
   if (opts.requested === 'implement') return runnable ? 'implement' : 'analyze';
   // Any OTHER phase named EXPLICITLY means "do not skip on my behalf" — 'analyze' says so directly,
   // and 'spec'/'test' say it by naming a start nothing supports yet. Answering 'spec' with ③ would

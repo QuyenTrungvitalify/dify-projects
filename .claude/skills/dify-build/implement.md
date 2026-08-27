@@ -135,15 +135,22 @@ sentence — or the sentence should not be written.
    > asked for) and **`{{SEED_PATH}}`** (what the workflow does today). Everything downstream that says
    > "per `SPEC.md`" means those two instead, and step 6 tells you what to write at the end.
 2. **Pick/confirm the pattern:**
-   > **If `{{START_PHASE}}` is `implement`, SKIP THE PATTERN CHOICE** and go straight to step 3. ① never
-   > ran on this build, so `{{PATTERN_PATH}}` and `{{REFERENCES}}` are blank because **nobody picked
-   > one** — never because "no pattern fits" or "the Pattern covers everything". You are editing a
-   > workflow that already exists; its structure is `{{SEED_PATH}}`, not a template. Do **not** run
-   > `find.py`, do **not** open `templates/patterns/*`. (Without this the blank branch below sent the
-   > turn hunting for a pattern it has no use for.)
+   > **If `{{START_PHASE}}` is `implement` AND `{{SEED_PATH}}` is non-blank, SKIP THE PATTERN CHOICE**
+   > and go straight to step 3. ① never ran on this build, so `{{PATTERN_PATH}}` and `{{REFERENCES}}`
+   > are blank because **nobody picked one** — never because "no pattern fits" or "the Pattern covers
+   > everything". You are editing a workflow that already exists; its structure is `{{SEED_PATH}}`, not
+   > a template. Do **not** run `find.py`, do **not** open `templates/patterns/*`. (Without this the
+   > blank branch below sent the turn hunting for a pattern it has no use for.)
    >
-   > Keyed on `{{START_PHASE}}`, **not** on `{{SEED_PATH}}`: an ordinary edit-existing build has a seed
-   > too, and its ① *did* pick a pattern — reading its non-blank `{{PATTERN_PATH}}` is still the job.
+   > Keyed on `{{START_PHASE}}`, **not** on `{{SEED_PATH}}` alone: an ordinary edit-existing build has a
+   > seed too, and its ① *did* pick a pattern — reading its non-blank `{{PATTERN_PATH}}` is still the job.
+   >
+   > **`{{START_PHASE}}` is `implement` but `{{SEED_PATH}}` is BLANK** — there is a spec and no workflow
+   > file yet (② finished, ③ never ran). You are **building**, not editing, and you have no structure to
+   > start from: no seed, and no pattern because ① never picked one. So take the **Pattern is blank**
+   > branch below — one `find.py` call, seed from the closest pattern, build what `SPEC.md` describes.
+   > This is the one start-at-③ shape that still needs the search, and skipping it would leave the turn
+   > with nothing to build from at all.
    >
    > **If `{{DEPTH}}` is `trivial` (spec 028 fast build):** the shape is a fixed single-LLM transform
    > (`start → llm → end`, or `→ answer` for advanced-chat) with no plugins/branches/iteration — do

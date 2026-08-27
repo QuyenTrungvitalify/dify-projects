@@ -395,7 +395,12 @@ describe('advance-loop integration (013 D3)', () => {
     // which refused the commonest imported-workflow shape in the app.
     assert.equal(R({ hasSpec: false, requested: 'implement' }), 'implement', 'a file to edit is enough');
     // But only when there IS a file. Nothing to edit ⇒ ③ has no artifact and no seed.
-    assert.equal(R({ hasWorkflowFile: false, requested: 'implement' }), 'analyze', 'nothing to edit');
+    // A spec with no workflow file yet — ② finished, ③ never ran. Real on disk: a build that died or
+    // was abandoned after the spec gate leaves exactly this. ③ has something to work from (the spec),
+    // so an explicit ask is honoured; it BUILDS rather than edits.
+    assert.equal(R({ hasWorkflowFile: false, requested: 'implement' }), 'implement', 'a spec to build from');
+    // Neither one ⇒ nothing to work from at all.
+    assert.equal(R({ hasSpec: false, hasWorkflowFile: false, requested: 'implement' }), 'analyze', 'nothing at all');
     assert.equal(R({ editingExisting: false, requested: 'implement' }), 'analyze', 'from-scratch is not this');
     // And the DEFAULT is unchanged: unasked-for, a spec-less workflow still takes the full path,
     // because ① is how an unread file gets read.
