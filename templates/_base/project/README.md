@@ -33,7 +33,7 @@ Created: {{date}}
 
 3. **Validate**:
    ```bash
-   cd /Users/quyenbt/Desktop/MyProjects/dify-projects
+   cd ../..   # về gốc repo dify-projects
    python3 tools/dify_base/validate_workflow.py projects/{{project_slug}}/workflows/<name>.yml
    ```
 
@@ -48,7 +48,7 @@ Created: {{date}}
 
 ## Sources
 
-- Base workspace: `~/Desktop/MyProjects/dify-projects/`
+- Base workspace: gốc repo `dify-projects/` — hai cấp trên thư mục này (`../..`)
 - Schema reference: [schemas/dify-dsl-{{dsl_version}}.json](../../schemas/dify-dsl-{{dsl_version}}.json)
 - Node-type docs: [skills/mango-svip/references/node_types.md](../../skills/mango-svip/references/node_types.md)
 - Search corpus: `python3 tools/dify_base/find.py --has <feature>`

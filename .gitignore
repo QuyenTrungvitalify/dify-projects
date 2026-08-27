@@ -10,6 +10,17 @@ tools/dify_base/index.json
 # when this file exists. Local only — never commit it, so other users' launches stay non-dev.
 .builder-dev
 
+# Per-machine Claude Code state — never committed (spec 115 S1).
+#   - the repo-root settings file carried a PreToolUse hook pointing at an absolute path in ANOTHER
+#     repo on the author's machine; on anyone else's clone that file does not exist, so the hook
+#     failed on every tool call. The Builder does NOT depend on it — its turns run under
+#     apps/builder/headless-settings.json + apps/builder/server/hooks/permission-gate.ts.
+#     Personal overrides belong in .claude/settings.local.json, which was already never tracked.
+#   - .claude/projects/ is Claude Code's per-project store keyed by the ABSOLUTE cwd, so the
+#     directory name itself is the author's home path.
+.claude/settings.json
+.claude/projects/
+
 # External clones (re-clone if needed)
 skills/*/
 corpus/*/
@@ -100,3 +111,22 @@ projects/*/workflow_*/
 **/__audit*
 apps/builder/tsconfig.*.json
 !apps/builder/tsconfig.test.json
+
+# ── Vùng phát triển: đã chuyển sang repo private `dify-projects-doc` (spec 115) ──────────────
+# KHÔNG có dấu `/` cuối: các path này là SYMLINK trên máy maintainer, và `docs/specs/` (có `/`)
+# không khớp một symlink — git vẫn báo `?? docs/specs`. Đo được, đừng "sửa lại cho nhất quán".
+# Máy user: các path này đơn giản không tồn tại. Không code nào đọc chúng lúc chạy (spec 115 §1.4).
+.doc
+docs/specs
+docs/prompts
+docs/state
+docs/watch
+tests/test_state_docs_ownership.py
+.claude/skills/campaign
+.claude/skills/corpus-update
+.claude/skills/e2e
+.claude/skills/report
+.claude/skills/scout
+.claude/skills/shelf-inbox
+.claude/skills/spec-close
+.claude/skills/template-promote

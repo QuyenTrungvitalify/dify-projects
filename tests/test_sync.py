@@ -269,9 +269,17 @@ def test_model_types_matches_runnability():
         return set(re.findall(r"['\"]([^'\"]+)['\"]", m.group(1)))
 
     runnability = literal(ROOT / "apps" / "builder" / "server" / "lib" / "runnability.ts", "MODEL_TYPES")
-    report_skill = literal(ROOT / ".claude" / "skills" / "report" / "report_structure.py", "MODEL_NODE_TYPES")
     assert runnability == sync.MODEL_TYPES, "sync.py ↔ runnability.ts drifted"
-    assert report_skill == sync.MODEL_TYPES, "sync.py ↔ report_structure.py drifted"
+
+    # The third copy lives in the /report skill, which is maintainer-only: it is tracked in the
+    # private `dify-projects-doc` repo and symlinked into a maintainer checkout, so an ordinary
+    # clone does not have it. Guard on presence rather than skipping the whole test — the two
+    # copies above ship to everyone and must stay compared there. Where the file IS present the
+    # assertion is unconditional, so the drift this test was written for still fails loudly.
+    report_structure = ROOT / ".claude" / "skills" / "report" / "report_structure.py"
+    if report_structure.exists():
+        report_skill = literal(report_structure, "MODEL_NODE_TYPES")
+        assert report_skill == sync.MODEL_TYPES, "sync.py ↔ report_structure.py drifted"
 
 
 def test_inject_model_patches_provider_empty_with_a_valid_name(tmp_path, monkeypatch, capsys):

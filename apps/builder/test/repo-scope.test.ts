@@ -30,7 +30,7 @@ const bash = (command: string): string | null => checkForbiddenPath('Bash', { co
 
 describe('reads outside the repo are refused', () => {
   test('the three the gate used to wave through', () => {
-    for (const cmd of ['cat /etc/passwd', 'ls -R /Users/quyenbt', 'cat /Users/quyenbt/Documents/notes.txt']) {
+    for (const cmd of ['cat /etc/passwd', 'ls -R /Users/someone', 'cat /Users/someone/Documents/notes.txt']) {
       assert.match(bash(cmd) ?? '', /outside the repo/, `${cmd} must not be readable`);
     }
   });
@@ -54,7 +54,7 @@ describe('reads outside the repo are refused', () => {
 
   test('Grep/Glob search roots are scoped', () => {
     assert.match(
-      checkForbiddenPath('Grep', { pattern: 'x', path: '/Users/quyenbt' }, undefined, REPO) ?? '',
+      checkForbiddenPath('Grep', { pattern: 'x', path: '/Users/someone' }, undefined, REPO) ?? '',
       /outside the repo/
     );
     assert.equal(checkForbiddenPath('Grep', { pattern: 'x', path: 'templates' }, undefined, REPO), null);
@@ -72,8 +72,11 @@ describe('everything the phases really run still runs', () => {
     'ls tools/dify_base/find.py .venv/bin/python',
     'cat AGENTS.md',
     'wc -l skills/mango-svip/references/node_types.md',
-    'ls -la /Users/quyenbt/Desktop/MyProjects/dify-projects',
-    'ls -R /Users/quyenbt/Desktop/MyProjects/dify-projects/templates',
+    // Absolute paths pointing INTO the repo must stay allowed. Built from REPO, never typed out: a
+    // hardcoded author path passes only on the machine it was written on and refuses everywhere else
+    // (CI runners, every other clone), which is a green suite that proves nothing.
+    `ls -la ${REPO}`,
+    `ls -R ${join(REPO, 'templates')}`,
     'ls schemas/_latest.json', // an in-repo symlink — must stay fine
   ];
   for (const cmd of REAL) {

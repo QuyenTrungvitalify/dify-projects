@@ -189,7 +189,7 @@ def test_share_scan_flags_credential_shapes():
 def test_share_scan_flags_urls_emails_and_internal_hosts():
     text = "\n".join([
         "url: https://api.mycompany.co.jp/v1/notify",
-        "contact: alice@vitalify.jp",
+        "contact: alice@acme.co.jp",
         "host: gitlab.corp",
         "ip: 192.168.10.20",
     ])

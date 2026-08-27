@@ -6,7 +6,7 @@ the public API and snapshot their outputs for regression testing.
 ## Quick start
 
 ```bash
-cd /Users/quyenbt/Desktop/MyProjects/dify-projects
+cd /path/to/dify-projects
 
 # 1. Setup venv (if not already done — same venv used by schemas/gen_schema.py)
 uv venv --python 3.12 .venv

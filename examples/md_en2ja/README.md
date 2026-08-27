@@ -37,7 +37,7 @@ Start (markdown_en: string)
 cat workflows/main.yml
 
 # 2. Validate locally (should pass clean)
-cd /Users/quyenbt/Desktop/MyProjects/dify-projects
+cd ../..   # repo root (dify-projects)
 .venv/bin/python tools/dify_base/validate_workflow.py examples/md_en2ja/workflows/main.yml
 .venv/bin/python tools/dify_base/lint_refs.py examples/md_en2ja/workflows/main.yml
 

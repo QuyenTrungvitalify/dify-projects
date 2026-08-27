@@ -13,7 +13,7 @@ Usage in a test:
 
 To run:
 
-    cd /Users/quyenbt/Desktop/MyProjects/dify-projects
+    cd /path/to/dify-projects
     .venv/bin/pytest tests/ -v
     # Or against a specific project:
     DIFY_PROJECT=my_project .venv/bin/pytest tests/

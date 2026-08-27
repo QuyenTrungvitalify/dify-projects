@@ -327,15 +327,17 @@ def test_classify_missing_transcript_is_none(tmp_path):
 
 # The 5 ✗ lines of bundle 1785928989748 phase ① VERBATIM (old format, truncated, no ↳) — the
 # hand-checked answer is denied=4 (2 quote-denials + 2 grep) / errored=1 (`ls` ran and failed).
+# One edit to the recording: the author's home path was rewritten to /Users/dev. Classification
+# reads the quoting and the tool name, never the path, so the hand-checked answer is unchanged.
 # The pre-091 classifier said denied=2 because _METACHAR ignored quotes (F5).
 TRANSCRIPT_091_LEGACY = """## analyze
 
 ### Tool calls
-- Bash  ls /Users/quyenbt/Desktop/MyProjects/dify-projects/apps/builder/.runs/1785928989…  ✗
+- Bash  ls /Users/dev/dify-projects/apps/builder/.runs/1785928989…  ✗
 - Bash  .venv/bin/python tools/dify_base/find.py --name "post result to webhook url http…  ✗
 - Bash  .venv/bin/python tools/dify_base/find.py --name 'post result webhook notify' --f…  ✗
-- Bash  grep -n -A 40 "type: http-request" /Users/quyenbt/Desktop/MyProjects/dify-projec…  ✗
-- Bash  grep -n -B4 -A30 trigger-webhook /Users/quyenbt/Desktop/MyProjects/dify-projects…  ✗
+- Bash  grep -n -A 40 "type: http-request" /Users/dev/dify-projec…  ✗
+- Bash  grep -n -B4 -A30 trigger-webhook /Users/dev/dify-projects…  ✗
 
 ### Result
 done
