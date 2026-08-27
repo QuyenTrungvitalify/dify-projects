@@ -96,6 +96,16 @@ export interface ClaudeStreamEvent {
   [key: string]: unknown;
 }
 
+/**
+ * The one `CLAUDE_CODE*` var the nested-session strip below must NOT take: it is not session state,
+ * it is the CREDENTIAL. `claude setup-token` (the documented headless sign-in) authenticates through
+ * exactly this variable, so stripping it turns a correctly-signed-in machine into one whose every turn
+ * dies with an auth error while `claude` in a terminal works perfectly — a failure with no visible
+ * cause. It also has to survive for the pre-turn sign-in check to be honest: that probe inherits the
+ * server's env, so it would answer "signed in" about a credential the turn then throws away.
+ */
+const KEEP_ENV = new Set(['CLAUDE_CODE_OAUTH_TOKEN']);
+
 export class ClaudeSession {
   readonly id: string;
   readonly taskId: string;
@@ -157,6 +167,7 @@ export class ClaudeSession {
     // guarantee that no generating turn can read it — defense beyond "phases never run sync.py".
     const env = { ...process.env };
     for (const key of Object.keys(env)) {
+      if (KEEP_ENV.has(key)) continue;
       if (key.startsWith('CLAUDE_CODE') || key === 'CLAUDECODE' || key.startsWith('DIFY_')) {
         delete env[key];
       }

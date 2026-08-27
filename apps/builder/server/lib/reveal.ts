@@ -13,19 +13,27 @@ import { promisify } from 'node:util';
 
 const pExecFile = promisify(execFile);
 
-/** The reveal-in-file-manager argv for a platform (darwin selects the file; linux opens its folder). */
-export function revealCommand(platform: NodeJS.Platform, absPath: string): { cmd: string; args: string[] } {
-  if (platform === 'win32') return { cmd: 'explorer', args: [`/select,${absPath}`] };
-  // No portable "reveal + select" on linux → open the containing directory.
-  if (platform === 'linux') return { cmd: 'xdg-open', args: [dirname(absPath)] };
-  // darwin (and default): reveal + select in Finder.
-  return { cmd: 'open', args: ['-R', absPath] };
+/**
+ * The reveal-in-file-manager argv for a platform.
+ *
+ * `isDir` is not a detail — it inverts what every platform is being asked for. Revealing a FILE means
+ * "show it selected inside its parent"; doing that to a folder would open the folder's parent and
+ * highlight it, which is one level too high and the opposite of what a "open this task's folder" button
+ * promises. The linux case is the one that would have been actively wrong: its file form opens
+ * `dirname(path)`, so a directory argument would have opened the PARENT directory.
+ */
+export function revealCommand(platform: NodeJS.Platform, absPath: string, isDir = false): { cmd: string; args: string[] } {
+  if (platform === 'win32') return { cmd: 'explorer', args: isDir ? [absPath] : [`/select,${absPath}`] };
+  // No portable "reveal + select" on linux → open the containing directory (or the directory itself).
+  if (platform === 'linux') return { cmd: 'xdg-open', args: [isDir ? absPath : dirname(absPath)] };
+  // darwin (and default): open the folder, or reveal + select the file in Finder.
+  return { cmd: 'open', args: isDir ? [absPath] : ['-R', absPath] };
 }
 
 /** Spawn the file manager to reveal `absPath`. Rejects if the launcher fails (except the Windows
  *  `explorer /select,` quirk, which exits non-zero even on success). */
-export async function revealInFileManager(absPath: string, platform: NodeJS.Platform = process.platform): Promise<void> {
-  const { cmd, args } = revealCommand(platform, absPath);
+export async function revealInFileManager(absPath: string, platform: NodeJS.Platform = process.platform, isDir = false): Promise<void> {
+  const { cmd, args } = revealCommand(platform, absPath, isDir);
   try {
     await pExecFile(cmd, args);
   } catch (e) {

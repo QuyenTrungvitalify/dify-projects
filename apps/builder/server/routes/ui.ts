@@ -20,6 +20,7 @@ import { rm, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { deleteTask, loadTask, taskDir } from '../state/task.js';
 import { buildTree, listActiveTasks, listConsultTasks, listProjectTaskIds, listPromoteTasks, listWorkflowTaskIds, specPathFor, workflowPathFor } from '../lib/artifacts.js';
+import { workflowDir } from '../state/task.js';
 import { buildBundle } from '../lib/bundle.js';
 import { loadShareConfig, postExportBundle } from '../lib/share.js';
 import { localOverride } from '../lib/settings.js';
@@ -376,11 +377,19 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
   //    A caller names WHICH artifact it means — never a path; both are resolved server-side from the
   //    task, which is what keeps these routes from becoming arbitrary-file handles.
   //
-  //    Two literal comparisons rather than a lookup table: `which` is caller-supplied, and `w in TABLE`
+  //    Literal comparisons rather than a lookup table: `which` is caller-supplied, and `w in TABLE`
   //    would answer true for 'constructor' and every other Object.prototype key. ──
-  const isArtifactFile = (w: string): w is 'spec' | 'workflow' => w === 'spec' || w === 'workflow';
-  const artifactPathFor = (task: Parameters<typeof specPathFor>[1], which: 'spec' | 'workflow'): string | null =>
-    which === 'spec' ? specPathFor(projectsDir, task) : workflowPathFor(projectsDir, task);
+  const isArtifactFile = (w: string): w is 'spec' | 'workflow' | 'folder' =>
+    w === 'spec' || w === 'workflow' || w === 'folder';
+  const artifactPathFor = (task: Parameters<typeof specPathFor>[1], which: 'spec' | 'workflow' | 'folder'): string | null => {
+    if (which === 'spec') return specPathFor(projectsDir, task);
+    if (which === 'workflow') return workflowPathFor(projectsDir, task);
+    // 'folder' — the build's own directory, the one holding SPEC.md, workflows/, inputs/, tests/.
+    // Derived from `workflowDir` rather than `dirname(workflowPathFor(...))`, which would land on
+    // `workflows/` (one level too deep) and quietly hand out the wrong folder.
+    const dir = workflowDir(task);
+    return dir ? join(projectsDir, dir) : null;
+  };
 
   /** Shared preamble for both routes below: validate the id + `which`, load the task, resolve the file.
    *  Returns the absolute path, or the reply already sent. SPEC.md and the workflow YAML differ in WHEN
@@ -441,7 +450,7 @@ const uiRoutes: FastifyPluginAsync<UiRoutesOptions> = async (app, opts) => {
       const abs = await resolveArtifactFile(req, reply);
       if (abs === null) return reply;
       try {
-        await revealInFileManager(abs);
+        await revealInFileManager(abs, process.platform, req.query.which === 'folder');
         return { ok: true, path: abs };
       } catch (e) {
         app.log.warn({ err: String(e) }, 'reveal-in-finder failed');

@@ -127,6 +127,28 @@ const DISCARD = (): GateAction => CANCEL('discard', 'Discard build');
 const ERROR_GATE: Gate = { actions: [REPLY('retry', 'Retry phase')] };
 
 /**
+ * The reply actions that mean "run it again, I have nothing new to add" — as opposed to `changes`,
+ * which exists to carry an instruction. They are the only replies allowed to POST an empty `text`, and
+ * the only ones the UI draws as a single click rather than a box to type in.
+ *
+ * One list, read by both ends: the route decides what it will ACCEPT from it, `replyButtonKind` in the
+ * web app decides how it is DRAWN. Split those two and you get a button that promises a one-click
+ * re-run and answers 400 — which is what 「再試行を続ける」 did, since its label said no text was needed
+ * while the route demanded some.
+ */
+export const TEXTLESS_REPLY_IDS: readonly string[] = ['retry', 'keep'];
+
+/** May this parked build accept a /reply with no text? */
+export function acceptsTextlessReply(task: Pick<Task, 'status' | 'gate'>): boolean {
+  // An errored build re-runs the failed phase from its fresh prompt; the gate carries `retry` for it,
+  // but the status alone has always been the licence here and stays so (a promote error has no gate).
+  if (task.status === 'error') return true;
+  return (task.gate?.actions ?? []).some(
+    (a) => a.kind === 'reply' && TEXTLESS_REPLY_IDS.includes(a.id)
+  );
+}
+
+/**
  * Compute the gate for a finished phase. Spec 036 D1/D4: `targets` (the reachable Dify live targets,
  * probed by the orchestrator via `difyTargets()`) drives the implement-gate live action — one
  * `test_live` confirm per populated slot (`selfhost` here; `cloud` is a reserved §8 seam). It replaces

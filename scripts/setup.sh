@@ -10,6 +10,7 @@
 #   ./scripts/setup.sh --dify-tag 1.14.0  # pin Dify source to a specific tag
 #   ./scripts/setup.sh --skip-venv        # don't create .venv (use system Python)
 #   ./scripts/setup.sh --skip-clones      # don't re-clone skills/corpus/dify-src
+#   ./scripts/setup.sh --skip-dify-src    # don't clone the Dify SOURCE (users never need it)
 #   ./scripts/setup.sh --latest           # clone corpus at branch tip, skip the reproducibility pin
 #
 # Default --dify-tag is read from .dify-tag at repo root (fallback "main").
@@ -27,6 +28,13 @@ ROOT="$PWD"
 
 SKIP_VENV=false
 SKIP_CLONES=false
+# Spec 110 S7 — the vendored Dify SOURCE is only needed to REGENERATE schemas/ (gen_schema.py), which
+# is a maintainer/CI job: the generated schema is committed and every runtime linter reads THAT. For a
+# first-time user it was the largest and most failure-prone network step in the whole bootstrap, for
+# something they never run. bootstrap.sh therefore passes --skip-dify-src. Kept separate from
+# --skip-clones because that one also drops skills/ and corpus/, which ARE required (/health checks
+# skills/), so the two must not share a switch.
+SKIP_DIFY_SRC=false
 USE_LATEST=false
 DIFY_TAG=""
 
@@ -40,6 +48,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --skip-venv)   SKIP_VENV=true; shift ;;
         --skip-clones) SKIP_CLONES=true; shift ;;
+        --skip-dify-src) SKIP_DIFY_SRC=true; shift ;;
         --latest)      USE_LATEST=true; shift ;;
         --dify-tag)    shift; DIFY_TAG="$1"; shift ;;
         --help|-h)
@@ -56,11 +65,15 @@ info() { printf '  • %s\n' "$*"; }
 
 # Source registry reader (spec 022 D1) — pure bash/awk, works before the venv exists.
 . "$ROOT/scripts/lib/sources.sh"
+# The pinned Python/Node versions live in ONE file so setup.sh, bootstrap.sh, the launcher and
+# doctor.sh can never disagree about them (spec 110 S1).
+. "$ROOT/scripts/lib/toolchain.sh"
+PYTHON_PIN="$PYTHON_VERSION"
 
 # ---------------------------------------------------------------------------
 # 1. Vendor Dify source (pinned by --dify-tag / .dify-tag)
 # ---------------------------------------------------------------------------
-if [ "$SKIP_CLONES" = false ]; then
+if [ "$SKIP_CLONES" = false ] && [ "$SKIP_DIFY_SRC" = false ]; then
     bold "[1/5] Vendoring Dify source (tag: $DIFY_TAG)"
 
     VENDOR_DIR="$ROOT/vendor/dify-src"
@@ -104,6 +117,9 @@ if [ "$SKIP_CLONES" = false ]; then
             warn "gen_schema.py will skip; rerun setup.sh once network/tag is available"
         fi
     fi
+elif [ "$SKIP_DIFY_SRC" = true ]; then
+    bold "[1/5] Skipping Dify source (--skip-dify-src)"
+    info "schemas/ is committed; only gen_schema.py needs the source (maintainers/CI)"
 else
     bold "[1/5] Skipping Dify source vendor (--skip-clones)"
 fi
@@ -171,32 +187,32 @@ fi
 if [ "$SKIP_VENV" = false ]; then
     bold "[3/5] Setting up Python venv"
 
+    # NO system-python fallback. There used to be one (`python3 -m venv .venv` after a yellow warn),
+    # and it did not produce a "worse but working" environment — it produced a BROKEN one, several
+    # minutes later, in an error that named pip rather than the Python version:
+    #   - pytest==9.1.1, pre-commit==4.6.0 and check-jsonschema==0.37.3 all require Python >=3.10;
+    #   - a bare `python3` is whatever the machine points at, which on a developer machine is
+    #     routinely an older interpreter owned by another project (measured on the author's own Mac:
+    #     `python3` -> 3.8.18 via pyenv shims; a stock macOS gives 3.9.6).
+    # Stopping here, with one sentence naming the fix, is strictly better than continuing into a
+    # failure whose message points somewhere else (spec 110 §1.3).
     if ! command -v uv >/dev/null 2>&1; then
-        warn "uv not found. Install it: https://docs.astral.sh/uv/getting-started/installation/"
-        warn "Falling back to system python3 + pip (may need Python 3.11+)"
-        USE_UV=false
-    else
-        USE_UV=true
+        printf '\n  \033[31m✗\033[0m uv not found — this repo pins its own Python and will not fall back to the system one.\n' >&2
+        printf '    Run:  ./scripts/bootstrap.sh    (installs uv + node into .toolchain/, no admin rights needed)\n\n' >&2
+        exit 1
     fi
 
     if [ -d .venv ]; then
         ok ".venv already present"
-    elif [ "$USE_UV" = true ]; then
-        info "uv venv --python 3.12 .venv"
-        uv venv --python 3.12 .venv >/dev/null 2>&1
-        ok "created .venv (Python 3.12)"
     else
-        python3 -m venv .venv
-        ok "created .venv (system python)"
+        info "uv venv --python $PYTHON_PIN .venv"
+        uv venv --python "$PYTHON_PIN" .venv >/dev/null 2>&1
+        ok "created .venv (Python $PYTHON_PIN)"
     fi
 
     info "installing deps from requirements.txt (locked)..."
     # Single pinned source of truth (requirements.txt, locked from requirements.in, spec 024 Q1b).
-    if [ "$USE_UV" = true ]; then
-        uv pip install --python .venv/bin/python --quiet -r "$ROOT/requirements.txt"
-    else
-        .venv/bin/pip install --quiet -r "$ROOT/requirements.txt"
-    fi
+    uv pip install --python .venv/bin/python --quiet -r "$ROOT/requirements.txt"
     ok "installed deps from requirements.txt"
 else
     bold "[3/5] Skipping venv setup (--skip-venv)"
@@ -267,5 +283,10 @@ echo "  • Browse templates:    $PY tools/dify_base/find.py --has iteration"
 echo "  • Regenerate schema:   .venv/bin/python schemas/gen_schema.py"
 echo "  • Run tests:           .venv/bin/pytest tests/"
 echo
-echo "Dify source is vendored at vendor/dify-src/ (pinned via .dify-tag = $DIFY_TAG)."
+if [ "$SKIP_DIFY_SRC" = true ]; then
+    echo "Dify source was NOT vendored (--skip-dify-src). schemas/ is committed; run without the flag"
+    echo "if you need to regenerate it with schemas/gen_schema.py."
+else
+    echo "Dify source is vendored at vendor/dify-src/ (pinned via .dify-tag = $DIFY_TAG)."
+fi
 echo "To switch versions: ./scripts/setup.sh --dify-tag <new-tag>"

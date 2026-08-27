@@ -1,5 +1,7 @@
 # Node dependencies — never committed
 node_modules/
+# Repo-pinned node/python/uv (spec 110 S1). Never committed; `rm -rf .toolchain` is a full uninstall.
+.toolchain/
 
 # Auto-generated index — rebuild with `python3 tools/dify_base/build_index.py`
 tools/dify_base/index.json

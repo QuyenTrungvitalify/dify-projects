@@ -105,6 +105,29 @@ const EN: Dict = {
   turnBusy:
     'A turn is already running. Your message is still in the composer — stop the running turn, or wait for it to finish.',
   updateTip: 'Update to the latest here',
+  /* In-app Claude sign-in. The whole point of this surface is that "not signed in" stops being a
+     dead end you can only leave through a terminal, so every string here names the next physical act
+     (open the page, copy the code, paste it) rather than the state it is reporting. */
+  authTitle: 'Sign in to Claude',
+  authWhy:
+    'Builds run through the `claude` CLI on this machine, and it is not signed in. You can do it right here — no terminal.',
+  authOpenPage: 'Open the sign-in page',
+  authOpened: 'A sign-in page should have opened in your browser. Sign in there and this window continues on its own — there is nothing to copy back.',
+  authWaiting: 'Waiting for you to finish on the sign-in page…',
+  authFallback: 'No page opened? Use this instead — it gives you a code to paste below.',
+  authCodeLabel: 'Code from the sign-in page (only if it showed you one)',
+  authSubmit: 'Finish signing in',
+  authStarting: 'Preparing the sign-in page…',
+  authExchanging: 'Signing in…',
+  authDone: '✓ Signed in — send your message again',
+  authFailed: 'That code was not accepted. Open the page again and copy a fresh one.',
+  authCliMissing: 'The `claude` CLI is not installed on this machine — contact the admin.',
+  authStartFailed: 'Could not start the sign-in.',
+  authRetry: 'Start again',
+  /* The signed-out 409 on a send. Like `turnBusy`, it exists to say the thing the server's English
+     cannot: the message was not lost. */
+  authNeeded:
+    'Not signed in to Claude. Your message is still in the composer — sign in, then send it again.',
   /* The language the MODEL answers in — distinct from the toggle above, which is the UI chrome's own
      language. Kept apart on purpose: a Japanese-chrome user may still want replies in Vietnamese. */
   chatLangAuto: 'Auto',
@@ -327,10 +350,6 @@ const EN: Dict = {
   phAskAboutBuild: 'Ask about this build…',
   qaSeededFrom: 'Based on: {sources}',
   /* spec 082: consult mode (chat-first) — the entry Mode chip, section, placeholders, graduate. */
-  mode: 'Mode',
-  modeConsult: 'Chat',
-  modeBuild: 'Build',
-  modeHint: 'Chat: talk it over first (no build). Build: run the 4-phase pipeline.',
   consultChat: 'Chat',
   consultSection: 'Chats',
   /* spec 082 §4.5 rev: the sidebar's four sections — each (except In progress) a button-header with a "+". */
@@ -575,7 +594,7 @@ const EN: Dict = {
   /* SPEC.md's and a diff's equivalent of the line count — the same slot, so the two files' headers say
      the same KIND of thing about themselves. A diff counts changed lines, which is its real size. */
   mdLines: 'markdown · {n} lines',
-  diffLines: 'diff · {n} changed lines',
+  diffStat: 'diff',
   noYamlYet: 'No main.yml yet — it appears after the Implement phase.',
   lintResults: 'Lint results',
   lintOk: 'ok',
@@ -674,6 +693,24 @@ const JA: Dict = {
   turnBusy:
     '実行中のターンがあります。入力内容はそのまま残っています — 実行中のターンを停止するか、終了までお待ちください。',
   updateTip: 'ここから最新版に更新',
+  authTitle: 'Claude にログイン',
+  authWhy:
+    'ビルドはこの PC の `claude` CLI で動きますが、いまログインしていません。ターミナルは不要 — ここでログインできます。',
+  authOpenPage: 'ログインページを開く',
+  authOpened: 'ブラウザでログインページが開いているはずです。そこでログインすれば、この画面は自動で次に進みます — コピーして戻す作業はありません。',
+  authWaiting: 'ログインページでの操作をお待ちしています…',
+  authFallback: 'ページが開かない場合はこちら。開いた先でコードが表示されるので、下の欄に貼り付けてください。',
+  authCodeLabel: 'ログインページのコード（表示された場合のみ）',
+  authSubmit: 'ログインを完了する',
+  authStarting: 'ログインページを準備中…',
+  authExchanging: 'ログイン処理中…',
+  authDone: '✓ ログインしました — メッセージを送信し直してください',
+  authFailed: 'コードが受け付けられませんでした。ページを開き直して、新しいコードをコピーしてください。',
+  authCliMissing: 'この PC に `claude` CLI がインストールされていません — 管理者に連絡してください。',
+  authStartFailed: 'ログインを開始できませんでした。',
+  authRetry: 'やり直す',
+  authNeeded:
+    'Claude にログインしていません。入力内容はそのまま残っています — ログインしてから送信し直してください。',
   chatLangAuto: '自動',
   chatLangHint: '返答の言語: {name}（ワークフロー自体は要件の言語のまま）',
   chatLangAutoName: '入力した言語に合わせる',
@@ -864,10 +901,6 @@ const JA: Dict = {
   phAskAboutBuild: 'このビルドについて質問…',
   qaSeededFrom: '参照: {sources}',
   /* spec 082: 相談モード */
-  mode: 'モード',
-  modeConsult: '相談',
-  modeBuild: 'ビルド',
-  modeHint: '相談: まず気軽に話す（ビルドしない）。ビルド: 4フェーズのパイプラインを実行。',
   consultChat: '相談',
   consultSection: '相談',
   /* spec 082 §4.5 rev */
@@ -1097,7 +1130,7 @@ const JA: Dict = {
   /* yaml tab */
   yamlLines: 'yaml · {n} 行',
   mdLines: 'markdown · {n} 行',
-  diffLines: '差分 · {n} 行',
+  diffStat: '差分',
   noYamlYet: 'main.yml はまだありません — 実装フェーズの後に表示されます。',
   lintResults: 'リンター結果',
   lintOk: 'ok',

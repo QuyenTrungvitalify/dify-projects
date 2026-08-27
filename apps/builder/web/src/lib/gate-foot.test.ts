@@ -89,9 +89,10 @@ describe('terminalFootActions — the done card carries no fix button', () => {
  * one existed only to point at the other — one armed, one sent. The pill is the door.
  *
  * The two traps this pins:
- *   · hide by ID, never by KIND. `keep` is a reply action too, and the still-failing card names it in
- *     its own summary line — going by kind would leave that card listing three choices above two buttons.
- *   · `retry` is untouched: it is the one-click re-run, not a signpost.
+ *   · hide by ID, never by KIND. `keep` is a reply action too and it survives — as a CLICK, not a
+ *     signpost — and the still-failing card names it in its own summary line, so going by kind would
+ *     leave that card listing three choices above one button.
+ *   · the one-click ids are untouched by the hiding rule: they re-run, they do not point at anything.
  */
 describe('replyButtonKind — which reply actions still get drawn', () => {
   const a = (id: string) => ({ id, kind: 'reply' as const });
@@ -102,8 +103,11 @@ describe('replyButtonKind — which reply actions still get drawn', () => {
     }
   });
 
-  it('`keep` still arms — the still-failing card names it by label', () => {
-    expect(replyButtonKind(a('keep'), 'awaiting_confirm')).toBe('arm');
+  it('`keep` is drawn, and drawn as a CLICK', () => {
+    // It says 「再試行を続ける」 — a promise of "go again with nothing new". It used to answer 'arm',
+    // which opened a box you then had to type into, because /reply 400s on empty text. The route now
+    // accepts an empty body for exactly this id (TEXTLESS_REPLY_IDS, server lib/gate.ts).
+    expect(replyButtonKind(a('keep'), 'awaiting_confirm')).toBe('retry');
   });
 
   it('`retry` on an errored build is still the one-click re-run', () => {
@@ -178,10 +182,13 @@ describe('replyButtonKind (spec 053 — one-click retry vs arm-composer)', () =>
     expect(replyButtonKind(a('changes'), 'error')).not.toBe('retry');
   });
 
-  it("the OTHER gates' reply ids do not leak into the retry carve-out", () => {
-    expect(replyButtonKind(a('keep'), 'awaiting_confirm')).toBe('arm'); // still_failing "Keep trying"
-    // `changes` is hidden everywhere now (see the block above) — asserted here only as "not retry", so
-    // this spec-053 guard keeps testing the carve-out rather than doubling as a render assertion.
+  it("the carve-out is a LIST, and `changes` is not on it", () => {
+    // `keep` joined `retry` deliberately (both mean "go again, nothing to add"); what must never join
+    // them is `changes`, whose entire purpose is to carry an instruction. Asserted as "not retry" —
+    // it is hidden, and this guard is about the carve-out, not about rendering.
     expect(replyButtonKind(a('changes'), 'awaiting_confirm')).not.toBe('retry');
+    expect(replyButtonKind(a('changes'), 'error')).not.toBe('retry');
+    // An id on neither list still falls back to the arm shape.
+    expect(replyButtonKind(a('somethingNew'), 'awaiting_confirm')).toBe('arm');
   });
 });

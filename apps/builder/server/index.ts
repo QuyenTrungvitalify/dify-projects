@@ -20,6 +20,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, createReadStream, statSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve, normalize, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { realProbe } from './lib/claude-auth.js';
 import { reconcileOnBoot } from './lib/lock.js';
 import { smokePermissionHook, gateBootOnHook } from './lib/hook-check.js';
 import { reconcilePushIntents } from './lib/recovery.js';
@@ -143,6 +144,10 @@ await app.register(tasksRoutes, {
   projectsDir: DIFY_PROJECTS_DIR,
   settingsPath: SETTINGS_PATH,
   broadcast: sse.broadcast,
+  // The pre-turn sign-in check. Wired HERE rather than defaulted inside the route: the route's own
+  // default is "cannot say", so a composition that forgets this line loses the check instead of
+  // inheriting a real subprocess into every test that ever registers these routes.
+  authProbe: realProbe,
 });
 
 // The UI read endpoints (Lát 4): GET /api/tree · GET /api/seeds · GET+PUT /api/tasks/:id/spec.
@@ -158,6 +163,14 @@ await app.register(uiRoutes, { projectsDir: DIFY_PROJECTS_DIR, now: () => Date.n
     builderDir: join(DIFY_PROJECTS_DIR, 'apps/builder'),
     port: PORT,
   });
+}
+
+// In-app Claude sign-in: GET /api/auth/status + POST /api/auth/login[/code|/cancel]. Mounted for
+// EVERY run, same reasoning as /api/update: a logged-out machine cannot run a single turn, and the
+// bản-sạch user has no terminal in their path to fix it in. One login at a time, guarded inside.
+{
+  const authRoutes = (await import('./routes/auth.js')).default;
+  await app.register(authRoutes, {});
 }
 
 // Spec 059 dev-only: POST /api/dev/rebuild (rebuild server+web + hot-restart from the dev panel).

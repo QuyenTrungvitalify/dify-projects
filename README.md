@@ -5,7 +5,7 @@
 Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 
 - Reference skills + corpus + node-type schema để build YAML workflow nhanh
-- CLI search ~46 template theo feature/complexity/plugin
+- CLI search ~47 template theo feature/complexity/plugin
 - Cấu trúc folder 2 tầng cho từng dự án (`projects/<project>/<workflow>/`, spec 030)
 - GitOps sync (pull/push/diff giữa Dify workspace ↔ git)
 - pytest harness + pre-commit hooks
@@ -73,7 +73,7 @@ dify-projects/
 ├── templates/                 # Project starter, patterns + promoted library/ (spec 022)
 │   ├── _base/project/         # Scaffolded by init_project.py
 │   ├── library/               # Promoted, provenance-stamped templates (spec 022; curated English, v0.6.0)
-│   └── patterns/              # 13 reusable workflow skeletons
+│   └── patterns/              # 14 reusable workflow skeletons
 │       ├── file-to-llm.yml      # File upload → 1 LLM call → output (simplest)
 │       ├── file-iteration.yml   # File upload → split → iterate → aggregate
 │       ├── multi-step-llm.yml   # 3 chained LLM calls (refine pattern)
@@ -238,7 +238,7 @@ VS Code đã wire trong [.vscode/settings.json](.vscode/settings.json) — YAML 
 - ✅ **Phase 0** — base setup (cấu trúc + tooling cũ)
 - ✅ **Phase 1.A** — JSON Schema generator
 - ✅ **Phase 1.B** — `tools/dify_base/init_project.py` interactive scaffolder + `templates/_base/project/` skeleton
-- ✅ **Phase 1.C** — 13 reusable patterns in `templates/patterns/`: file-to-llm, file-iteration, multi-step-llm, rag-qa, agent-with-tools, meta-workflow-builder, per-row-notify, per-row-notify-excel, scheduled-fetch-notify, scheduled-tool-append, webhook-per-row-notify, chatwork-1-10-20, ai-1-user-input (all validate against the repo linters; the upstream skill-clone validator predates trigger entries)
+- ✅ **Phase 1.C** — 14 reusable patterns in `templates/patterns/`: file-to-llm, file-iteration, multi-step-llm, rag-qa, agent-with-tools, meta-workflow-builder, per-row-notify, per-row-notify-excel, scheduled-fetch-notify, scheduled-tool-append, webhook-per-row-notify, chatwork-1-10-20, ai-1-user-input (all validate against the repo linters; the upstream skill-clone validator predates trigger entries)
 - ✅ **Phase 1.D** — pytest harness ([tests/](tests/)) — minimal `DifyWorkflowClient` + env-loading fixtures + syrupy snapshot example. Skips cleanly without creds.
 - ✅ **Phase 2.A** — GitOps sync ([tools/dify_base/sync.py](tools/dify_base/sync.py)) — 13 subcommands via Console API: `list/pull/diff/push` + `models/plugins/datasets/api-key/publish/delete/inject-model/run/upload`. 12 tests passing (mocked HTTP, no real Dify needed). Polish: clean error messages for connection/timeout/HTTP failures.
 - ✅ **Phase 2.B** — pre-commit hooks ([.pre-commit-config.yaml](.pre-commit-config.yaml), 13 hooks: yamllint + check-jsonschema + skill validator + DSL version guard + agents-md-refs + dify-lint-refs + dify-lint-node-bodies (spec 038) + dify-lint-plugin-hashes + 5 built-in) + bootstrap script ([scripts/setup.sh](scripts/setup.sh))

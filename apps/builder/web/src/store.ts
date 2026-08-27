@@ -255,6 +255,10 @@ export const connected = signal(false);
 export const active = signal<WireTreeTask[]>([]);
 /** A turn-collision (409) or other start error to surface in the UI (AC #21). */
 export const startError = signal<string | null>(null);
+
+/** A send was refused because this machine is not signed in to Claude — the sign-in modal opens on it.
+ *  Also set on boot when the status probe says so, since a signed-out Builder can do nothing at all. */
+export const authNeeded = signal(false);
 /** The taskId whose turn is running, parsed from a 409 — lets the UI offer "open it" (Lát 6). */
 export const busyHolder = signal<string | null>(null);
 export const settings = signal<RunSettings>({ workflow: 'none', confirm: 'each step', seed: null, fast: false, targetProject: null, mode: initialMode(), chatLang: initialChatLang(), model: initialModel() });
@@ -531,6 +535,13 @@ export function applyTask(t: WireTask): void {
   // →done/cancelled), refresh the sidebar list so its hint isn't stale and a finished build leaves it.
   // Gated on the change so it fires a handful of times per build, not on every streaming rev.
   if (prevStatus !== t.status) {
+    // A turn that just died may have died because the session's credentials stopped working mid-build
+    // — the case the pre-turn check structurally cannot catch (a token that is present but no longer
+    // refreshable answers "signed in" right up until it is used). Re-asking here is what turns that
+    // failure into the same door as every other: the CLI clears the dead credential when the refresh
+    // fails, so the probe now says so and the sign-in opens by itself. It is a question, not an
+    // assumption: an error with a healthy login changes nothing on screen.
+    if (t.status === 'error') void checkAuth();
     void loadActive();
     // Spec 105 — the TREE too, and for a reason beyond a stale hint. Its rows now carry
     // `startsAtImplement`, which the composer reads to say whether a send will skip ① and ②. The
@@ -1350,6 +1361,16 @@ function openStream(taskId: string): void {
  *  other error is a plain message. Clears `busyHolder` when the failure is not a turn collision. */
 function surfaceError(e: unknown): void {
   if (e instanceof ApiError) {
+    // Signed out (the pre-turn check in routes/tasks.ts). This is the one error whose fix is not
+    // "try again" but "do a thing first", so it does not merely get a sentence — it opens the door
+    // that fixes it. The composer text is already coming back (send()'s onDone restores it on a
+    // failed start), which is what makes offering the sign-in here safe: nothing is lost behind it.
+    if (e.reason === 'not_logged_in') {
+      authNeeded.value = true;
+      startError.value = tr('authNeeded');
+      busyHolder.value = null;
+      return;
+    }
     // The turn-collision 409 is the one error a user meets while simply trying to talk, and the server
     // sends it as a wording-stable English sentence so the UI can say it in the reader's language —
     // adding what the raw string never said: the message is still in the composer. Every other 409
@@ -1373,6 +1394,24 @@ function surfaceTurnBusy(): void {
 function clearErrors(): void {
   startError.value = null;
   busyHolder.value = null;
+}
+
+/**
+ * Ask the backend, once at boot, whether this machine is signed in to Claude — and open the sign-in
+ * door if it is not. Worth the ~0.4s probe: a signed-out Builder cannot run one turn, so the
+ * alternative is letting the user compose a whole first prompt to discover it.
+ *
+ * ONLY a definite "no" opens it. An unavailable probe (no `claude`, an old server with no
+ * /api/auth/status, any throw) is silent — a broken probe must never be able to put a modal in front
+ * of a machine that builds perfectly well.
+ */
+export async function checkAuth(): Promise<void> {
+  try {
+    const s = await api.authStatus();
+    if (s.available && !s.loggedIn) authNeeded.value = true;
+  } catch {
+    /* no probe, no claim */
+  }
 }
 
 export async function loadTree(): Promise<void> {

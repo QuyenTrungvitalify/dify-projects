@@ -17,7 +17,11 @@ export class ApiError extends Error {
     public status: number,
     message: string,
     public holder?: string | null,
-    public existing?: string | null
+    public existing?: string | null,
+    /** A machine-readable cause, when the server sent one (`not_logged_in`, `login_running`, …). The
+     *  message is for the reader; `reason` is what the UI branches on, so a reworded sentence can never
+     *  silently disarm a branch that used to match it. */
+    public reason?: string | null
   ) {
     super(message);
     this.name = 'ApiError';
@@ -35,24 +39,27 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     let msg = `${method} ${path} → ${res.status}`;
     let holder: string | null | undefined;
     let existing: string | null | undefined;
+    let reason: string | null | undefined;
     try {
       const j = await res.json();
       if (j && typeof j.error === 'string') msg = j.error;
       if (j && typeof j.holder === 'string') holder = j.holder;
       if (j && typeof j.existing === 'string') existing = j.existing;
+      if (j && typeof j.reason === 'string') reason = j.reason;
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(res.status, msg, holder, existing);
+    throw new ApiError(res.status, msg, holder, existing, reason);
   }
   // Some endpoints (PUT spec) return small JSON; tolerate empty bodies.
   const text = await res.text();
   return (text ? JSON.parse(text) : {}) as T;
 }
 
-/** The two on-disk files the artifact panel can reveal or hand you the path of. SPEC.md and the
- *  workflow YAML — named, not pathed, so the server stays the only thing that resolves a location. */
-export type ArtifactFile = 'spec' | 'workflow';
+/** What the artifact panel can reveal or hand you the path of: its two files, or the build's own folder
+ *  (the directory holding SPEC.md, workflows/, inputs/, tests/). Named, not pathed, so the server stays
+ *  the only thing that resolves a location. */
+export type ArtifactFile = 'spec' | 'workflow' | 'folder';
 
 /** A file attached in the composer (spec 012 → 025): base64 data-URL rides the JSON body, no multipart. */
 export interface Attachment {
@@ -246,6 +253,20 @@ export const api = {
    *  the branch I think I am? */
   devBuildInfo: (): Promise<{ gitBranch: string | null; gitSha: string | null; builderVersion: string | null }> =>
     request('GET', '/api/dev/build-info'),
+
+  /* ── in-app Claude sign-in (routes/auth.ts) ── */
+  authStatus: (): Promise<{ available: boolean; loggedIn: boolean; authMethod: string }> =>
+    request('GET', '/api/auth/status'),
+
+  /** Starts the CLI's login and returns the sign-in page to send the user to. Throws on failure —
+   *  `reason` says whether there is a `claude` to sign in with at all. */
+  authLogin: (): Promise<{ url: string }> => request('POST', '/api/auth/login'),
+
+  /** The code copied off that page. `ok:false` (a 200) is a wrong/expired code, not a transport error. */
+  authLoginCode: (code: string): Promise<{ ok: boolean; authMethod?: string; error?: string }> =>
+    request('POST', '/api/auth/login/code', { code }),
+
+  authLoginCancel: (): Promise<{ ok: boolean }> => request('POST', '/api/auth/login/cancel'),
 
   update: (): Promise<{ ok: boolean; restarting?: boolean; step?: 'branch' | 'pull' | 'setup'; log?: string }> =>
     request('POST', '/api/update', {}),

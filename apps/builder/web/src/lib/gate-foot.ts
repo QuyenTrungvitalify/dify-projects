@@ -9,28 +9,72 @@
 // reachable (its only live path; each_step/null already saw the implement-gate button, so excluded).
 import type { WireGateAction, WireTask } from '../types';
 
-/** spec 053: a `kind:'reply'` gate button normally ARMS the composer (onArmChange). The one exception is
- *  the error gate's sole `retry` action, which fires a one-click, text-less re-run of the failed phase
- *  instead. Pure so gate-foot.test.ts can pin that the carve-out is scoped to `id==='retry' && error` and
- *  never leaks to another gate's reply buttons (still_failing "Keep trying", …).
+/**
+ * How a `kind:'reply'` gate action is drawn. Three answers, and between them they enforce one rule:
+ * **no gate button may point at the composer.**
  *
- *  `'hidden'` is the third answer and it belongs to `changes` alone. Since spec 092 that button sent
- *  nothing: it focused the composer and highlighted the ✎ pill already sitting there, under the SAME
- *  label — `modeChange` and `ACTION_JA['Request changes']` are both 修正を依頼. So every parked gate drew
- *  two identically-worded buttons where one existed only to point at the other, and they behaved
- *  differently: one armed, one sent. The pill is the door; the signpost is gone.
+ *  `'retry'` — a single click that re-runs the phase with no text. `retry` (out of error) and `keep`
+ *  ("Keep trying" at the still-failing Implement gate) both mean "go again, I have nothing to add", and
+ *  the route accepts an empty body for exactly these — the shared list is `TEXTLESS_REPLY_IDS` in the
+ *  server's lib/gate.ts. `keep` used to answer `'arm'`, which made its label a promise the mechanism
+ *  broke: 「再試行を続ける」 opened an empty box you then HAD to type into, because /reply answered 400
+ *  without text. `retry` stays scoped to an errored build, where it is the only action there is.
  *
- *  Scoped to the ID, never to `kind`. `keep` ("Keep trying") is a reply action too, and the
- *  still-failing card NAMES it in its own summary line — hiding by kind would leave that card listing
- *  three choices above two buttons. And this is a RENDER decision only: `gate.actions` still carries
- *  `changes` on the wire, because the promote `/reply` route validates against it and the spec panel's
- *  own three-button row looks it up there. */
+ *  `'hidden'` — `changes`. It sent nothing: it focused the composer and highlighted the ✎ pill already
+ *  on screen, under the same label (`modeChange` and `ACTION_JA['Request changes']` are both 修正を依頼).
+ *  A signpost pointing at the thing beside it. The pill is the door.
+ *
+ *  `'arm'` — nothing reaches it today, and that is the point rather than an oversight: it is what a NEW
+ *  reply id would fall back to, and it will read wrong the moment such a button lands inside the
+ *  composer row, which is where gate actions now live. Decide then whether the new action is a click or
+ *  a sentence; do not let it default into being a label on a box.
+ *
+ * Hiding is a RENDER decision only: `gate.actions` still carries `changes` on the wire, because the
+ * promote `/reply` route validates against it and the spec panel's own three-button row looks it up.
+ */
 export function replyButtonKind(
   action: Pick<WireGateAction, 'id' | 'kind'>,
   status: WireTask['status'],
 ): 'retry' | 'arm' | 'hidden' {
-  if (action.id === 'retry' && status === 'error') return 'retry';
+  if (action.id === 'retry') return status === 'error' ? 'retry' : 'arm';
+  if (action.id === 'keep') return 'retry';
   return action.id === 'changes' ? 'hidden' : 'arm';
+}
+
+/**
+ * Which of a gate's actions are drawn as BUTTONS, in the composer row where the gate's decisions live.
+ *
+ * The rule the whole surface is built on: the conversation thread holds no button that changes state.
+ * A gate card is evidence — what happened, and links to read it — and every decision that moves the
+ * build sits in one place, the row you are already typing in. So this list is what the composer draws,
+ * and what it drops is dropped because something ELSE owns it:
+ *
+ *   · `kind:'cancel'` → the header pill. Ending a build is not a step of the build, and 「破棄」 a
+ *     thumb's width from 「進む」 is how a fat finger ends an hour of work.
+ *   · `cleanup_apps`  → the card's small-link row, beside "take this fix back". It changes state (it
+ *     deletes apps in Dify) but it does not move the build, and a housekeeping button standing at the
+ *     same weight as the phase's decision reads as one of the ways forward.
+ *   · `changes`       → the composer's own ✎ pill, which is right there under the same label.
+ *
+ * Order is the server's, so the primary stays first — the leftmost button, the one still readable when
+ * a narrow row scrolls the group.
+ */
+export function visibleGateActions(
+  task: Pick<WireTask, 'gate' | 'status'>
+): WireGateAction[] {
+  return (task.gate?.actions ?? []).filter((a) => {
+    if (a.kind === 'cancel') return false;
+    if (a.id === 'cleanup_apps') return false;
+    if (a.kind === 'reply') return replyButtonKind(a, task.status) !== 'hidden';
+    return true;
+  });
+}
+
+/** Does this gate offer to end the build? Drives the header pill, so that its 「破棄」 appears exactly
+ *  where the backend actually offers one — never on the promote share gates, which are confirm-only on
+ *  purpose so that declining to share cannot mark a finished promotion `cancelled`. */
+export function gateOffersCancel(task: Pick<WireTask, 'gate'> | null | undefined): boolean {
+  return (task?.gate?.actions ?? []).some((a) => a.kind === 'cancel');
 }
 
 /**

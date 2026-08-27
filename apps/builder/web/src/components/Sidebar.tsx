@@ -10,6 +10,7 @@ import type { JSX } from 'preact';
 import { I } from './Icon';
 import { t as tr, tf } from '../lib/i18n';
 import { workflowRowAction } from '../lib/workflow-row';
+import { cancelConfirmCopy } from '../lib/cancel-confirm';
 import { askConfirm, removeTask, removeProject, removeWorkflow } from '../store';
 import { devMode } from '../lib/dev';
 import { sidebarPageSize, pageList } from '../lib/sidebar-prefs';
@@ -219,8 +220,9 @@ function activeHint(status: WireTreeTask['status']): string {
 
 /** "In progress" section (Lát 6): every non-terminal build, so a parked one is reachable on load and
  *  never stranded. Clicking opens it (reconnects its SSE + gate). The active build keeps the pill.
- *  F1: each row has a hover-× that cancels the build WITHOUT opening it — a parked build dismisses
- *  immediately; a running build (a live turn) confirms first so a turn isn't killed by a stray click. */
+ *  F1: each row has a hover-× that cancels the build WITHOUT opening it. It ALWAYS confirms first —
+ *  the × is a terminal /cancel, not a "hide this row", and a parked build used to die on a single stray
+ *  click. Only the copy differs: a live turn says a turn will be stopped, a parked one says what survives. */
 function ActiveSection({ active, activeTask, onOpen, onCancel }: {
   active: WireTreeTask[];
   activeTask: string | null;
@@ -230,16 +232,14 @@ function ActiveSection({ active, activeTask, onOpen, onCancel }: {
   if (active.length === 0) return null;
   const cancelRow = async (e: JSX.TargetedMouseEvent<HTMLButtonElement>, t: WireTreeTask): Promise<void> => {
     e.stopPropagation();
-    const running = t.status !== 'awaiting_confirm'; // running/scaffolding = a live turn → confirm first
-    if (running) {
-      const ok = await askConfirm({
-        title: tr('stopBuildTitle'),
-        message: tf('stopBuildMsg', { name: t.name }),
-        okLabel: tr('stopBuild'),
-        danger: true,
-      });
-      if (!ok) return;
-    }
+    const copy = cancelConfirmCopy(t.status);
+    const ok = await askConfirm({
+      title: tr(copy.titleKey),
+      message: tf(copy.msgKey, { name: t.name }),
+      okLabel: tr(copy.okKey),
+      danger: true,
+    });
+    if (!ok) return;
     onCancel(t.id);
   };
   return (

@@ -568,12 +568,23 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .stop-pill:hover { background: var(--danger-dim); color: var(--danger); border-color: var(--danger); }
 .stop-pill .stop-sq { width: 8px; height: 8px; border-radius: 2px; background: var(--danger); }
 
-/* thread scroll region */
+/* thread scroll region.
+   The 26px gutter is on the SCROLLER, not on `.thread-inner`, so the thread and the composer below it
+   are the same shape: an outer box with a 26px inset, and a `--thread-w` column centred inside it. With
+   the inset on the inner box instead, its column was 920px WIDE but only 868px of content — 26px
+   narrower on each side than the composer, which is why a gate card and the input box it belongs to did
+   not line up. Same variable, same gutter, one column edge. */
 .thread {
   flex: 1; overflow-y: auto; min-height: 0;
-  padding: 30px 0 26px;
+  padding: 30px 26px 26px;
+  /* The scrollbar is taken out of the RIGHT side only, so a column centred inside this box lands half a
+     scrollbar left of one centred in the unscrolled composer below — same width, 4px apart, which is
+     exactly the misalignment you notice when you are looking for alignment. `both-edges` reserves the
+     gutter on both sides so the centre stays put. It reserves NOTHING where the platform draws overlay
+     scrollbars (macOS by default), which is why this is the right tool and a hardcoded pixel is not. */
+  scrollbar-gutter: stable both-edges;
 }
-.thread-inner { max-width: var(--thread-w); margin: 0 auto; padding: 0 26px; }
+.thread-inner { max-width: var(--thread-w); margin: 0 auto; }
 
 /* ============================================================
    EMPTY / NEW-TASK STATE
@@ -629,12 +640,27 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   display: flex; align-items: center; gap: 8px;
   margin-top: 12px; flex-wrap: nowrap;
 }
-.composer-row .spacer { flex: 1; }
-/* Keep everything on ONE row: only the workflow chip (`.shrink` — a variable-length slug) may shrink
-   and truncate its value. The fixed-label JP chips (confirm/deploy/fast) hold their natural width so
-   they never clip, and a long slug can't push attach/send onto a second line. */
+/* Every control that acts on the MESSAGE, in one group pinned right. `flex: 0 0 auto` + nowrap keeps
+   this group's internal layout exactly as it has always been — Send in the corner, the change pill on
+   its left. The group itself may shrink (`0 1 auto`), and only its `.shrink` chips actually give way,
+   since attach/change/send are `flex: none`: so when the line is tight it is a chip value that
+   truncates, never the send button that moves. `margin-left: auto` does the pushing, so the group is
+   right-hand whether it sits beside the gate or wraps onto a line of its own below it. */
+.composer-tools { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; min-width: 0; flex-wrap: nowrap; margin-left: auto; }
+/* The ONE permitted break. Two flex children means the row can only ever break between the gate and the
+   controls, so a wrap here cannot strand Send on a line by itself — the failure the blanket nowrap rule
+   was written to stop. Above ~660px of row the two sit side by side; below it the gate takes the first
+   line and the controls the second, which is what the old docked bar looked like anyway. */
+.composer-row.has-gate { flex-wrap: wrap; row-gap: 10px; }
+.composer-row.has-gate .composer-gate { flex: 1 1 auto; }
+/* Keep everything on ONE row. A chip marked `.shrink` may truncate its value; the rest hold their
+   natural width, so nothing can push attach/send onto a second line.
+   The shrink FACTOR (4, against the gate group's 1) is what sets the priority when a parked gate is
+   also in the row: a truncated 「確認: 各ス…」 still says which mode is in force and stays clickable,
+   while a truncated 「テストへ進む」 is a decision you can no longer read. Chips give way first, and the
+   gate group only starts scrolling once they have. */
 .composer-row .setting-select { display: flex; flex: 0 0 auto; }
-.composer-row .setting-select.shrink { flex: 0 1 auto; min-width: 0; }
+.composer-row .setting-select.shrink { flex: 0 4 auto; min-width: 0; }
 
 .setting-chip {
   display: inline-flex; align-items: center; gap: 7px;
@@ -980,16 +1006,23 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   word-break: break-word;
 }
 
-/* the docked action bar: pinned above the composer while parked at an analyze/spec/implement gate (D7)
-   — outside any single gate card, since it survives across any number of qa exchanges. It MIRRORS the
-   composer's exact nesting (`.docked-gate-dock` ≙ `.composer-dock` horizontal padding; the shared
-   `.composer-wrap` ≙ the shared `--thread-w` centered wrap) so its box lines up edge-for-edge with the composer below
-   at every viewport width. Its own gate-foot renders as a self-contained elevated card. */
-.docked-gate-dock { flex-shrink: 0; padding: 0 26px; }
-.docked-gate-dock .gate-foot {
-  padding: 10px 14px; border-top: none;
-  background: var(--bg-elevated); border: 1px solid var(--border-soft); border-radius: var(--r-card);
+/* The parked gate's actions, living at the left end of the composer row. They used to be a card of
+   their own pinned above the box; two stacked boxes for one moment, and an irreversible 「破棄」 sitting
+   a thumb's width from the button you press every time.
+   The group takes the width the message controls on the right do not need, and scrolls inside it — the
+   row is `flex-wrap: nowrap` on purpose (a wrap re-flows the send button out of its corner), so
+   something has to give when the labels are long, and it must be this group and not the send. Scrolling
+   rather than truncating keeps the PRIMARY action — always the first button — fully readable at any
+   width; what slides out of reach is the secondary. Scrollbar hidden, exactly as `.chat-top-right`
+   does for the same trade. */
+.composer-gate { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.composer-gate::-webkit-scrollbar { display: none; }
+/* Strip the card the foot wears everywhere else — inside the row it is a button group, not a panel. */
+.composer-gate .gate-foot {
+  padding: 0; border-top: none; background: transparent; gap: 6px; flex-wrap: nowrap;
 }
+/* Match the send/change pills' 32px so adding a gate does not make the row taller than it was. */
+.composer-gate .btn { height: 32px; padding: 0 12px; }
 
 /* spec 092: the ✎ change pill — the composer's second, deliberate send action (re-runs the phase /
    reopens a done build). Labeled on purpose: the expensive action never hides behind a bare icon. Sits
@@ -1054,11 +1087,19 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .composer-dock {
   flex-shrink: 0; padding: 12px 26px 18px;
   background: linear-gradient(0deg, var(--bg-canvas) 62%, transparent);
+  /* Reserves the SAME gutter `.thread` reserves, so the composer's column and the thread's are identical
+     at every width — not just where both hit the `--thread-w` cap. `overflow: hidden` is what makes this
+     a scroll container so `scrollbar-gutter` applies; nothing here is meant to escape the dock anyway,
+     and everything that pops out of it (the send-variant menu, the chip menus) is `position: fixed`
+     against the button's measured rect, so the clip cannot reach them. Reserves nothing on platforms
+     with overlay scrollbars, in step with the thread.
+     BOTH axes, deliberately: `overflow-y: hidden` alone computes `overflow-x` to `auto`, which would put
+     a horizontal scrollbar under the composer the first time the settings row outgrew the dock. That row
+     is built to never do that (it stays nowrap and truncates the workflow chip instead), so the honest
+     contract here is "clips, never scrolls". */
+  overflow: hidden; scrollbar-gutter: stable both-edges;
 }
-/* BOTH the composer and the docked action bar share the SAME `--thread-w` centered wrap so their cards line up
-   edge-for-edge (the docked-dock selector was missing before, so the bar spanned full width — misaligned). */
-.composer-dock .composer-wrap,
-.docked-gate-dock .composer-wrap { max-width: var(--thread-w); margin: 0 auto; }
+.composer-dock .composer-wrap { max-width: var(--thread-w); margin: 0 auto; }
 .composer.slim { padding: 12px 16px 10px; border-radius: var(--r-card); }
 .composer.slim .composer-input { font-size: 14px; }
 .mini-settings { display: flex; align-items: center; gap: 6px; }
@@ -1108,6 +1149,11 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .artifact-head .ah-title { font-size: 13px; color: var(--tx-1); font-weight: 500; }
 .artifact-head .ah-sub { font-size: 11.5px; color: var(--tx-faint); font-family: var(--mono); }
+/* Finder + copy-path for the BUILD'S FOLDER — the thing `.ah-sub` names. Left-grouped beside that name
+   rather than out by the expand/close pair: they act on the folder, and the two icon buttons on the far
+   right act on the panel. `margin-left` (not `auto`) keeps them attached to the name; the expand button
+   carries the auto margin that pushes the panel controls away. */
+.artifact-head .ah-actions { margin-left: 6px; }
 .artifact-tabs { display: flex; gap: 2px; padding: 8px 12px; border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
 .atab {
   padding: 6px 11px; border-radius: 8px; font-size: 12px;
@@ -1268,9 +1314,8 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   font-family: var(--mono); font-size: 12px;
 }
 /* Wraps rather than clips. The card is `overflow: hidden`, so a head that overflows does not scroll —
-   it silently loses its last button, which here is 「コピー」. Measured: below roughly a 620px window the
-   name + size + three actions stop fitting on one line. `.cb-lang` gives up its space first (see below),
-   and only then does the action group drop to a second line. */
+   it silently loses its last button. `.cb-lang` (the size line — pure information) gives up its space
+   first, and only then does the action group drop to a second line. */
 .cb-head {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 7px;
   padding: 9px 13px;
@@ -1278,35 +1323,43 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   font-size: 11.5px;
 }
 .cb-head .cb-name { color: var(--tx-1); }
-/* One wrapping unit, so the actions move to a second line together rather than splintering — and it may
-   wrap INSIDE itself as a last resort. Measured at a 620px window the panel's head is 267px of usable
-   width against 283px of buttons; without this the third one ('コピー') is simply clipped away by the
-   card's `overflow: hidden`, with nothing on screen to say it exists. Two lines beats a missing button. */
-.cb-head .fc-actions {
+/* One wrapping unit, so the actions move to a second line together rather than splintering. Kept as a
+   safety net rather than a live constraint: as labelled pills these needed 283px against the 267px a
+   620px window gives the header, and were clipped away by the card's `overflow: hidden` with nothing on
+   screen to say they existed. Icon-only they are ~80px and fit everywhere measured — but a long file
+   name can still squeeze the row, and a wrapped button beats a vanished one. */
+.fc-actions {
   display: inline-flex; align-items: center; justify-content: flex-end;
-  gap: 8px; flex-wrap: wrap; row-gap: 7px;
+  gap: 2px; flex-wrap: wrap; row-gap: 4px;
 }
 /* `min-width: 0` so the size line can be squeezed before anything is pushed off; it is the least
    important thing in the row and the only one that is pure information. */
 .cb-head .cb-lang { margin-left: auto; color: var(--tx-faint); min-width: 0; overflow: hidden; white-space: nowrap; }
-/* Reveal-in-Finder + Copy-path + Copy-contents — sit at the right of the code header after the line
-   count. `nowrap` + no shrink because a three-button row in a narrow panel would otherwise break a
-   label across two lines and take the header's height with it; the line count yields space first. */
-.cb-head .cb-copy,
-.cb-head .cb-reveal {
-  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
-  background: transparent; border: 1px solid var(--border); border-radius: 7px;
-  padding: 3px 8px; color: var(--tx-2); font-family: var(--sans); font-size: 11px;
-  white-space: nowrap; flex-shrink: 0;
+/* Reveal-in-Finder + Copy-path + Copy-contents. ICON-ONLY, borderless — same 26² shape as `.icon-btn`,
+   which is what the panel head's expand/close already are, so all the chrome in this panel reads as one
+   family. They were labelled pills; three of them repeat on every tab, which put more words on screen
+   than the files they act on. The name moved to `title`/`aria-label`.
+   No shrink, because a squeezed header must drop the line count (pure information) before it starts
+   deforming a control. */
+.cb-copy,
+.cb-reveal {
+  display: grid; place-items: center; cursor: pointer;
+  width: 26px; height: 26px; border-radius: 7px;
+  background: transparent; border: none; color: var(--tx-muted);
+  flex-shrink: 0;
+  transition: background 0.14s, color 0.14s;
 }
-.cb-head .cb-copy:hover,
-.cb-head .cb-reveal:hover { border-color: var(--border-strong); color: var(--tx-1); }
-/* The copied-flash is on BOTH: the path button is a .cb-reveal (it belongs with Finder, not with the
-   contents copy), and without this it would confirm a copy in the same grey it had before the click. */
-.cb-head .cb-copy.copied,
-.cb-head .cb-reveal.copied { border-color: var(--ok-dim); color: var(--ok); }
-.cb-head .cb-copy svg,
-.cb-head .cb-reveal svg { width: 12px; height: 12px; }
+.cb-copy:hover,
+.cb-reveal:hover { background: var(--bg-elevated-2); color: var(--tx-1); }
+/* With the label gone, colour + a check icon ARE the "copied" acknowledgement — there is no longer a
+   word to change. On BOTH, because the path button is a .cb-reveal (it belongs with Finder, not with
+   the contents copy) and would otherwise confirm in the same grey it had before the click. */
+.cb-copy.copied,
+.cb-copy.copied:hover,
+.cb-reveal.copied,
+.cb-reveal.copied:hover { color: var(--ok); background: var(--ok-dim); }
+.cb-copy svg,
+.cb-reveal svg { width: 15px; height: 15px; }
 .codeblock pre { margin: 0; padding: 12px 14px; overflow-x: auto; line-height: 1.65; color: var(--tx-2); }
 .codeblock .ln { color: var(--tx-faint); user-select: none; display: inline-block; width: 24px; }
 .tok-key { color: var(--accent-tx); }
@@ -1333,12 +1386,6 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
   font-family: var(--mono); font-size: 11.5px;
 }
-.diff-head {
-  display: flex; padding: 8px 13px; border-bottom: 1px solid var(--border-soft);
-  color: var(--tx-muted); font-size: 11px; gap: 8px; align-items: center;
-}
-.diff-head .dh-name { color: var(--tx-1); }
-.diff-head .dh-stat { margin-left: auto; display: flex; gap: 9px; }
 .diff-cols { display: grid; grid-template-columns: 1fr 1fr; }
 .diff-col { min-width: 0; }
 .diff-col.left { border-right: 1px solid var(--border-soft); }
@@ -2114,3 +2161,33 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-soft);
 }
+
+/* ---- AuthModal (in-app Claude sign-in) ----
+   Rides the ConfirmModal shell; only the parts a confirm dialog has no equivalent of are new: the
+   link that IS the primary action, and the box the code comes back into. The code box is monospace
+   because that is what the user is checking a paste against, character by character. */
+.auth-modal .confirm-message + .confirm-message,
+.auth-modal .auth-open,
+.auth-modal .auth-code-label { margin-top: 12px; }
+.auth-open { display: inline-flex; text-decoration: none; }
+.auth-code-label { display: block; font-size: 12px; color: var(--tx-3); margin-bottom: 5px; }
+.auth-code {
+  width: 100%; box-sizing: border-box;
+  font-family: var(--mono); font-size: 12.5px;
+  padding: 8px 10px; border-radius: 8px;
+  background: var(--bg-input, var(--bg-modal));
+  border: 1px solid var(--border-strong); color: var(--tx-strong);
+}
+.auth-code:focus { outline: none; border-color: var(--accent); }
+.auth-code:disabled { opacity: 0.55; }
+/* A primary button that cannot be pressed must not look pressable. There is no global `.btn:disabled`
+   rule in this stylesheet (each surface adds its own — cf. `.modal-create:disabled`), so without this
+   the footer's "Finish signing in" renders at full strength while the empty code box makes it inert. */
+.auth-modal .confirm-foot .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* The paste flow is the fallback for a machine that could not open a browser, so it is separated from
+   the sentence above it rather than following on from it — the ordinary reader signs in on the page
+   that already opened and never crosses this line. */
+.auth-fallback { border-top: 1px solid var(--border); padding-top: 12px; }
+.auth-dim { color: var(--tx-3); }
+.auth-err { color: var(--danger); }
+.auth-ok { color: var(--ok, var(--accent-tx)); }

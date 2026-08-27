@@ -1,0 +1,21 @@
+# sha256 of every prebuilt archive this repo pins, in `<sha256>  <filename>` form.
+#
+# GENERATED — do not hand-edit. Regenerate / verify with:
+#   ./scripts/bump-toolchain.sh node <version>
+#   ./scripts/bump-toolchain.sh uv <version>
+#   ./scripts/bump-toolchain.sh --verify      # confirm committed values still match upstream
+#
+# Node lines are copied verbatim from https://nodejs.org/dist/v<ver>/SHASUMS256.txt
+# uv lines are copied from each release asset's own .sha256 file on GitHub.
+
+# node 22.23.2  (fetched 2026-08-27)
+61130f394c1630d211dd50aecc4353d379480f36d3ac913cd85dbba1aed585c6  node-v22.23.2-darwin-arm64.tar.gz
+58e99022c2ff89395576cc7fd4d98cea24bb68081475d5f88b801ee8729fb026  node-v22.23.2-darwin-x64.tar.gz
+b294a556e639d64338823920e5866c21c02741742d2e1529ee1a225c1ec9252a  node-v22.23.2-linux-x64.tar.gz
+013b59cfd2819703a6f4a14ab891fc46fc2a4e3f5bcd92de3fb4929b43e35b30  node-v22.23.2-linux-arm64.tar.gz
+
+# uv 0.9.22  (fetched 2026-08-27)
+4bfc6dacc9bcc9e433a9214a658495ca082b94fd607949b6745a955f34ccbc3c  uv-aarch64-apple-darwin.tar.gz
+c0057ad78b475f343739b1bbe223361c1054524c9edf310ee1dc85a050207f86  uv-x86_64-apple-darwin.tar.gz
+e170aed70ac0225feee612e855d3a57ae73c61ffb22c7e52c3fd33b87c286508  uv-x86_64-unknown-linux-gnu.tar.gz
+2f8716c407d5da21b8a3e8609ed358147216aaab28b96b1d6d7f48e9bcc6254e  uv-aarch64-unknown-linux-gnu.tar.gz

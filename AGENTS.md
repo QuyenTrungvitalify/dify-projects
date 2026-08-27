@@ -11,7 +11,7 @@
 ## 1. What this repo is — and is NOT
 
 This is a **base workspace** for authoring Dify workflow YAML across multiple projects. It
-provides: a JSON Schema for Dify DSL, scaffolding tools, 13 vetted workflow patterns, a
+provides: a JSON Schema for Dify DSL, scaffolding tools, 14 vetted workflow patterns, a
 ~27-example vendored corpus (46-file template index), pytest harness, and pre-commit hooks.
 
 **It is NOT** a fork of Dify, a Dify plugin, or a runtime. We only produce DSL YAML that gets
@@ -176,7 +176,7 @@ apps/builder/scripts/e2e-run.sh fire "<prompt>" --mode auto          # needs bac
 | Workflow examples (multilingual reference, bodies mostly Chinese) | [corpus/awesome-dify-workflow-en/Workflow-Store/](corpus/awesome-dify-workflow-en/) |
 | Vendored-source registry (one entry per corpus; add/refresh sources here) | [corpus/sources.yml](corpus/sources.yml) — read by `setup.sh`, `build_index.py`, `update_corpus.sh` (spec 022). Tagged `corpus:<name>` in INDEX. |
 | Promoted curated templates (standardized from a corpus example) | [templates/library/](templates/library/) — each carries an `x-provenance` header; promote via `/template-promote` (spec 022 D5). Staleness: `tools/dify_base/check_provenance.py`. Attributions: [THIRD_PARTY.md](THIRD_PARTY.md). |
-| 13 vetted starting patterns | [templates/patterns/](templates/patterns/) |
+| 14 vetted starting patterns | [templates/patterns/](templates/patterns/) |
 | Curated Dify tools + their real identifiers | [templates/tool-catalog.json](templates/tool-catalog.json) (§4.3; regenerate with `tools/dify_base/marketplace.py`) |
 | Project scaffold skeleton | [templates/_base/project/](templates/_base/project/) |
 | JSON Schema (DSL v0.6.0) | [schemas/dify-dsl-0.6.0.json](schemas/dify-dsl-0.6.0.json) |

@@ -141,7 +141,7 @@ Các bước thủ công đầy đủ:
 | 0 | ✅ | Base structure, git init, skills cloned |
 | 1.A | ✅ | `schemas/gen_schema.py` + JSON Schema envelope (29 NodeData reference defs; node bodies not schema-enforced) |
 | 1.B | ✅ | `init_project.py` + `_base/project/` skeleton |
-| 1.C | ✅ | 13 patterns trong `templates/patterns/` |
+| 1.C | ✅ | 14 patterns trong `templates/patterns/` |
 | 1.D | ✅ | pytest harness via custom DifyWorkflowClient |
 | 2.A | ✅ | GitOps sync: `sync.py pull/push/diff` workspace ↔ git (nay thêm `list/models/plugins/datasets/api-key/publish/delete` phục vụ Builder live-test) |
 | 2.B | ✅ | pre-commit hook (yamllint + schema check) |

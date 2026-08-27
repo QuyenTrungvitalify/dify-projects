@@ -39,7 +39,7 @@ import {
   type Task,
 } from '../state/task.js';
 import { normalizeChatLang } from '../lib/language.js';
-import { canRequestFix, computeGate, mayOpenProposal } from '../lib/gate.js';
+import { acceptsTextlessReply, canRequestFix, computeGate, mayOpenProposal } from '../lib/gate.js';
 import { difyTargets } from '../lib/dify-io.js';
 import { runLiveTest } from '../lib/live-test.js';
 import { promoteConfirm, promoteReply, resolvePastedPromoteSource, resolvePromoteSource, startPromote, undoPromotion } from '../lib/promote.js';
@@ -60,6 +60,7 @@ import { readArtifactContents } from '../lib/artifacts.js';
 import { logEvent, readEvents } from '../lib/run-events.js';
 import { readRunAttempts } from '../lib/run-transcript.js';
 import { MAX_ATTACHMENT_BYTES, saveAttachments, validateAttachments } from '../lib/attachments.js';
+import { unknownProbe, type AuthProbeFn } from '../lib/claude-auth.js';
 
 export interface TasksRoutesOptions {
   projectsDir: string;
@@ -79,6 +80,9 @@ export interface TasksRoutesOptions {
    * has to ASSUME). See dispatch-lifecycle.test.ts.
    */
   runners?: OrchestratorCtx['runners'];
+  /** How "is this machine signed in to Claude?" gets answered before a prompt is spent on a turn that
+   *  cannot run. Test seam: absent ⇒ the real `claude auth status` probe. */
+  authProbe?: AuthProbeFn;
 }
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -94,6 +98,27 @@ const turnBusyError = (kind: TurnKind = 'phase'): { error: string; holder: strin
 
 const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) => {
   const { projectsDir, settingsPath, broadcast, runners } = opts;
+  const authProbe = opts.authProbe ?? unknownProbe; // wired to the real one in server/index.ts
+
+  /**
+   * The signed-out 409, for the two doors where the user has just SPENT something — a typed prompt and
+   * any files staged with it. Without this the turn is minted, `claude` dies in ~0.1s having read
+   * nothing, and what the user sees is their build failing; the composer is empty and the prompt is in
+   * a dead task. The 409 costs one ~0.4s probe and hands the text back instead (the FE restores the
+   * composer on a failed start), with `reason` telling it to open the sign-in door.
+   *
+   * ONLY a definite "no" blocks: an unanswerable probe (`available:false` — no `claude` on PATH, or it
+   * crashed) lets the turn through to fail on its own terms, because a broken probe must never be able
+   * to stop a machine that can actually build. And it does not catch every case by design — a token
+   * that is present but no longer refreshable still reads as logged in here, and still dies in the
+   * turn; that one is caught after the fact by the auth-class failure note, which offers the same door.
+   */
+  const signedOut = async (): Promise<{ error: string; reason: string } | null> => {
+    const p = await authProbe();
+    return p.available && !p.loggedIn
+      ? { error: 'not signed in to Claude on this machine', reason: 'not_logged_in' }
+      : null;
+  };
   const ctx: OrchestratorCtx = { projectsDir, settingsPath, log: app.log, broadcast, runners };
 
   /** Last-resort: on an UNEXPECTED throw, mark the task error and relay it. The turn lock is freed by
@@ -237,6 +262,10 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // Fast path: a turn is already running → 409 without minting a task. A build PARKED at a gate does
     // NOT block this (turn-level lock) — that is the whole point of Lát 6.
     if (buildTurnBusy()) return reply.code(409).send(turnBusyError());
+
+    // Signed out → 409 before a task exists, so the prompt comes back to the composer (see `signedOut`).
+    const authGate = await signedOut();
+    if (authGate) return reply.code(409).send(authGate);
 
     // Spec 105 — a workflow this Builder already analysed and specced has nothing left for ① and ② to
     // derive; re-running them on it is two paid turns spent re-reading the disk. The signal is both
@@ -390,6 +419,10 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
 
     // Fast path: the chat lane is busy → 409 without minting a task (mirrors POST /api/tasks).
     if (chatTurnBusy()) return reply.code(409).send(turnBusyError('ask'));
+
+    // Signed out → 409 before a task exists (mirrors POST /api/tasks; same `signedOut` reasoning).
+    const authGate = await signedOut();
+    if (authGate) return reply.code(409).send(authGate);
 
     const task = await createConsultTask(projectsDir, {
       text,
@@ -753,6 +786,12 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     const attCheck = validateAttachments(body.files);
     if (!attCheck.ok) return reply.code(400).send({ error: attCheck.error });
 
+    // Signed out → 409 before the turn is dispatched. This door costs MORE than the two that mint a
+    // task, not less: a reply that dies takes the PARKED BUILD to `error` with it, so the user comes
+    // back from signing in to a build that needs a retry before it will take the message again.
+    const authGate = await signedOut();
+    if (authGate) return reply.code(409).send(authGate);
+
     let task;
     try {
       task = await loadTask(projectsDir, id);
@@ -775,12 +814,14 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
         .code(409)
         .send({ error: `task is ${task.status}; /reply needs awaiting_confirm or error` });
     }
-    // Spec 053: an empty reply is valid ONLY as a Retry-out-of-error (a text-less one-click re-run of the
-    // errored phase — replyWithin('') falls back to the fresh phase prompt). At an awaiting_confirm gate
-    // empty text still has no meaning → 400. Moved below loadTask so it can see the status (was an
-    // unconditional top-of-handler guard). An errored PROMOTE build (gate undefined) instead falls through
-    // to the promote-gate check below and 409s there ("no change action") — never reaches replyWithin.
-    if (!text && task.status !== 'error') return reply.code(400).send({ error: 'text is required' });
+    // An empty reply is valid only where the GATE offers a "run it again, nothing new to add" action —
+    // the errored phase's Retry, and the still-failing Implement gate's Keep-trying. Both re-run from the
+    // fresh phase prompt (replyWithin('') falls back to it); everywhere else empty text has no meaning.
+    // The list is `TEXTLESS_REPLY_IDS` in lib/gate.ts, read from here and from the web app's button
+    // renderer, so a button drawn as one click cannot meet a route that demands typing. An errored
+    // PROMOTE build (gate undefined) still falls through to the promote-gate check below and 409s there
+    // ("no change action") — it never reaches replyWithin.
+    if (!text && !acceptsTextlessReply(task)) return reply.code(400).send({ error: 'text is required' });
     // Spec 052: a promote build accepts a "Request changes" reply ONLY at a gate that offers one
     // (promote_review / promote_distill_failed). At the promote_blocked gate (B1: ineligible → NO turn,
     // nothing written) there is no reply action — reject rather than spawn a distill turn on the ineligible
@@ -858,6 +899,10 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     // conversation had no way in. Validate before loading/locking, exactly as /reply does.
     const attCheck = validateAttachments(body.files);
     if (!attCheck.ok) return reply.code(400).send({ error: attCheck.error });
+
+    // Signed out → 409 before the turn is dispatched (the /reply reasoning, minus the parked build).
+    const authGate = await signedOut();
+    if (authGate) return reply.code(409).send(authGate);
 
     let task;
     try {

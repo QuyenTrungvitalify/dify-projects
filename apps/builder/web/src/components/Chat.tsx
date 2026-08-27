@@ -14,7 +14,7 @@ import { I } from './Icon';
 import { Twist } from './Sidebar';
 import { renderMarkdownHtml } from '../lib/markdown';
 import { PHASE_LABELS, phaseIndex, phaseLabelAt } from '../lib/phase';
-import { canUndoFix, replyButtonKind, terminalFootActions } from '../lib/gate-foot';
+import { canUndoFix, replyButtonKind, visibleGateActions } from '../lib/gate-foot';
 import type { ComposerIntent } from '../lib/composer-route';
 import { confirmModeOptions } from '../lib/propose-lane';
 import { t as tr, tf, phaseLabel, tAction, localizeNotes } from '../lib/i18n';
@@ -451,23 +451,25 @@ export function gateView(t: WireTask): GateView {
  *  renders for phase∈{analyze,spec,implement} (D7). `onArmChange` replaces the old inline reply textarea:
  *  clicking a reply-kind action now arms the COMPOSER's change-mode (the one reply surface) instead of
  *  opening a second, parallel textarea. */
-export function GateActions({ task, busy, onConfirm, onArmChange, onCancel, onRetry }: {
+export function GateActions({ task, busy, onConfirm, onArmChange, onRetry }: {
   task: WireTask;
   busy?: boolean;
   onConfirm: (action: WireGateAction, extra?: { slug?: string; name?: string; keepCurrent?: boolean }) => void;
   /** `label` is the chosen reply action's English label (Edit spec / Keep trying / Request changes) so
    *  the resolved gate reads true instead of a generic "Requested changes" (spec 016 D4). */
   onArmChange: (label: string) => void;
-  onCancel: (action: WireGateAction) => void;
-  /** spec 053: the error gate's sole `retry` reply action fires a one-click, text-less re-run (App owns
-   *  the composer-files closure) instead of arming the composer. Absent → the button falls back to arm. */
-  onRetry?: () => void;
+  /** Fires a one-click, text-less re-run for the reply actions that mean "go again, nothing to add"
+   *  (`retry` out of error, `keep` at a still-failing Implement). Takes the ACTION because its label is
+   *  what the resolved gate will read — a `keep` re-run recorded as "Retry phase" would describe a
+   *  different decision than the one made. App owns the composer-files closure, hence the callback.
+   *  Absent → the button falls back to arming the composer. */
+  onRetry?: (action: WireGateAction) => void;
 }) {
-  const actions = task.gate?.actions ?? [];
+  // What this foot draws, and what other surfaces own — see visibleGateActions.
+  const actions = visibleGateActions(task);
   if (actions.length === 0) return null;
 
   const btnClass = (a: WireGateAction): string => {
-    if (a.kind === 'cancel') return 'ghost';
     if (a.kind === 'reply') return 'ghost';
     if (task.gate?.flag === 'still_failing') return 'warn'; // "Accept anyway"
     // D4 (spec 016): at the deploy gate, Import is the one primary (green) button; Skip is a quiet
@@ -483,38 +485,15 @@ export function GateActions({ task, busy, onConfirm, onArmChange, onCancel, onRe
   return (
     <div className="gate-foot">
       {actions.map((a) => {
-        // spec 032 S6: the "delete test apps" cleanup shows only when this build actually has test
-        // apps to remove, rendered as a quiet ghost button with the count.
-        if (a.id === 'cleanup_apps') {
-          const apps = task.testApps ?? [];
-          if (!apps.length) return null;
-          // spec 036: a re-test auto-deletes the prior apps, so the list is usually just the current one.
-          // Two clean buttons (no per-app clutter): "Delete old apps (N-1)" (keep the current) shows only
-          // when there ARE old apps; "Delete test apps (N)" removes everything.
-          const oldCount = apps.filter((id) => id !== task.appId).length;
-          return (
-            <Fragment key={a.id}>
-              {oldCount > 0 && (
-                <button className="btn ghost" disabled={busy} onClick={() => onConfirm(a, { keepCurrent: true })}>
-                  🗑 {tf('deleteOldApps', { n: String(oldCount) })}
-                </button>
-              )}
-              <button className="btn ghost" disabled={busy} onClick={() => onConfirm(a)}>🗑 {tAction(a.label)} ({apps.length})</button>
-            </Fragment>
-          );
-        }
         if (a.kind === 'reply') {
-          // spec 053: the error gate's `retry` action is a one-click re-run (primary/green + ↻), NOT a
-          // composer-arm — `replyButtonKind` scopes the carve-out to `id==='retry' && status==='error'`.
-          const how = replyButtonKind(a, task.status);
-          if (how === 'retry') {
-            return <button key={a.id} className="btn ok" disabled={busy} onClick={() => onRetry?.()}><I.retry />{tAction(a.label)}</button>;
+          // A one-click re-run (primary + ↻), never a composer-arm — see replyButtonKind for which ids
+          // qualify and why the route agrees with it.
+          // `hidden` cannot arrive — visibleGateActions already dropped it, and it is the only filter
+          // for it, so there is no second opinion to keep in sync here.
+          if (replyButtonKind(a, task.status) === 'retry') {
+            return <button key={a.id} className="btn ok" disabled={busy} onClick={() => onRetry?.(a)}><I.retry />{tAction(a.label)}</button>;
           }
-          if (how === 'hidden') return null; // `changes` — see replyButtonKind for why
           return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => onArmChange(a.label)}><I.message />{tAction(a.label)}</button>;
-        }
-        if (a.kind === 'cancel') {
-          return <button key={a.id} className="btn ghost" disabled={busy} onClick={() => onCancel(a)}>{tAction(a.label)}</button>;
         }
         return (
           <button key={a.id} className={'btn ' + btnClass(a)} disabled={busy} onClick={() => onConfirm(a)}>
@@ -587,28 +566,16 @@ export function QaAnswer({ answer, done, seededFrom, cost, sessionReset, onStop 
   );
 }
 
-export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCancel, onRetry, onRestore, onEditAgain, onRunTest, onUndoFix, onOpenArtifact }: {
+export function GateCard({ task, resolved, onCleanupApps, onUndoFix, onOpenArtifact }: {
   task: WireTask;
   resolved?: string;
-  busy?: boolean;
-  onConfirm: (action: WireGateAction, extra?: { slug?: string; name?: string; keepCurrent?: boolean }) => void;
-  /** spec 033 FIX-J: arms the composer's change-mode with the chosen reply action's label — replaces
-   *  the old inline reply textarea (removed; the composer is now the ONE reply surface). */
-  onArmChange: (label: string) => void;
-  onCancel: (action: WireGateAction) => void;
-  /** spec 053: one-click re-run for the error gate's `retry` action (threaded to the inline GateActions —
-   *  an error gate renders inline here, not in the docked bar, since `docked` needs awaiting_confirm). */
-  onRetry?: () => void;
-  onRestore?: () => void;
-  /** spec 035: start a NEW edit-existing build from a done/cancelled gate foot (same newTask({baseWorkflow})
-   *  the sidebar "+" uses). Only fired when task.project/task.workflowSlug are both set. */
-  onEditAgain?: (project: string, workflowSlug: string) => void;
-  /** spec 036 D5: run a live workflow test from a done AUTONOMOUS build (its only live path). Rendered
-   *  only when terminalFootActions.runTest holds (done + creds reachable + auto/spec_only). */
-  onRunTest?: () => void;
-  /** The post-import fix loop: arm change-mode on a DONE build so the fix found while testing in Dify is
-   *  typed into THIS conversation (→ POST /reply, which resumes the implement session) instead of
-   *  starting a new build. Contrast with `onEditAgain`, which deliberately opens a NEW conversation. */
+  /**
+   * Delete this build's throwaway Dify test apps. The one state-changing thing left on a card, and it is
+   * a LINK, not a button: it changes something in Dify but it does not move the build, and at the weight
+   * of a button it read as one of the ways forward out of the ④ gate. `keepCurrent` spares the app the
+   * current result belongs to. Absent ⇒ the link never renders.
+   */
+  onCleanupApps?: (action: WireGateAction, keepCurrent: boolean) => void;
   /** spec 103 step 1 — take back the last fix round (both files). Absent ⇒ the link never renders. */
   onUndoFix?: () => void;
   onOpenArtifact: (tab: ArtifactTab, view?: 'diff') => void;
@@ -616,29 +583,24 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
   const v = gateView(task);
   // Spec 103 step 1 — pure, in gate-foot.ts with its neighbours (and its regression tests).
   const showUndoFix = !!onUndoFix && canUndoFix(task, !!resolved);
-  const actions = task.gate?.actions ?? [];
   const tone = v.tone ? ' tone-' + v.tone : '';
   const badgeIcon = v.tone === 'error' ? <I.alert /> : v.tone === 'warn' ? <I.warn />
     : v.tone === 'danger' ? <I.lock /> : v.tone === 'done' ? <I.checkCircle />
     : v.tone === 'deploy' ? <I.external /> : <I.spark />;
-  // spec 033 D7/FIX-J: at an awaiting_confirm gate for phase∈{analyze,spec,implement}, the action-foot
-  // docks (App.tsx, above the composer) instead of rendering inline here — Ask never consumes the gate,
-  // so the SAME actions stay valid through any amount of chat. ④ Test gates are UNSCOPED (still inline,
-  // unchanged from today, D4) and error/cancelled stay inline too (handled by the branches below).
-  const docked = task.status === 'awaiting_confirm' && (task.phase === 'analyze' || task.phase === 'spec' || task.phase === 'implement');
-  // spec 035 D2: two INDEPENDENT terminal-foot actions (Restore cancelled-only, NOT gated on
-  // project/workflowSlug so a pre-scaffold cancel keeps it; Edit-again needs an on-disk target). Extracted
-  // to a pure helper (gate-foot.ts) with the four regression-guard cases in gate-foot.test.ts (§S1).
-  // spec 052: a promote build reuses none of the ①②③④ terminal-foot actions (Edit-this-workflow /
-  // Run-test / Restore) — its source project/workflowSlug would otherwise wrongly light Edit-again on a
-  // done promotion. Suppress them so only the promote gate's own actions render.
-  const isPromote = task.kind === 'promote';
-  const { restore: canRestore, editAgain: canEditAgain, runTest: canRunTest } =
-    terminalFootActions(task, {
-      restore: !!onRestore && !isPromote,
-      editAgain: !!onEditAgain && !isPromote,
-      runTest: !!onRunTest && !isPromote,
-    });
+  // A card is EVIDENCE — what happened, and links to read it. Every decision that moves the build lives
+  // in the composer row, and everything that acts on the build as a whole lives in the header, so no
+  // button appears here at all: not the gate's actions, not Restore/Edit-again/Run-test on a finished
+  // one. A thread you scroll back through is a record, and a record with live buttons in it invites
+  // acting on a moment that has already passed.
+  // The two exceptions are links, not buttons, and both are scoped to THIS round: take the last fix
+  // back, and delete the test apps this build made.
+  const cleanup = !resolved && onCleanupApps
+    ? (task.gate?.actions ?? []).find((a) => a.id === 'cleanup_apps')
+    : undefined;
+  const testApps = task.testApps ?? [];
+  // "Delete the older ones" only exists while there ARE older ones — a re-test auto-deletes the previous
+  // app, so the usual count is one and the pair would otherwise say the same thing twice.
+  const oldApps = testApps.filter((id) => id !== task.appId).length;
 
   return (
     <div className={'gate' + tone}>
@@ -658,7 +620,8 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
         </div>
       )}
 
-      {(v.showSpecLink || v.showSpecDiffLink || v.showReportLink || v.showDiffLink || v.showYamlLink || showUndoFix) && (
+      {(v.showSpecLink || v.showSpecDiffLink || v.showReportLink || v.showDiffLink || v.showYamlLink || showUndoFix
+        || (cleanup && testApps.length > 0)) && (
         <div className="gate-actions">
           {v.showSpecLink && (
             <button className="gs-link" onClick={() => onOpenArtifact('spec')}><I.doc />{tr('openSpec')}</button>
@@ -692,6 +655,19 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
           {showUndoFix && (
             <button className="gs-link gs-undo" onClick={onUndoFix}><I.undo />{tr('undoFix')}</button>
           )}
+          {/* Housekeeping, at link weight for the reason `gs-undo` above is: it is not a way forward. */}
+          {cleanup && testApps.length > 0 && (
+            <>
+              {oldApps > 0 && (
+                <button className="gs-link gs-undo" onClick={() => onCleanupApps!(cleanup, true)}>
+                  <I.close />{tf('deleteOldApps', { n: String(oldApps) })}
+                </button>
+              )}
+              <button className="gs-link gs-undo" onClick={() => onCleanupApps!(cleanup, false)}>
+                <I.close />{tAction(cleanup.label)} ({testApps.length})
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -701,32 +677,6 @@ export function GateCard({ task, resolved, busy, onConfirm, onArmChange, onCance
             <I.check style={{ width: 13, height: 13 }} />{tAction(resolved)}
           </span>
         </div>
-      ) : canRestore || canEditAgain || canRunTest ? (
-        // spec 035 D2 / 036 D5: Restore (cancelled-only — reopens THIS build), Edit-this-workflow (both
-        // statuses — starts a NEW edit-existing build), and Run-test-with-workflow (done autonomous +
-        // creds — re-enters the live sub-orchestrator) coexist as independent actions in one foot.
-        // A "Request a fix" button used to lead this foot. It is gone: the post-import fix loop it served
-        // is reached from the composer's ✎ pill, which is already on screen for the same build under the
-        // same label (修正を依頼). Two identically-labelled buttons where one only pointed at the other.
-        <div className="gate-foot">
-          {canRestore && (
-            <button className="btn ghost" disabled={busy} onClick={() => onRestore!()}>
-              <I.undo />{tr('restoreBuild')}
-            </button>
-          )}
-          {canEditAgain && (
-            <button className="btn ghost" disabled={busy} onClick={() => onEditAgain!(task.project!, task.workflowSlug!)}>
-              <I.edit />{tr('editThisWorkflow')}
-            </button>
-          )}
-          {canRunTest && (
-            <button className="btn ghost" disabled={busy} onClick={() => onRunTest!()}>
-              <I.spark />{tr('runTestWithWorkflow')}
-            </button>
-          )}
-        </div>
-      ) : docked ? null : actions.length > 0 ? (
-        <GateActions task={task} busy={busy} onConfirm={onConfirm} onArmChange={onArmChange} onCancel={onCancel} onRetry={onRetry} />
       ) : null}
     </div>
   );
@@ -940,9 +890,19 @@ function SendVariants({ ready, onPick }: { ready: boolean; onPick: (intent: 'cha
   );
 }
 
-export function Composer({ value, onChange, onSend, settings, onSettings, model, onModel, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, onMode, canChange, changeArmed, sendGlyph, canPropose, proposalPending }: {
+export function Composer({ value, onChange, onSend, settings, onSettings, model, onModel, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, canChange, changeArmed, sendGlyph, canPropose, proposalPending, confirmActs, gate }: {
   value: string;
   onChange: (value: string) => void;
+  /**
+   * The parked gate's action foot, rendered INSIDE the row at its left end — the phase's decision and
+   * the message you are about to send are one control surface now, not a card stacked on a box.
+   *
+   * Passing the prop AT ALL (even as `null`) switches the row to the two-group layout: gate on the left,
+   * every message control pushed right. A conversation composer always passes it, so the chips do not
+   * jump sides the moment a build parks; the entry surface omits it and keeps its chips at the left,
+   * where they are the point of that screen rather than a setting on a message.
+   */
+  gate?: preact.ComponentChildren;
   /** spec 092: intent is PER-MESSAGE — 'ask' from Enter / the chat button, 'change' from the labeled
    *  change pill / ⌘⌃Enter. Call sites where only one target exists just ignore it (composerTarget
    *  decides the route either way, so a stray intent can never mis-route — pinned in its tests). */
@@ -983,12 +943,16 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
   /** spec 103 Lane B — offer the "show me the plan first" send. Absent ⇒ no caret at all, so a build
    *  that has no workflow to plan against grows no surface. */
   canPropose?: boolean;
-  /** spec 082 §4.5: the entry-mode chip (`モード: 相談|ビルド`) — EMPTY VIEW ONLY (inside a task the kind
-   *  is fixed, so conversation composers omit both). Renders FIRST in the row, same chip style as the
-   *  others; while mode==='consult' the build chips (workflow/confirm/fast) are hidden — they are
-   *  meaningless for a chat and the row stays short (the nowrap rule keeps its slack). */
+  /**
+   * Which kind of thing the empty surface is about to start. It only SUPPRESSES here: on 'consult' the
+   * build chips (workflow/confirm/fast) are hidden, because a chat has no phases for them to govern.
+   *
+   * There is no chip for it and no setter. The choice is the sidebar's two "+" buttons — チャット and
+   * ビルド are separate sections there, so the surface you are typing into has already answered the
+   * question. A chip asking it again was a second control for a decision that was already made, and it
+   * had in fact been dead for some time: nothing ever passed the `onMode` it required.
+   */
   mode?: 'consult' | 'build';
-  onMode?: (mode: 'consult' | 'build') => void;
   /** spec 092: render the second send action (the ✎ change pill) — only where a change-intent send is
    *  actually legal (a parked ①—④ gate, kind≠promote; a fixable done build). Everywhere else the
    *  composer keeps its single send button. */
@@ -1000,6 +964,13 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
    *  switching to it mid-proposal changes nothing (the proposal gate hard-stops autonomous advance) and
    *  the server refuses the PATCH. See `lib/propose-lane.ts`. */
   proposalPending?: boolean;
+  /**
+   * Render the Confirm-mode chip at all. `false` only where the value can no longer change an outcome
+   * — from ③ on, where every remaining gate stops for a human whatever the mode says. Absent means yes,
+   * which is what the entry surface wants: that screen is where the mode is chosen. The rule itself,
+   * and why it is keyed on the phase rather than the status, is `lib/confirm-chip.ts`.
+   */
+  confirmActs?: boolean;
   /** spec 092: glyph for the send button. Default is the ↵ return-arrow — the button IS the Enter key,
    *  which is exactly what it should teach. 'edit' only where every send is a revision (promote), so
    *  that box doesn't dress a change request up as a plain send. */
@@ -1068,6 +1039,88 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
   const workflowOpts = [{ v: 'none', l: tr('noneNew') }, ...(workflows ?? [])];
   const atts = files ?? [];
 
+  /* The chips, named once and placed twice. Where they sit is the only difference between the two
+     composers: the entry surface leads with them (they ARE that screen's subject), while a conversation
+     files them with the other message controls at the right end, because there the row's left belongs to
+     the parked gate. One expression, so the two placements cannot drift into two different chip sets. */
+  const chips = (
+    <>
+    {/* spec 096: the Model chip sits OUTSIDE the build-only block below — it applies to a consult
+        chat exactly as much as to a build, and offering a choice that is silently dropped in one of
+        the two modes would be worse than not offering it. Start-bound like Workflow/Fast: locked
+        once the task is running, so every phase of one build is the same bet. Values are family
+        ALIASES, so each one means "the newest of that family this environment can reach".
+        `shrink` is load-bearing, not cosmetic: measured at an 820px viewport this chip added 93px
+        to a row that fit exactly without it, and `.composer-row` is `flex-wrap: nowrap` by design
+        (only the workflow chip was allowed to truncate). Marking this one shrinkable too keeps the
+        invariant the row exists to hold — everything on ONE line, Send never pushed off. */}
+    {onModel && (
+      <SettingSelect shrink label={tr('model')} value={model ?? ''}
+        /* No `?? 'opus'` fallback: that default LIED three times over — it showed "Opus" for a
+           task that had actually run on something else, and for a pre-096 task that recorded no
+           choice at all. A chip must never assert a value nobody picked. The sentinel appears only
+           when there is genuinely nothing to show (a pre-096 task in the conversation view, where
+           the chip is disabled anyway), so the entry composer never sees it. */
+        options={[
+          ...(model ? [] : [{ v: '', l: tr('modelUnset') }]),
+          ...MODEL_OPTIONS.map((m) => ({ v: m, l: tr(`model_${m}` as never) })),
+        ]}
+        onChange={onModel}
+        /* spec 096: NOT `lockStartBound`. The first message's choice is the DEFAULT, not a
+           life sentence — the requirement said "if you don't change it", which presumes you can,
+           and the CLI this mirrors lets you switch mid-session. `lockConfirm` (busy) is the right
+           guard: the same one confirm-mode uses, because a patch mid-turn would be clobbered by
+           the running orchestrator's own write — a lying control. */
+        disabled={lockConfirm} title={tr('modelHint')} />
+    )}
+    {/* spec 034 D3: the settings row is optional — a terminal Ask composer omits settings/onSettings,
+        so this whole block disappears and only attach + send remain. spec 082: the build
+        chips also hide while the Mode chip says consult — meaningless for a chat. */}
+    {settings && onSettings && mode !== 'consult' && (<>
+    {/* The two START-BOUND chips, shown only where they can still decide something — the new-task
+        surface. `lockStartBound` is passed unconditionally by the conversation composer, not tied
+        to `busy`, so in a conversation these were disabled for the whole life of every build: a
+        control you can never operate, which this codebase elsewhere calls a lying control.
+        Workflow was also near-constant there — 20 of 22 recorded builds are from-scratch, so it
+        sat saying "none (new)", i.e. that the build is based on nothing. Neither fact is lost:
+        an edit-existing build names its base in the header crumb (`runContextCrumb` uses
+        `task.workflow` as the leaf) and highlights it in the sidebar, and fast-build is a property
+        of the run, recorded with the run's own facts. */}
+    {!lockStartBound && (
+      <SettingSelect mono shrink icon={<I.sliders style={{ width: 12, height: 12 }} />} label={tr('workflow')}
+        value={settings.workflow} options={workflowOpts} onChange={(v) => onSettings({ workflow: v })}
+        title={tr('workflowFixed')} />
+    )}
+    {/* Shown only while a boundary this value governs is still ahead — from ③ on it decides nothing
+        (see lib/confirm-chip.ts), and the row needs its 137px for the gate's own buttons there.
+        `shrink` for the same reason the Model chip has it, now that a gate's buttons share the row:
+        「確認: 各ステップ」 is the widest fixed-label chip here, and a chip that truncates its value
+        still names its setting, while a gate button that loses its label stops being readable as a
+        decision. It gives way first — see the shrink factors in surface-blocks.css. */}
+    {confirmActs !== false && (
+      <SettingSelect shrink label={tr('confirm')} value={settings.confirm}
+        options={confirmModeOptions(
+          [{ v: 'each step', l: tr('eachStep') }, { v: 'spec only', l: tr('specOnly') }, { v: 'auto', l: tr('auto') }],
+          proposalPending ? { specRevise: true } : null
+        )}
+        onChange={(v) => onSettings({ confirm: v })}
+        disabled={lockConfirm} title={tr('confirmModeHint')} />
+    )}
+    {/* spec 028: ⚡ Fast build — from-scratch only (disabled when an existing workflow is chosen;
+        the backend also force-offs on seed/slug). spec 036: the Deploy + Test chips were removed
+        here — deploy/test are decided at the test gate from reachable creds (difyTargets), not
+        declared up front. */}
+    {!lockStartBound && (
+      <SettingSelect label={tr('fast')} value={settings.fast ? 'on' : 'off'}
+        options={[{ v: 'off', l: tr('fastOff') }, { v: 'on', l: tr('fastOn') }]}
+        onChange={(v) => onSettings({ fast: v === 'on' })}
+        disabled={settings.workflow !== 'none'} title={tr('fastHint')} />
+    )}
+    </>)}
+    </>
+  );
+
+
   return (
     <div className={'composer' + (dragOver ? ' drag-over' : '')}
       onDrop={onDrop} onDragOver={onDragOver} onDragLeave={() => setDragOver(false)}>
@@ -1100,122 +1153,59 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
         onInput={(e) => { onChange(e.currentTarget.value); autosize(); }}
         onKeyDown={onKeyDown} onPaste={onPaste}
       />
-      <div className="composer-row">
-        {/* spec 082 §4.5: the Mode chip — first in the row, entry-only (empty view). Same SettingSelect
-            as every other chip for style/interaction parity (the user's explicit call). */}
-        {mode && onMode && (
-          <SettingSelect label={tr('mode')} value={mode}
-            options={[{ v: 'consult', l: tr('modeConsult') }, { v: 'build', l: tr('modeBuild') }]}
-            onChange={(v) => onMode(v as 'consult' | 'build')} title={tr('modeHint')} />
-        )}
-        {/* spec 096: the Model chip sits OUTSIDE the build-only block below — it applies to a consult
-            chat exactly as much as to a build, and offering a choice that is silently dropped in one of
-            the two modes would be worse than not offering it. Start-bound like Workflow/Fast: locked
-            once the task is running, so every phase of one build is the same bet. Values are family
-            ALIASES, so each one means "the newest of that family this environment can reach".
-            `shrink` is load-bearing, not cosmetic: measured at an 820px viewport this chip added 93px
-            to a row that fit exactly without it, and `.composer-row` is `flex-wrap: nowrap` by design
-            (only the workflow chip was allowed to truncate). Marking this one shrinkable too keeps the
-            invariant the row exists to hold — everything on ONE line, Send never pushed off. */}
-        {onModel && (
-          <SettingSelect shrink label={tr('model')} value={model ?? ''}
-            /* No `?? 'opus'` fallback: that default LIED three times over — it showed "Opus" for a
-               task that had actually run on something else, and for a pre-096 task that recorded no
-               choice at all. A chip must never assert a value nobody picked. The sentinel appears only
-               when there is genuinely nothing to show (a pre-096 task in the conversation view, where
-               the chip is disabled anyway), so the entry composer never sees it. */
-            options={[
-              ...(model ? [] : [{ v: '', l: tr('modelUnset') }]),
-              ...MODEL_OPTIONS.map((m) => ({ v: m, l: tr(`model_${m}` as never) })),
-            ]}
-            onChange={onModel}
-            /* spec 096: NOT `lockStartBound`. The first message's choice is the DEFAULT, not a
-               life sentence — the requirement said "if you don't change it", which presumes you can,
-               and the CLI this mirrors lets you switch mid-session. `lockConfirm` (busy) is the right
-               guard: the same one confirm-mode uses, because a patch mid-turn would be clobbered by
-               the running orchestrator's own write — a lying control. */
-            disabled={lockConfirm} title={tr('modelHint')} />
-        )}
-        {/* spec 034 D3: the settings row is optional — a terminal Ask composer omits settings/onSettings,
-            so this whole block disappears and only the spacer + attach + send remain. spec 082: the build
-            chips also hide while the Mode chip says consult — meaningless for a chat. */}
-        {settings && onSettings && mode !== 'consult' && (<>
-        {/* The two START-BOUND chips, shown only where they can still decide something — the new-task
-            surface. `lockStartBound` is passed unconditionally by the conversation composer, not tied
-            to `busy`, so in a conversation these were disabled for the whole life of every build: a
-            control you can never operate, which this codebase elsewhere calls a lying control.
-            Workflow was also near-constant there — 20 of 22 recorded builds are from-scratch, so it
-            sat saying "none (new)", i.e. that the build is based on nothing. Neither fact is lost:
-            an edit-existing build names its base in the header crumb (`runContextCrumb` uses
-            `task.workflow` as the leaf) and highlights it in the sidebar, and fast-build is a property
-            of the run, recorded with the run's own facts. */}
-        {!lockStartBound && (
-          <SettingSelect mono shrink icon={<I.sliders style={{ width: 12, height: 12 }} />} label={tr('workflow')}
-            value={settings.workflow} options={workflowOpts} onChange={(v) => onSettings({ workflow: v })}
-            title={tr('workflowFixed')} />
-        )}
-        <SettingSelect label={tr('confirm')} value={settings.confirm}
-          options={confirmModeOptions(
-            [{ v: 'each step', l: tr('eachStep') }, { v: 'spec only', l: tr('specOnly') }, { v: 'auto', l: tr('auto') }],
-            proposalPending ? { specRevise: true } : null
+      {/* Two groups, never more — that is what makes the narrow case predictable. The gate's decision
+          on the left, everything that acts on the MESSAGE on the right, and when they stop fitting side
+          by side the row breaks between exactly those two and nowhere else. A free-for-all wrap over a
+          dozen loose children is what the old nowrap rule existed to prevent; with two items the wrap
+          has only one place to happen, so Send can never be left stranded on a line of its own. */}
+      <div className={'composer-row' + (gate !== undefined ? ' has-gate' : '')}>
+        {gate !== undefined ? <span className="composer-gate">{gate}</span> : chips}
+        <span className="composer-tools">
+          {gate !== undefined && chips}
+          {onAddFiles && (
+            <>
+              <input ref={fileRef} type="file" accept={ACCEPT_ATTR} multiple
+                style={{ display: 'none' }}
+                onChange={(e) => { takeFiles(e.currentTarget.files); e.currentTarget.value = ''; }} />
+              <button className="composer-attach" type="button" disabled={!canAttach}
+                aria-label={tr('attachFile')} title={tr('attachFile')}
+                onClick={() => fileRef.current?.click()}>
+                <I.paperclip />
+              </button>
+            </>
           )}
-          onChange={(v) => onSettings({ confirm: v })}
-          disabled={lockConfirm} title={tr('confirmModeHint')} />
-        {/* spec 028: ⚡ Fast build — from-scratch only (disabled when an existing workflow is chosen;
-            the backend also force-offs on seed/slug). spec 036: the Deploy + Test chips were removed
-            here — deploy/test are decided at the test gate from reachable creds (difyTargets), not
-            declared up front. */}
-        {!lockStartBound && (
-          <SettingSelect label={tr('fast')} value={settings.fast ? 'on' : 'off'}
-            options={[{ v: 'off', l: tr('fastOff') }, { v: 'on', l: tr('fastOn') }]}
-            onChange={(v) => onSettings({ fast: v === 'on' })}
-            disabled={settings.workflow !== 'none'} title={tr('fastHint')} />
-        )}
-        </>)}
-        <span className="spacer" />
-        {onAddFiles && (
-          <>
-            <input ref={fileRef} type="file" accept={ACCEPT_ATTR} multiple
-              style={{ display: 'none' }}
-              onChange={(e) => { takeFiles(e.currentTarget.files); e.currentTarget.value = ''; }} />
-            <button className="composer-attach" type="button" disabled={!canAttach}
-              aria-label={tr('attachFile')} title={tr('attachFile')}
-              onClick={() => fileRef.current?.click()}>
-              <I.paperclip />
-            </button>
-          </>
-        )}
-        {/* spec 092: the change pill — the deliberate, labeled door to the expensive send (re-runs the
-            phase / reopens a done build). Sits LEFT of the ask button so the rightmost position — the
-            old single-send spot, where muscle memory clicks — stays the cheap default. */}
-        {canChange && (
-          <span className="composer-change-wrap">
-            <button className={'composer-change' + (ready ? ' ready' : '') + (changeArmed ? ' armed' : '')}
-              type="button" onClick={() => { if (ready) onSend('change'); }} disabled={!ready}
-              title={tr('sendChangeTip')}>
-              <I.edit /><span className="cc-label">{tr('modeChange')}</span>
-            </button>
-            {canPropose && <SendVariants ready={ready} onPick={onSend} />}
-          </span>
-        )}
-        {/* Labeled like its sibling pill so the pair reads as two SENDS, not toggle+send. Next to the
-            change pill the label says WHAT it sends (質問を送信) — a bare 送信 there would re-create the
-            old trap: click the change pill expecting a mode, type, press "送信", message leaves as a
-            question.
+          {/* spec 092: the change pill — the deliberate, labeled door to the expensive send (re-runs the
+              phase / reopens a done build). Sits LEFT of the ask button so the rightmost position — the
+              old single-send spot, where muscle memory clicks — stays the cheap default. */}
+          {canChange && (
+            <span className="composer-change-wrap">
+              <button className={'composer-change' + (ready ? ' ready' : '') + (changeArmed ? ' armed' : '')}
+                type="button" onClick={() => { if (ready) onSend('change'); }} disabled={!ready}
+                title={tr('sendChangeTip')}>
+                <I.edit /><span className="cc-label">{tr('modeChange')}</span>
+              </button>
+              {canPropose && <SendVariants ready={ready} onPick={onSend} />}
+            </span>
+          )}
+          {/* Labeled like its sibling pill so the pair reads as two SENDS, not toggle+send. Next to the
+              change pill the label says WHAT it sends (質問を送信) — a bare 送信 there would re-create the
+              old trap: click the change pill expecting a mode, type, press "送信", message leaves as a
+              question.
 
-            `sendGlyph === 'edit'` marks a composer whose SINGLE button is a change request: a promote
-            build has no ask lane at all (`composerTarget` routes it to /reply whatever the intent), so
-            there is nothing for a second button to do. It carries the change LABEL too, not just the
-            pencil. One act, one name, everywhere: a bare 送信 there made promote the one surface where
-            asking for a fix was called something else. */}
-        <button className={'composer-send' + (ready ? ' ready' : '')}
-          onClick={() => { if (ready) onSend('ask'); }} disabled={!ready}
-          title={canChange ? tr('sendAskTip') : sendGlyph === 'edit' ? tr('sendChangeOnlyTip') : undefined}>
-          {sendGlyph === 'edit' ? <I.edit /> : <I.enter />}
-          <span className="cs-label">
-            {canChange ? tr('sendAskBtn') : sendGlyph === 'edit' ? tr('modeChange') : tr('sendBtn')}
-          </span>
-        </button>
+              `sendGlyph === 'edit'` marks a composer whose SINGLE button is a change request: a promote
+              build has no ask lane at all (`composerTarget` routes it to /reply whatever the intent), so
+              there is nothing for a second button to do. It carries the change LABEL too, not just the
+              pencil. One act, one name, everywhere: a bare 送信 there made promote the one surface where
+              asking for a fix was called something else. */}
+          <button className={'composer-send' + (ready ? ' ready' : '')}
+            onClick={() => { if (ready) onSend('ask'); }} disabled={!ready}
+            title={canChange ? tr('sendAskTip') : sendGlyph === 'edit' ? tr('sendChangeOnlyTip') : undefined}>
+            {sendGlyph === 'edit' ? <I.edit /> : <I.enter />}
+            <span className="cs-label">
+              {canChange ? tr('sendAskBtn') : sendGlyph === 'edit' ? tr('modeChange') : tr('sendBtn')}
+            </span>
+          </button>
+        </span>
       </div>
     </div>
   );

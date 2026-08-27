@@ -30,10 +30,26 @@ describe('097 · Stop on every ask', () => {
     assert.doesNotMatch(block, /kind === 'consult'/);
   });
 
-  test('the top pill no longer duplicates it (build-only again)', () => {
+  test('the top pill no longer duplicates it (it ends the BUILD, never an ask)', () => {
     // Two controls for one action read as two different actions; the bubble owns ask-stopping now.
     assert.doesNotMatch(app, /asking && task\?\.kind === 'consult'/);
-    assert.match(app, /view === 'conversation' && busy && \(/);
+    // The pill grew a second state — it is also the discard for any parked gate that offers one — so
+    // its condition is no longer the bare `busy`. What this guards is unchanged and is the reason the
+    // shape is pinned at all: BOTH states are build facts (a running turn, or the gate's own cancel
+    // action), so no amount of asking can put a second stop button on the screen.
+    assert.match(app, /const endPill = endBuildPill\(busy, gateOffersCancel\(task\)\)/);
+    assert.match(app, /view === 'conversation' && endPill && \(/);
+  });
+
+  test('the pill is dead while an ask streams — /cancel would abort the ANSWER, not the build', () => {
+    // POST /cancel returns early when the live turn is an ask (routes/tasks.ts): it force-kills that
+    // child and leaves task.status alone. So a 「ビルドを破棄」 click mid-answer would silently end the
+    // answer and leave the build exactly where it was — a control that lies about what it did. The
+    // docked bar it inherited this action from was disabled the same way (`busy || asking`).
+    const at = app.indexOf("view === 'conversation' && endPill && (");
+    assert.notEqual(at, -1);
+    const block = app.slice(at, at + 700);
+    assert.match(block, /disabled=\{endPill === 'discard' && asking\}/);
   });
 
   test('the stop hint is translated (a JA reader must not meet English on a control)', () => {

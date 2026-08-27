@@ -10,7 +10,7 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import type { VNode } from 'preact';
 import { I } from './Icon';
 import { SplitDiffView } from './SplitDiffView';
-import { specDiffState } from '../lib/diff-parser';
+import { diffStats, specDiffState } from '../lib/diff-parser';
 import { renderMarkdownHtml } from '../lib/markdown';
 import { activeTocIndex, tocSelector, usesYamlAnchors, yamlAnchors, type TocEntry } from '../lib/artifact-toc';
 import { t as tr, tAction, tf, lang, localizeNotes } from '../lib/i18n';
@@ -128,6 +128,21 @@ interface ReportShape {
   notes?: string;
 }
 
+/** A diff's size, in the header slot where a file shows its line count. This is the `+N −M` the diff
+ *  view used to print in a head row of its own — same numbers, one row up, and COUNTED this time. */
+function DiffStat({ diff }: { diff: string }) {
+  const { additions, deletions } = diffStats(diff);
+  return (
+    <>
+      {tr('diffStat')}
+      {' · '}
+      <span className="dstat-add">+{additions}</span>
+      {' '}
+      <span className="dstat-del">−{deletions}</span>
+    </>
+  );
+}
+
 /**
  * The bar at the top of a file: what it is, how big it is, and what you can do with it. SPEC.md and
  * main.yml render the SAME one — the panel is a set of files now, and a file that looks different from
@@ -140,8 +155,9 @@ interface ReportShape {
 function FileHeader({ icon, name, meta, taskId, which, contents, onReveal }: {
   icon: VNode;
   name: string;
-  /** The small grey line after the name — "yaml · 6652 行". Sized off what is ON SCREEN. */
-  meta: string;
+  /** The small grey line after the name — "yaml · 6652 行", or a diff's coloured +/− tally. Describes
+   *  what is ON SCREEN, so it changes with the view. */
+  meta: VNode | string;
   taskId: string;
   which: ArtifactFile;
   contents: string | null;
@@ -213,31 +229,38 @@ function FileActions({ taskId, which, contents, onReveal }: {
     }
   };
 
-  const ic = { width: 12, height: 12 };
+  // Both location actions hang off `path`. Resolving it IS the "this exists on disk" check — the route
+  // 404s otherwise — and it is the same check reveal needs, so offering Reveal without it would be
+  // offering a button whose only outcome is an error banner.
+  if (!path) return null;
+  const pathHint = tr(which === 'folder' ? 'copyFolderPathHint' : 'copyPathHint');
   return (
     <>
+      {/* Icon-only. Five labelled pills across one panel was more words than the files they act on, and
+          these three repeat on every tab — the reader was re-reading the same three sentences all day.
+          The name lives in `title` (the tooltip) and `aria-label` (the only name a screen reader gets,
+          so it is not optional here the way it was when the label was on screen). */}
       <button className="cb-reveal" onClick={() => onReveal(which)}
         title={tr('revealInFinder')} aria-label={tr('revealInFinder')}>
-        <I.folder style={ic} />{tr('revealInFinder')}
+        <I.folder />
       </button>
-      {/* A .cb-reveal, not a .cb-copy: it belongs with Finder. The tooltip is the path itself, so
-          hovering tells you exactly what you are about to take. */}
-      {path && (
-        <button className={'cb-reveal' + (flash === 'path' ? ' copied' : '')}
-          onClick={() => void copy('path', path)}
-          title={path} aria-label={tr('copyPathHint')}>
-          {flash === 'path'
-            ? <><I.check style={ic} />{tr('pathCopied')}</>
-            : <><I.copy style={ic} />{tr('copyPath')}</>}
-        </button>
-      )}
+      {/* A LINK icon, not a second copy icon. The two copies sit next to each other and the labels that
+          used to tell them apart are gone — two identical glyphs whose outcomes differ (a path vs. the
+          whole file) is exactly the confusion spec 103 §1.5 exists to remove. A link reads as "a
+          reference to where this is", which is what a path is.
+          Still a .cb-reveal by class: it belongs with Finder, both answer "where is this". The tooltip
+          names the action AND shows the path under it — with no label, that is the only place to read
+          either. */}
+      <button className={'cb-reveal' + (flash === 'path' ? ' copied' : '')}
+        onClick={() => void copy('path', path)}
+        title={`${pathHint}\n${path}`} aria-label={pathHint}>
+        {flash === 'path' ? <I.check /> : <I.link />}
+      </button>
       {contents !== null && (
         <button className={'cb-copy' + (flash === 'body' ? ' copied' : '')}
           onClick={() => void copy('body', contents)}
           title={tr('copyFileHint')} aria-label={tr('copyFileHint')}>
-          {flash === 'body'
-            ? <><I.check style={ic} />{tr('copied')}</>
-            : <><I.copy style={ic} />{tr('copyFile')}</>}
+          {flash === 'body' ? <I.check /> : <I.copy />}
         </button>
       )}
     </>
@@ -364,7 +387,7 @@ function SpecTab({ task, content, specDiff, mode, setMode, onSave, onReveal, onD
   // back at RENDER, not by writing state, keeps this a pure consequence of what exists.
   const view: SpecMode = mode === 'diff' && specState === 'absent' ? 'preview' : mode;
   const diffPane = specState === 'changed'
-    ? <div className="spec-diff"><SplitDiffView file={{ path: 'SPEC.md', status: 'modified', additions: 0, deletions: 0, diff: specDiff ?? '' }} /></div>
+    ? <div className="spec-diff"><SplitDiffView file={{ path: 'SPEC.md', status: 'modified', ...diffStats(specDiff ?? ''), diff: specDiff ?? '' }} /></div>
     : <div className="spec-diff secret-note">{tr('diffSpecUnchanged')}</div>;
 
   return (
@@ -392,7 +415,7 @@ function SpecTab({ task, content, specDiff, mode, setMode, onSave, onReveal, onD
           both the size and what Copy takes — an unsaved edit shows and copies what is on screen. */}
       <div className="filecard spec-card">
         <FileHeader icon={<I.doc style={{ width: 13, height: 13 }} />} name="SPEC.md"
-          meta={tf('mdLines', { n: val ? val.split('\n').length : 0 })}
+          meta={view === 'diff' ? <DiffStat diff={specDiff ?? ''} /> : tf('mdLines', { n: val ? val.split('\n').length : 0 })}
           taskId={task.taskId} which="spec" contents={val.trim() ? val : null} onReveal={onReveal} />
         <div className="fc-body">
           {view === 'diff' ? diffPane
@@ -484,13 +507,13 @@ function YamlTab({ yaml, report, diff, mode, setMode, taskId, onReveal }: {
         <div className="filecard codeblock">
           <FileHeader icon={<I.yaml style={{ width: 13, height: 13 }} />} name="main.yml"
             meta={view === 'diff'
-              ? tf('diffLines', { n: (diff ?? '').split('\n').filter((l) => /^[+-][^+-]/.test(l)).length })
+              ? <DiffStat diff={diff ?? ''} />
               : tf('yamlLines', { n: (yaml ?? '').split('\n').length })}
             taskId={taskId} which="workflow" contents={yaml} onReveal={onReveal} />
           <div className="fc-body">
             {view === 'diff'
               ? (diff && diff.trim()
-                ? <SplitDiffView file={{ path: 'main.yml', status: 'modified', additions: 0, deletions: 0, diff }} />
+                ? <SplitDiffView file={{ path: 'main.yml', status: 'modified', ...diffStats(diff), diff }} />
                 : <div className="secret-note">{tr('diffWorkflowUnchanged')}</div>)
               : <pre>{yaml}</pre>}
           </div>
@@ -833,6 +856,14 @@ export function ArtifactPanel({ task, tab, setTab, specMode, setSpecMode, yamlMo
           <span className="ah-title">{tr('artifact')}</span>
           <span className="ah-sub">{task.workflowSlug ?? task.name ?? tr('newWorkflow')}</span>
         </div>
+        {/* The build's FOLDER — the thing the subtitle names. The tabs below reach the two files inside
+            it; this reaches everything else the build wrote (inputs/, prompts/, tests/), which until now
+            had no door at all. `contents={null}`: a directory has no text to copy, so FileActions renders
+            only its two location actions. It renders nothing at all pre-scaffold, when there is no
+            folder yet. */}
+        <span className="fc-actions ah-actions">
+          <FileActions taskId={task.taskId} which="folder" contents={null} onReveal={onReveal} />
+        </span>
         <button className="icon-btn" style={{ marginLeft: 'auto' }} onClick={toggleExpanded}
           title={expanded ? tr('collapsePanelHint') : tr('expandPanelHint')}
           aria-label={expanded ? tr('collapsePanel') : tr('expandPanel')} aria-pressed={expanded}>

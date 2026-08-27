@@ -26,6 +26,33 @@ describe('revealCommand', () => {
     assert.deepEqual(revealCommand('win32', P), { cmd: 'explorer', args: [`/select,${P}`] });
   });
 
+  // A DIRECTORY inverts what each platform is being asked for, which is why `isDir` is a parameter and
+  // not something the caller can forget. "Reveal a file" means show it selected inside its parent; doing
+  // that to a folder opens the folder's PARENT with the folder highlighted — one level too high, and the
+  // opposite of what an "open this build's folder" button promises.
+  const DIR = '/Users/me/dify/projects/_drafts/news_2';
+
+  test('darwin OPENS a directory rather than selecting it in its parent', () => {
+    assert.deepEqual(revealCommand('darwin', DIR, true), { cmd: 'open', args: [DIR] });
+  });
+
+  test('linux opens the directory ITSELF — its file form would have opened the parent', () => {
+    // The one that would have been silently wrong: the file branch passes `dirname(path)`, so a
+    // directory argument lands one level above the folder the button names.
+    assert.deepEqual(revealCommand('linux', DIR, true), { cmd: 'xdg-open', args: [DIR] });
+    assert.deepEqual(revealCommand('linux', DIR, false), { cmd: 'xdg-open', args: ['/Users/me/dify/projects/_drafts'] });
+  });
+
+  test('win32 opens the directory instead of /select,-ing it', () => {
+    assert.deepEqual(revealCommand('win32', DIR, true), { cmd: 'explorer', args: [DIR] });
+  });
+
+  test('isDir defaults to false, so every existing file caller keeps its behaviour', () => {
+    assert.deepEqual(revealCommand('darwin', P), revealCommand('darwin', P, false));
+    assert.deepEqual(revealCommand('linux', P), revealCommand('linux', P, false));
+    assert.deepEqual(revealCommand('win32', P), revealCommand('win32', P, false));
+  });
+
   test('a shell-metachar path stays a single argv element (no injection surface)', () => {
     const evil = '/tmp/a b; rm -rf ~/`whoami`.yml';
     const { cmd, args } = revealCommand('darwin', evil);

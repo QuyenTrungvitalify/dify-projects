@@ -11,6 +11,7 @@ import { Sidebar } from './Sidebar';
 import { PhaseTrack, Disclosure, GateCard, GateActions, QaAnswer, Composer, MsgAttachments } from './Chat';
 import { ArtifactPanel, type SpecMode, type YamlMode } from './ArtifactPanel';
 import { CreateProjectModal, IntakeYamlModal, ConfirmModal } from './Modal';
+import { AuthModal } from './AuthModal';
 import { BgTray } from './BgTray';
 import { DevPanel } from './DevPanel';
 import { PrefsMenu } from './PrefsMenu';
@@ -26,6 +27,9 @@ import { newTaskCrumb, runContextCrumb, workflowOptions, activeSidebarProject, a
 import { canPromoteFromConversation } from '../lib/promote-visibility';
 import { composerTarget, replyLabel, type ComposerIntent } from '../lib/composer-route';
 import { canPropose, confirmModeOptions } from '../lib/propose-lane';
+import { gateOffersCancel, terminalFootActions, visibleGateActions } from '../lib/gate-foot';
+import { confirmModeActs } from '../lib/confirm-chip';
+import { endBuildCopy, endBuildPill } from '../lib/cancel-confirm';
 import { api, ApiError } from '../api';
 
 let _attUid = 0;
@@ -154,6 +158,7 @@ export function App() {
   const confirmReq = store.confirmState.value;
 
   useEffect(() => {
+    void store.checkAuth(); // signed out → the sign-in modal, before a prompt is composed against it
     void store.loadTree();
     void store.loadSeeds();
     void store.loadActive(); // load-recovery: list in-progress builds so a parked one isn't stranded (Lát 6)
@@ -311,9 +316,12 @@ export function App() {
   // CARRIES any staged composer files (attach is live at an error gate, so dropping them would be silent
   // data loss). Empty text is allowed only because store.reply/​the server relax the guard for status==='error'.
   // Files are cleared only on success (mirrors send()'s reset), so a 409 turn-busy keeps them staged.
-  function onRetry(): void {
+  // The text-less re-run behind 「フェーズを再試行」 and 「再試行を続ける」. The action's own label rides
+  // along so the resolved gate records which of the two was pressed — they end up at the same phase but
+  // they are not the same decision, and a history that calls both "Retry phase" says the wrong one.
+  function onRetry(action: WireGateAction): void {
     const atts = files.length ? toWire(files) : undefined;
-    void store.reply('', 'Retry phase', atts).then((ok) => { if (ok) setFiles([]); });
+    void store.reply('', action.label, atts).then((ok) => { if (ok) setFiles([]); });
   }
   /** Open the panel on `tab`. `view: 'diff'` also switches that tab into its diff mode — the gate cards'
    *  two 差分 links are deep links, and landing on the file's normal view would make the reader hunt for
@@ -348,14 +356,6 @@ export function App() {
     }
     void store.confirm(action, extra);
   }
-  // The cancel-kind gate action (Discard/Abandon) is terminal — confirm before abandoning the build.
-  async function onDiscard(): Promise<void> {
-    const ok = await store.askConfirm({
-      title: tr('discardTitle'), message: tr('discardMsg'),
-      okLabel: tr('discardOk'), danger: true,
-    });
-    if (ok) void store.cancel();
-  }
   // spec 029: the two sidebar "+" intents flow in via opts. resetToNew() first (clears prior state incl.
   // any stale pre-selection), THEN re-apply this launch's opts — that ordering IS the non-clobber (the
   // footer/manual "New task" passes no opts → a clean from-scratch slate).
@@ -379,18 +379,20 @@ export function App() {
     setArtifactOpen(false);
     setArmed(null);
   }
-  // Stop pill (design handoff): the in-conversation way to cancel the OPEN build while its turn is
-  // running (the gate card — the only other cancel affordance in the main view — isn't shown mid-turn).
-  // Real-app semantics: /cancel is terminal, so this confirms via the common ConfirmModal (danger).
-  async function onStop(): Promise<void> {
+  // The header pill that ends the OPEN build — one control for both states, because /cancel is one POST
+  // either way and only the wording differs: a running turn is told its phase progress goes, a parked
+  // one is told its spec and artifacts stay on disk. Confirmed through the common ConfirmModal (danger),
+  // with the copy keyed on the PILL so the dialog repeats the word the button just said.
+  async function onEndBuild(): Promise<void> {
     const t = store.task.value;
-    if (!t) return;
+    if (!t || !endPill) return;
     const raw = t.name?.trim() || t.requirement;
     const title = raw.length > 46 ? raw.slice(0, 46) + '…' : raw;
+    const copy = endBuildCopy(endPill);
     const ok = await store.askConfirm({
-      title: tr('stopBuildTitle'),
-      message: tf('stopBuildMsg', { name: title }),
-      okLabel: tr('stopBuild'),
+      title: tr(copy.titleKey),
+      message: tf(copy.msgKey, { name: title }),
+      okLabel: tr(copy.okKey),
       danger: true,
     });
     if (ok) void store.cancel();
@@ -442,8 +444,25 @@ export function App() {
   const tabs = task ? availableTabs(task) : [];
   // spec 033 D7/FIX-J: the docked action bar is scoped to a live gate at phase∈{analyze,spec,implement}
   // — ④ Test gates render their actions INLINE exactly as today (D4), so the bar must NOT extend to ④.
-  const dockedGate = !!task && task.status === 'awaiting_confirm' &&
-    (task.phase === 'analyze' || task.phase === 'spec' || task.phase === 'implement');
+  // EVERY parked gate's actions ride in the composer row — the four phases, the error gate, the promote
+  // gates alike. It used to be ①②③ only, with ④ and error drawing their own buttons on the card, and the
+  // split had no rule you could state: the reason the bar exists (an Ask never consumes the gate, so the
+  // decision must survive any amount of chat) is just as true at ④, where asking two questions used to
+  // scroll 「Difyにインポート」 off the screen. `visibleGateActions` is empty while a turn runs and at a
+  // terminal build, which is exactly when there is nothing to decide.
+  const gateActions = task ? visibleGateActions(task) : [];
+  const dockedGate = gateActions.length > 0;
+  // Stop-a-turn and discard-a-parked-build are the same POST under two names, so they are one header
+  // pill. It follows the gate's own cancel action rather than the phase, so it appears exactly where the
+  // backend offers one — and stays away from the promote share gates, which are confirm-only on purpose
+  // so that declining to share can never mark a finished promotion `cancelled`.
+  const endPill = endBuildPill(busy, gateOffersCancel(task));
+  // Restore / Run-test: acts on the BUILD, so they are header pills beside Export and Edit rather than
+  // buttons on the finished card. Same guards as before, still pure — a promote build reuses none of
+  // them (its source project/workflowSlug would otherwise light Edit-again on a done promotion).
+  const terminalFoot = task && task.kind !== 'promote'
+    ? terminalFootActions(task, { restore: true, editAgain: true, runTest: true })
+    : { restore: false, editAgain: false, runTest: false };
   // spec 034 D5 (recut by 092): where BOTH send actions exist — the composer renders the ✎ change pill
   // next to the chat/ask button. Extends to ④ (Ask works at all four ④ gates). This is a DIFFERENT
   // predicate from `dockedGate` (which drives the docked action BAR, deliberately NOT wanted at ④):
@@ -555,11 +574,19 @@ export function App() {
               {/* spec 097: the ask case moved INTO the answer bubble (beside "Answering…", where chat UIs
                   put it and where the eye already is). Two stops for one action read as two different
                   ones, so this pill is now build-only again. */}
-              {view === 'conversation' && busy && (
-                <button className="ghost-pill stop-pill"
-                  onClick={() => void onStop()}
-                  title={tr('stopRunningBuild')}>
-                  <span className="stop-sq" />{tr('stop')}
+              {/* The docked bar below no longer draws 「ビルドを破棄」: it is this pill's second state, so
+                  the one way to end a build sits in one place whether or not a turn is running.
+                  Disabled while an Ask streams, and that is not politeness — /cancel aborts a LIVE ASK
+                  and returns without touching the build (routes/tasks.ts), so a click here mid-answer
+                  would kill the answer and leave the build exactly where it was. The Ask has its own
+                  Stop, in its answer bubble. */}
+              {view === 'conversation' && endPill && (
+                <button className={'ghost-pill' + (endPill === 'stop' ? ' stop-pill' : '')}
+                  onClick={() => void onEndBuild()}
+                  disabled={endPill === 'discard' && asking}
+                  title={endPill === 'stop' ? tr('stopRunningBuild') : tr('discardMsg')}>
+                  {endPill === 'stop' ? <span className="stop-sq" /> : <I.close />}
+                  {endPill === 'stop' ? tr('stop') : tr('discardOk')}
                 </button>
               )}
               {view === 'conversation' && tabs.length > 0 && !artifactOpen && (
@@ -600,9 +627,30 @@ export function App() {
                   )}
                 </div>
               )}
-              {/* "Edit this workflow" — always-visible in the header while viewing a build whose workflow
-                  is on disk (done/cancelled OR the ④ test gate), so editing doesn't require first clicking
-                  "承認" to reach the terminal gate-foot. Click → a NEW edit-existing build on this workflow. */}
+              {/* Restore — reopen a build you closed. It used to be a button on the cancelled card, which
+                  is the one place it does not belong: reopening the build is an act on the BUILD, and the
+                  card is the record of the moment it stopped. Cancelled-only, and deliberately NOT gated
+                  on an on-disk workflow — a from-scratch build cancelled before the scaffold ran has none,
+                  and that is exactly the build worth reopening. */}
+              {view === 'conversation' && terminalFoot.restore && (
+                <button className="ghost-pill" onClick={() => void store.restore()} title={tr('restoreBuild')}>
+                  <I.undo />{tr('restoreBuild')}
+                </button>
+              )}
+              {/* Run a live test on a finished autonomous build — its only live path (an each_step build
+                  was already offered the button at its ③ gate). Same move from card to header, same
+                  reason. Self-host reachability is checked on CLICK, not here, so the feature is
+                  discoverable rather than invisible until configured. */}
+              {view === 'conversation' && terminalFoot.runTest && (
+                <button className="ghost-pill" onClick={() => void store.liveTest()} title={tr('runTestWithWorkflow')}>
+                  <I.spark />{tr('runTestWithWorkflow')}
+                </button>
+              )}
+              {/* "Edit this workflow" — the header has always carried this, and the done card carried it
+                  too under a second name (「新しい会話で編集」 vs 「編集（新規）」): one act, two labels, two
+                  places. The card's copy is gone; this is the one. Shown while viewing a build whose
+                  workflow is on disk (done/cancelled OR the ④ test gate), so editing doesn't require first
+                  clicking "承認". Click → a NEW edit-existing build on this workflow. */}
               {view === 'conversation' && task && task.kind !== 'promote' && task.project && task.workflowSlug &&
                 (task.status === 'done' || task.status === 'cancelled' ||
                   (task.status === 'awaiting_confirm' && task.phase === 'test')) && (
@@ -725,22 +773,13 @@ export function App() {
                       </div>;
                     // gate
                     return <div key={item.id} className="msg msg-assistant">
-                      <GateCard task={item.snapshot} resolved={item.resolved} busy={busy || asking}
-                        onConfirm={onConfirm}
-                        onArmChange={(label) => { setArmed(label); setFocusToken((x) => x + 1); }}
-                        onCancel={() => void onDiscard()}
-                        onRetry={onRetry}
-                        onRestore={() => void store.restore()}
+                      <GateCard task={item.snapshot} resolved={item.resolved}
+                        /* A card carries no buttons: the gate's decisions are in the composer row and
+                           Restore / Edit-again / Run-test are header pills. What is left are two links
+                           scoped to this round — take the last fix back, and sweep the test apps. */
                         onUndoFix={() => void onUndoFix()}
-                        /* spec 035: "Edit this workflow" — a done/cancelled gate-foot button that starts a
-                           NEW edit-existing build via the SAME newTask({baseWorkflow}) the sidebar "+" uses. */
-                        onEditAgain={(project, workflow) => newTask({ baseWorkflow: { project, workflow } })}
-                        /* spec 036 D5: "Run test with workflow" — re-enter the live sub-orchestrator from a
-                           done autonomous build (terminalFootActions gates it on creds + auto/spec_only). */
-                        onRunTest={() => void store.liveTest()}
-                        /* The post-import fix loop: keep working in THIS conversation — arm change-mode so
-                           the next message is a revision (POST /reply resumes the implement session),
-                           instead of onEditAgain's new build. */
+                        onCleanupApps={(action, keepCurrent) =>
+                          void onConfirm(action, keepCurrent ? { keepCurrent: true } : undefined)}
                         onOpenArtifact={openArtifact}
                       />
                     </div>;
@@ -753,21 +792,6 @@ export function App() {
 
               <PersistDegradedBanner />
 
-              {/* spec 033 D7/FIX-J: the docked action bar — pinned above the composer while parked at
-                  an analyze/spec/implement gate, so the phase's next-step actions stay reachable through
-                  any amount of Ask chat. Disabled during a live Ask OR a live Reply (FIX-H). */}
-              {task && dockedGate && (
-                <div className="docked-gate-dock">
-                  <div className="composer-wrap">
-                    <GateActions task={task} busy={busy || asking} onConfirm={onConfirm}
-                      onArmChange={(label) => { setArmed(label); setFocusToken((x) => x + 1); }}
-                      onCancel={() => void onDiscard()}
-                      onRetry={onRetry}
-                    />
-                  </div>
-                </div>
-              )}
-
               <div className="composer-dock">
                 <div className="composer-wrap">
                   {/* F2 (spec 010): while the active build is LIVE (non-terminal) the Confirm chip
@@ -776,6 +800,17 @@ export function App() {
                       composer is Ask-only (send() routes done/cancelled → store.ask), dropping the row. */}
                   {task && task.status !== 'done' && task.status !== 'cancelled' ? (
                       <Composer value={draft} onChange={onDraftChange} onSend={(intent) => send(undefined, intent)}
+                        /* The parked gate's actions ride INSIDE the row, at its left end — every gate,
+                           now: the four phases, the error gate, promote. Passed on every conversation
+                           composer (`null` while a turn runs and there is nothing to decide) so the row
+                           keeps one shape for the whole life of a build instead of re-arranging itself
+                           each time the build parks and resumes. */
+                        gate={dockedGate ? (
+                          <GateActions task={task} busy={busy || asking} onConfirm={onConfirm}
+                            onArmChange={(label) => { setArmed(label); setFocusToken((x) => x + 1); }}
+                            onRetry={onRetry}
+                          />
+                        ) : null}
                         /* spec 092: at an askable gate BOTH send actions render — the chat/ask button
                            (Enter, cheap) and the ✎ change pill (deliberate, re-runs the phase). The old
                            mode-row indicator is gone: intent lives on the button pressed, not in state.
@@ -785,6 +820,10 @@ export function App() {
                            and only one proposal at a time (the server re-checks both). */
                         canPropose={proposeLane}
                         proposalPending={!!task.specRevise}
+                        /* The Confirm chip retires at ③: from there on every remaining gate stops for
+                           a human whatever the mode says, so the value has nothing left to decide — and
+                           the row needs the width for the gate's own buttons. See lib/confirm-chip.ts. */
+                        confirmActs={confirmModeActs(task)}
                         sendGlyph={task.kind === 'promote' ? 'edit' : undefined}
                         /* spec 052: a promote build has no ①②③④ run-settings — omit the Workflow/Confirm/Fast
                            chips (and their confirm_mode PATCH) so the promote-gate composer is a plain reply box. */
@@ -825,6 +864,10 @@ export function App() {
                     // build the ✎ change pill routes the same box to POST /reply (spec 092: per-message
                     // intent; the old mode-arm row is gone since the pill is always visible here).
                       <Composer value={draft} onChange={onDraftChange} onSend={(intent) => send(undefined, intent)}
+                        /* No gate to put here, but the LAYOUT is the conversation's, not the entry
+                           screen's: a build that finishes must not slide its remaining chip back across
+                           the row as its parting move. */
+                        gate={null}
                         canChange={terminalFixable} changeArmed={!!armed}
                         /* spec 103 Lane B — a plan can only be drafted against a workflow that exists,
                            and only one proposal at a time (the server re-checks both). */
@@ -898,6 +941,16 @@ export function App() {
 
       {/* spec 084: the background-distill tray — a fixed corner panel, independent of the open view. */}
       <BgTray />
+
+      {/* The sign-in door. Opened by a signed-out send (store.surfaceError) and by the boot probe —
+          a Builder on a signed-out machine can run nothing, so the state is worth saying up front
+          rather than at the moment the user's first prompt bounces. */}
+      {store.authNeeded.value && (
+        <AuthModal
+          onClose={() => { store.authNeeded.value = false; }}
+          onSignedIn={() => { store.startError.value = null; }}
+        />
+      )}
 
       {/* The single mounted ConfirmModal — driven by store.askConfirm() from anywhere (replaces confirm()). */}
       {confirmReq && (

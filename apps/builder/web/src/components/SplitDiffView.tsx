@@ -9,7 +9,6 @@
    ============================================================ */
 import { Fragment } from 'preact';
 import { useMemo } from 'preact/hooks';
-import { I } from './Icon';
 import { parsePatch, buildSplitRows, type SplitRow, type WordSegment } from '../lib/diff-parser';
 import { t as tr } from '../lib/i18n';
 import type { FileChange } from '../types';
@@ -35,16 +34,11 @@ export function SplitDiffView({ file }: { file: FileChange }) {
     return <div className="secret-note">{tr('diffNoChanges')}</div>;
   }
 
+  // No head of its own. Every caller renders this INSIDE a file card whose header already names the file
+  // and carries its +/− count, so a head here was a second row saying "main.yml" directly under the
+  // first — and saying it wrong, since both callers passed a literal `additions: 0, deletions: 0`.
   return (
     <div className="diff">
-      <div className="diff-head">
-        <I.diff style={{ width: 13, height: 13 }} />
-        <span className="dh-name">{file.path}</span>
-        <span className="dh-stat">
-          <span className="dstat-add">+{file.additions}</span>
-          <span className="dstat-del">−{file.deletions}</span>
-        </span>
-      </div>
       <div className="diff-cols">
         <div className="diff-col left">
           <div className="diff-col-head">{file.oldPath ?? 'old'}</div>

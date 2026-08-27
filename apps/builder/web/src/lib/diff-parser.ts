@@ -325,6 +325,28 @@ export function computeWordDiff(
  * `absent` vs `unchanged` is the pair that matters: "we could not look" must never render like "we
  * looked and nothing moved". Same three-state contract the `specStale` measurement keeps server-side.
  */
+/**
+ * How many lines a patch adds and removes.
+ *
+ * The file header shows this, and it has to be COUNTED rather than carried: `FileChange.additions` is
+ * part of a payload shape the panel builds by hand, and both of its call sites were passing a literal
+ * `0` — so the diff view advertised "+0 −0" over a patch that added a hundred lines.
+ *
+ * `+++`/`---` are the patch's own file markers, not content; `@@` and `\ No newline…` start with
+ * neither sign. A bare `+` (an added EMPTY line) counts — an earlier inline version of this used
+ * `/^[+-][^+-]/`, which requires a second character and silently skipped exactly those.
+ */
+export function diffStats(raw: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of raw.split('\n')) {
+    if (line.startsWith('+++') || line.startsWith('---')) continue;
+    if (line.startsWith('+')) additions++;
+    else if (line.startsWith('-')) deletions++;
+  }
+  return { additions, deletions };
+}
+
 export function specDiffState(specDiff: string | null | undefined): 'absent' | 'unchanged' | 'changed' {
   if (specDiff === null || specDiff === undefined) return 'absent';
   return specDiff.trim() ? 'changed' : 'unchanged';

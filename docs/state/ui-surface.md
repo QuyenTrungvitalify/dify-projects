@@ -137,7 +137,7 @@ server cũ không gửi thì mọi hàng hành xử như trước.
 | `tree` · `seeds` · `active` · `promotes` | GET, best-effort (lỗi → im lặng) | không |
 | `bgDistills` | poll `GET /api/tasks/<id>` | **một nửa** — item **non-terminal** dựng lại được sau reload (parked review/collision/share vẫn tới được); item **terminal thì KHÔNG**, nên `[Undo]` là "hối hận tức thì" trong phiên, không phải thùng rác vĩnh viễn |
 | `settings` | **chỉ client, chỉ RAM** | **không** |
-| `connected` · `startError` · `busyHolder` · `asking` · `confirmState` | phù du | không |
+| `connected` · `startError` · `busyHolder` · `asking` · `confirmState` · `authNeeded` | phù du | không |
 
 computed: `phaseStates` (4 phase từ `task.phase` + `task.status`), `currentPhase`, `busy`.
 
@@ -273,6 +273,19 @@ bước đó, mở lại một build có `rev` cũ hơn sẽ bị `isFreshSnapsh
 **Va lượt.** Mọi action bọc `surfaceError`: `ApiError` 409 kèm `holder` thì bơm `busyHolder` để UI mời
 "mở nó"; lỗi khác chỉ là message. `start`/`reply`/`ask` trả `false` (không throw) để composer giữ nháp.
 
+**Chưa đăng nhập.** Một 409 kèm `reason: 'not_logged_in'` (server hỏi `claude auth status` **trước** khi
+mint task) không dừng ở message: `surfaceError` bật `authNeeded` → modal đăng nhập mở. Đây là lỗi duy
+nhất mà cách sửa không phải "thử lại" mà là "làm một việc trước đã", nên nó mở luôn cái cửa sửa được nó.
+An toàn vì cơ chế giữ nháp ở trên: prompt đã quay lại composer rồi, không có gì mất sau modal.
+
+`authNeeded` còn được bật ở hai chỗ nữa, cùng một `checkAuth()`: **lúc boot** (một Builder chưa đăng nhập
+thì không chạy nổi một lượt nào, nói trước rẻ hơn để user gõ xong prompt mới biết), và **khi một task
+vừa chuyển sang `error`** — đó là ca mà kiểm tra trước lượt không bắt được: token còn đó nhưng hết hạn
+refresh vẫn trả lời "đã đăng nhập" cho tới lúc dùng thật. CLI xoá credential chết khi refresh hỏng, nên
+hỏi lại ngay sau lượt lỗi là đủ để cùng một cửa mở ra. Cả ba đều **chỉ mở khi câu trả lời là "không" dứt
+khoát**: probe không trả lời được (`available: false` — máy không có `claude`, hoặc probe chết) thì im
+lặng tuyệt đối. Một probe hỏng không được phép chặn một máy build tốt.
+
 ## 6. i18n — ba tầng, ba cơ chế, ba mức an toàn
 
 `lang` là signal + localStorage key `lang`, mặc định `en`. Đọc `lang.value` trong `t`/`tf`/`tAction`/
@@ -392,6 +405,39 @@ không đổi / spec tụt lại) đã có badge và cảnh báo riêng, thêm d
 (chưa có bản chụp — build đầu, **chế độ 差分 không được chào ra** ở segment) · `unchanged` (có đo, không
 đổi — một câu khẳng định) · `changed`. Gộp hai cái đầu là để một build đầu **âm thầm tuyên bố** spec đã
 được đối chiếu và giống hệt. Cùng hợp đồng ba trạng thái mà `specStale` giữ ở server.
+
+**Cột hội thoại và ô nhập PHẢI cùng một cột (2026-08-26).** Cả `.thread` lẫn `.composer-dock` đều là
+*một hộp ngoài có lề 26px, bên trong là cột `--thread-w` căn giữa*. Viết cùng một hình dạng vì hai thứ
+này nằm chồng nhau trên màn hình — lệch bao nhiêu cũng thấy.
+
+> **Lề 26px nằm ở SCROLLER, không nằm ở `.thread-inner`.** Đặt ở hộp trong thì cột rộng 920px nhưng chỉ
+> chứa 868px nội dung — hẹp hơn composer 26px mỗi bên.
+
+> **`scrollbar-gutter: stable both-edges` ở CẢ HAI.** Thanh cuộn chỉ ăn vào cạnh phải của thread, nên
+> một cột căn giữa trong đó nằm lệch trái nửa thanh cuộn so với composer — **cùng bề rộng, lệch 4px**.
+> `both-edges` giữ tâm đứng yên, và **không chừa gì** trên nền tảng dùng overlay scrollbar (macOS mặc
+> định) — nên đây là công cụ đúng, không phải một con số pixel cứng.
+>
+> Trên dock phải là `overflow: hidden` **cả hai trục**: `overflow-y: hidden` một mình sẽ tính
+> `overflow-x` thành `auto`, và lần đầu hàng setting rộng quá dock là có thanh cuộn ngang dưới ô nhập.
+> Mọi thứ bung ra khỏi dock (menu send-variant, các menu chip) đều `position: fixed` theo rect đo được
+> của nút, nên vùng clip không với tới chúng.
+
+**Ba hành động file là ICON, không phải nút có chữ (2026-08-26).** `Finderで開く` · `パスをコピー` ·
+`コピー` là nút icon 26px không viền — cùng hình dạng với `.icon-btn` (nút expand/close của panel), tên
+nằm ở `title` + `aria-label`. Năm cái pill có chữ, ba trong số đó lặp lại ở **mọi** tab, chiếm nhiều chữ
+hơn cả tên file chúng thao tác.
+
+> **Bỏ chữ thì phải đổi cách báo "đã copy".** Phản hồi cũ là **đổi nhãn** (`パスをコピー` →
+> `パスをコピーしました`) — không còn nhãn thì không còn phản hồi. Giờ icon đổi thành dấu ✓ và nút chuyển
+> xanh (`--ok` + `--ok-dim`) trong đúng 1,5s.
+
+> **Copy-path dùng icon LINK, không phải icon copy thứ hai.** Hai nút copy đứng cạnh nhau, mà nhãn phân
+> biệt chúng đã bị bỏ — hai glyph giống hệt nhau với hậu quả khác nhau (một đường dẫn, hay cả file) đúng
+> là §1.5 của spec 103. `I.link` đọc ra "tham chiếu tới chỗ này", tức là một path.
+
+Đổi sang icon cũng **chấm dứt luôn** chuyện bị cắt ở panel hẹp: dạng pill cần 283px trong khi header ở
+cửa sổ 620px chỉ có 267px, nút cuối bị `overflow: hidden` nuốt mất. Ba icon ~80px, vừa một dòng.
 
 **Hai file, MỘT hình dạng — `filecard` (2026-08-26).** `SPEC.md` và `main.yml` cùng render một
 `FileHeader`: icon · tên file · kích cỡ (`markdown · 290 行` / `yaml · 1793 行` / `差分 · 79 行`) · ba

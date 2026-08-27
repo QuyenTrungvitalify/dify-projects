@@ -1,10 +1,11 @@
 /**
- * The two "where is this file" routes, for both files the artifact panel shows:
- *   GET  /api/tasks/:id/artifact-path?which=spec|workflow  → the absolute path, as text
- *   POST /api/tasks/:id/reveal?which=spec|workflow         → open the OS file manager there
+ * The two "where is this thing" routes, for everything the artifact panel points at:
+ *   GET  /api/tasks/:id/artifact-path?which=spec|workflow|folder  → the absolute path, as text
+ *   POST /api/tasks/:id/reveal?which=spec|workflow|folder         → open the OS file manager there
  *
- * They back the panel's Reveal / Copy-path buttons, which SPEC.md and main.yml now share. A caller
- * names WHICH file; the path is resolved server-side from the task. That is the whole security model
+ * They back the panel's Reveal / Copy-path buttons: SPEC.md and main.yml share a pair, and the panel
+ * head carries a third for the build's own FOLDER. A caller names WHICH thing; the path is resolved
+ * server-side from the task. That is the whole security model
  * of these routes, so the tests that matter most are the ones pinning it: an unknown `which` is a 400
  * rather than a default, a caller-supplied path changes nothing, and a traversal id never reaches fs.
  *
@@ -109,13 +110,37 @@ describe('GET /api/tasks/:id/artifact-path', () => {
     });
   });
 
+  test("?which=folder returns the build's own directory — not workflows/, one level deeper", async () => {
+    // The trap this pins: `dirname(workflowPathFor(...))` is `.../wf_1/workflows`, which LOOKS right and
+    // is the wrong folder. The build's directory is the one holding SPEC.md, workflows/, inputs/, tests/.
+    const fx = mkFixture();
+    await withApp(fx, async (app) => {
+      const res = await app.inject({ method: 'GET', url: `/api/tasks/${TASK_ID}/artifact-path?which=folder` });
+      assert.equal(res.statusCode, 200, res.body);
+      const { path } = res.json() as { path: string };
+      assert.equal(path, join(fx.projectsDir, 'projects/proj_a/wf_1'));
+      assert.ok(!path.endsWith('/workflows'), 'must be the build folder, not the workflows subfolder');
+      // ...and it is the PARENT of both files the tabs show, which is the whole claim the button makes.
+      const spec = await app.inject({ method: 'GET', url: `/api/tasks/${TASK_ID}/artifact-path?which=spec` });
+      assert.ok((spec.json() as { path: string }).path.startsWith(path + '/'));
+    });
+  });
+
+  test('404 for the folder pre-scaffold — a build with no project/slug has no directory yet', async () => {
+    const fx = mkFixture({ project: null, workflowSlug: null }, []);
+    await withApp(fx, async (app) => {
+      const res = await app.inject({ method: 'GET', url: `/api/tasks/${TASK_ID}/artifact-path?which=folder` });
+      assert.equal(res.statusCode, 404, res.body);
+    });
+  });
+
   test('an unknown `which` is a 400, never a silent fallback to some default file', async () => {
     const fx = mkFixture();
     await withApp(fx, async (app) => {
       for (const w of ['report', 'diff', '../../etc/passwd', 'constructor', '__proto__', 'toString']) {
         const res = await app.inject({ method: 'GET', url: `/api/tasks/${TASK_ID}/artifact-path?which=${encodeURIComponent(w)}` });
-        // 'constructor'/'__proto__'/'toString' are the reason `which` is two literal comparisons and not
-        // a lookup table: `w in TABLE` answers true for every Object.prototype key.
+        // 'constructor'/'__proto__'/'toString' are the reason `which` is a chain of literal comparisons
+        // and not a lookup table: `w in TABLE` answers true for every Object.prototype key.
         assert.equal(res.statusCode, 400, `which=${w} should be rejected, got ${res.statusCode} ${res.body}`);
       }
     });

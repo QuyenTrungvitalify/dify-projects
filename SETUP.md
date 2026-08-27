@@ -1,8 +1,9 @@
 # Cài đặt Dify Builder
 
-> ⚠️ **Tài liệu này mô tả trạng thái SAU KHI [spec 110](docs/specs/110-cai-dat-khong-duoc-phu-thuoc-may-nguoi-dung.md)
-> ship.** `scripts/bootstrap.sh`, `.toolchain/` và `scripts/doctor.sh` **chưa tồn tại**. Đừng phát
-> cho ai trước khi S1–S3 xong và AC §4 của spec đã chạy trên máy sạch.
+> ⚠️ **Chưa phát cho user.** Các script đã có và đã chạy được (spec 110 đã ship), nhưng còn **chưa
+> nghiệm thu trên máy sạch** và **chưa kiểm trên Windows/WSL2** — xem §9.5 của
+> [spec 110](docs/specs/110-cai-dat-khong-duoc-phu-thuoc-may-nguoi-dung.md). Làm xong hai việc đó rồi
+> hãy gửi tài liệu này đi.
 
 Bạn cần đúng **hai** thứ. Không cần cài Node, không cần cài Python, không cần quyền admin.
 
@@ -32,7 +33,10 @@ cd ~/dify-projects
 ```
 
 Lệnh này tự tải Node và Python đúng phiên bản vào thư mục `.toolchain/` **bên trong repo**, rồi dựng
-mọi thứ còn lại. Lần đầu mất vài phút (tải ~250 MB).
+mọi thứ còn lại. Lần đầu mất vài phút.
+
+**Dung lượng cần trống: khoảng 1 GB.** (Tải về ~230 MB; sau khi cài xong toàn bộ thư mục chiếm
+~570 MB — đã đo trên máy thật.)
 
 Nếu nó dừng giữa chừng, nó sẽ in **đúng một câu** nói cần làm gì. Làm theo rồi chạy lại — lệnh này an
 toàn khi chạy lại nhiều lần.
@@ -43,11 +47,20 @@ toàn khi chạy lại nhiều lần.
 
 ### A3. Đăng nhập Claude
 
+**Không cần làm gì ở bước này.** Mở app (A4) — nếu máy chưa đăng nhập, app tự hiện ô đăng nhập: bấm
+**「ログインページを開く」**, đăng nhập trên trang vừa mở, **xong**. App tự nhận ra và đi tiếp, không
+phải copy gì cả.
+
+Ô "code" trong app là đường dự phòng cho máy không mở được trình duyệt (WSL2, máy chủ không màn hình):
+khi đó bấm link trong app, trang mở ra sẽ hiện một đoạn mã — dán đoạn đó vào ô.
+
+Muốn làm trước bằng Terminal cũng được — hai đường dẫn tới cùng một chỗ:
+
 ```bash
 claude auth login
 ```
 
-Trình duyệt mở ra, đăng nhập tài khoản Claude. Kiểm tra lại bằng:
+Kiểm tra máy đang đăng nhập hay chưa:
 
 ```bash
 claude auth status
@@ -265,7 +278,7 @@ Lệnh này chạy được cả khi máy chưa cài gì.
 | Terminal hiện rồi tắt ngay | Chưa chạy `bootstrap.sh` | Chạy `./scripts/doctor.sh` |
 | Trình duyệt báo không kết nối được | App chưa khởi động xong, hoặc Terminal đã bị đóng | Chờ 30 giây; vẫn không thì mở lại `update-and-run.command` |
 | Import vào Dify báo 401 / cần `DIFY_CONSOLE_URL` | Token hết hạn, hoặc cổng trong `.env` không khớp cổng Dify | Đối chiếu B2.4 với B2.2 — hai số phải giống nhau |
-| Bấm build thì báo không tìm thấy `claude` | Chưa đăng nhập Claude | `claude auth login` |
+| Bấm build thì báo chưa đăng nhập Claude | Phiên đăng nhập hết hạn | Ô đăng nhập tự hiện trong app — làm theo A3. Prompt vừa gõ vẫn còn trong khung soạn |
 | Dify không mở được ở `localhost:8090` | Container chưa chạy | `cd ~/dify/docker && docker compose ps` |
 
 ---
@@ -276,5 +289,8 @@ Lệnh này chạy được cả khi máy chưa cài gì.
 
 - Node và Python nằm trong `~/dify-projects/.toolchain/`, **không** cài vào hệ thống, **không** sửa
   `.zshrc`/`.bashrc`, **không** đổi `PATH` chung. Các dự án khác của bạn không bị ảnh hưởng.
+- Chiều ngược lại cũng đã được xử lý: app **bỏ qua** các biến môi trường của máy bạn
+  (`NODE_ENV`, `PYTHONPATH`, `PYTHONHOME`…) khi chạy, nên cấu hình bạn đặt cho dự án khác
+  không làm hỏng app này.
 - Gỡ sạch toàn bộ: `rm -rf ~/dify-projects` (và `rm -rf ~/dify` nếu có dựng Dify local).
 - `apps/builder/.env` chứa token và **không bao giờ** được commit lên git.

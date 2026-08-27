@@ -11,6 +11,73 @@ pattern, a changed gate. Not for docs-only edits.
 
 ## Unreleased
 
+**Signing in to Claude is something you do in the app now**
+
+- A logged-out machine could not run one turn, and the only way out was a terminal: the failure note
+  said *"run `claude` in a terminal and log in"*, which for a bản-sạch user is the app telling them it
+  is over for today. The report that started this was a user's answer coming back as
+  `Failed to authenticate: OAuth session expired and could not be refreshed` — `in 0 · out 0 · 0.1s`,
+  a whole prompt spent on a turn that read nothing.
+- Two halves. **Before**: `POST /api/tasks` and `POST /api/consult` ask `claude auth status --json`
+  (~0.4s) and refuse with 409 `not_logged_in` **before minting a task**, so the prompt comes back to the
+  composer instead of into a dead build. **When**: the sign-in itself — `POST /api/auth/login` returns
+  the CLI's own sign-in page, the user pastes back the code that page gives them, and the build they
+  were trying to start is one send away.
+- Only a definite "no" ever blocks. A probe that cannot answer — no `claude` on PATH, a crash, an old
+  server with no `/api/auth/status` — is silent, and the turn goes on to fail on its own terms. A broken
+  check that can stop a working machine is worse than no check.
+- The pre-turn check cannot catch everything, and does not pretend to: a token that is present but no
+  longer refreshable answers "signed in" right up until it is used. That one is caught after the fact —
+  a turn that ends in `error` re-asks, and since the CLI drops the dead credential when a refresh fails,
+  the same sign-in door opens by itself.
+- On a machine that can open a browser there is nothing to copy back: `[ĐO]` `claude auth login` offers
+  two ways in and prints only one of them. The URL on stdout goes through
+  `platform.claude.com/oauth/code/callback` (sign in, get a code, paste it); the URL it hands the OS
+  goes through `http://localhost:<random>/callback`, same PKCE challenge, same `state` — so the CLI
+  takes its own redirect and signs itself in. The modal therefore finishes by ASKING (it polls
+  `/api/auth/status`), and the code box is what is left for a host with no browser to open — WSL2,
+  headless. Read only what the CLI printed and you build the opposite: a box waiting for a code that,
+  on any ordinary machine, never appears.
+- `[ĐO]` The rest of what the shape cost, against `claude` 2.1.222: the CLI ignores a piped stdin
+  entirely (it does not even exit on EOF), so the fallback paste needs a real PTY; and `script(1)` — the
+  PTY we borrow rather than adding a native `node-pty` — rejects the socketpair node hands a child,
+  dying with `tcgetattr/ioctl: Operation not supported on socket`. That one reproduces only from the
+  server, never from a hand-run pipeline. `script … < <(cat)` is the fix, and it is pinned by a test.
+- Also fixed on the way past: the turn env stripped **every** `CLAUDE_CODE*` var, `CLAUDE_CODE_OAUTH_TOKEN`
+  included — the credential `claude setup-token` produces. A machine signed in that way had `claude`
+  working in a terminal and every Builder turn dying with an auth error, with nothing to connect the two.
+
+**The thread holds no button that changes state**
+
+- Three surfaces could draw a "what now" button and there was no rule saying which. ①②③ had theirs in the
+  composer; ④, the error gate and every promote gate drew their own on the card; a finished build drew
+  Restore / Edit-again / Run-test on a third. The split was historical, not principled, and it cost more
+  than tidiness: at a ④ gate asking two questions scrolled 「Difyにインポート」 off the screen, which is the
+  exact problem the composer bar was invented to solve at ①②③.
+- One rule now, and every button answers to it. **The composer row** carries the decisions that move the
+  build — every gate, all four phases plus error and promote. **The header** carries what acts on the
+  build as a whole: end it, look at it, branch off it, reopen it. **The card** is evidence: what happened,
+  and links to read it. Nothing else.
+- So the gate card lost its foot entirely. Restore and 「ワークフローでテスト実行」 are header pills. The
+  card's 「新しい会話で編集」 is gone — the header had already carried the same act under a second name,
+  「編集（新規）」, and one act with two labels in two places is the thing this keeps removing.
+- 「テストアプリを削除」 stays on the card but as a small link beside "take this fix back". It changes
+  something in Dify without moving the build, and at button weight it read as one of the ways forward.
+- Measured before moving: the widest gate is ④ import at 316px of buttons against a 882px row with 404px
+  of message controls — one line, 154px spare. Narrower windows use the break the row already had.
+
+**「再試行を続ける」 is a click again, not a form**
+
+- The button promised "go again, I have nothing to add" and then opened an empty box you HAD to type
+  into, because `/reply` answered 400 without text. It was drawn that way *because* of the 400 — the two
+  ends had each worked around the other.
+- One list, `TEXTLESS_REPLY_IDS`, now says which reply actions mean "run it again with nothing new":
+  `retry` out of error, and `keep` at a still-failing Implement. The route accepts an empty body for
+  exactly those, the renderer draws exactly those as a single click, and a test fails if the two lists
+  drift apart.
+- The action's own label rides along, so a `keep` re-run is recorded as 「再試行を続ける」 rather than as
+  「フェーズを再試行」. They end at the same phase; they are not the same decision.
+
 **The external-YAML form stopped asking for a license**
 
 - 「出典ラベル」 and 「ライセンス」 were the first two questions a reader met after pasting a YAML, and
@@ -26,6 +93,95 @@ pattern, a changed gate. Not for docs-only edits.
   `templates/patterns/` path stays, in dev mode, where the reader knows what that folder is.
 - 「対象プロジェクト」 is hidden while `_drafts` is its only answer: a select with one option teaches a
   word (ステージング) that a reader with no projects has no use for yet.
+
+**The conversation and the box you type in are the same column now**
+- A gate card was 52px narrower than the composer directly beneath it, and offset. Both are capped at
+  the same `--thread-w`, but the thread put its 26px gutter on the INNER box, so its column was 920px
+  wide holding 868px of content, while the composer's was a full 920px.
+- The gutter moved to the scroller, so the two now have the same shape: an outer 26px inset with a
+  centred `--thread-w` column inside it.
+- The scrollbar was the rest of it. It comes out of the thread's right side only, so a column centred
+  inside it sat half a scrollbar left of the composer's — same width, 4px apart, which is precisely the
+  misalignment you notice when you are looking for alignment. Both now reserve that gutter on both
+  edges, and reserve nothing where the platform draws overlay scrollbars.
+
+**The file actions are icons now, not labelled buttons**
+- Five bordered pills — 「Finderで開く」「パスをコピー」「コピー」, three of them repeating on every tab —
+  put more words on screen than the files they act on. They are borderless 26px icon buttons now, the
+  same shape as the panel's expand/close, with the name in the tooltip.
+- The copy acknowledgement had to change with them: it used to be the LABEL swapping to
+  「パスをコピーしました」, and there is no label any more. The icon turns into a check and the button goes
+  green for the same 1.5s.
+- Copy-path got a LINK icon rather than a second copy icon. The two copies sit next to each other and
+  the labels that told them apart are gone; two identical glyphs whose outcomes differ — a path, or the
+  whole file — is the confusion this codebase already has a spec about.
+- This also ended the clipping the labels caused: at a 620px window the three pills needed 283px against
+  267px of header and the last one was silently swallowed. Three icons are ~80px and fit on one line.
+
+**The gate's decision moved into the composer**
+
+- A parked ①②③ gate drew its actions on a card of its own, stacked above the input box: two boxes for one
+  moment, and the button that advances the build sat away from the box you are already typing in.
+- The row is two groups now. The gate's decision at the left, and everything that acts on the message —
+  model, confirm mode, attach, 修正を依頼, 質問を送信 — together at the right. The gate takes whatever
+  width the controls do not need; measured, the widest gate (「テストへ進む」+「ワークフローでテスト」)
+  needs 298px of the 882px row, so at a normal window they share one line with room to spare.
+- Below roughly 660px of row they stop fitting, and the row breaks — between those two groups and
+  nowhere else. That is the point of grouping them: the row carried a blanket "never wrap" rule because
+  a free wrap over a dozen loose children strands the send button on a line of its own. With two
+  children the break has one possible place, and it puts the gate on the first line and the controls on
+  the second — which is what the old docked card looked like anyway.
+- 「確認」 retires at ③. The value is read at exactly one place — the end of a phase, where
+  `boundaryAutoAdvances` decides whether to park — so it only means something while a boundary it
+  governs is still ahead: at ① it can skip the ② and ③ gates, at ② the ③ gate, and from ③ on it can skip
+  nothing, because every ④ gate that exists stops for a human whatever the mode says. It was a control
+  describing a choice it could no longer affect, on the two gates whose own action rows are widest. The
+  entry surface keeps it — that is where the mode is actually chosen.
+- While it is on screen it may truncate its value the way 「モデル」 already did. When the line is tight
+  it is a chip that gives way, never a gate button: 「確認: 各ス…」 still names its setting, while a
+  clipped 「テストへ進む」 is a decision you can no longer read.
+- The 「モード: 相談|ビルド」 chip is gone, along with its four strings. It had been unreachable for some
+  time — it required an `onMode` nothing passed — and the question it asked is already answered by which
+  sidebar "+" you pressed: チャット and ビルド are separate sections, so the surface you are typing into
+  knows what it is. The `mode` value stays, doing the one job it was actually still doing: hiding the
+  build chips on a chat, which has no phases for them to govern.
+
+**The diff view stops printing its own name twice, and stops lying about its size**
+- Opening 差分 showed two header rows: the file card's, then the diff's own — both saying `main.yml`,
+  one directly under the other. The second one appeared the moment the diff became a view inside a file
+  card instead of a tab of its own.
+- That row also always read `+0 −0`. The counts were never computed: they are part of a payload the
+  panel hand-builds, and both call sites passed a literal zero. On a first Implement — a whole new file —
+  it advertised "+0 −0" over a hundred green lines.
+- One header now, and it carries the real tally (`差分 · +92 −3`), counted from the patch. The counter
+  also sees a bare `+`: an added EMPTY line is a line, and blank lines are most of a YAML diff.
+
+**One way to end a build, and it is in the header**
+
+- The bar above the composer drew 「ビルドを破棄」 right next to 「仕様へ進む」 — an irreversible action a
+  few dozen pixels from the one you press every time, inside the box your hand is already in.
+- It is now the second state of the header pill that already says 停止 while a turn runs. Same POST
+  either way (`/cancel`), so it was always one act under two names; now it is one control. The parked
+  gates that render their actions inline (the test gates, a still-failing implement, a promote) keep
+  their own button — the pill stays away so no screen shows two.
+- The pill is dead while an answer streams. `/cancel` aborts a live Ask and returns without touching the
+  build, so a click mid-answer would have killed the answer and left the build where it was, reporting
+  success. The Ask's own Stop, in its answer bubble, is the one that belongs there.
+- Its dialog says 破棄 because the button says 破棄. Routing it through the sidebar row's confirm — same
+  act, older wording — had a 「ビルドを破棄」 button opening a 「キャンセルしますか？」 dialog.
+
+**A door to the build's own folder**
+- The panel head names the build (`build_requirement_news_automation_2`) and there was no way to act on
+  it. The tabs reach the two files inside that folder; everything else the build wrote — `inputs/`,
+  `prompts/`, `tests/` — had no door at all.
+- Two buttons beside that name now: open the folder in Finder, or copy its absolute path.
+- It opens the folder, it does not select it inside its parent. On Linux the file form opens
+  `dirname(path)`, so reusing it for a directory would have opened the folder ABOVE the one the button
+  names; every platform now gets a directory-specific command.
+- The path is the build's directory, not `…/workflows` — the folder holding SPEC.md and workflows/, which
+  is what the subtitle refers to.
+- Reveal is now hidden, not just Copy-path, when the target is not on disk. Both actions depend on the
+  same fact, and a Reveal whose only possible outcome was an error banner was never worth offering.
 
 **SPEC.md and main.yml are the same kind of object now**
 - main.yml had a proper file header — name, size, and the three actions — and SPEC.md had a bare title
