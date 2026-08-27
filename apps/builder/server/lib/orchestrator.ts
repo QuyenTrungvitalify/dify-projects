@@ -904,10 +904,19 @@ async function runPhase(
   // requirement, so the document already describes the workflow about to be built, and measuring there
   // would mark every new build stale on its first turn. Every other ③ inherits a document written
   // earlier — the case the tripwire exists for (spec 103 §1.2).
-  const specHashBefore =
+  //
+  // `?? undefined` is the three-state contract, not a tidy-up. `artifactHash` answers `null` for a
+  // file that is not there, and `null` is a MEASUREMENT — it compares, and it compares as "changed"
+  // against anything the turn writes. On a workflow that has no SPEC.md at all (every `POST
+  // /api/bases` import, and now every build that edits one), that would make `isSpecStale` read
+  // `artifactChanged && !specChanged` = true on EVERY round: a warning that the document fell behind,
+  // about a document that was never there. A spec that does not exist cannot have gone stale, so the
+  // honest answer is NOT MEASURED — which `isSpecStale` already refuses to draw a conclusion from.
+  const specBefore =
     specPredatesThisRound && task.project && task.workflowSlug
       ? await artifactHash(projectsDir, specRelFor(task.project, task.workflowSlug))
       : undefined;
+  const specHashBefore = specBefore ?? undefined;
 
   const runDir = taskDir(projectsDir, task.taskId);
   const spawnOnce = async (

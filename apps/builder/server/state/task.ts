@@ -525,10 +525,15 @@ export function toWireTask(task: Task): Task & WireExtras {
  *   · a YAML someone handed over — imported through `POST /api/bases`, which writes the file and NO
  *     spec. Nobody has read it yet, and the document that would explain it does not exist. Start at ①.
  *
- * So the presence of BOTH artifacts is the signal, and it self-selects: no chip to set, no state to
- * remember, and an imported base keeps today's behaviour exactly. `requested` exists for the API and
- * for tests; it can only ever narrow, never widen — a caller cannot ask to skip ① on a workflow that
- * has no spec to skip it WITH.
+ * So the presence of BOTH artifacts is the DEFAULT signal, and it self-selects: no chip to set, no
+ * state to remember, and an imported base keeps today's behaviour unless somebody says otherwise.
+ *
+ * `requested` used to be described as "narrows, never widens". That was the right instinct stated as
+ * the wrong rule: what it was protecting against is a value nobody vetted buying a skip, not a person
+ * choosing one. The rule is now "never skip on the caller's behalf" — an explicit `'implement'` is
+ * honoured whenever ③ can actually run (a workflow file exists to edit), because a spec is what ②
+ * would have written for this round, not a precondition of the turn. Everything unasked-for still
+ * takes the cautious default, and a recognised-but-unsupported phase still means "do not skip".
  *
  * PURE: the caller answers the two filesystem questions.
  */
@@ -540,14 +545,31 @@ export function resolveStartPhase(opts: {
   /** an explicit `start_phase` off the wire; anything unrecognised is ignored rather than guessed. */
   requested?: string | null;
 }): Phase {
+  // What ③ needs on disk is a FILE TO EDIT — not a spec. The spec is what ② would have written for
+  // this round, and its absence is why the build is offered the full path by DEFAULT; it is not a
+  // reason the turn cannot run. So the two questions are separated:
+  //
+  //   `ready`   — may this build start at ③ *without being asked*? Both artifacts present: there is
+  //               nothing left for ① to read or ② to write, so skipping them costs the human nothing.
+  //   `runnable`— *could* ③ run at all? A workflow file exists for it to edit. This is the weaker
+  //               question, and it is the one an EXPLICIT request is allowed to answer.
+  //
+  // The distinction matters because the earlier contract ("narrow, never widen") conflated a garbage
+  // value on the wire with a person choosing. A stale token nobody vetted must never buy a skip; a
+  // human who ticked 「あるものを直す」 on a workflow that has a YAML and no spec is asking for exactly
+  // what `POST /api/bases` produces every time it runs — a file to edit, and no document about it.
+  // Refusing that was refusing the commonest imported-workflow shape in the app.
   const ready = opts.editingExisting && opts.hasSpec && opts.hasWorkflowFile;
-  if (opts.requested === 'implement') return ready ? 'implement' : 'analyze';
+  const runnable = opts.editingExisting && opts.hasWorkflowFile;
+  if (opts.requested === 'implement') return runnable ? 'implement' : 'analyze';
   // Any OTHER phase named EXPLICITLY means "do not skip on my behalf" — 'analyze' says so directly,
   // and 'spec'/'test' say it by naming a start nothing supports yet. Answering 'spec' with ③ would
   // skip MORE than was asked for, the one direction this function promises never to go; it did,
   // because those two fell through to the default alongside genuine garbage. A recognised value the
   // system cannot honour costs turns. Silently honouring a bigger skip costs the human's workflow.
   if (opts.requested && (PHASE_ORDER as string[]).includes(opts.requested)) return 'analyze';
+  // No explicit ask ⇒ the DEFAULT, which still requires both artifacts. A workflow with no spec keeps
+  // the full path unless somebody says otherwise: ① is how an unread file gets read.
   return ready ? 'implement' : 'analyze';
 }
 

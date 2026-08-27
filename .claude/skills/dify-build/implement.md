@@ -129,6 +129,11 @@ sentence — or the sentence should not be written.
 
 ## Do — follow AGENTS.md §3 exactly
 1. **Re-read `{{PRIOR_ARTIFACT}}` (`SPEC.md`)** — treat it as the source of truth for what to build.
+   > **If that file does not exist**, this workflow has never had a spec (an imported YAML — `POST
+   > /api/bases` writes the file and no document — being edited directly). Do not go looking for it and
+   > do not stop. The sources of truth are then, in order: the **change request** below (what the human
+   > asked for) and **`{{SEED_PATH}}`** (what the workflow does today). Everything downstream that says
+   > "per `SPEC.md`" means those two instead, and step 6 tells you what to write at the end.
 2. **Pick/confirm the pattern:**
    > **If `{{START_PHASE}}` is `implement`, SKIP THE PATTERN CHOICE** and go straight to step 3. ① never
    > ran on this build, so `{{PATTERN_PATH}}` and `{{REFERENCES}}` are blank because **nobody picked
@@ -315,6 +320,15 @@ sentence — or the sentence should not be written.
    patching the broken file. Do not `git commit`, do not `--no-verify`.
 
 6. **Reconcile `{{PRIOR_ARTIFACT}}` (`SPEC.md`) with the workflow you just produced — spec 103 L0.**
+
+   > **If `SPEC.md` did not exist at step 1, WRITE it now** — short, not a full ② document. A workflow
+   > with no spec stays unreadable to everything downstream: ④ has no acceptance criteria and quietly
+   > degrades to a smoke test, the 仕様 tab opens empty, the run dossier says "(no acceptance rubric)",
+   > and the next edit of this workflow starts from nothing all over again. Writing it costs no extra
+   > turn — you are already here, and you already know what you built. Four sections is enough:
+   > `## Goal` (one paragraph, from the change request), the node table, `## Acceptance Criteria`
+   > (what a reviewer would check — ④ grades against exactly this list), and the `変更履歴` row below.
+   > Everything after this line then applies normally.
 
    > On a **fix round** the backend restates this rule in the prompt itself, because a `/reply` resume
    > carries no skill body — so the two must say the same thing. If you edit one, edit

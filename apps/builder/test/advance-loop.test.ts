@@ -389,7 +389,17 @@ describe('advance-loop integration (013 D3)', () => {
     assert.equal(R({ editingExisting: false }), 'analyze', 'a from-scratch build is untouched');
     // `requested` may narrow, never widen: nobody can ask to skip a phase whose output does not exist.
     assert.equal(R({ requested: 'analyze' }), 'analyze', '"re-read it from scratch" is always allowed');
-    assert.equal(R({ hasSpec: false, requested: 'implement' }), 'analyze', 'cannot skip ② with no spec');
+    // An EXPLICIT ask is honoured whenever ③ can actually run — a file exists to edit. A spec is what
+    // ② would have written for this round, not a precondition of the turn, and `POST /api/bases`
+    // produces exactly this shape (YAML, no spec) every time it runs. The earlier rule refused it,
+    // which refused the commonest imported-workflow shape in the app.
+    assert.equal(R({ hasSpec: false, requested: 'implement' }), 'implement', 'a file to edit is enough');
+    // But only when there IS a file. Nothing to edit ⇒ ③ has no artifact and no seed.
+    assert.equal(R({ hasWorkflowFile: false, requested: 'implement' }), 'analyze', 'nothing to edit');
+    assert.equal(R({ editingExisting: false, requested: 'implement' }), 'analyze', 'from-scratch is not this');
+    // And the DEFAULT is unchanged: unasked-for, a spec-less workflow still takes the full path,
+    // because ① is how an unread file gets read.
+    assert.equal(R({ hasSpec: false }), 'analyze', 'no ask ⇒ still the cautious default');
     assert.equal(R({ requested: 'weird' }), 'implement', 'an unrecognised value is ignored, not guessed');
     // A RECOGNISED phase the system cannot start at is a different thing from garbage: it is a caller
     // asking for LESS skipping than the files allow. These fell through to the default and were
@@ -552,6 +562,28 @@ describe('advance-loop integration (013 D3)', () => {
 
     const rubric = JSON.parse(readFileSync(join(dir, `apps/builder/.runs/${task.taskId}/criteria.json`), 'utf8'));
     assert.deepEqual(rubric.criteria, ['the summary is returned'], 'the seeded rubric survived');
+  });
+
+  test('spec 105 — a workflow that never had a spec is not reported as having let one go stale', async () => {
+    // `artifactHash` answers `null` for a file that is not there, and `null` MEASURES — it compares as
+    // "changed" against anything the turn writes. On an imported YAML (every `POST /api/bases` writes
+    // the file and no document) that made `isSpecStale` read true on EVERY round: a warning that the
+    // document fell behind, about a document that was never there. A spec that does not exist cannot
+    // have gone stale, so the honest answer is NOT MEASURED.
+    const dir = fixtureDir();
+    mkdirSync(join(dir, 'projects', '_drafts', 'imported', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects/_drafts/imported/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    const task = await createTask(dir, {
+      requirement: 'add a retry branch', workflow: 'imported', startPhase: 'implement',
+      confirmMode: 'each_step', deploy: 'none',
+    });
+    // The agent edits the workflow and writes no spec — the shape the tripwire would have flagged.
+    const h = harness(dir, task, { implementSkipsSpecReconcile: true });
+
+    await withTurn(task.taskId, () => startTask(task, h.ctx));
+
+    assert.equal(h.lastPostTurn[0].specHashBefore, undefined, 'not measured — there was no document');
+    assert.notEqual(task.specStale, true, 'and so no warning about one falling behind');
   });
 
   test('spec 105 — the first ③ of a start-at-③ build is measured and undoable, like the fix round it is', async () => {

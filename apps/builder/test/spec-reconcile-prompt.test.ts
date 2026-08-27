@@ -281,6 +281,30 @@ describe('103 L0 · the reconcile directive reaches the turn that is measured', 
     assert.ok(retry.slice(i).includes('add a retry branch'), 'and it is the request the human typed');
   });
 
+  test('spec 105 — the shipped implement.md tells a spec-less turn what to do, at BOTH ends', async () => {
+    // A workflow with no SPEC.md is not an edge case: `POST /api/bases` writes the YAML and no
+    // document EVERY time (`templates/_base/workflow/` has no SPEC.md), so it is the commonest
+    // imported shape in the app — and editing one directly is now a supported start.
+    //
+    // Both ends of the turn had to be told, and neither is reachable from the fixture in this file
+    // (it stubs the skill body on purpose), so the assertions read the shipped document:
+    //   step 1 — "the source of truth" points at a file that is not there
+    //   step 6 — "reconcile it" has nothing to reconcile, and leaving it that way strands the
+    //            workflow: no rubric for ④, an empty 仕様 tab, and the next edit starts from nothing.
+    const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+    const doc = readFileSync(join(REPO, '.claude/skills/dify-build/implement.md'), 'utf8');
+
+    const step1 = doc.split('\n1. **Re-read')[1]?.split('\n2. **')[0] ?? '';
+    assert.ok(step1, 'precondition: step 1 is where the spec is read');
+    assert.match(step1, /does not exist/, 'step 1 must say what to do when there is no spec');
+    assert.match(step1, /\{\{SEED_PATH\}\}/, 'and name what stands in for it');
+
+    const step6 = doc.split('\n6. **Reconcile')[1] ?? '';
+    assert.ok(step6, 'precondition: step 6 is where the spec is written back');
+    assert.match(step6, /did not exist at step 1/, 'step 6 must cover the same case');
+    assert.match(step6, /Acceptance Criteria/, 'and ask for the section ④ grades against');
+  });
+
   test('a /reply at the ② gate gets no directive — it is not an Implement turn', async () => {
     // Same guard the facts injection needed (knowledge-inject AC 6c): the tail is phase-gated, so a
     // spec-gate revision does not receive a rule about reconciling the file it is itself writing.

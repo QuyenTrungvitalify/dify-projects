@@ -126,12 +126,40 @@ describe('POST /api/tasks — where the build starts (spec 105)', () => {
     assert.equal(t.phase, 'analyze');
   });
 
-  test('an explicit start_phase cannot skip a phase whose output is missing', async () => {
+  test('an explicit start_phase edits a spec-less workflow — the commonest imported shape', async () => {
+    // This test pinned the opposite a day earlier, and the rule it pinned was the right instinct
+    // stated as the wrong rule: what needed protecting was "a value nobody vetted must not buy a
+    // skip", not "nobody may ever ask". `POST /api/bases` writes a YAML and no spec EVERY time
+    // (`templates/_base/workflow/` has no SPEC.md), so refusing this refused the shape the app
+    // manufactures most. What ③ needs is a file to edit; the spec is what ② would have written.
     await imported('p1', 'fresh');
 
     const t = (await post({ workflow: 'fresh', project: 'p1', start_phase: 'implement' })).json();
 
-    assert.equal(t.startPhase, undefined, 'there is no spec to skip ② WITH');
+    assert.equal(t.startPhase, 'implement');
+    assert.equal(t.phase, 'implement');
+  });
+
+  test('...but only when there is a file to edit', async () => {
+    // A workflow folder with a spec and no YAML: ③ would have no artifact and no seed. The ask is
+    // refused, not honoured into a turn that cannot write anything.
+    await mkdir(join(dir, 'projects', 'p1', 'specless'), { recursive: true });
+    await writeFile(join(dir, 'projects', 'p1', 'specless', 'SPEC.md'), '# Spec\n');
+
+    const t = (await post({ workflow: 'specless', project: 'p1', start_phase: 'implement' })).json();
+
+    assert.equal(t.startPhase, undefined);
+    assert.equal(t.phase, 'analyze');
+  });
+
+  test('without an explicit ask, a spec-less workflow still takes the full path', async () => {
+    // The DEFAULT is unchanged and deliberately cautious: ① is how an unread file gets read. Only a
+    // person ticking the box moves it.
+    await imported('p1', 'quiet');
+
+    const t = (await post({ workflow: 'quiet', project: 'p1' })).json();
+
+    assert.equal(t.startPhase, undefined);
     assert.equal(t.phase, 'analyze');
   });
 
