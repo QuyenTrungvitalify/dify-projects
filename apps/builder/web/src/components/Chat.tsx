@@ -831,7 +831,10 @@ export function MsgAttachments({ atts, taskId }: { atts: ThreadAttachment[]; tas
  * Labels avoid the word "spec": whoever is deciding may not know what one is, but everyone understands
  * "fix it now" versus "show me what you'll change first".
  */
-function SendVariants({ ready, onPick }: { ready: boolean; onPick: (intent: 'change' | 'propose') => void }): VNode {
+/** `solo` — rendered with no change pill to its left (the door, spec 105 M2). The base styling makes
+ *  this caret the RIGHT HALF of a pair: no left border, left corners square. Alone that draws as half
+ *  a control. `solo` gives it the attach button's shape instead, since that is what it now sits beside. */
+function SendVariants({ ready, onPick, solo }: { ready: boolean; onPick: (intent: 'change' | 'propose') => void; solo?: boolean }): VNode {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState<{ bottom: number; right: number } | null>(null);
@@ -867,7 +870,7 @@ function SendVariants({ ready, onPick }: { ready: boolean; onPick: (intent: 'cha
 
   return (
     <>
-      <button ref={btnRef} className="composer-change-caret" type="button" onClick={toggle}
+      <button ref={btnRef} className={'composer-change-caret' + (solo ? ' solo' : '')} type="button" onClick={toggle}
         aria-haspopup="menu" aria-expanded={open} aria-label={tr('sendVariants')} title={tr('sendVariants')}>
         <I.chevron />
       </button>
@@ -1231,7 +1234,7 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
               build and only their labels would differ — two names for one act, the trap the comment
               above describes from the other direction. So the ⌄ attaches to the single send button
               instead, and the lanes live inside it where they read as a choice about HOW to build. */}
-          {!canChange && canPropose && <SendVariants ready={ready} onPick={onSend} />}
+          {!canChange && canPropose && <SendVariants ready={ready} onPick={onSend} solo />}
           <button className={'composer-send' + (ready ? ' ready' : '')}
             onClick={() => { if (ready) onSend('ask'); }} disabled={!ready}
             title={canChange ? tr('sendAskTip') : sendGlyph === 'edit' ? tr('sendChangeOnlyTip') : undefined}>

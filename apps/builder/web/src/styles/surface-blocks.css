@@ -1062,6 +1062,17 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .composer-change-caret:hover { color: var(--tx-1); background: var(--bg-chip); }
 .composer-change-caret svg { width: 12px; height: 12px; transform: rotate(-90deg); }
+/* Spec 105 M2 — at the door there is no ask lane, so this caret renders ALONE (Chat.tsx). Everything
+   above shapes it as the RIGHT HALF of the change pill: left border removed, left corners square. On
+   its own that draws as half a control floating between the attach button and Send — reported from the
+   Japanese UI as a display fault, and correctly so. Standing alone it should read as a PEER of the
+   attach button it now sits beside, so it takes that button's shape outright rather than a patched-up
+   version of the pair's half. */
+.composer-change-caret.solo {
+  width: 32px; height: 32px; border: none; border-radius: 9px;
+  background: var(--bg-elevated-2);
+}
+.composer-change-caret.solo:hover { background: var(--bg-chip); color: var(--tx-1); }
 /* The caret follows the pill's ready/armed accent so the pair never reads as two different controls. */
 .composer-change-wrap:has(.composer-change.ready) .composer-change-caret { border-color: var(--accent-line); color: var(--accent-tx); }
 .composer-change-wrap:has(.composer-change.armed) .composer-change-caret { background: var(--accent-dim); border-color: var(--accent-line); color: var(--accent-tx); }
