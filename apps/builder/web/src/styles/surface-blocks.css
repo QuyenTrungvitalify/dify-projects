@@ -94,8 +94,21 @@
      separate `760px` literals, which is a trap — raising one silently misaligns the composer from the
      messages above it. One variable makes that impossible and leaves a single number to tune.
      Raised from 760 because assistant output is often TABLES (node lists, variable maps, acceptance
-     criteria); at 760 they hit `overflow-x` and had to be scrolled sideways to read one row. */
-  --thread-w: 920px;
+     criteria); at 760 they hit `overflow-x` and had to be scrolled sideways to read one row. Raised
+     again from 920 because the entry surface shares this column and carries the widest thing in the
+     app: the base picker, whose chips are workflow TITLES and wrapped to eight rows on a wide window
+     while the space beside them sat empty. */
+  --thread-w: 1040px;
+  /* The ENTRY surface only. It shares the composer with the conversation but nothing above it is
+     prose: the base picker is a grid of workflow-title chips, and capping it at the reading measure
+     wrapped it to eight rows with empty space either side. Wider here, the same everywhere else.
+
+     It is a CEILING, not the width: `.empty-wrap` takes `min(--entry-w, max(85%, 1000px))`, so on a
+     roomy window the surface keeps a margin of its own instead of running to the pane edges, and only
+     a very wide one is stopped by the pixel value. The 1000px floor is why the 85% is not applied all
+     the way down: the composer's settings row is pinned `nowrap`, so below it the chips start eating
+     their own labels (作成先: D) — giving back 15% of a small window costs more than the margin buys. */
+  --entry-w: 1200px;
 }
 
 /* ============================================================
@@ -604,7 +617,7 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
   overflow-y: auto;
   padding: 26px; gap: 0; min-height: 0;
 }
-.empty-wrap { width: 100%; max-width: var(--thread-w); display: flex; flex-direction: column; align-items: center; margin-block: auto; }
+.empty-wrap { width: 100%; max-width: min(var(--entry-w), max(85%, 1000px)); display: flex; flex-direction: column; align-items: center; margin-block: auto; }
 .empty-crumb {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 7px 13px; border-radius: var(--r-pill);
