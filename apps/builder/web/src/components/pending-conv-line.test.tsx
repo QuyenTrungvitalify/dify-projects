@@ -32,6 +32,7 @@ function mount(pendingConv: WireTreeTask | null): HTMLDivElement {
       draft="" setDraft={() => {}} send={() => {}}
       settings={{ workflow: '_drafts/chatbot', confirm: 'each step', fast: false } as Settings}
       onSettings={() => {}} model={undefined} onModel={() => {}} workflows={[]}
+      projects={[]} onNewProject={() => {}}
       crumb={crumb} onClearCrumb={() => {}} startsAtImplement={false} pendingConv={pendingConv}
       seeds={[]} selectedSeed={null} onSeed={() => {}}
       startError={null} busyHolder={null}

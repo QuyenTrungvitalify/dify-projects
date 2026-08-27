@@ -28,6 +28,7 @@ function mount(startsAtImplement: boolean, over: Partial<Settings> = {}): HTMLDi
       draft="" setDraft={() => {}} send={() => {}}
       settings={{ workflow: 'p1/specced', confirm: 'each step', fast: false, ...over } as Settings}
       onSettings={() => {}} model={undefined} onModel={() => {}} workflows={[]}
+      projects={[]} onNewProject={() => {}}
       crumb={crumb} onClearCrumb={() => {}} startsAtImplement={startsAtImplement} pendingConv={null}
       seeds={[]} selectedSeed={null} onSeed={() => {}}
       startError={null} busyHolder={null}

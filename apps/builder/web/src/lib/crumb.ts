@@ -122,6 +122,34 @@ export function workflowOptions(tree: WireTreeProject[], armed?: string | null):
   return opts;
 }
 
+/** The value the Project chip uses for "make one first" — not a project id, so `store.start` must never
+ *  see it. The chip's own onChange intercepts it and opens the create-project modal instead. */
+export const NEW_PROJECT = '__new_project__';
+
+/**
+ * Options for the composer's Project chip — WHERE a from-scratch build will be created.
+ *
+ * `store.start` has resolved this since spec 029/031 (`const project = editing?.project ?? s.targetProject`)
+ * and `newTaskCrumb` has DISPLAYED it just as long, but the only control that could ever SET it was the
+ * sidebar's per-project "+". So the entry surface could show you that a build was headed somewhere while
+ * offering no way to say where — and the default, silently, is `_drafts`. That is how a user's whole body
+ * of work ends up in one flat folder whose own name says it is scratch.
+ *
+ * `_drafts` leads and is always present, even when no such folder exists yet: it is not a project the user
+ * made, it is the answer "I have not filed this", and it has to be pickable to be un-pickable. It is
+ * labelled from the tree when the folder exists so this chip and the Workflow dropdown cannot end up
+ * calling the same folder two different names.
+ *
+ * Pure (tree-derived); the trailing NEW_PROJECT entry is the caller's, since it is an action, not data.
+ */
+export function projectOptions(tree: WireTreeProject[]): { v: string; l: string }[] {
+  const drafts = tree.find((p) => p.id === DRAFTS_PROJECT);
+  return [
+    { v: DRAFTS_PROJECT, l: drafts?.name ?? 'Drafts' },
+    ...tree.filter((p) => p.id !== DRAFTS_PROJECT).map((p) => ({ v: p.id, l: p.name })),
+  ];
+}
+
 /**
  * Derive the new-task crumb from the current RunSettings pre-selection. Workflow-edit wins over a
  * project target (AC5 precedence: if the user picks a workflow after a project "+", the edit label

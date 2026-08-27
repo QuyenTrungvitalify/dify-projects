@@ -15,6 +15,7 @@ import { Twist } from './Sidebar';
 import { renderMarkdownHtml } from '../lib/markdown';
 import { PHASE_LABELS, phaseIndex, phaseLabelAt } from '../lib/phase';
 import { canUndoFix, replyButtonKind, visibleGateActions } from '../lib/gate-foot';
+import { NEW_PROJECT } from '../lib/crumb';
 import type { ComposerIntent } from '../lib/composer-route';
 import { confirmModeOptions } from '../lib/propose-lane';
 import { t as tr, tf, phaseLabel, tAction, localizeNotes } from '../lib/i18n';
@@ -890,7 +891,7 @@ function SendVariants({ ready, onPick }: { ready: boolean; onPick: (intent: 'cha
   );
 }
 
-export function Composer({ value, onChange, onSend, settings, onSettings, model, onModel, workflows, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, canChange, changeArmed, sendGlyph, canPropose, proposalPending, confirmActs, gate }: {
+export function Composer({ value, onChange, onSend, settings, onSettings, model, onModel, workflows, projects, onNewProject, placeholder, disabled, lockStartBound, lockConfirm, files, onAddFiles, onRemoveFile, focusToken, mode, canChange, changeArmed, sendGlyph, canPropose, proposalPending, confirmActs, gate }: {
   value: string;
   onChange: (value: string) => void;
   /**
@@ -914,6 +915,13 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
   /** spec 030: existing workflows from /api/tree as `{ v: 'project/workflow', l: 'Project / Workflow' }`
    *  (project-qualified — the same name can exist in several projects). Lists in the Workflow dropdown (AC #14). */
   workflows?: { v: string; l: string }[];
+  /** spec 113 — projects from /api/tree for the Project chip (where a from-scratch build is created).
+   *  Optional for the same reason `workflows` is: a terminal Ask composer has no settings row. */
+  projects?: { v: string; l: string }[];
+  /** spec 113 — the chip's "+ New project…" entry is an ACTION, so it is handed back rather than
+   *  written into settings: the existing create-project modal already creates, reloads the tree, and
+   *  pre-targets the result (`store.createProject`), which is exactly what picking it should do. */
+  onNewProject?: () => void;
   placeholder: string;
   disabled?: boolean;
   /** F2 (spec 010): conversation view — Workflow is start-bound (read-only); only Confirm is
@@ -1090,6 +1098,22 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
       <SettingSelect mono shrink icon={<I.sliders style={{ width: 12, height: 12 }} />} label={tr('workflow')}
         value={settings.workflow} options={workflowOpts} onChange={(v) => onSettings({ workflow: v })}
         title={tr('workflowFixed')} />
+    )}
+    {/* spec 113 — WHERE a from-scratch build is created. `store.start` has read `targetProject` since
+        spec 029/031 and the crumb has shown it, but the only control that set it was the sidebar's
+        per-project "+", so the default (`_drafts`) was never a choice anyone made. Disabled — not
+        hidden — while a workflow is armed, exactly like Fast build beside it: an edit takes its
+        project FROM the workflow, and a chip that vanishes teaches nothing about why. */}
+    {!lockStartBound && projects && projects.length > 0 && (
+      <SettingSelect shrink icon={<I.folder style={{ width: 12, height: 12 }} />} label={tr('project')}
+        value={settings.targetProject ?? '_drafts'}
+        options={[...projects, { v: NEW_PROJECT, l: tr('projectNew') }]}
+        onChange={(v) => {
+          if (v === NEW_PROJECT) { onNewProject?.(); return; } // an action, never a settings value
+          onSettings({ targetProject: v === '_drafts' ? null : v });
+        }}
+        disabled={settings.workflow !== 'none'}
+        title={settings.workflow !== 'none' ? tr('projectFixed') : tr('projectHint')} />
     )}
     {/* Shown only while a boundary this value governs is still ahead — from ③ on it decides nothing
         (see lib/confirm-chip.ts), and the row needs its 137px for the gate's own buttons there.

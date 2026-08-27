@@ -5,7 +5,7 @@
  * by store.test.ts (resetToNew) and manual QA.
  */
 import { describe, it, expect } from 'vitest';
-import { newTaskCrumb, wfDisplayName, runContextCrumb, workflowOptions, activeSidebarProject, activeSidebarWorkflow, armedStartsAtImplement } from './crumb';
+import { newTaskCrumb, wfDisplayName, runContextCrumb, workflowOptions, projectOptions, NEW_PROJECT, activeSidebarProject, activeSidebarWorkflow, armedStartsAtImplement } from './crumb';
 import { setLang } from './i18n';
 import type { WireTreeProject, WireTreeTask, WireTask } from '../types';
 
@@ -261,5 +261,38 @@ describe('105 · armedStartsAtImplement — will this send skip ① and ②?', (
     expect(armedStartsAtImplement(withDrafts, 'specced')).toBe(false); // → _drafts/specced, no spec
     expect(armedStartsAtImplement(withDrafts, 'specced', 'my_app')).toBe(true); // the armed target
     expect(armedStartsAtImplement(t, 'specced', 'other')).toBe(false); // the namesake, correctly
+  });
+});
+
+describe('113 · projectOptions — WHERE a from-scratch build gets created', () => {
+  const tree: WireTreeProject[] = [
+    { id: '_drafts', name: 'Drafts', workflows: [] },
+    { id: 'proj_a', name: 'Proj A', workflows: [] },
+    { id: 'proj_b', name: 'Proj B', workflows: [] },
+  ];
+
+  it('_drafts leads, then the real projects in tree order', () => {
+    expect(projectOptions(tree)).toEqual([
+      { v: '_drafts', l: 'Drafts' },
+      { v: 'proj_a', l: 'Proj A' },
+      { v: 'proj_b', l: 'Proj B' },
+    ]);
+  });
+
+  // The default has to be PICKABLE to be un-pickable, and on a fresh clone the folder does not exist
+  // until the first build makes it — so the option cannot be sourced from the tree alone.
+  it('offers _drafts even when no such folder exists yet (a fresh clone has none)', () => {
+    expect(projectOptions([{ id: 'proj_a', name: 'Proj A', workflows: [] }])[0]).toEqual({ v: '_drafts', l: 'Drafts' });
+  });
+
+  // The Workflow dropdown labels the same folder from the tree ("Drafts / …"). Two controls naming one
+  // folder two ways is the class of bug `workflowOptions`'s armed-prepend was written to fix.
+  it('labels _drafts from the tree when the folder is there, so it cannot disagree with the Workflow chip', () => {
+    const named: WireTreeProject[] = [{ id: '_drafts', name: '下書き', workflows: [] }];
+    expect(projectOptions(named)[0]).toEqual({ v: '_drafts', l: '下書き' });
+  });
+
+  it('never emits the create-project sentinel — that is an action the caller appends, not data', () => {
+    expect(projectOptions(tree).some((o) => o.v === NEW_PROJECT)).toBe(false);
   });
 });

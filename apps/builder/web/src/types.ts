@@ -338,6 +338,11 @@ export interface Settings {
   /** spec 028: `⚡ Fast build` toggle (merge Analyze+Spec). Optional so the conversation-view composer
    *  (which builds a Settings without it) still type-checks; absent ⇒ off. */
   fast?: boolean;
+  /** spec 113: WHERE a from-scratch build is created (`projects/<targetProject>/`); null/absent ⇒ the
+   *  backend's `_drafts`. It has lived in the STORE's settings since spec 029/031 and `store.start`
+   *  reads it; it enters this composer-facing shape now that a chip can set it. Optional for the same
+   *  reason `fast` is — the conversation composer builds a Settings without it. */
+  targetProject?: string | null;
   // spec 036: `deploy` + `test` removed — they are no longer composer settings; deploy/testMode are
   // decided at the test gate from reachable creds (difyTargets), then stamped on the task at gate-time.
 }

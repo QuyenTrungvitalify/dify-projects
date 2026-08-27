@@ -23,7 +23,7 @@ import { notifyOn, notifyBlocked, toggleNotify, notifyNudge, notifyNudgeKind, di
 import * as store from '../store';
 import { type ComposerAttachment, MAX_ATTACHMENTS, isAcceptedFile, fileToDataUrl, toWire } from '../lib/attachments';
 import type { ArtifactTab, Settings, WireTask, WireTreeTask, WireGateAction, Seed, NewTaskOpts } from '../types';
-import { armedStartsAtImplement, newTaskCrumb, runContextCrumb, workflowOptions, activeSidebarProject, activeSidebarWorkflow, type NewTaskCrumb } from '../lib/crumb';
+import { armedStartsAtImplement, newTaskCrumb, runContextCrumb, workflowOptions, projectOptions, activeSidebarProject, activeSidebarWorkflow, type NewTaskCrumb } from '../lib/crumb';
 import { canPromoteFromConversation } from '../lib/promote-visibility';
 import { pendingConversation } from '../lib/pending-conversation';
 import { phaseIndex } from '../lib/phase';
@@ -203,7 +203,7 @@ export function App() {
   const activeWorkflow = task
     ? activeSidebarWorkflow(task)
     : (editingSel?.project ? `${editingSel.project}/${editingSel.workflow}` : null);
-  const settingsSubset: Settings = { workflow: settings.workflow, confirm: settings.confirm, fast: settings.fast };
+  const settingsSubset: Settings = { workflow: settings.workflow, confirm: settings.confirm, fast: settings.fast, targetProject: settings.targetProject };
   const onSettings = (patch: Partial<Settings>): void => {
     store.settings.value = { ...store.settings.value, ...patch };
   };
@@ -247,6 +247,8 @@ export function App() {
   // edit falls outside the list, and without an entry the chip printed the raw compound slug instead of
   // the name the crumb right above it shows (the two disagreed on what you were editing).
   const workflows = workflowOptions(tree, settings.workflow);
+  // spec 113 — the sibling list for the Project chip: WHERE a from-scratch build gets created.
+  const projects = projectOptions(tree);
 
   /* ---------- actions ---------- */
   // spec 012/025: read dropped/pasted/picked files → base64 chips, honoring the 3-file cap + type/size
@@ -756,6 +758,7 @@ export function App() {
             <EmptyState draft={draft} setDraft={setDraft} send={send}
               settings={settingsSubset} onSettings={onSettings}
               model={settings.model} onModel={onEntryModel} workflows={workflows}
+              projects={projects} onNewProject={() => setCreateOpen(true)}
               crumb={crumb} onClearCrumb={clearNewTaskCrumb} startsAtImplement={startsAtImplement}
               pendingConv={pendingConv}
               seeds={seeds} selectedSeed={settings.seed}
@@ -1091,7 +1094,7 @@ function PersistDegradedBanner() {
 /* ---------- empty / new-task surface ---------- */
 /** Exported for tests (the `GateActions` / `gateView` precedent): the entry surface owns the
  *  start-phase badge, and a test reading props would pass against a render that never drew it. */
-export function EmptyState({ draft, setDraft, send, settings, onSettings, model, onModel, workflows, crumb, onClearCrumb, startsAtImplement, pendingConv, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile, mode }: {
+export function EmptyState({ draft, setDraft, send, settings, onSettings, model, onModel, workflows, projects, onNewProject, crumb, onClearCrumb, startsAtImplement, pendingConv, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile, mode }: {
   draft: string;
   setDraft: (s: string) => void;
   /** spec 105 M2 — the entry surface can now send with an INTENT (the ⌄ plan lane), so the prop
@@ -1104,6 +1107,10 @@ export function EmptyState({ draft, setDraft, send, settings, onSettings, model,
   model?: string;
   onModel: (v: string) => void;
   workflows: { v: string; l: string }[];
+  /** spec 113 — projects for the Project chip, and the way to make one. Threaded rather than read
+   *  here for the same reason `workflows` is: EmptyState draws the door, App decides it. */
+  projects: { v: string; l: string }[];
+  onNewProject: () => void;
   crumb: NewTaskCrumb;
   /** spec 105 — would a send from here skip ① and ②? Decided in App from the tree row the
    *  composer is armed against; EmptyState only draws it. */
@@ -1168,6 +1175,7 @@ export function EmptyState({ draft, setDraft, send, settings, onSettings, model,
           canPropose={startsAtImplement}
           model={model} onModel={onModel}
           settings={settings} onSettings={onSettings} workflows={workflows}
+          projects={projects} onNewProject={onNewProject}
           placeholder={consult ? tr('phConsult') : tr('phDescribeWorkflow')}
           files={files} onAddFiles={onAddFiles} onRemoveFile={onRemoveFile}
           mode={mode}
