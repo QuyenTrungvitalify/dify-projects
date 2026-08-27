@@ -430,6 +430,68 @@ describe('103 Lane B · deciding', () => {
       'the snapshot is the PRE-PROPOSAL spec — taken before the rename, which is this round\'s first mutation');
   });
 
+  test('spec 105 M2 — 「先に計画を見せて」 chosen at the DOOR opens the plan, not the fix', async () => {
+    // The lane the composer offers before a build exists. Same code path as the one a ③ gate opens,
+    // and it has to run AFTER `localEditSeed`: `beginSpecProposal` needs `workflowSlug`, which the
+    // composer never sends (it sends `workflow`) and which only `localEditSeed` resolves. Run it any
+    // earlier and the proposal declines silently and the build does an ordinary fix instead — the one
+    // outcome the human explicitly did not choose.
+    dir = fixtureDir();
+    mkdirSync(join(dir, 'projects', '_drafts', 'specced', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects/_drafts/specced/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(join(dir, 'projects/_drafts/specced/SPEC.md'), '# Spec\n\nThreshold 0.5.\n');
+    const seen: Seen = { prompts: [], specHashes: [] };
+    const ctx = harness(dir, seen);
+    const task = await createTask(dir, {
+      requirement: 'lower the threshold', workflow: 'specced', startPhase: 'implement',
+      proposeAtStart: true, confirmMode: 'each_step', deploy: 'none',
+    });
+    current = task;
+    assert.equal(task.specProposeAtStart, true, 'precondition: the lane survived createTask');
+
+    await withTurn(task.taskId, () => startTask(task, ctx));
+
+    assert.equal(task.phase, 'spec', 'it drafted a plan instead of editing');
+    assert.equal(task.specRevise, true);
+    assert.equal(task.gate?.flag, 'spec_proposal');
+    assert.equal(readFileSync(specPath(task), 'utf8'), '# Spec\n\nThreshold 0.5.\n',
+      'and the real SPEC.md is untouched until a human says go');
+    // Left UNSET on purpose — a build created seconds ago has never stood anywhere to be put back.
+    assert.equal(task.specReviseFrom, undefined, 'no place to return to, and none claimed');
+    assert.equal(task.specProposeAtStart, undefined, 'consumed by the turn it steered');
+  });
+
+  test('spec 105 M3 — dropping THAT plan builds the request instead of restoring a place that never was', async () => {
+    // 「やめる」 means "put me where I was standing". This build has never stood anywhere, and
+    // `reparkAfterProposal`'s fallback would hand it a ③ gate reading 「main.yml をビルドしリンターを
+    // 実行しました」 for a ③ that never ran. So the third button means something else here: drop the
+    // draft and do the fix that was asked for. Every branch of the plan gate leads somewhere, and none
+    // of them describes work nobody did.
+    dir = fixtureDir();
+    mkdirSync(join(dir, 'projects', '_drafts', 'specced', 'workflows'), { recursive: true });
+    writeFileSync(join(dir, 'projects/_drafts/specced/workflows/main.yml'), 'workflow:\n  graph:\n    nodes: []\n');
+    writeFileSync(join(dir, 'projects/_drafts/specced/SPEC.md'), '# Spec\n\nThreshold 0.5.\n');
+    const seen: Seen = { prompts: [], specHashes: [] };
+    const ctx = harness(dir, seen);
+    const task = await createTask(dir, {
+      requirement: 'lower the threshold', workflow: 'specced', startPhase: 'implement',
+      proposeAtStart: true, confirmMode: 'each_step', deploy: 'none',
+    });
+    current = task;
+    await withTurn(task.taskId, () => startTask(task, ctx));
+    assert.equal(task.gate?.flag, 'spec_proposal', 'precondition: parked at the plan gate');
+
+    await withTurn(task.taskId, () => confirmAdvance(task, 'drop_spec', ctx));
+
+    assert.equal(task.specRevise, undefined, 'the draft is gone');
+    assert.equal(existsSync(draftPath(task)), false);
+    assert.equal(task.phase, 'implement', 'and it went and did the fix');
+    assert.equal(task.status, 'awaiting_confirm');
+    // The request must reach that turn — dropping a plan cannot also drop what was asked for.
+    const last = seen.prompts[seen.prompts.length - 1];
+    assert.match(last, /lower the threshold/, 'the ③ it ran carries the original request');
+  });
+
   test('TRAP 4b — spec 105: the same holds for a build that STARTED at ③', async () => {
     // TRAP 4's harness always builds through ①②③, so it never exercised the one config that broke it.
     // Spec 105 widened runPhase's arming to cover a build with no ② — and that widening is start-bound,

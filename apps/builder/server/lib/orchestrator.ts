@@ -128,6 +128,31 @@ export async function startTask(task: Task, ctx: OrchestratorCtx): Promise<void>
       ctx.log.warn({ taskId: task.taskId, err: errMsg(e) }, 'start-at-implement: could not persist criteria');
     }
   }
+  // Spec 105 M2 — 「先に計画を見せて」 chosen at the DOOR, before the build existed. Same lane as the
+  // one `replyWithin` opens from a ③ gate, and deliberately the same code path: ② in revise mode writes
+  // `SPEC.next.md` while the real `SPEC.md` and the workflow stay untouched until a human says go.
+  //
+  // It has to sit HERE, after `localEditSeed`: `beginSpecProposal` needs `project` AND `workflowSlug`,
+  // and on this path the slug is not resolved by `createTask` (the composer sends `workflow`, never
+  // `slug`) — `localEditSeed` is what sets it. Run it earlier and the proposal silently declines and
+  // the build falls through to an ordinary fix, which is the one outcome the human explicitly did not
+  // ask for.
+  //
+  // `specReviseFrom` is left UNSET on purpose, and that is the whole difference from the gate-opened
+  // lane. It records "where the human was standing" so a drop can put them back — and a build created
+  // three seconds ago has never stood anywhere. `confirmAdvance`'s `drop_spec` reads the absence and
+  // offers to build the request directly instead of restoring a place that does not exist.
+  if (startPhase === 'implement' && task.specProposeAtStart) {
+    task.specProposeAtStart = undefined; // consumed: this is the one turn it steers
+    if (await beginSpecProposal(ctx.projectsDir, task)) {
+      task.specRevise = true;
+      await runPhaseAndGate(task, 'spec', ctx, { replyText: task.requirement });
+      if (isCancelled(task.taskId)) return;
+      await maybeAutoAdvance(task, ctx);
+      return;
+    }
+    ctx.log.warn({ taskId: task.taskId }, 'propose-at-start: no spec to revise — falling through to ③');
+  }
   await runPhaseAndGate(task, startPhase, ctx);
   if (isCancelled(task.taskId)) return;
   await maybeAutoAdvance(task, ctx);
@@ -162,6 +187,25 @@ export async function confirmAdvance(
     await dropSpecProposal(ctx.projectsDir, task);
     task.specRevise = undefined;
     await logEvent(taskDir(ctx.projectsDir, task.taskId), { kind: 'spec_proposal_dropped', phase: task.phase });
+    // Spec 105 M3 — a proposal opened at the DOOR has nowhere to go back to. 「やめる」 means "put me
+    // where I was standing", and this build was created for this request seconds ago: it has never
+    // stood anywhere. `reparkAfterProposal`'s fallback would hand it a ③ gate reading
+    // 「main.yml をビルドしリンターを実行しました」 for a ③ that never ran — the class of lie this branch
+    // has spent the day removing elsewhere.
+    //
+    // So the third button means something else here, and the label says so (`drop_spec_build`):
+    // drop the draft and just do the fix that was asked for. Every branch of the plan gate then leads
+    // somewhere, and none of them describes work nobody did.
+    //
+    // Recognised by `specReviseFrom` being absent AND ③ never having run. Either alone is ambiguous:
+    // a task.json predating that field also lacks it, and a build can reach ③ by other routes.
+    const cameFromTheDoor = !task.specReviseFrom && !task.sessionIds.implement;
+    if (cameFromTheDoor) {
+      await runPhaseAndGate(task, 'implement', ctx, { replyText: task.requirement });
+      if (isCancelled(task.taskId)) return;
+      await maybeAutoAdvance(task, ctx);
+      return;
+    }
     await reparkAfterProposal(task, ctx);
     return;
   }

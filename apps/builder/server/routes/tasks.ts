@@ -282,6 +282,9 @@ const tasksRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (app, opts) =>
     const task = await createTask(projectsDir, {
       requirement,
       startPhase,
+      // Spec 105 M2 — the door's second send lane. `createTask` clamps it to a build that actually
+      // starts at ③, which is the only place a spec exists to draft against.
+      proposeAtStart: body.mode === 'propose',
       workflow: (body.workflow as string | null | undefined) ?? null,
       // Accept the spec's public `confirm_mode` (verbose) AND the internal token; normalized in createTask.
       confirmMode: (body.confirm_mode ?? body.confirmMode) as string | undefined,

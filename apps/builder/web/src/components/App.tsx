@@ -299,7 +299,10 @@ export function App() {
       if (settings.mode === 'consult') {
         void store.startConsult(msg, atts).then(onDone);
       } else {
-        void store.start(msg, atts).then(onDone); // a new build ignores the send intent (composerTarget: no task → start)
+        // spec 105 M2 — a new build no longer ignores the intent. It still cannot be a QUESTION (there
+        // is nothing yet to ask about), so 'ask' and 'change' both mean "build it"; only 'propose' is a
+        // different act, and it is offered only where a plan has something to draft against.
+        void store.start(msg, atts, intent === 'propose' ? 'propose' : undefined).then(onDone);
       }
       return;
     }
@@ -558,7 +561,10 @@ export function App() {
             aria-label={tr('notifyNudgeDismiss')}><I.close /></button>
         </div>
       )}
-      <Sidebar collapsed={sbCollapsed} activeTask={activeTaskId} activeProject={activeProject} activeWorkflow={activeWorkflow} tree={tree} active={active} consults={store.consults.value} promotes={store.promotes.value}
+      {/* `revealActive`: the active node is only scrolled to when it was AIMED at (the composer's target,
+          which is also what createProject leaves behind) — never when it is just mirroring the open
+          build, which is the case that used to jerk the sidebar on every task you clicked. */}
+      <Sidebar collapsed={sbCollapsed} activeTask={activeTaskId} activeProject={activeProject} activeWorkflow={activeWorkflow} revealActive={!task} tree={tree} active={active} consults={store.consults.value} promotes={store.promotes.value}
         onOpen={(id) => { setArtifactOpen(false); setArmed(null); void store.openTask(id); }}
         onCancel={(id) => void store.cancelById(id)}
         onNewTask={newTask}
@@ -1045,7 +1051,9 @@ function PersistDegradedBanner() {
 export function EmptyState({ draft, setDraft, send, settings, onSettings, model, onModel, workflows, crumb, onClearCrumb, startsAtImplement, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile, mode }: {
   draft: string;
   setDraft: (s: string) => void;
-  send: (text?: string) => void;
+  /** spec 105 M2 — the entry surface can now send with an INTENT (the ⌄ plan lane), so the prop
+   *  carries what App's own `send` takes rather than a text-only narrowing of it. */
+  send: (text?: string, intent?: ComposerIntent) => void;
   settings: Settings;
   onSettings: (patch: Partial<Settings>) => void;
   /** spec 096: the model chip is NOT part of `settings` (it applies to every turn type, including a
@@ -1106,7 +1114,12 @@ export function EmptyState({ draft, setDraft, send, settings, onSettings, model,
           </div>
         )}
 
-        <Composer value={draft} onChange={setDraft} onSend={() => send()}
+        <Composer value={draft} onChange={setDraft} onSend={(intent) => send(undefined, intent)}
+          /* spec 105 M2 — the two send lanes, at the door. Offered on exactly the builds that start at
+             ③, which is where a spec already exists for a plan to be drafted against: anywhere else
+             `beginSpecProposal` declines and the choice would evaporate into an ordinary fix. Same bit
+             the badge above reads, so the badge and the buttons can never say different things. */
+          canPropose={startsAtImplement}
           model={model} onModel={onModel}
           settings={settings} onSettings={onSettings} workflows={workflows}
           placeholder={consult ? tr('phConsult') : tr('phDescribeWorkflow')}

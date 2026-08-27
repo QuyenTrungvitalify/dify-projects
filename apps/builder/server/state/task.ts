@@ -405,6 +405,17 @@ export interface Task {
    */
   specRevise?: boolean;
   /**
+   * Spec 105 M2 — 「先に計画を見せて」 was chosen at the DOOR, before this build existed.
+   *
+   * Start-bound and consumed by the first turn: `startTask` reads it AFTER `localEditSeed` (which is
+   * what resolves `workflowSlug`, the thing `beginSpecProposal` needs) and clears it, so the flag
+   * steers exactly one turn and can never re-fire on a later round.
+   *
+   * Deliberately NOT `specRevise`, which says a draft is open right now. This says only which lane the
+   * human picked at the moment they pressed send.
+   */
+  specProposeAtStart?: boolean;
+  /**
    * Spec 103 Lane B — the ③ about to run is building a spec a HUMAN just approved.
    *
    * Consumed and cleared by that ③. Two effects, and the pair is the point (§H1): the `specStale`
@@ -582,6 +593,9 @@ export interface CreateTaskInput {
   requirement: string;
   /** spec 105 — public `start_phase`; only ever narrows what {@link resolveStartPhase} already allows. */
   startPhase?: string | null;
+  /** spec 105 M2 — public `mode: 'propose'`: show the plan before touching anything. Honoured only
+   *  where a plan is meaningful (a workflow that already has a spec to revise). */
+  proposeAtStart?: boolean;
   /** new-workflow path uses "main.yml"; accepted for forward-compat. */
   workflowFile?: string;
   /** existing-workflow name → edit-existing; omitted/"none" → new workflow. */
@@ -864,6 +878,10 @@ export async function createTask(projectsDir: string, input: CreateTaskInput): P
     // Spec 105: a build that skips ① starts AT the phase it will run, so the phase track and the
     // artifact tabs never show a step nobody took. `undefined` on every ordinary build.
     startPhase: startPhase === 'analyze' ? undefined : startPhase,
+    // Spec 105 M2 — honoured only where the build would start at ③, i.e. where a spec exists to
+    // revise. Anywhere else a plan has nothing to draft against and `beginSpecProposal` would decline
+    // it silently, turning an explicit choice into an ordinary fix with no word said.
+    specProposeAtStart: input.proposeAtStart && startPhase === 'implement' ? true : undefined,
     phase: startPhase,
     status: 'running',
     name: input.name && input.name.trim() ? input.name.trim() : null,

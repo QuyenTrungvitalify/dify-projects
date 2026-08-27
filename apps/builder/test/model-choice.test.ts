@@ -121,7 +121,11 @@ describe('096 · every composer that can spawn a turn offers the model', () => {
    * composer could borrow its neighbour's `onModel` and the assert would pass.
    */
   const ANCHORS: Array<[name: string, anchor: RegExp]> = [
-    ['entry (new task)', /onSend=\{\(\) => send\(\)\}/],
+    // Spec 105 M2 gave the entry composer the plan lane, so its send now carries an INTENT and the old
+    // `onSend={() => send()}` anchor no longer exists. `canPropose={startsAtImplement}` is the prop
+    // unique to this composer now — the in-task one passes `canPropose={proposeLane}` and the terminal
+    // one passes none.
+    ['entry (new task)', /canPropose=\{startsAtImplement\}/],
     ['in-task (running/parked build)', /lockConfirm=\{busy\}/],
     ['terminal (finished build — the reported gap)', /canChange=\{terminalFixable\}/],
   ];

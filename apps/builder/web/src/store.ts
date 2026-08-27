@@ -1511,7 +1511,14 @@ export function splitWorkflowSetting(workflow: string | null | undefined): { pro
 
 /** Start a new build from the composer (AC #14 settings feed the body; turn-collision 409 → startError
  *  + busyHolder, AC #21). A parked build no longer blocks — only a running turn does. */
-export async function start(requirement: string, files?: Attachment[]): Promise<boolean> {
+export async function start(
+  requirement: string,
+  files?: Attachment[],
+  /** spec 105 M2 — the door's second send lane: draft the plan before touching anything. Per-send,
+   *  never stored, exactly like `/reply`'s own `mode` — a proposal that could be silently armed would
+   *  re-create the class of bug spec 092 removed by putting intent on the button rather than in state. */
+  mode?: 'propose'
+): Promise<boolean> {
   clearErrors();
   _lastPersisted = ''; // fresh build — reset the persistence dedupe so the new task.json persists cleanly
   const s = settings.value;
@@ -1538,6 +1545,9 @@ export async function start(requirement: string, files?: Attachment[]): Promise<
       // chosen (the backend force-offs it regardless; this keeps the wire honest). Slug is proposed by
       // the build, not set here, so no slug guard is needed at this seam.
       ...(s.fast && !s.seed && !editing ? { fast_mode: true } : {}),
+      // spec 105 M2 — only meaningful against a workflow that already has a spec; the server
+      // clamps it to a build that starts at ③ and ignores it everywhere else.
+      ...(mode === 'propose' && editing ? { mode } : {}),
       // spec 036: `deploy`/`test_mode` are NO LONGER sent — createTask defaults deploy:'none',
       // testMode:'static'; both are stamped at gate-time (test_live dispatch / static→Import park / the
       // done-state live action) from what creds are reachable, not declared here.

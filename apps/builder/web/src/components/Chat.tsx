@@ -1197,6 +1197,12 @@ export function Composer({ value, onChange, onSend, settings, onSettings, model,
               there is nothing for a second button to do. It carries the change LABEL too, not just the
               pencil. One act, one name, everywhere: a bare 送信 there made promote the one surface where
               asking for a fix was called something else. */}
+          {/* Spec 105 M2 — a surface with NO ask lane can still have two ways to send. At the door a
+              build has nothing to be asked about, so both buttons of the pair above would start a
+              build and only their labels would differ — two names for one act, the trap the comment
+              above describes from the other direction. So the ⌄ attaches to the single send button
+              instead, and the lanes live inside it where they read as a choice about HOW to build. */}
+          {!canChange && canPropose && <SendVariants ready={ready} onPick={onSend} />}
           <button className={'composer-send' + (ready ? ' ready' : '')}
             onClick={() => { if (ready) onSend('ask'); }} disabled={!ready}
             title={canChange ? tr('sendAskTip') : sendGlyph === 'edit' ? tr('sendChangeOnlyTip') : undefined}>

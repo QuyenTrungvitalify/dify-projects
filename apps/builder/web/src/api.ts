@@ -79,6 +79,9 @@ export interface CreateTaskBody {
   /** spec 028: `⚡ Fast build` — merge Analyze+Spec (from-scratch single-LLM only; backend force-offs
    *  on seed/workflow/slug). Sent only when the toggle is on and no seed/workflow is chosen. */
   fast_mode?: boolean;
+  /** spec 105 M2 — `'propose'`: draft the plan before touching anything. Honoured only on a build
+   *  that starts at ③ (a workflow with a spec to revise); ignored elsewhere. */
+  mode?: 'propose';
   /** spec 032: Phase ④ test mode — 'static' | 'live' (backend force-offs to static unless selfhost). */
   test_mode?: string;
   /** spec 012/025: 1–3 files attached at build start; backend saves them + injects their paths (AC2). */
