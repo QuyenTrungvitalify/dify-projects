@@ -22,7 +22,7 @@ import { t as tr, tf, lang, phaseLabel } from '../lib/i18n';
 import { notifyOn, notifyBlocked, toggleNotify, notifyNudge, notifyNudgeKind, dismissNudge } from '../lib/notify';
 import * as store from '../store';
 import { type ComposerAttachment, MAX_ATTACHMENTS, isAcceptedFile, fileToDataUrl, toWire } from '../lib/attachments';
-import type { ArtifactTab, Settings, WireTask, WireGateAction, Seed, NewTaskOpts } from '../types';
+import type { ArtifactTab, Settings, WireTask, WireTreeTask, WireGateAction, Seed, NewTaskOpts } from '../types';
 import { armedStartsAtImplement, newTaskCrumb, runContextCrumb, workflowOptions, activeSidebarProject, activeSidebarWorkflow, type NewTaskCrumb } from '../lib/crumb';
 import { canPromoteFromConversation } from '../lib/promote-visibility';
 import { pendingConversation } from '../lib/pending-conversation';
@@ -224,6 +224,10 @@ export function App() {
   // has to follow `targetProject` rather than the first name match). The bit itself has been on the
   // wire since 034cc15 with nothing reading it; this is the surface it was put there for.
   const startsAtImplement = armedStartsAtImplement(tree, settings.workflow, settings.targetProject);
+  // Spec 105 M4 follow-up — the conversation, if any, that a send from this surface would walk away
+  // from. Resolved here for the same reason `startsAtImplement` is: it needs the whole tree and the
+  // same bare-slug/targetProject rule `store.start()` uses, and EmptyState should only DRAW it.
+  const pendingConv = pendingConversation(tree, settings.workflow, settings.targetProject);
   const clearNewTaskCrumb = (): void => {
     store.settings.value = { ...store.settings.value, workflow: 'none', targetProject: null };
   };
@@ -753,6 +757,7 @@ export function App() {
               settings={settingsSubset} onSettings={onSettings}
               model={settings.model} onModel={onEntryModel} workflows={workflows}
               crumb={crumb} onClearCrumb={clearNewTaskCrumb} startsAtImplement={startsAtImplement}
+              pendingConv={pendingConv}
               seeds={seeds} selectedSeed={settings.seed}
               onSeed={(id) => { store.settings.value = { ...store.settings.value, seed: id }; }}
               startError={startError} busyHolder={busyHolder}
@@ -1005,6 +1010,44 @@ export function App() {
  *  to the build whose turn is running, so a "busy" is actionable rather than a dead end (AC #21).
  *  `onOpen` lets the caller wrap the jump (spec 033 FIX-I: the conversation view resets composer mode to
  *  'ask' here, one of FIX-I's mandated openTask reset points); defaults to a bare openTask. */
+/**
+ * Spec 105 M4 follow-up — a STANDING line, not a dialog, for "this workflow already has a conversation".
+ *
+ * M4 put that question behind `newTask({baseWorkflow})`, which covers three doors (the sidebar pencil,
+ * the done-gate "edit in a new conversation", the import-base modal). The composer's Workflow dropdown
+ * is a FOURTH, and it was not covered — invisibly so, because the dropdown used to hide the `_drafts`
+ * project, and `_drafts` is where every from-scratch build lands. Listing those rows opened the door.
+ *
+ * It is deliberately NOT the modal, at either moment it could fire:
+ *   on SELECT — the three modal doors CREATE a conversation on the spot, so asking is proportionate.
+ *               Arming the dropdown creates nothing. And 7 of the 23 workflows measured here are parked
+ *               at a gate, sorted to the TOP of the recency-ordered menu, so a modal per selection is
+ *               precisely the prompt `pending-conversation.ts` set out to avoid — the one "everyone
+ *               learns to dismiss without reading".
+ *   on SEND   — accurate, but it interrupts after the requirement is typed, and its "open the existing
+ *               one" branch would throw that text away. A warning must not cost more than the mistake.
+ *
+ * So it states the fact while the requirement is being written, names the gate the other conversation
+ * sits at, and offers the same way in. It never takes the keyboard: choosing to start a second
+ * conversation stays one keystroke away, it just stops being an accident.
+ */
+function PendingConvBanner({ pending, onOpen = (id) => void store.openTask(id) }: {
+  pending: WireTreeTask | null;
+  onOpen?: (id: string) => void;
+}) {
+  if (!pending) return null;
+  const phase = `${phaseIndex(pending.phase as never)}. ${phaseLabel(pending.phase as never)}`;
+  return (
+    <div className="pending-conv">
+      <I.alert />
+      <span>{tf('pendingConvHint', { phase })}</span>
+      <button className="gs-link" style={{ marginLeft: 6 }} onClick={() => onOpen(pending.id)}>
+        {tr('openIt')}
+      </button>
+    </div>
+  );
+}
+
 function StartErrorBanner({ startError, busyHolder, onOpen = (id) => void store.openTask(id) }: {
   startError: string | null;
   busyHolder: string | null;
@@ -1048,7 +1091,7 @@ function PersistDegradedBanner() {
 /* ---------- empty / new-task surface ---------- */
 /** Exported for tests (the `GateActions` / `gateView` precedent): the entry surface owns the
  *  start-phase badge, and a test reading props would pass against a render that never drew it. */
-export function EmptyState({ draft, setDraft, send, settings, onSettings, model, onModel, workflows, crumb, onClearCrumb, startsAtImplement, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile, mode }: {
+export function EmptyState({ draft, setDraft, send, settings, onSettings, model, onModel, workflows, crumb, onClearCrumb, startsAtImplement, pendingConv, seeds, selectedSeed, onSeed, startError, busyHolder, files, onAddFiles, onRemoveFile, mode }: {
   draft: string;
   setDraft: (s: string) => void;
   /** spec 105 M2 — the entry surface can now send with an INTENT (the ⌄ plan lane), so the prop
@@ -1065,6 +1108,9 @@ export function EmptyState({ draft, setDraft, send, settings, onSettings, model,
   /** spec 105 — would a send from here skip ① and ②? Decided in App from the tree row the
    *  composer is armed against; EmptyState only draws it. */
   startsAtImplement: boolean;
+  /** spec 105 M4 follow-up — the build parked at a gate on the armed workflow, or null. Decided in App
+   *  for the same reason `startsAtImplement` is; EmptyState only draws it. */
+  pendingConv: WireTreeTask | null;
   onClearCrumb: () => void;
   seeds: Seed[];
   selectedSeed: string | null;
@@ -1128,6 +1174,7 @@ export function EmptyState({ draft, setDraft, send, settings, onSettings, model,
         />
 
         <StartErrorBanner startError={startError} busyHolder={busyHolder} />
+        <PendingConvBanner pending={pendingConv} />
 
         {/* Seed picker (AC #2): lists /api/seeds; degrades to an empty list until Lát 5.
             spec 082: hidden in consult mode — a seed is a build concept. */}

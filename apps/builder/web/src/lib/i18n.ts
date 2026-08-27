@@ -149,6 +149,9 @@ const EN: Dict = {
   // in, so the dialog says it and offers the thing they probably wanted.
   pendingConvTitle: 'This workflow already has a conversation open',
   pendingConvMsg: 'It is waiting at {phase} for your decision. Starting a new conversation leaves it there, and both will be writing the same workflow file.',
+  /** The same fact as `pendingConvMsg`, worded for a STANDING line rather than a dialog: nothing has
+   *  happened yet, so it states what is true and what a send would do, and never takes the keyboard. */
+  pendingConvHint: 'A conversation on this workflow is waiting at {phase}. Sending from here starts a second one.',
   pendingConvOpen: 'Open the existing one',
   pendingConvNew: 'Start a new one anyway',
   runContextHint: 'Where this build lands',
@@ -737,6 +740,7 @@ const JA: Dict = {
   startsAtImplement: '③ 実装から開始 — このワークフローには分析と仕様がすでにあります',
   pendingConvTitle: 'このワークフローには開いたままの会話があります',
   pendingConvMsg: '{phase} であなたの判断を待っています。新しい会話を始めると、そちらはそのまま残り、同じワークフローファイルを二つの会話が書くことになります。',
+  pendingConvHint: 'このワークフローの会話が {phase} で待機中です。ここから送ると、二つ目の会話が始まります。',
   pendingConvOpen: '既存の会話を開く',
   pendingConvNew: 'それでも新規で始める',
   runContextHint: 'このビルドの保存先',

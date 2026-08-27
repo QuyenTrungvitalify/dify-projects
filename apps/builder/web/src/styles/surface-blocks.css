@@ -1732,6 +1732,17 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 }
 .start-error svg { width: 14px; height: 14px; flex: none; }
 
+/* Spec 105 M4 follow-up — the standing pending-conversation line. Same geometry as `.start-error`
+   (it sits in the same slot under the composer) but the WARN palette, not danger: nothing is broken,
+   and a red band would teach the eye to read "this build failed" every time a workflow is armed. */
+.pending-conv {
+  display: flex; align-items: center; gap: 7px;
+  margin: 0 auto 8px; max-width: var(--thread-w); padding: 8px 12px;
+  font-size: 12.5px; color: var(--warn); background: var(--warn-dim);
+  border: 1px solid var(--warn); border-radius: var(--r-input);
+}
+.pending-conv svg { width: 14px; height: 14px; flex: none; }
+
 /* empty workflow/task hint row */
 .tree-empty { cursor: default; padding: 0 5px; }
 .conn-dot { display: inline-block; margin-right: 0; flex: none; }
