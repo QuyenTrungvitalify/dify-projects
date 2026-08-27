@@ -178,6 +178,38 @@ describe('localizeNotes (spec 045 — turn-failure triage frames)', () => {
   });
 });
 
+// ── Spec 105 — the no-rubric advisory on a live PASS ────────────────────────────────────────────
+describe('localizeNotes (spec 105 — no acceptance criteria)', () => {
+  // Wording-stable: report.ts NO_RUBRIC_NOTE byte-exact, appended to the ④ reason by live-test.ts.
+  // The card otherwise reads as a clean sweep — an absent ✓/✗ list looks exactly like a list with
+  // nothing to complain about — so this sentence is what says which check actually ran.
+  const EN =
+    'no acceptance criteria were found for this build, so only ONE thing was checked: that the workflow ' +
+    'ran without erroring. Nobody graded WHAT it produced. Add an `## Acceptance Criteria` section to ' +
+    'SPEC.md and test again to have the output judged against it.';
+  const JA =
+    'このビルドには受入基準が見つからなかったため、確認できたのは「ワークフローがエラーなく動いた」' +
+    'ことだけです。何を出力したかは誰も採点していません。SPEC.md に `## Acceptance Criteria` の節を' +
+    '追加してから、もう一度テストすると出力が採点されます。';
+
+  it('ja: translates the frame in full (no English residue)', () => {
+    setLang('ja');
+    expect(localizeNotes(EN)).toBe(JA);
+  });
+
+  it('en: passes through untouched', () => {
+    expect(localizeNotes(EN)).toBe(EN);
+  });
+
+  it('ja: keeps the machine-readable heading literal — it is what the parser matches', () => {
+    // `## Acceptance Criteria` is a parser anchor, not prose (spec.md pins it for ②, implement.md for
+    // ③). Translating it inside the advice would tell the reader to write a heading that then reads
+    // as nothing — the exact failure this note exists to explain.
+    setLang('ja');
+    expect(localizeNotes(EN)).toContain('`## Acceptance Criteria`');
+  });
+});
+
 // ── Spec 057 S4 — the trigger-entry manual-enable advisory (report notes + ④ live reason) ───────
 describe('localizeNotes (spec 057 S4 — trigger-entry frame)', () => {
   // Wording-stable: report.ts TRIGGER_ENTRY_NOTE byte-exact (also appended by live-test.ts).

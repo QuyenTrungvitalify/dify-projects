@@ -1418,6 +1418,13 @@ const NOTE_JA: [RegExp, string][] = [
     /trigger-entry workflow: the run above was a manual fire — a schedule or webhook starts firing on its own only once you PUBLISH the workflow in Dify Studio\. After publishing, the app page lists the trigger with an on\/off switch; check that it is on\. \(Before you publish, that panel says no trigger has been added, even though the trigger is already in your draft\.\)/g,
     'トリガー起動のワークフローです。上の実行は手動実行でした — スケジュールや Webhook の自動起動は、Dify Studio で「公開」して初めて始まります。公開後、アプリ画面にトリガーがオン/オフのスイッチ付きで表示されるので、オンになっているか確認してください。（公開前はトリガーが下書きに入っていても、その欄には「トリガーがありません」と表示されます。）',
   ],
+  // spec 105: the no-rubric advisory on a live PASS (wording-stable in report.ts NO_RUBRIC_NOTE). The
+  // card otherwise reads as a clean sweep — an absent ✓/✗ list looks exactly like a list with nothing
+  // to complain about — so this is the sentence that says which check actually ran.
+  [
+    /no acceptance criteria were found for this build, so only ONE thing was checked: that the workflow ran without erroring\. Nobody graded WHAT it produced\. Add an `## Acceptance Criteria` section to SPEC\.md and test again to have the output judged against it\./g,
+    'このビルドには受入基準が見つからなかったため、確認できたのは「ワークフローがエラーなく動いた」ことだけです。何を出力したかは誰も採点していません。SPEC.md に `## Acceptance Criteria` の節を追加してから、もう一度テストすると出力が採点されます。',
+  ],
   // spec 032: the `infra_degraded` reason (live run couldn't reach Dify). Two backend prefixes wrap a
   // sync.py `_fmt_request_error` variant; translate the fixed phrases, keep the exception class name.
   [/run could not complete: /g, 'ライブ実行を完了できませんでした: '],
