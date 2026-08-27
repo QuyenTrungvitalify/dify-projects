@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { startTask, confirmAdvance, replyWithin, type OrchestratorCtx } from '../server/lib/orchestrator.js';
 import { acquireTurn, releaseTurn, markCancelled, unmarkCancelled } from '../server/lib/lock.js';
+import type { ClaudeStreamEvent } from '../server/lib/claude-session.js';
 import { canRequestFix, mayOpenProposal } from '../server/lib/gate.js';
 import { createTask, resolveStartPhase, restoreTargetPhaseFor, type Task } from '../server/state/task.js';
 import { PHASES } from '../server/lib/phases.js';
@@ -131,7 +132,10 @@ function harness(dir: string, task: Task, o: Overrides = {}): Harness {
     // recorder's tool count is what tells "never began" apart from "tried and failed". A stub that
     // ignores this argument reports ZERO calls for every turn — true of a no-op, a lie about any
     // other, so the flag above has to be able to speak through it.
-    opts?: { onEvent?: (event: unknown) => void }
+    // Mirror the real runner's option bag exactly. Narrowing it to just `onEvent` made the stub
+    // unassignable to the seam it replaces, and `npm test` could not see that — tsx strips types
+    // without checking them, so only `tsc --noEmit` (and therefore CI) ever failed.
+    opts?: { timeoutMs?: number; onText?: (text: string) => void; onEvent?: (event: ClaudeStreamEvent) => void }
   ): Promise<TurnResult> => {
     calls.runTurn++;
     prompts.push(prompt);

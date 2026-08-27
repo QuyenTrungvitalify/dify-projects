@@ -124,7 +124,7 @@ open_browser() {
     elif command -v wslview >/dev/null 2>&1; then wslview "$url"
     elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$url"
     else echo "   ブラウザで $url を開いてください"; fi
-} 
+}
 open_browser >/dev/null 2>&1 &
 
 cd apps/builder && npm start
