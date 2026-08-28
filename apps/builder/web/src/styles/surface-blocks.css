@@ -1064,7 +1064,10 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
    `.composer-row` shrink negotiation, which only the workflow chip may lose. Measured cost: 20px, of
    which 1px comes off that chip. */
 .composer-change-wrap { display: flex; align-items: center; flex: none; }
-.composer-change-wrap .composer-change { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right-color: transparent; }
+/* Only glue the pill's right edge when the caret is actually THERE (`canPropose`). Without the guard a
+   caret-less pill drew with square right corners and a transparent right border — reported from the
+   Japanese UI as a half-drawn button, and correctly so: nothing sat to its right to complete it. */
+.composer-change-wrap:has(.composer-change-caret) .composer-change { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right-color: transparent; }
 .composer-change-caret {
   display: flex; align-items: center; justify-content: center;
   width: 20px; height: 32px; padding: 0; flex: none; cursor: pointer; font-family: inherit;
@@ -1288,6 +1291,11 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 /* Inside a card the panes give up their own chrome: one border around the file, not two nested. */
 .filecard .spec-edit,
 .filecard .spec-preview { border: none; border-radius: 0; min-height: 0; }
+/* Same rule, and it had always been missing for the third pane. `.diff` carries a card's own chrome
+   (1px border + 12px radius) because it can stand alone; inside a file card that drew a SECOND rounded
+   box, inset from the first, directly under a header that already names the file. Code mode has no such
+   box, which is why the 差分 view read as a different panel from the plain 成果物 one. */
+.filecard .diff { border: none; border-radius: 0; }
 .filecard .spec-edit { height: 100%; }
 .filecard .spec-diff { padding: 0; }
 .filecard .spec-split { height: 100%; }

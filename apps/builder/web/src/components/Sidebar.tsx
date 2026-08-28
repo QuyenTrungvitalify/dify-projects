@@ -139,8 +139,8 @@ export function WorkflowRow({ wf, projectId, activeTask, active, reveal, default
         {!wf.synthetic && (
         <span className="row-actions" onClick={(e) => e.stopPropagation()}>
           {/* spec 030: workflow "+" = new task that EDITS this workflow → pre-select the COMPOUND
-              {project, workflow} key (the same workflow name can exist in multiple projects). Edit glyph
-              (I.edit) vs the project "+" (I.plus). Labelled "Edit in a new conversation", not "New task":
+              {project, workflow} key (the same workflow name can exist in multiple projects). Labelled
+              "Edit in a new conversation", not "New task":
               it is technically a new task, but what the user is doing is EDITING an existing workflow,
               and the old label hid that — it read as "start something from scratch here". */}
           <button className="icon-btn" title={tr('editThisWorkflow')} onClick={() => onNewTask({ baseWorkflow: { project: projectId, workflow: wf.id } })}><I.edit /></button>
@@ -196,11 +196,10 @@ function ProjectRow({ project, activeTask, activeProject, activeWorkflow, reveal
         <Twist open={open} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} />
         <span className="tw-ic"><I.folder /></span>
         <span className="tw-name">{project.name}</span>
-        {/* AC #13: project hover shows ONLY "+" (New task) — no gear.
-            spec 030: project "+" = from-scratch build that lands in THIS project folder (project.id ===
-            the folder). The reserved `_drafts` project is not a real target → degrade to a plain new task. */}
+        {/* The row itself IS the "+": clicking it already starts a from-scratch build targeting this
+            project (see `select` above), so the hover "+" was a second door to the same act and read as
+            clutter. Hover now offers only what the row click CANNOT do. */}
         <span className="row-actions" onClick={(e) => e.stopPropagation()}>
-          <button className="icon-btn" title={tr('newTask')} onClick={() => onNewTask(isDrafts ? undefined : { targetProject: project.id })}><I.plus /></button>
           {/* spec 084 follow-up — permanently delete this whole project (folder + all builds). Named
               projects only; the reserved `_drafts` scratch home is never deletable. */}
           {!isDrafts && (
