@@ -145,6 +145,7 @@ và chỉ lưu khi bạn bấm duyệt ở cổng. Muốn sửa chính file đó
 | `エクスポート` | Header | Tải về hoặc share hồ sơ quá trình dựng: diễn biến từng chặng, dòng thời gian. |
 | `停止` / `ビルドを破棄` | Header | Kết thúc lần dựng. Cùng **một nút**, đổi mặt theo tình trạng — xem bên dưới |
 | `Dify にインポート` | Cổng chặng ④ | Gửi sang Dify của bạn |
+| `フェーズ完了通知` | Nút chuông trên đầu | Báo khi xong một chặng — **chỉ khi bạn đang ở tab khác**. Bật rồi không thấy thì trình duyệt đang chặn, cho phép trong cài đặt trang. |
 | Nút cập nhật | Trên đầu sidebar | Tải bản mới của Builder rồi tự khởi động lại |
 
 **Nút kết thúc có hai mặt, hậu quả khác nhau** (hộp thoại nói rõ trước khi xác nhận): bấm lúc **đang chạy** → `停止`, **tiến độ chặng đó bị bỏ**;
@@ -156,22 +157,7 @@ một app khác mà bạn đã có sẵn.
 
 ---
 
-## 7. Thông báo
-
-> 【画像】Nút chuông trên đầu màn hình, đang bật
-
-Một lần dựng mất vài phút. Bật chuông để khỏi ngồi canh màn hình.
-
-| | |
-|---|---|
-| Bật/tắt | Nút chuông trên đầu — `フェーズ完了通知` |
-| Khi nào báo | **Chỉ khi bạn đang ở tab khác.** Đang nhìn màn hình thì không báo. |
-| Báo gì | Xong một chặng và đang chờ bạn · dựng xong · dựng hỏng |
-| Bật rồi mà không thấy | Trình duyệt đang chặn — vào cài đặt trang của trình duyệt cho phép |
-
----
-
-## 8. Từ ngữ hay gặp
+## 7. Từ ngữ hay gặp
 
 | Từ | Nghĩa |
 |---|---|

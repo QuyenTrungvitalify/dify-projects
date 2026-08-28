@@ -1,20 +1,5 @@
 # Cài đặt Dify Builder
 
-> ⚠️ **Chưa phát cho user.** Các script đã có và đã chạy được, nhưng còn **chưa nghiệm thu trên máy
-> sạch** và **chưa kiểm trên Windows/WSL2**. Làm xong hai việc đó rồi hãy gửi tài liệu này đi.
-
-Bạn cần đúng **hai** thứ. Không cần cài Node, không cần cài Python, không cần quyền admin.
-
-| | |
-|---|---|
-| **1** | `git` — macOS đã có sẵn (chạy `git --version`; nếu máy hỏi cài Xcode Command Line Tools thì bấm đồng ý) |
-| **2** | Quyền truy cập repo (hỏi người phụ trách) |
-
-Bạn **không cần biết** phiên bản Node hay Python nào. Repo tự lo, và nó **không đụng** tới Node/Python
-mà các dự án khác trên máy bạn đang dùng.
-
----
-
 ## A. Phần chung — mọi người đều làm
 
 ### A1. Tải repo về
@@ -33,26 +18,12 @@ cd ~/dify-projects
 Lệnh này tự tải Node và Python đúng phiên bản vào thư mục `.toolchain/` **bên trong repo**, rồi dựng
 mọi thứ còn lại. Lần đầu mất vài phút.
 
-**Dung lượng cần trống: khoảng 1 GB.** (Tải về ~230 MB; sau khi cài xong toàn bộ thư mục chiếm
-~570 MB — đã đo trên máy thật.)
-
 Nếu nó dừng giữa chừng, nó sẽ in **đúng một câu** nói cần làm gì. Làm theo rồi chạy lại — lệnh này an
 toàn khi chạy lại nhiều lần.
 
-> **Không lo về máy đang có sẵn Node/Python bản khác.** Repo này dùng bản riêng của nó, chỉ trong lúc
-> nó chạy. Sau khi cài xong, mở Terminal gõ `node -v` vẫn ra bản cũ của bạn. Muốn gỡ sạch:
-> `rm -rf .toolchain`.
-
 ### A3. Đăng nhập Claude
 
-**Không cần làm gì ở bước này.** Mở app (A4) — nếu máy chưa đăng nhập, app tự hiện ô đăng nhập: bấm
-**「ログインページを開く」**, đăng nhập trên trang vừa mở, **xong**. App tự nhận ra và đi tiếp, không
-phải copy gì cả.
-
-Ô "code" trong app là đường dự phòng cho máy không mở được trình duyệt (WSL2, máy chủ không màn hình):
-khi đó bấm link trong app, trang mở ra sẽ hiện một đoạn mã — dán đoạn đó vào ô.
-
-Muốn làm trước bằng Terminal cũng được — hai đường dẫn tới cùng một chỗ:
+Login bằng Terminal cũng được — hai đường dẫn tới cùng một chỗ:
 
 ```bash
 claude auth login
@@ -64,15 +35,18 @@ Kiểm tra máy đang đăng nhập hay chưa:
 claude auth status
 ```
 
+Login bằng mở app (A4) — nếu máy chưa đăng nhập, app tự hiện ô đăng nhập: bấm
+**「ログインページを開く」**, đăng nhập trên trang vừa mở, **xong**. App tự nhận ra và đi tiếp.
+
+Ô "code" trong app là đường dự phòng cho máy không mở được trình duyệt. khi đó bấm link trong app, trang mở ra sẽ hiện một đoạn mã — dán đoạn đó vào ô.
+
 ### A4. Mở app
-
-Vào Finder, mở thư mục `~/dify-projects/scripts/`, **double-click** `update-and-run.command`.
-
-Lần đầu macOS có thể chặn: chuột phải vào file → **Open** → **Open** lần nữa.
-
-Một cửa sổ Terminal hiện ra, chạy vài chục giây, rồi trình duyệt tự mở **http://127.0.0.1:4123**.
-
-**Đừng đóng cửa sổ Terminal đó** — đóng là app tắt.
+1. Mở app, chọn một trong hai cách:
+   - Mở Terminal ở thư mục dự án rồi gõ: `bash scripts/update-and-run.command`
+   - Hoặc vào Finder, thư mục `dify-projects/scripts/`, **double-click** `update-and-run.command`
+     (Windows: `update-and-run.bat`).
+2. Một cửa sổ Terminal hiện ra và chạy vài chục giây và luôn run dưới local. **Đừng đóng nó** — đóng là tắt app.
+3. Trình duyệt tự mở **http://127.0.0.1:4123**. Nếu không tự mở, bạn gõ địa chỉ đó vào trình duyệt.
 
 ---
 
@@ -233,7 +207,7 @@ Chạy hằng ngày: double-click `scripts/update-and-run.bat`, rồi mở trìn
 
 ## D. Dùng hằng ngày
 
-**Chỉ một thao tác**: double-click `scripts/update-and-run.command` (Windows: `.bat`).
+**Chỉ một thao tác**: double-click `scripts/update-and-run.command` (Windows: `.bat`). Hoặc terminal ở thư mục dự án rồi gõ: `bash scripts/update-and-run.command`
 
 Nó tự lấy bản mới nhất, tự cập nhật những gì cần, rồi mở app. Bạn **không cần** chạy lại
 `bootstrap.sh`, kể cả khi có bản Node mới — nó tự lo.
