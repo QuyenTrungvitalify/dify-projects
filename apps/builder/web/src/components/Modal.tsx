@@ -219,7 +219,9 @@ export function IntakeYamlModal({ onClose, onImported, advanced = devMode }: {
           <button className="icon-btn modal-x" onClick={onClose} aria-label={tr('close')}><I.close /></button>
         </div>
 
-        <div className="modal-field">
+        {/* Fixed-height body — see `.intake-body`. The two 用途 tabs carry different field sets, so the
+            dialog used to grow and shrink under the cursor while the reader compared them. */}
+        <div className="modal-field intake-body">
           <div className="modal-hint" style={{ marginBottom: 10 }}>{tr('intakeHint')}</div>
 
           {/* What to DO with this YAML comes FIRST: it decides which fields below exist, and the reader
@@ -248,8 +250,10 @@ export function IntakeYamlModal({ onClose, onImported, advanced = devMode }: {
           </div>
 
           <div className="modal-label" style={{ marginTop: 12 }}>{tr('importBasePaste')}</div>
-          <textarea className="modal-input" rows={7} value={yaml} spellcheck={false}
-            style={{ fontFamily: 'var(--mono, monospace)', resize: 'vertical' }}
+          {/* The flex child of `.intake-body`: it absorbs whatever height the field set below does not
+              use, so the tab with fewer fields spends the surplus on paste room instead of blank space. */}
+          <textarea className="modal-input intake-paste" value={yaml} spellcheck={false}
+            style={{ fontFamily: 'var(--mono, monospace)' }}
             placeholder={tr('phPasteYaml')}
             onInput={(e) => { setYaml(e.currentTarget.value); setFileName(null); if (error) setError(null); }}
           />

@@ -839,6 +839,12 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .disc-label { transition: color 0.14s; }
 .disclosure .tw-twist { margin-left: 4px; color: var(--tx-faint); }
 .disclosure .tw-twist svg { width: 12px; height: 12px; }
+/* This row expands DOWNWARD into `.disc-detail`, so the caret points the way the panel moves: ⌄ closed,
+   ⌃ open. The shared `.tw-twist` default (› closed, ⌄ open) is the TREE convention — right for a
+   sidebar branch that indents its children sideways, wrong here, where nothing moves sideways.
+   `.open` needs all three classes to outrank the base `.tw-twist.open` rotation. */
+.disclosure .tw-twist { transform: rotate(90deg); }
+.disclosure .tw-twist.open { transform: rotate(-90deg); }
 .disc-detail {
   border-left: 1px solid var(--border);
   margin: 0 0 16px 6px; padding: 2px 0 2px 18px;
@@ -1592,6 +1598,36 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .modal-input::placeholder { color: var(--tx-faint); }
 .modal-input:focus { outline: none; border-color: var(--border-strong); }
 
+/* Intake modal (外部ワークフローYAMLを追加). The 用途 tabs swap two different field sets in and out —
+   two inputs for 取り込んで編集, a different pair (plus a hint) for パターン棚に蒸留, and in non-dev the
+   distill side has none at all. The dialog sized itself to whichever set was showing, so it grew and
+   shrank as the reader compared the tabs and the footer buttons moved under the cursor.
+
+   So the body is a fixed-height column and the paste box is its only flexible child: the tab carrying
+   fewer fields hands its surplus to the textarea rather than to the dialog's outline. `clamp` rather
+   than a flat pixel height so a short window still fits — the value only depends on the viewport, which
+   does not change when a tab is clicked, so the height stays put across every switch. Scrolls rather
+   than clips if a translation runs long. */
+.intake-body {
+  display: flex; flex-direction: column;
+  height: clamp(400px, 68vh, 620px);
+  overflow-y: auto;
+}
+/* Everything except the paste box keeps its natural height — in a scrolling flex column the default
+   `min-height: auto` is not enough on its own, a long field set would squash the inputs instead. */
+.intake-body > * { flex: none; }
+.intake-paste {
+  flex: 1 1 auto; min-height: 108px;
+  /* The box now sizes itself; a manual drag would fight the flex distribution and re-introduce the
+     jump this rule exists to remove. */
+  resize: none;
+}
+
+/* The dropdown arrow sat hard against the rounded right edge. Give it the same 14px inset the text has
+   on the left. Chrome lays its picker indicator out inside the padding box, so padding is what moves
+   it — no need to replace the native control. */
+select.modal-input { padding-right: 34px; }
+
 /* spec 031: live folder-slug preview (D2) — the folder the create will actually make. */
 .modal-slug { margin-top: 8px; font-family: var(--mono); font-size: 12.5px; color: var(--tx-muted); }
 
@@ -1756,9 +1792,11 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
 .diff-line.del .dl-word { background: var(--diff-del-bg); }
 
 /* start / busy error banner */
+/* Both banners in this slot open with a top margin: they render directly under the composer, and with
+   `margin-top: 0` the band's border ran along the input's rounded edge as if it were part of it. */
 .start-error {
   display: flex; align-items: center; gap: 7px;
-  margin: 0 auto 8px; max-width: var(--thread-w); padding: 8px 12px;
+  margin: 12px auto 8px; max-width: var(--thread-w); padding: 8px 12px;
   font-size: 12.5px; color: var(--danger); background: var(--danger-dim);
   border: 1px solid var(--danger); border-radius: var(--r-input);
 }
@@ -1769,11 +1807,19 @@ button { font-family: inherit; color: inherit; cursor: pointer; }
    and a red band would teach the eye to read "this build failed" every time a workflow is armed. */
 .pending-conv {
   display: flex; align-items: center; gap: 7px;
-  margin: 0 auto 8px; max-width: var(--thread-w); padding: 8px 12px;
-  font-size: 12.5px; color: var(--warn); background: var(--warn-dim);
-  border: 1px solid var(--warn); border-radius: var(--r-input);
+  margin: 12px auto 8px; max-width: var(--thread-w); padding: 9px 14px;
+  font-size: 12.5px; line-height: 1.5; color: var(--warn); background: var(--warn-dim);
+  /* A full-strength outline made a line that reports a FACT ("the other conversation is parked at ③")
+     shout as loudly as the red failure that shares this slot. `--warn-dim` is the house's soft warn
+     edge — the same one `.gate.tone-warn` uses. */
+  border: 1px solid var(--warn-dim); border-radius: var(--r-input);
 }
 .pending-conv svg { width: 14px; height: 14px; flex: none; }
+/* `.gs-link` is accent-coloured (blue), which inside an amber band read as a control borrowed from
+   somewhere else. It joins the band's palette, and goes to the right edge rather than trailing the
+   sentence by 6px — the sentence wraps on a narrow window and the chip used to wrap with it. */
+.pending-conv .gs-link { margin-left: auto; color: var(--warn); border-color: var(--warn-dim); }
+.pending-conv .gs-link:hover { background: var(--warn-dim); border-color: var(--warn); color: var(--warn); }
 
 /* empty workflow/task hint row */
 .tree-empty { cursor: default; padding: 0 5px; }

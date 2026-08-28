@@ -1044,7 +1044,8 @@ function PendingConvBanner({ pending, onOpen = (id) => void store.openTask(id) }
     <div className="pending-conv">
       <I.alert />
       <span>{tf('pendingConvHint', { phase })}</span>
-      <button className="gs-link" style={{ marginLeft: 6 }} onClick={() => onOpen(pending.id)}>
+      {/* Placement is `.pending-conv .gs-link`'s job (right edge) — an inline margin would outrank it. */}
+      <button className="gs-link" onClick={() => onOpen(pending.id)}>
         {tr('openIt')}
       </button>
     </div>
