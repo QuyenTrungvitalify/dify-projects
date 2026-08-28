@@ -125,7 +125,10 @@ tests/test_state_docs_ownership.py
 .claude/skills/campaign
 .claude/skills/corpus-update
 .claude/skills/e2e
-.claude/skills/report
+.claude/skills/report/reports
+# ^ CHỈ `reports/` (kết quả chấm run, slug gợi tên hệ thống nội bộ). Phần công cụ của skill Ở LẠI:
+# apps/builder/test/runnability.test.ts đọc `report_structure.py` và HARD-FAIL dưới CI — nó là hợp
+# đồng chung giữa TS và Python, không phải tài liệu nội bộ. Giấu nó làm đỏ CI của mọi người.
 .claude/skills/scout
 .claude/skills/shelf-inbox
 .claude/skills/spec-close

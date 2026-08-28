@@ -32,7 +32,7 @@ tests/test_state_docs_ownership.py:1
 .claude/skills/campaign:2
 .claude/skills/corpus-update:2
 .claude/skills/e2e:2
-.claude/skills/report:2
+.claude/skills/report/reports:3
 .claude/skills/scout:2
 .claude/skills/shelf-inbox:2
 .claude/skills/spec-close:2
@@ -92,7 +92,7 @@ if [ "$CHECK_ONLY" = 0 ] && [ ! -e "$HOOK" ]; then
     cat > "$HOOK" <<'HOOK_EOF'
 #!/usr/bin/env bash
 # Installed by scripts/dev-doc.sh. Maintainer-only; never committed.
-staged=$(git diff --cached --name-only | grep -E '^(docs/(specs|prompts|state|watch)|tests/test_state_docs_ownership\.py|\.claude/(projects|skills/(campaign|corpus-update|e2e|report|scout|shelf-inbox|spec-close|template-promote)))' || true)
+staged=$(git diff --cached --name-only | grep -E '^(docs/(specs|prompts|state|watch)|tests/test_state_docs_ownership\.py|\.claude/(projects|skills/(campaign|corpus-update|e2e|report/reports|scout|shelf-inbox|spec-close|template-promote)))' || true)
 if [ -n "$staged" ]; then
     echo "This commit stages paths that belong to the documentation repo:"
     echo "$staged" | sed 's/^/  /'
