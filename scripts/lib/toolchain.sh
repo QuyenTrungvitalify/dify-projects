@@ -101,28 +101,51 @@ use_toolchain() {
 # left with a running app they cannot restart — measured for real on 2026-08-27, when the lock's
 # first version wrapped `npm start` too.
 # mkdir is the atomic primitive available in plain bash on both macOS and Linux.
+# REENTRANT. The launcher takes the lock and then calls bootstrap.sh, which asks for the SAME lock —
+# a non-reentrant version deadlocks the tool against itself, and does it on exactly the path that only
+# runs when .toolchain/ is missing: every brand-new machine, and every existing machine updating for
+# the first time. (Shipped that way on 2026-08-27 and it reached a user before any test did — the
+# author machine was already bootstrapped, so the launcher always SKIPPED the bootstrap call.)
+#
+# Ownership rides in an exported pid rather than in the lock dir, so a child can tell "held by my own
+# parent" from "held by another window". A child that inherits the lock must NOT release it: the
+# owner's trap does that, and an early rm would unlock the parent while it is still working.
 toolchain_lock() {
-    local root="$1" tc lockdir; tc="$(toolchain_dir "$root")"
+    local root="$1" tc lockdir pid tries=0
+    if [ -n "${TOOLCHAIN_LOCK_OWNER:-}" ] && kill -0 "$TOOLCHAIN_LOCK_OWNER" 2>/dev/null; then
+        return 0                       # inherited from a parent that already holds it
+    fi
+
+    tc="$(toolchain_dir "$root")"
     mkdir -p "$tc" 2>/dev/null || true
     lockdir="$tc/.lock"
-    if mkdir "$lockdir" 2>/dev/null; then
-        echo "$$" > "$lockdir/pid" 2>/dev/null || true
-        # Release on any exit path, including Ctrl+C.
-        trap 'rm -rf "'"$lockdir"'" 2>/dev/null || true' EXIT INT TERM
-        return 0
-    fi
-    # Someone holds it — unless they died without cleaning up.
-    local pid; pid="$(cat "$lockdir/pid" 2>/dev/null || echo '')"
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-        return 1                       # genuinely running elsewhere
-    fi
-    rm -rf "$lockdir" 2>/dev/null || true   # stale lock from a killed run
-    toolchain_lock "$root"
+
+    # Bounded, so a lock dir we can never create (read-only disk, wrong owner) fails loudly instead of
+    # spinning forever.
+    while [ "$tries" -lt 3 ]; do
+        if mkdir "$lockdir" 2>/dev/null; then
+            echo "$$" > "$lockdir/pid" 2>/dev/null || true
+            export TOOLCHAIN_LOCK_OWNER=$$
+            trap 'toolchain_unlock "'"$root"'"' EXIT INT TERM
+            return 0
+        fi
+        pid="$(cat "$lockdir/pid" 2>/dev/null || echo '')"
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            return 1                   # genuinely running in another window
+        fi
+        rm -rf "$lockdir" 2>/dev/null || true   # stale lock from a killed run
+        tries=$((tries + 1))
+    done
+    return 1
 }
 
-# Release it early — see SCOPE above. Safe to call when no lock is held.
+# Release it early — see SCOPE above. Safe to call when no lock is held, and a NO-OP in a child that
+# merely inherited the lock (only the owning process may release it).
 toolchain_unlock() {
-    local root="$1" tc; tc="$(toolchain_dir "$root")"
+    local root="$1" tc
+    [ "${TOOLCHAIN_LOCK_OWNER:-}" = "$$" ] || return 0
+    tc="$(toolchain_dir "$root")"
     rm -rf "$tc/.lock" 2>/dev/null || true
+    unset TOOLCHAIN_LOCK_OWNER
     trap - EXIT INT TERM
 }
