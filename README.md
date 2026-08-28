@@ -10,7 +10,7 @@ Một **base workspace** để phát triển nhiều dự án Dify. Cung cấp:
 - GitOps sync (pull/push/diff giữa Dify workspace ↔ git)
 - pytest harness + pre-commit hooks
 - Auto-generated JSON Schema cho Dify DSL (envelope-validated; 29 NodeData reference defs — node bodies not schema-enforced)
-- **Builder app** ([apps/builder/](apps/builder/)) — web UI local điều khiển build 4 phase có gate (Analyze → Spec → Implement → Test) bằng Claude Code; hướng dẫn cài đặt: [HUONG_DAN.md](HUONG_DAN.md), cách dùng: [BUILDER-USAGE-vi.md](BUILDER-USAGE-vi.md)
+- **Builder app** ([apps/builder/](apps/builder/)) — web UI local điều khiển build 4 phase có gate (Analyze → Spec → Implement → Test) bằng Claude Code; hướng dẫn cài đặt: [SETUP.md](SETUP.md), cách dùng: [BUILDER-USAGE-vi.md](BUILDER-USAGE-vi.md)
 
 > 📖 **Quick start**: [docs/GUIDE.md](docs/GUIDE.md) — operations guide (quy trình build YAML, decision tree, troubleshooting).
 > 🏛️ **Architecture**: [docs/architecture.md](docs/architecture.md) — 4 trụ cột, workflow end-to-end, tradeoffs.
@@ -90,7 +90,7 @@ dify-projects/
 │
 ├── apps/
 │   └── builder/               # Builder app: Fastify backend + Preact SPA, gated 4-phase
-│                              # AI build (specs 009–067, retired). Own Node toolchain; see HUONG_DAN.md
+│                              # AI build — riêng toolchain Node; cài đặt xem SETUP.md
 │
 ├── schemas/                   # Auto-generated JSON Schema for Dify DSL (Phase 1.A done)
 │   ├── gen_schema.py          # Reverse-engineer schema from dify pydantic models
